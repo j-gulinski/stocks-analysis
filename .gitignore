@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+
+# Environment / secrets — never commit
+.env
+.env.local
+*.env
+
+# Node / Next.js (frontend phase)
+node_modules/
+.next/
+out/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Local databases and scratch
+*.sqlite3
+*.db

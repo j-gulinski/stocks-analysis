@@ -1,0 +1,21 @@
+#!/bin/sh
+# Reject commits that change code/plan without a CHANGELOG.md entry.
+# Enable once after cloning/init:  git config core.hooksPath .githooks
+
+staged="$(git diff --cached --name-only)"
+
+needs_log=0
+for f in $staged; do
+  case "$f" in
+    CHANGELOG.md|docs/*|README.md|.githooks/*|.gitignore) ;;  # docs never require a log entry
+    *) needs_log=1 ;;
+  esac
+done
+
+if [ "$needs_log" = "1" ] && ! printf '%s\n' "$staged" | grep -qx "CHANGELOG.md"; then
+  echo "✗ Commit touches code/config but not CHANGELOG.md."
+  echo "  Add an entry (date · scope · what + why) and stage it."
+  echo "  See CHANGELOG.md header for the format."
+  exit 1
+fi
+exit 0
