@@ -83,8 +83,7 @@ class CompanyProfile:
 
 @dataclass
 class PriceBar:
-    """One daily close bar — the shared contract of EVERY price source
-    (stooq/yahoo re-export it, refresh consumes it source-agnostically)."""
+    """One daily close bar from BiznesRadar price history."""
     day: date
     close: float
     volume: int | None = None
@@ -391,7 +390,7 @@ def parse_profile(html: str, ticker: str) -> CompanyProfile:
             break
 
     # Current quote: schema.org microdata first (clean), then a text pattern.
-    # Used as a last-resort price bar when stooq is down/limited \u2014 costs zero
+    # Used as a last-resort price bar when history is unavailable; costs zero
     # extra requests because this page is fetched anyway.
     price_meta = soup.find("meta", attrs={"itemprop": "price"})
     if price_meta and price_meta.get("content"):
@@ -525,6 +524,19 @@ class BrLoginError(Exception):
     pass
 
 
+def _find_login_form(html: str):
+    soup = BeautifulSoup(html, "html.parser")
+    form = soup.find("form", action=re.compile(r"log(?:owanie|in)", re.IGNORECASE))
+    if form is None:
+        for candidate in soup.find_all("form"):
+            if candidate.find("input", attrs={"type": "password"}):
+                form = candidate
+                break
+    if form is None:
+        raise BrLoginError("Login form not found on BiznesRadar login page.")
+    return form
+
+
 def extract_login_fields(html: str) -> dict[str, str]:
     """Hidden inputs of the BiznesRadar login form.
 
@@ -536,21 +548,38 @@ def extract_login_fields(html: str) -> dict[str, str]:
     for phpBB's creation_time/form_token/sid triplet — BiznesRadar likely has
     an analogous CSRF-style token that must be echoed back unchanged.
     """
-    soup = BeautifulSoup(html, "html.parser")
-    form = soup.find("form", action=re.compile(r"log(?:owanie|in)", re.IGNORECASE))
-    if form is None:
-        for candidate in soup.find_all("form"):
-            if candidate.find("input", attrs={"type": "password"}):
-                form = candidate
-                break
-    if form is None:
-        raise BrLoginError("Login form not found on BiznesRadar login page.")
+    form = _find_login_form(html)
     fields_out: dict[str, str] = {}
     for hidden in form.find_all("input", attrs={"type": "hidden"}):
         name = hidden.get("name")
         if name:
             fields_out[name] = hidden.get("value", "")
     return fields_out
+
+
+def _login_payload_and_action(
+    html: str, username: str, password: str
+) -> tuple[dict[str, str], str | None]:
+    """Build a payload from the real form names instead of hard-coding them."""
+    form = _find_login_form(html)
+    payload = extract_login_fields(html)
+
+    user_input = form.find(
+        "input",
+        attrs={"type": re.compile(r"^(text|email)$", re.IGNORECASE)},
+    )
+    if user_input is None:
+        user_input = form.find(
+            "input",
+            attrs={"name": re.compile(r"(login|user|email)", re.IGNORECASE)},
+        )
+    password_input = form.find("input", attrs={"type": "password"})
+
+    user_name = user_input.get("name") if user_input else None
+    password_name = password_input.get("name") if password_input else None
+    payload[user_name or "login"] = username
+    payload[password_name or "password"] = password
+    return payload, form.get("action")
 
 
 def _looks_logged_in(html: str) -> bool:
@@ -560,7 +589,9 @@ def _looks_logged_in(html: str) -> bool:
     link/control, or simply the login form no longer being present.
     """
     soup = BeautifulSoup(html, "html.parser")
-    if soup.find("a", href=re.compile(r"log(?:out|owanie)", re.IGNORECASE)):
+    if soup.find("a", href=re.compile(r"(logout|wyloguj|logoff)", re.IGNORECASE)):
+        return True
+    if soup.find(string=re.compile(r"(wyloguj|logout)", re.IGNORECASE)):
         return True
     return soup.find("input", attrs={"type": "password"}) is None
 
@@ -573,9 +604,8 @@ class BrClient:
     applies to the login page as to every other BiznesRadar request.
     """
 
-    # ASSUMPTION (unverified, see module banner) — correct once the real
-    # login page is recorded.
-    LOGIN_PATH = "logowanie"
+    # Try the Polish path first (current app expectation), then common fallbacks.
+    LOGIN_PATHS = ("logowanie", "login")
 
     def __init__(self, base_url: str = BASE_URL):
         self.base_url = base_url if base_url.endswith("/") else base_url + "/"
@@ -584,26 +614,39 @@ class BrClient:
         self.logged_in = False
 
     def login(self, username: str, password: str) -> None:
-        login_url = urljoin(self.base_url, self.LOGIN_PATH)
-        response = polite_http.fetch(login_url, session=self.session)
-        if response.status_code != 200:
+        response = None
+        login_url = ""
+        failures: list[str] = []
+        for path in self.LOGIN_PATHS:
+            candidate = urljoin(self.base_url, path)
+            candidate_response = polite_http.fetch(candidate, session=self.session)
+            if candidate_response.status_code != 200:
+                failures.append(f"{path}: HTTP {candidate_response.status_code}")
+                continue
+            try:
+                _find_login_form(candidate_response.text)
+            except BrLoginError as exc:
+                failures.append(f"{path}: {exc}")
+                continue
+            response = candidate_response
+            login_url = candidate
+            break
+        if response is None:
             raise BrLoginError(
-                f"Could not load BiznesRadar login page (HTTP {response.status_code})."
+                "Could not load BiznesRadar login page (" + "; ".join(failures) + ")."
             )
 
         try:
-            payload = extract_login_fields(response.text)
+            payload, form_action = _login_payload_and_action(response.text, username, password)
         except BrLoginError:
             # No hidden fields found is not necessarily fatal — some login
             # forms carry none. Try the bare credentials before giving up.
-            payload = {}
-        # ASSUMPTION (unverified, see module banner): field names guessed
-        # from common Polish-site conventions.
-        payload.update({"login": username, "password": password})
+            payload, form_action = {"login": username, "password": password}, None
+        post_url = urljoin(login_url, form_action) if form_action else login_url
 
         try:
             post_response = self.session.post(
-                login_url, data=payload, timeout=polite_http.DEFAULT_TIMEOUT_SECONDS
+                post_url, data=payload, timeout=polite_http.DEFAULT_TIMEOUT_SECONDS
             )
         except requests.RequestException as exc:
             raise BrLoginError(f"Login request failed (network): {exc}") from exc

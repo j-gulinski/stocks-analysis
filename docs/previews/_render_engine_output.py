@@ -15,15 +15,10 @@ itself cannot run here; every engine it calls IS pure, so we call them directly
 with hand-assembled inputs — the same technique the validation harness uses.
 
 Price source (the one place we diverge from validate_thesis.py, on purpose):
-`dossier.py` reads the current price from stored Price rows (populated by the
-stooq / archiwum scrapers), NOT from the profile quote. The committed synthetic
-DECORA profile carries no quote, so validate_thesis.py leaves price None. To
-render the panel as the REAL app would (a live weighted potential, a
-bieżący -> oczekiwany price line), we source the price the same way production
-does: the latest close from the committed stooq fixture
-(tests/fixtures/stooq_daily.csv). For DECORA that close (24.50) equals the
-fixture's reported market cap / shares exactly — internally consistent, no
-invented number.
+`dossier.py` reads the current price from stored Price rows. The live app now
+populates them from the BiznesRadar history page, with the profile quote as a
+fallback. For the static preview we therefore use the committed
+`br_price_history.html` fixture.
 
 Run (from repo root, bare system python is enough):
     python3 docs/previews/_render_engine_output.py
@@ -43,7 +38,6 @@ OUT_DIR = REPO / "docs" / "previews"
 sys.path.insert(0, str(BACKEND))
 
 from app.scrapers import biznesradar as br  # noqa: E402
-from app.scrapers import stooq  # noqa: E402
 from app.services import (  # noqa: E402
     fields,
     insights,
@@ -139,9 +133,9 @@ def build(ticker: str) -> dict:
 
     dividends = br.parse_dividends((FIXTURES / "br_dividend.html").read_text())
 
-    # PRICE — sourced the way dossier.py sources it (stored Price rows), here the
-    # committed stooq fixture's latest close (see module docstring).
-    bars = stooq.parse_prices_csv((FIXTURES / "stooq_daily.csv").read_text())
+    # PRICE — sourced the way dossier.py sources it (stored Price rows), here
+    # the committed BiznesRadar history fixture's latest close.
+    bars = br.parse_price_history((FIXTURES / "br_price_history.html").read_text())
     latest_bar = max(bars, key=lambda b: b.day)
     price = latest_bar.close
     price_date = latest_bar.day
@@ -222,10 +216,9 @@ def build(ticker: str) -> dict:
         "_meta": {
             "ticker": ticker,
             "source": "committed synthetic DECORA fixtures (backend/tests/fixtures/"
-            "br_*.html) + stooq_daily.csv for price; identical to "
+            "br_*.html) + br_price_history.html for price; identical to "
             "backend/.cache/validation/DEC_*.html",
-            "price_source": f"stooq_daily.csv latest close {price} on {price_date} "
-            "(== reported market cap / shares)",
+            "price_source": f"BiznesRadar history latest close {price} on {price_date}",
             "engine_entry_points": [
                 "thesis.build_thesis + thesis_ai.refine_thesis (no key -> deterministic)",
                 "scenarios.build_scenario_set + scenarios_ai.simulate_scenarios "

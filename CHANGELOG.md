@@ -18,6 +18,40 @@ keep the decisions scannable.
 
 ---
 
+## 2026-07-08 · Analyst workspace overhaul — load-on-add, source cleanup, useful summaries
+
+Turned the app toward a decision-first analyst workflow instead of a raw data
+dump. The watchlist now shows a useful stock summary: data readiness, best
+strategy fit, forum/AI context, current thesis/read, top risk, valuation setup,
+operating trend, and freshness. On mobile those rows become stacked cards so the
+dashboard does not depend on horizontal scrolling; horizontal scroll remains
+reserved for raw statement tables in the Data tab.
+
+Stock pages now open on **Brief**, then **Interpretacja AI**, **Fundamenty**,
+**Wycena**, and **Dane**. Newly-added tickers immediately force-refresh after
+creation, and shell company pages self-start a first refresh rather than showing
+blank analytics as if they were meaningful. The old tab soup is collapsed into
+decision, interpretation, evidence, valuation, and source-data areas.
+
+Backend data trust changes: watchlist delete is now a hard delete for the
+company-owned analytics (company, analyses, forecasts, prices, dividends,
+indicators, reports) while preserving forum topics/posts as detached source
+archive. Yahoo and stooq were removed from the live price refresh path and from
+the scraper modules/tests; prices now use BiznesRadar history, falling back to
+the already-fetched profile quote. BiznesRadar login now reads the form action
+and field names from markup instead of assuming fixed `login/password` names.
+Settings exposes BiznesRadar login diagnostics. Normal stock refresh reloads
+only recent pages from already-linked PortalAnaliz topics, respecting cache
+freshness, so forum context feeds AI without crawling stale thread history.
+
+Validation: `frontend npm run build` is green; backend slice
+`pytest tests/test_api_phase1.py tests/test_refresh_prices.py tests/test_forum.py
+tests/test_br_login.py` is green (28 passed, one upstream TestClient warning).
+Future source candidates researched but not wired: GPW has official market-data
+pages/services, while EODHD exposes historical EOD/fundamental APIs and supported
+exchange/ticker-list endpoints; these should be evaluated as paid/API-key
+integrations before adding another live source.
+
 ## 2026-07-08 · Frontend UX merge — decision workspace direction
 
 Merged the Codex frontend refresh into the project repo and set the next product

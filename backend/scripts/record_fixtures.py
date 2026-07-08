@@ -1,4 +1,4 @@
-"""Record real BiznesRadar/stooq pages as test fixtures (run on YOUR machine).
+"""Record real BiznesRadar pages as test fixtures (run on YOUR machine).
 
 The committed fixtures are synthetic (structure mirrors the reference scraper's
 verified markup). Replace them with real pages once, then re-run pytest — that
@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.scrapers import biznesradar, stooq
+from app.scrapers import biznesradar
 from app.scrapers import http as polite_http
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
@@ -55,13 +55,6 @@ def main() -> int:
             continue
         (FIXTURES_DIR / filename).write_text(response.text, encoding="utf-8")
         print(f"  -> {filename} ({len(response.text)} bytes)")
-
-    url = stooq.daily_csv_url(ticker)
-    print(f"fetching {url} ...", flush=True)
-    response = polite_http.fetch(url)
-    if response.status_code == 200 and response.text.strip():
-        (FIXTURES_DIR / "real_stooq_daily.csv").write_text(response.text, encoding="utf-8")
-        print("  -> real_stooq_daily.csv")
 
     print("\nDone. Now run: pytest tests/test_biznesradar_parser.py -v")
     print("Structural tests over real_* fixtures activate automatically;")

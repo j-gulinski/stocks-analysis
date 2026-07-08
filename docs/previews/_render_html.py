@@ -324,7 +324,7 @@ def page() -> str:
     ttm = DATA["ttm"]
     meta = DATA["_meta"]
     # header, mirroring frontend/src/app/stock/[ticker]/page.tsx
-    price_date_pl = "1.07.2025"  # pl-PL of ttm.price_date 2025-07-01 (Intl short date)
+    price_date_pl = "3.07.2026"  # pl-PL of ttm.price_date 2026-07-03 (Intl short date)
     head = f"""
     <div class="page-head">
       <div>
@@ -339,7 +339,7 @@ def page() -> str:
         f'{esc(c["ticker"])} · {esc(c["name"])} · 2026-07-08 · dane z fixture DECORA '
         '(engine deterministyczny, bez klucza AI). Wszystkie liczby pochodzą z '
         'realnego uruchomienia silników — <code>docs/previews/dossier-DEC.json</code>. '
-        f'Kurs {fmt_pln(ttm["price"])} ze stooq_daily.csv ({meta["price_source"].split(" (")[0]}).'
+        f'Kurs {fmt_pln(ttm["price"])} z BiznesRadar ({meta["price_source"]}).'
         '</div>'
     )
     return f"""<!doctype html>

@@ -22,11 +22,11 @@ URL_TO_FIXTURE = {
 
 
 def fake_fetch(url, *, session=None, timeout=None):
-    if url.startswith("https://stooq.pl/q/d/l/"):
-        return FakeResponse(load_fixture("stooq_daily.csv"), 200)
     for suffix, fixture in URL_TO_FIXTURE.items():
         if url == f"https://www.biznesradar.pl{suffix}":
             return FakeResponse(load_fixture(fixture), 200)
+    if url == "https://www.biznesradar.pl/notowania-historyczne/DEC":
+        return FakeResponse(load_fixture("br_price_history.html"), 200)
     return FakeResponse("", 404)
 
 
@@ -50,9 +50,15 @@ def test_watchlist_crud(client):
 
     items = client.get("/api/watchlist").json()
     assert [item["ticker"] for item in items] == ["DEC"]
+    assert client.get("/api/companies/DEC").status_code == 200
 
     assert client.delete("/api/watchlist/DEC").status_code == 204
+    assert client.get("/api/companies/DEC").status_code == 404
     assert client.delete("/api/watchlist/DEC").status_code == 404
+
+    recreated = client.post("/api/watchlist", json={"ticker": "DEC"})
+    assert recreated.status_code == 201
+    assert recreated.json()["name"] is None
 
 
 def test_refresh_and_read_endpoints(client, stub_fetch):
@@ -76,12 +82,10 @@ def test_refresh_and_read_endpoints(client, stub_fetch):
     assert summary["indicators_profitability"].startswith("ok (20 values")
     assert "Marża zysku brutto" in summary["indicators_profitability"]
     assert summary["dividends"] == "ok (3 years)"
-    # backfill chain is Yahoo → stooq → BR archiwum; the stub 404s Yahoo,
-    # so stooq supplies history
-    assert summary["prices"].startswith("ok (2 new days")
-    assert "stooq" in summary["prices"]
-    # 8 BR pages + 1 failed-Yahoo log + 1 stooq CSV
-    assert summary["requests"] == "ok (10 HTTP)"
+    assert summary["prices"].startswith("ok (6 new days")
+    assert "BR archiwum" in summary["prices"]
+    # 8 BR financial pages + 1 BR price-history page
+    assert summary["requests"] == "ok (9 HTTP)"
 
     info = client.get("/api/companies/DEC/info").json()
     assert info["name"] == "DECORA"
@@ -112,7 +116,7 @@ def test_refresh_and_read_endpoints(client, stub_fetch):
     assert dividends[0]["year"] == 2025
 
     prices = client.get("/api/companies/DEC/prices").json()
-    assert [p["close"] for p in prices] == [24.10, 24.50]  # chronological
+    assert prices[-1]["close"] == 24.80  # chronological, newest from BR archive
 
 
 def test_second_refresh_uses_cache(client, stub_fetch):
@@ -121,11 +125,10 @@ def test_second_refresh_uses_cache(client, stub_fetch):
 
     for page in URL_TO_FIXTURE_PAGES:
         assert summary[page] == "cached", page
-    # 2 stored rows < MIN_PRICE_HISTORY_ROWS → the app keeps trying to
-    # backfill real history (idempotent replace of the same 2 fixture days);
-    # 2 HTTP = failed-Yahoo log + stooq CSV
-    assert summary["prices"].startswith("ok (2 new days")
-    assert summary["requests"] == "ok (2 HTTP)"
+    # Thin history (< MIN_PRICE_HISTORY_ROWS) keeps trying the BR history page;
+    # repeat fetch replaces the partial history so duplicates never accumulate.
+    assert summary["prices"].startswith("ok (6 new days")
+    assert summary["requests"] == "ok (1 HTTP)"
 
 
 URL_TO_FIXTURE_PAGES = [
@@ -236,7 +239,7 @@ def test_force_refresh_replaces_stale_periods(client, stub_fetch, db):
 
 def test_prices_skip_when_up_to_date(client, stub_fetch, db):
     """A stored price for today must produce ZERO provider requests —
-    production sent future d1= params and inverted Yahoo periods."""
+    production once generated future provider-date requests."""
     from datetime import date
     from sqlalchemy import select
     from app.db.models import Company, Price
@@ -258,13 +261,13 @@ def test_prices_skip_when_up_to_date(client, stub_fetch, db):
     assert summary["requests"] == "ok (0 HTTP)"  # everything cached, prices skipped
 
 
-def test_profile_price_fallback_when_stooq_denied(client, monkeypatch):
-    """stooq blocked → today's close comes from the (already fetched) profile
-    page, so kurs/mcap survive with zero extra requests."""
+def test_profile_price_fallback_when_history_unavailable(client, monkeypatch):
+    """BR history unavailable → today's close comes from the fetched profile
+    page, so kurs/mcap survive with no external CSV providers."""
 
-    def fetch_with_denied_stooq(url, *, session=None, timeout=None):
-        if url.startswith("https://stooq"):
-            return FakeResponse("Access Denied", 200)
+    def fetch_without_history(url, *, session=None, timeout=None):
+        if "notowania-historyczne" in url:
+            return FakeResponse("", 404)
         if "/notowania/" in url:
             return FakeResponse(
                 '<html><head><title>DECORA (DEC)</title>'
@@ -273,7 +276,7 @@ def test_profile_price_fallback_when_stooq_denied(client, monkeypatch):
             )
         return fake_fetch(url, session=session, timeout=timeout)
 
-    monkeypatch.setattr("app.scrapers.http.fetch", fetch_with_denied_stooq)
+    monkeypatch.setattr("app.scrapers.http.fetch", fetch_without_history)
     summary = client.post("/api/companies/DEC/refresh").json()["summary"]
     assert summary["prices"].startswith("ok (fallback: 1 dzien")
 

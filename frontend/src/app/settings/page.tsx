@@ -2,7 +2,12 @@
 
 /** Settings — connection status checks only; secrets never leave the backend. */
 import { IconCheck, IconX } from "@tabler/icons-react";
-import { getForumLoginStatus, getHealth, getScrapersHealth } from "@/lib/api";
+import {
+  getBrLoginStatus,
+  getForumLoginStatus,
+  getHealth,
+  getScrapersHealth,
+} from "@/lib/api";
 import { useApi } from "@/lib/hooks";
 import { relativeDate } from "@/lib/format";
 
@@ -37,6 +42,7 @@ function StatusCard({
 export default function SettingsPage() {
   const health = useApi(getHealth, []);
   const forum = useApi(getForumLoginStatus, []);
+  const biznesradar = useApi(getBrLoginStatus, []);
   const scrapers = useApi(getScrapersHealth, []);
 
   return (
@@ -48,6 +54,12 @@ export default function SettingsPage() {
           ok={health.error ? false : health.data ? true : null}
           detail={health.error ?? "API odpowiada, połączenie z bazą działa."}
           loading={health.loading}
+        />
+        <StatusCard
+          title="Logowanie BiznesRadar"
+          ok={biznesradar.data?.ok ?? (biznesradar.error ? false : null)}
+          detail={biznesradar.data?.detail ?? biznesradar.error ?? ""}
+          loading={biznesradar.loading}
         />
         <StatusCard
           title="Logowanie PortalAnaliz"
@@ -84,14 +96,16 @@ export default function SettingsPage() {
             Gdy po odświeżeniu metryki pokazują „b/d”, sprawdź:{" "}
             <code>GET /api/companies/&#123;ticker&#125;/mapping-report</code> — pokaże,
             których pozycji sprawozdań aplikacja nie rozpoznaje.
+            PortalAnaliz jest synchronizowany tylko dla powiązanych wątków i tylko w
+            najnowszym zakresie, żeby nie odpytywać starych stron bez potrzeby.
           </p>
         </div>
         <div className="card">
           <p style={{ fontWeight: 500, fontSize: 13, margin: 0 }}>Konfiguracja</p>
           <p className="small muted" style={{ margin: "6px 0 0", lineHeight: 1.6 }}>
             Sekrety trzymane są wyłącznie w <code>backend/.env</code> (PA_USERNAME,
-            PA_PASSWORD, ANTHROPIC_API_KEY) oraz <code>frontend/.env.local</code>{" "}
-            (BACKEND_URL). Klucz Anthropic będzie sprawdzany tu od Fazy 5.
+            PA_PASSWORD, BR_USERNAME, BR_PASSWORD, ANTHROPIC_API_KEY) oraz{" "}
+            <code>frontend/.env.local</code> (BACKEND_URL).
           </p>
         </div>
       </div>

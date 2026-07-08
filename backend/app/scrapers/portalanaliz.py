@@ -49,6 +49,7 @@ class ParsedPost:
 class TopicPage:
     title: str | None = None
     topic_id: int | None = None
+    latest_start: int = 0
     posts: list[ParsedPost] = field(default_factory=list)
 
 
@@ -132,6 +133,17 @@ def parse_topic_page(html: str) -> TopicPage:
     canonical = soup.find("link", rel="canonical")
     if canonical and canonical.get("href"):
         page.topic_id = extract_topic_id(canonical["href"])
+
+    starts: list[int] = []
+    for link in soup.find_all("a", href=True):
+        values = parse_qs(urlparse(link["href"]).query).get("start")
+        if not values:
+            continue
+        try:
+            starts.append(int(values[0]))
+        except ValueError:
+            continue
+    page.latest_start = max(starts) if starts else 0
 
     for post_div in soup.find_all("div", class_="post"):
         match = _POST_ID_RE.match(post_div.get("id") or "")

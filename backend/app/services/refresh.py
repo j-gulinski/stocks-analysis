@@ -1,4 +1,4 @@
-"""Refresh orchestration: scrape BiznesRadar + stooq for one company → upsert DB.
+"""Refresh orchestration: scrape BiznesRadar for one company → upsert DB.
 
 Responsibilities split (see PLAN §2): scrapers fetch and parse, THIS service
 owns persistence, caching and error isolation. One failed page never fails a
@@ -30,7 +30,7 @@ from app.db.models import (
     ReportValue,
     utcnow,
 )
-from app.scrapers import biznesradar, stooq, yahoo
+from app.scrapers import biznesradar
 from app.scrapers import http as polite_http
 from app.services import fields
 
@@ -332,6 +332,8 @@ def refresh_company(
             )
 
     if scope in ("prices", "all"):
+        if scope == "prices":
+            profile_price = _refresh_profile(db, company, force, summary, session=br_session)
         summary["prices"] = _refresh_prices(
             db, company, fallback_price=profile_price, session=br_session
         )
@@ -346,6 +348,9 @@ def refresh_company(
         logger.error("refresh commit failed for %s: %s", company.ticker, exc.orig)
         summary["database"] = f"error: {exc.orig}"
         return summary
+
+    if scope == "all":
+        summary["forum"] = _sync_linked_forum_topics(db, company, force=force)
 
     # Fetch-volume transparency: exactly how many HTTP requests this refresh
     # made (0 when everything came from the 24 h cache).
@@ -542,15 +547,11 @@ def _refresh_prices(
     fallback_price: float | None = None,
     session: requests.Session | None = None,
 ) -> str:
-    """Source chain, reworked after both CSV providers broke in production:
+    """BiznesRadar-only price refresh.
 
-    - incremental (normal day): BiznesRadar archiwum page 1 (reliable, the
-      same politely-fetched domain) → Yahoo → profile quote. stooq is
-      SKIPPED here — it answers "access denied" to non-browser clients and
-      hitting it daily after that signal would be impolite.
-    - backfill (<MIN_PRICE_HISTORY_ROWS stored): Yahoo first (5y in one
-      request when it works) → stooq (its one chance to recover) → BR
-      archiwum page 1 (at least ~50 sessions) → profile quote.
+    The old external CSV chain was noisy in production. We now use the
+    robots-allowed BiznesRadar history page first, then the already-fetched
+    profile quote as a one-row fallback when history is unavailable.
 
     Self-healing: future-dated rows (an old bug wrote them; they froze the
     chain forever via the `last_day >= today` guard) are purged up front.
@@ -578,43 +579,13 @@ def _refresh_prices(
     backfill = rows_count < MIN_PRICE_HISTORY_ROWS
 
     if not backfill and last_day is not None and last_day >= today:
-        # Asking providers for tomorrow produced future d1= params and an
-        # inverted Yahoo period1>period2 in production. Zero requests instead.
+        # Asking any source for dates after today is both noisy and useless.
+        # Zero requests instead.
         return f"ok (aktualne; {rows_count} dni w bazie)"
-
-    start = None if backfill else (last_day + timedelta(days=1) if last_day else None)
 
     bars: list[biznesradar.PriceBar] | None = None
     source = ""
     errors: list[str] = []
-
-    def try_yahoo() -> None:
-        nonlocal bars, source
-        try:
-            bars = yahoo.fetch_daily_prices(company.ticker, start=start)
-            source = "Yahoo"
-            _log_fetch(db, yahoo.chart_url(company.ticker, start), 200)
-        except (
-            polite_http.FetchError,
-            yahoo.YahooError,
-            requests.RequestException,
-        ) as exc:
-            errors.append(f"yahoo: {exc}")
-            _log_fetch(db, yahoo.chart_url(company.ticker, start), None)
-
-    def try_stooq() -> None:
-        nonlocal bars, source
-        try:
-            bars = stooq.fetch_daily_prices(company.ticker, start=start)
-            source = "stooq"
-            _log_fetch(db, stooq.daily_csv_url(company.ticker, start), 200)
-        except (
-            polite_http.FetchError,
-            stooq.PriceDataError,
-            requests.RequestException,
-        ) as exc:
-            errors.append(f"stooq: {exc}")
-            _log_fetch(db, stooq.daily_csv_url(company.ticker, start), None)
 
     def try_br_history() -> None:
         nonlocal bars, source
@@ -633,11 +604,7 @@ def _refresh_prices(
         ) as exc:
             errors.append(f"br-archiwum: {exc}")
 
-    chain = (try_yahoo, try_stooq, try_br_history) if backfill else (try_br_history, try_yahoo)
-    for attempt in chain:
-        attempt()
-        if bars:
-            break
+    try_br_history()
 
     if not bars:
         logger.warning(
@@ -681,3 +648,74 @@ def _refresh_prices(
             f"zrodlo: {source}{purge_note})"
         )
     return f"ok (0 new days; zrodlo: {source}{purge_note})"
+
+
+def _forum_sync_is_fresh(synced_at: datetime | None) -> bool:
+    if synced_at is None:
+        return False
+    if synced_at.tzinfo is None:
+        synced_at = synced_at.replace(tzinfo=timezone.utc)
+    threshold = datetime.now(timezone.utc) - timedelta(hours=get_settings().scrape_cache_hours)
+    return synced_at >= threshold
+
+
+def _sync_linked_forum_topics(db: Session, company: Company, force: bool = False) -> str:
+    """Incrementally reload already-linked PortalAnaliz topics after refresh.
+
+    Topic discovery/search remains manual to avoid broad crawling. Linked
+    threads are user-approved sources, so a single polite incremental sync per
+    topic fits the normal refresh workflow.
+    """
+    from app.db.models import ForumPost, ForumTopic
+    from app.scrapers import portalanaliz
+    from app.services import forum_sync
+
+    topics = db.scalars(
+        select(ForumTopic).where(ForumTopic.company_id == company.id)
+    ).all()
+    if not topics:
+        return "pominięto (brak powiązanych wątków)"
+
+    due_topics = [
+        topic for topic in topics if force or not _forum_sync_is_fresh(topic.last_synced_at)
+    ]
+    if not due_topics:
+        total_posts = int(
+            db.scalar(
+                select(func.count())
+                .select_from(ForumPost)
+                .join(ForumTopic, ForumPost.topic_id == ForumTopic.id)
+                .where(ForumTopic.company_id == company.id)
+            )
+            or 0
+        )
+        return f"cached ({len(topics)} wątków; łącznie {total_posts})"
+
+    synced = 0
+    new_posts = 0
+    errors: list[str] = []
+    for topic in due_topics:
+        topic_id = topic.id
+        try:
+            added, _total = forum_sync.sync_topic_recent(db, topic, max_pages=2)
+            synced += 1
+            new_posts += added
+        except (portalanaliz.ForumError, polite_http.FetchError, requests.RequestException) as exc:
+            db.rollback()
+            errors.append(f"{topic_id}: {exc}")
+
+    total_posts = int(
+        db.scalar(
+            select(func.count())
+            .select_from(ForumPost)
+            .join(ForumTopic, ForumPost.topic_id == ForumTopic.id)
+            .where(ForumTopic.company_id == company.id)
+        )
+        or 0
+    )
+    if errors:
+        return (
+            f"częściowo ({synced}/{len(due_topics)} wątków; {new_posts} nowych; "
+            f"łącznie {total_posts}; błędy: {' | '.join(errors)[:160]})"
+        )
+    return f"ok ({synced} odświeżonych z {len(topics)}; {new_posts} nowych; łącznie {total_posts})"

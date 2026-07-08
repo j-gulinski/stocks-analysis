@@ -67,4 +67,4 @@ def test_network_errors_are_retried(no_sleep):
 def test_domain_delay_ranges_configured():
     assert polite_http._delay_range("www.biznesradar.pl") == (2.0, 4.0)
     assert polite_http._delay_range("portalanaliz.pl") == (1.5, 3.0)
-    assert polite_http._delay_range("stooq.pl") == polite_http.DEFAULT_DELAY_RANGE
+    assert polite_http._delay_range("example.com") == polite_http.DEFAULT_DELAY_RANGE

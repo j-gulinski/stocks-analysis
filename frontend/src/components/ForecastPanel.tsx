@@ -135,7 +135,7 @@ export default function ForecastPanel({
   return (
     <div>
       {error && <div className="error-box">{error}</div>}
-      <div className="grid-2 wide-left">
+      <div className="forecast-grid">
         <div className="card">
           <div className="spread" style={{ marginBottom: 10 }}>
             <span style={{ fontWeight: 500, fontSize: 13 }}>Założenia</span>
@@ -169,7 +169,7 @@ export default function ForecastPanel({
               />
             </div>
           ))}
-          <div className="row" style={{ marginTop: 12 }}>
+          <div className="command-row forecast-actions">
             <button
               className="btn"
               onClick={() => {
@@ -251,41 +251,42 @@ export default function ForecastPanel({
       {saved.length > 0 && (
         <>
           <p className="section-label">Zapisane scenariusze</p>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Nazwa</th>
-                <th>Kwartał</th>
-                <th>Zysk netto</th>
-                <th>C/Z fwd</th>
-                <th>Zapisano</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {saved.map((scenario) => (
-                <tr key={scenario.id}>
-                  <td>{scenario.label ?? "bez nazwy"}</td>
-                  <td>{scenario.result.period}</td>
-                  <td>{fmtTysAsMln(scenario.result.pnl.net_profit)}</td>
-                  <td>{fmtNumber(scenario.result.forward.pe)}</td>
-                  <td className="secondary">{fmtDate(scenario.created_at)}</td>
-                  <td>
-                    <button
-                      className="btn"
-                      style={{ padding: "4px 10px", fontSize: 12 }}
-                      onClick={() => {
-                        setInputs(toStrings(scenario.assumptions));
-                        setPeriod(scenario.assumptions.period);
-                      }}
-                    >
-                      Wczytaj
-                    </button>
-                  </td>
+          <div className="table-scroll">
+            <table className="table saved-forecasts">
+              <thead>
+                <tr>
+                  <th>Nazwa</th>
+                  <th>Kwartał</th>
+                  <th>Zysk netto</th>
+                  <th>C/Z fwd</th>
+                  <th>Zapisano</th>
+                  <th />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {saved.map((scenario) => (
+                  <tr key={scenario.id}>
+                    <td>{scenario.label ?? "bez nazwy"}</td>
+                    <td>{scenario.result.period}</td>
+                    <td>{fmtTysAsMln(scenario.result.pnl.net_profit)}</td>
+                    <td>{fmtNumber(scenario.result.forward.pe)}</td>
+                    <td className="secondary">{fmtDate(scenario.created_at)}</td>
+                    <td>
+                      <button
+                        className="btn compact"
+                        onClick={() => {
+                          setInputs(toStrings(scenario.assumptions));
+                          setPeriod(scenario.assumptions.period);
+                        }}
+                      >
+                        Wczytaj
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </div>

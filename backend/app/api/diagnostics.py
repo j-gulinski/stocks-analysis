@@ -19,9 +19,6 @@ router = APIRouter(tags=["diagnostics"])
 
 SOURCES = {
     "biznesradar.pl": "%biznesradar.pl%",
-    # matches both hosts (stooq.pl + stooq.com fallback)
-    "stooq": "%stooq.%",
-    "yahoo": "%finance.yahoo.com%",
     "portalanaliz.pl": "%portalanaliz.pl%",
 }
 

@@ -1,4 +1,6 @@
 """Forum endpoints: topic linking, sync, post reading, credentials check."""
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -32,14 +34,21 @@ def link_topic(payload: TopicLinkIn, db: Session = Depends(get_db)) -> ForumTopi
 
 
 @router.post("/forum/topics/{topic_id}/sync", response_model=ForumSyncOut)
-def sync_topic(topic_id: int, db: Session = Depends(get_db)) -> ForumSyncOut:
+def sync_topic(
+    topic_id: int,
+    mode: Literal["recent", "full"] = "recent",
+    db: Session = Depends(get_db),
+) -> ForumSyncOut:
     topic = db.get(ForumTopic, topic_id)
     if topic is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"No topic with id {topic_id}."
         )
     try:
-        new_posts, total = forum_sync.sync_topic(db, topic)
+        if mode == "full":
+            new_posts, total = forum_sync.sync_topic(db, topic)
+        else:
+            new_posts, total = forum_sync.sync_topic_recent(db, topic)
     except (portalanaliz.ForumError, FetchError) as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
     return ForumSyncOut(topic_id=topic.id, new_posts=new_posts, total_posts=total)

@@ -119,7 +119,7 @@ class Dividend(Base):
 
 
 class Price(Base):
-    """Daily close from stooq; enough for market cap and freshness."""
+    """Daily close from BiznesRadar history/profile quote."""
 
     __tablename__ = "prices"
     __table_args__ = (

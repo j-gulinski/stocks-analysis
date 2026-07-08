@@ -1,8 +1,8 @@
 {
   "_meta": {
     "ticker": "DEC",
-    "source": "committed synthetic DECORA fixtures (backend/tests/fixtures/br_*.html) + stooq_daily.csv for price; identical to backend/.cache/validation/DEC_*.html",
-    "price_source": "stooq_daily.csv latest close 24.5 on 2025-07-01 (== reported market cap / shares)",
+    "source": "committed synthetic DECORA fixtures (backend/tests/fixtures/br_*.html) + br_price_history.html for price; identical to backend/.cache/validation/DEC_*.html",
+    "price_source": "BiznesRadar history latest close 24.8 on 2026-07-03",
     "engine_entry_points": [
       "thesis.build_thesis + thesis_ai.refine_thesis (no key -> deterministic)",
       "scenarios.build_scenario_set + scenarios_ai.simulate_scenarios (no key -> deterministic)",
@@ -23,18 +23,18 @@
   "ttm": {
     "net_profit": 26892.0,
     "eps": 2.545,
-    "pe": 9.63,
+    "pe": 9.74,
     "market_cap": 258877658.0,
-    "price": 24.5,
+    "price": 24.8,
     "market_cap_source": "reported",
-    "market_cap_check_pct": 0.0,
-    "price_date": "2025-07-01"
+    "market_cap_check_pct": 1.2,
+    "price_date": "2026-07-03"
   },
   "pe_history": {
     "median": 11.35,
     "q1": 10.78,
     "q3": 11.85,
-    "current": 9.63,
+    "current": 9.74,
     "percentile": 0.0,
     "n": 8
   },
@@ -42,7 +42,7 @@
     "median": 11.35,
     "q1": 10.78,
     "q3": 11.85,
-    "current": 9.63,
+    "current": 9.74,
     "percentile": 0.0,
     "n": 8
   },
@@ -100,9 +100,9 @@
       {
         "id": "pe_vs_history",
         "name": "C/Z na tle własnej historii",
-        "value": "9,6",
-        "verdict": "good",
-        "comment": "C/Z 9,6 wyraźnie poniżej własnej mediany 11,3 — historycznie tanio, jeśli wyniki się utrzymają.",
+        "value": "9,7",
+        "verdict": "neutral",
+        "comment": "C/Z 9,7 blisko mediany 11,3 — wycena neutralna; potrzebny katalizator.",
         "importance": 3
       },
       {
@@ -117,8 +117,8 @@
     "strengths": [
       "Marża brutto rośnie (+1,8 p.p. vs 4 wcześniejsze kwartały) — u Malika to główny motor tezy inwestycyjnej.",
       "Przychody rosną śr. 12,0% r/r w ostatnich kwartałach — zdrowa dynamika.",
-      "C/Z 9,6 wyraźnie poniżej własnej mediany 11,3 — historycznie tanio, jeśli wyniki się utrzymają.",
-      "Zysk ze sprzedaży +41% vs przychody +14% r/r — koszty rosną wolniej niż biznes."
+      "Zysk ze sprzedaży +41% vs przychody +14% r/r — koszty rosną wolniej niż biznes.",
+      "Więcej gotówki niż długu (22 mln zł) — bilans bezpieczny."
     ],
     "concerns": [],
     "missing": [],
@@ -128,7 +128,7 @@
       "selected": 7,
       "note": "Ocena oparta na 7 z 7 kluczowych wskaźników dla tej spółki."
     },
-    "summary": "Mała spółka, przemysł / produkcja (259 mln zł). Na plus: marża brutto 34,0% (+1,8 p.p.); przychody +12,0% r/r; C/Z 9,6 vs własna mediana 11,3."
+    "summary": "Mała spółka, przemysł / produkcja (259 mln zł). Na plus: marża brutto 34,0% (+1,8 p.p.); przychody +12,0% r/r; zysk ze sprzedaży +41% przy przychodach +14% r/r."
   },
   "prescore": {
     "passed": 8,
@@ -162,7 +162,7 @@
         "id": "pe_vs_history",
         "name": "C/Z vs własna historia",
         "verdict": "pass",
-        "evidence": "C/Z TTM 9,6 vs mediana 11,3."
+        "evidence": "C/Z TTM 9,7 vs mediana 11,3."
       },
       {
         "id": "net_cash",
@@ -186,9 +186,9 @@
   },
   "thesis": {
     "entry_quality": {
-      "code": "attractive",
-      "label": "Ciekawy punkt wejścia w analizę",
-      "rationale": "Dobra wycena na tle własnej historii i sygnał wzrostu przy braku długu netto (marża brutto 34,0% (+1,8 p.p.); C/Z 9,6 vs własna mediana 11,3; przychody +12,0% r/r) — bez dominującej czerwonej flagi. Katalizator wciąż wymaga potwierdzenia (patrz „co sprawdzić dalej”)."
+      "code": "neutral",
+      "label": "Neutralny punkt wejścia w analizę",
+      "rationale": "Sygnały mieszane — brak wyraźnej przewagi po żadnej stronie (marża brutto 34,0% (+1,8 p.p.); przychody +12,0% r/r; one-offy 1,1% zysku oper.)."
     },
     "pros": [
       {
@@ -196,12 +196,6 @@
         "text": "Marża brutto rośnie (+1,8 p.p. vs 4 wcześniejsze kwartały) — u Malika to główny motor tezy inwestycyjnej.",
         "weight": 3.0,
         "principle": "Marża brutto — motor tezy"
-      },
-      {
-        "id": "pe_vs_history",
-        "text": "C/Z 9,6 wyraźnie poniżej własnej mediany 11,3 — historycznie tanio, jeśli wyniki się utrzymają.",
-        "weight": 3.0,
-        "principle": "C/Z na tle własnej historii"
       },
       {
         "id": "revenue_growth",
@@ -268,9 +262,9 @@
         "why": "U Malika każdy raport na nowo potwierdza (lub łamie) tezę; to nie jest sygnał sprzedaży, tylko punkt kontrolny."
       }
     ],
-    "thesis_read": "Mała spółka · Przemysł / produkcja. Ocena punktu wejścia wg strategii Paweł Malik (OBS): ciekawy punkt wejścia w analizę. Za tezą: marża brutto 34,0% (+1,8 p.p.); C/Z 9,6 vs własna mediana 11,3; przychody +12,0% r/r. Brak prognozy — użyto C/Z kroczącego (TTM) 9,63; strategia woli C/Z prognozowane, gdy pojawi się prognoza (zbuduj ją w zakładce Prognoza). Zanim uznasz tezę za potwierdzoną: Zidentyfikuj katalizator — co konkretnie ma poprawić wyniki i sprawić, że rynek to doceni. To nie jest rekomendacja inwestycyjna ani sygnał kupna/sprzedaży — to punkt wyjścia do własnej analizy. Decyzję podejmujesz samodzielnie i na własną odpowiedzialność.",
+    "thesis_read": "Mała spółka · Przemysł / produkcja. Ocena punktu wejścia wg strategii Paweł Malik (OBS): neutralny punkt wejścia w analizę. Za tezą: marża brutto 34,0% (+1,8 p.p.); przychody +12,0% r/r; one-offy 1,1% zysku oper.. Brak prognozy — użyto C/Z kroczącego (TTM) 9,74; strategia woli C/Z prognozowane, gdy pojawi się prognoza (zbuduj ją w zakładce Prognoza). Zanim uznasz tezę za potwierdzoną: Zidentyfikuj katalizator — co konkretnie ma poprawić wyniki i sprawić, że rynek to doceni. To nie jest rekomendacja inwestycyjna ani sygnał kupna/sprzedaży — to punkt wyjścia do własnej analizy. Decyzję podejmujesz samodzielnie i na własną odpowiedzialność.",
     "disclaimer": "To nie jest rekomendacja inwestycyjna ani sygnał kupna/sprzedaży — to punkt wyjścia do własnej analizy. Decyzję podejmujesz samodzielnie i na własną odpowiedzialność.",
-    "valuation_basis": "Brak prognozy — użyto C/Z kroczącego (TTM) 9,63; strategia woli C/Z prognozowane, gdy pojawi się prognoza (zbuduj ją w zakładce Prognoza).",
+    "valuation_basis": "Brak prognozy — użyto C/Z kroczącego (TTM) 9,74; strategia woli C/Z prognozowane, gdy pojawi się prognoza (zbuduj ją w zakładce Prognoza).",
     "strategy": {
       "id": "malik",
       "label": "Paweł Malik (OBS)"
@@ -284,14 +278,14 @@
         "kind": "negative",
         "label": "Scenariusz negatywny",
         "probability": 0.25,
-        "narrative": "Mnożnik osuwa się w dół do poziomu „dolny kwartyl własnej historii” (C/Z 10,78) przy utrzymanym wyniku — cena docelowa 27,44 zł, +12% wobec bieżącego kursu 24,5 zł.",
+        "narrative": "Mnożnik osuwa się w dół do poziomu „dolny kwartyl własnej historii” (C/Z 10,78) przy utrzymanym wyniku — cena docelowa 27,44 zł, +10,65% wobec bieżącego kursu 24,8 zł.",
         "target_multiple": {
           "type": "cz",
           "value": 10.78,
           "basis_label": "dolny kwartyl własnej historii C/Z 10,78 (n=8)"
         },
         "target_price": 27.44,
-        "implied_upside_pct": 12.0,
+        "implied_upside_pct": 10.65,
         "horizon": {
           "low_months": 12,
           "high_months": 24,
@@ -311,14 +305,14 @@
         "kind": "base",
         "label": "Scenariusz bazowy",
         "probability": 0.5,
-        "narrative": "Mnożnik wraca do środka do poziomu „mediana własnej historii” (C/Z 11,35) przy utrzymanym wyniku — cena docelowa 28,89 zł, +17,92% wobec bieżącego kursu 24,5 zł.",
+        "narrative": "Mnożnik wraca do środka do poziomu „mediana własnej historii” (C/Z 11,35) przy utrzymanym wyniku — cena docelowa 28,89 zł, +16,49% wobec bieżącego kursu 24,8 zł.",
         "target_multiple": {
           "type": "cz",
           "value": 11.35,
           "basis_label": "mediana własnej historii C/Z 11,35 (n=8)"
         },
         "target_price": 28.89,
-        "implied_upside_pct": 17.92,
+        "implied_upside_pct": 16.49,
         "horizon": {
           "low_months": 12,
           "high_months": 24,
@@ -338,14 +332,14 @@
         "kind": "positive",
         "label": "Scenariusz pozytywny",
         "probability": 0.25,
-        "narrative": "Mnożnik odbija w górę do poziomu „górny kwartyl własnej historii” (C/Z 11,85) przy utrzymanym wyniku — cena docelowa 30,16 zł, +23,1% wobec bieżącego kursu 24,5 zł.",
+        "narrative": "Mnożnik odbija w górę do poziomu „górny kwartyl własnej historii” (C/Z 11,85) przy utrzymanym wyniku — cena docelowa 30,16 zł, +21,61% wobec bieżącego kursu 24,8 zł.",
         "target_multiple": {
           "type": "cz",
           "value": 11.85,
           "basis_label": "górny kwartyl własnej historii C/Z 11,85 (n=8)"
         },
         "target_price": 30.16,
-        "implied_upside_pct": 23.1,
+        "implied_upside_pct": 21.61,
         "horizon": {
           "low_months": 12,
           "high_months": 24,
@@ -362,19 +356,19 @@
       }
     ],
     "valuation_multiple": "cz",
-    "current_price": 24.5,
+    "current_price": 24.8,
     "weighted_expected_price": 28.84,
-    "weighted_expected_upside_pct": 17.71,
+    "weighted_expected_upside_pct": 16.29,
     "framing": "To punkt wejścia w analizę, nie sygnał kupna/sprzedaży.",
     "disclaimer": "To nie jest rekomendacja inwestycyjna ani sygnał kupna/sprzedaży — to punkt wyjścia do własnej analizy. Decyzję podejmujesz samodzielnie i na własną odpowiedzialność.",
     "engine": "deterministic"
   },
   "valuation": {
     "potential": {
-      "value_pct": 17.71,
+      "value_pct": 16.29,
       "range_pct": [
-        12.0,
-        23.1
+        10.65,
+        21.61
       ],
       "basis_label": "wartość oczekiwana ważona prawdopodobieństwem scenariuszy (rewersja mnożnika do własnej historii, wynik utrzymany)"
     },
@@ -414,7 +408,7 @@
         "why": "Cały szacowany potencjał opiera się na powrocie mnożnika do własnych kwartyli przy utrzymanym wyniku — to założenie, nie prognoza."
       }
     ],
-    "narrative": "Szacowany potencjał +17,71% wobec bieżącego kursu — wartość oczekiwana ważona prawdopodobieństwem scenariuszy (pasmo scenariuszy +12%…+23,1%). Wyższa pewność jak na to narzędzie: 7 policzalnych wskaźników kluczowych (≥5) i n=8 obserwacji własnej historii mnożnika (≥4) dają w miarę stabilną medianę i kwartyle, na których oparte są scenariusze. Ocenę zmienią czynniki z listy „co zmieniłoby ocenę”.",
+    "narrative": "Szacowany potencjał +16,29% wobec bieżącego kursu — wartość oczekiwana ważona prawdopodobieństwem scenariuszy (pasmo scenariuszy +10,65%…+21,61%). Wyższa pewność jak na to narzędzie: 7 policzalnych wskaźników kluczowych (≥5) i n=8 obserwacji własnej historii mnożnika (≥4) dają w miarę stabilną medianę i kwartyle, na których oparte są scenariusze. Ocenę zmienią czynniki z listy „co zmieniłoby ocenę”.",
     "framing": "To ocena potencjału — punkt wejścia w analizę, nie sygnał kupna/sprzedaży.",
     "disclaimer": "To nie jest rekomendacja inwestycyjna ani sygnał kupna/sprzedaży — to punkt wyjścia do własnej analizy. Decyzję podejmujesz samodzielnie i na własną odpowiedzialność.",
     "engine": "deterministic"

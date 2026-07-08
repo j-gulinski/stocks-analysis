@@ -46,7 +46,7 @@ def refresh_company(
     force: bool = False,
     db: Session = Depends(get_db),
 ) -> RefreshSummaryOut:
-    """Scrape BiznesRadar (+ stooq) for this ticker and upsert into the DB.
+    """Scrape BiznesRadar and bounded linked PortalAnaliz threads for this ticker.
 
     Runs synchronously: a full refresh takes ~15–30 s because of the polite
     per-request delays. That is a feature, not a bug.

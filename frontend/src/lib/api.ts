@@ -155,5 +155,6 @@ export const listAnalyses = (ticker: string) =>
 // ----------------------------------------------------------------- settings
 export const getHealth = () => request<{ status: string }>("/health");
 export const getForumLoginStatus = () => request<LoginStatus>("/forum/login-status");
+export const getBrLoginStatus = () => request<LoginStatus>("/diagnostics/br-login-status");
 export const getScrapersHealth = () =>
   request<Record<string, ScraperHealth>>("/health/scrapers");
