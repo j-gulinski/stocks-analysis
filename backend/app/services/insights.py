@@ -147,6 +147,13 @@ def _signed_pct(value: float) -> str:
     return f"{value:+.1f}%".replace(".", ",")
 
 
+def _signed(value: float, digits: int = 1) -> str:
+    """Signed number, pl-PL decimal comma, no unit (e.g. margin trend in p.p.).
+    Kept next to the other formatters so every displayed decimal uses one comma
+    convention — mixing '+1.8' and '+1,8 p.p.' was the bug this closes."""
+    return f"{value:+.{digits}f}".replace(".", ",")
+
+
 def _fmt_x(value: float | None) -> str:
     return "b/d" if value is None else f"{value:.1f}".replace(".", ",")
 
@@ -313,22 +320,22 @@ def build_insights(
                 "(potrzeba 6).", 3 if group == "industrial" else 2,
                 brief=f"marża brutto {value}",
             )
+        trend_txt = _signed(trend)  # pl-PL comma; shared by comment + brief
         if trend > 0.5:
             verdict, comment = "good", (
-                f"Marża brutto rośnie ({trend:+.1f} p.p. vs 4 wcześniejsze "
+                f"Marża brutto rośnie ({trend_txt} p.p. vs 4 wcześniejsze "
                 "kwartały) — u Malika to główny motor tezy inwestycyjnej."
             )
         elif trend < -1.5:
             verdict, comment = "bad", (
-                f"Marża brutto spada ({trend:+.1f} p.p.) — sprawdź ceny "
+                f"Marża brutto spada ({trend_txt} p.p.) — sprawdź ceny "
                 "surowców/konkurencję zanim uznasz zysk za powtarzalny."
             )
         else:
             verdict, comment = "neutral", (
-                f"Marża brutto stabilna ({trend:+.1f} p.p.) — ani motor, ani "
+                f"Marża brutto stabilna ({trend_txt} p.p.) — ani motor, ani "
                 "hamulec."
             )
-        trend_txt = f"{trend:+.1f}".replace(".", ",")
         return Insight("gross_margin", "Marża brutto na sprzedaży", value,
                        verdict, comment, 3 if group == "industrial" else 2,
                        brief=f"marża brutto {value} ({trend_txt} p.p.)")
@@ -502,13 +509,14 @@ def build_insights(
                     brief="pali gotówkę przy długu netto",
                 )
             verdict = "good" if years >= 2 else ("neutral" if years >= 1 else "bad")
+            years_txt = _fmt_x(years)  # pl-PL comma; shared by value/comment/brief
             return Insight(
                 "cash_runway", "Zapas gotówki (runway)",
-                f"~{years:.1f} roku", verdict,
+                f"~{years_txt} roku", verdict,
                 f"Gotówka netto {_fmt_mln(net_cash_value)} przy stracie TTM "
-                f"{_fmt_mln(ttm_net)} — wystarczy na ~{years:.1f} roku "
+                f"{_fmt_mln(ttm_net)} — wystarczy na ~{years_txt} roku "
                 "działalności bez emisji.", 3,
-                brief=f"runway ~{years:.1f} roku".replace(".", ","),
+                brief=f"runway ~{years_txt} roku",
             )
         return Insight(
             "cash_runway", "Zapas gotówki (runway)", _fmt_mln(net_cash_value),
@@ -572,23 +580,24 @@ def build_insights(
                 "rok bez kredytu.",
             )
         ratio = current_assets / current_liabilities
+        ratio_txt = _fmt_x(ratio)  # pl-PL comma; shared by value/comment/brief
         if ratio >= 1.5:
             verdict, comment = "good", (
-                f"Wskaźnik płynności {ratio:.1f} — wygodny zapas nad "
+                f"Wskaźnik płynności {ratio_txt} — wygodny zapas nad "
                 "zobowiązaniami krótkoterminowymi."
             )
         elif ratio >= 1.0:
             verdict, comment = "neutral", (
-                f"Płynność {ratio:.1f} — wystarczająca, bez zapasu."
+                f"Płynność {ratio_txt} — wystarczająca, bez zapasu."
             )
         else:
             verdict, comment = "bad", (
-                f"Płynność {ratio:.1f} — zobowiązania krótkoterminowe "
+                f"Płynność {ratio_txt} — zobowiązania krótkoterminowe "
                 "przewyższają aktywa obrotowe."
             )
-        return Insight("liquidity", "Płynność bieżąca", f"{ratio:.1f}",
+        return Insight("liquidity", "Płynność bieżąca", ratio_txt,
                        verdict, comment, 1,
-                       brief=f"płynność bieżąca {ratio:.1f}".replace(".", ","))
+                       brief=f"płynność bieżąca {ratio_txt}")
 
     def spec_roe() -> Insight | MissingData:
         roe = latest_indicator("roe")

@@ -90,6 +90,33 @@ def test_industrial_full_data():
     assert "plus" in result["summary"].lower()
 
 
+def test_gross_margin_trend_uses_pl_decimal_comma():
+    """Regression: the margin-trend p.p. in the comment must use the decimal
+    comma and match the summary brief (comment '+1.5' vs brief '+1,5' was the
+    bug). Rising 30.0→35.5% margin over 12 quarters → trend +1,5 p.p."""
+    result = insights.build_insights(
+        sector="Przemysł elektromaszynowy",
+        quarters=_industrial_quarters(),
+        ttm={"net_profit": 4_800.0, "eps": 0.56, "pe": 9.5, "market_cap": 450e6,
+             "price": 5.4, "market_cap_source": "reported",
+             "market_cap_check_pct": 2.0},
+        pe_history={"median": 14.0, "q1": 10.0, "q3": 18.0, "current": 9.5,
+                    "percentile": 20.0},
+        net_cash_value=12_000.0,
+        balance_latest={"equity": 80_000.0, "current_assets": 50_000.0,
+                        "current_liabilities": 25_000.0},
+        indicators_latest={},
+        dividend_years=[],
+        dividend_yield_latest=None,
+        price_age_days=1,
+    ).to_dict()
+    gm = next(i for i in result["key_indicators"] if i["id"] == "gross_margin")
+    assert "+1,5 p.p." in gm["comment"]
+    assert "+1.5" not in gm["comment"]
+    # the composed summary reuses the same comma form — no dot/comma drift
+    assert "+1.5" not in result["summary"]
+
+
 # ------------------------------------------------ bank, no income statement
 
 def test_bank_without_income_data_stays_honest():

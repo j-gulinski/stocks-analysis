@@ -1,0 +1,32 @@
+<!--
+  SYNTHETIC FIXTURE — this is NOT a real BiznesRadar page.
+
+  Egress to biznesradar.pl was blocked in the sandbox this fixture was
+  authored in, so nobody has ever recorded BiznesRadar's real login page.
+  This file is a hand-written stand-in shaped like a plausible PHP login
+  form (action containing "logowanie", a CSRF-style hidden token, a
+  password field) so app/scrapers/biznesradar.py's extract_login_fields()
+  has something concrete to parse in tests.
+
+  BEFORE trusting the parser in production: replace this file with a real
+  recording (see scripts/record_fixtures.py) of biznesradar.pl's actual
+  login page and re-check extract_login_fields() / BrClient.LOGIN_PATH /
+  the login payload field names / the post-login success check in
+  app/scrapers/biznesradar.py against the real markup.
+-->
+<!DOCTYPE html>
+<html lang="pl">
+<head><title>BiznesRadar.pl - logowanie</title></head>
+<body>
+  <div id="header">
+    <a href="/rejestracja">Zarejestruj się</a>
+  </div>
+  <form id="login-form" action="/logowanie" method="post">
+    <input type="hidden" name="csrf_token" value="synthetic-token-abc123" />
+    <input type="hidden" name="redirect" value="/" />
+    <label>Login <input type="text" name="login" /></label>
+    <label>Hasło <input type="password" name="password" /></label>
+    <button type="submit">Zaloguj</button>
+  </form>
+</body>
+</html>

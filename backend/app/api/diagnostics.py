@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.db.base import get_db
 from app.db.models import Company, FetchLog, IndicatorValue, ReportValue
 from app.services import fields
+from app.services import refresh as refresh_service
 
 router = APIRouter(tags=["diagnostics"])
 
@@ -69,6 +70,24 @@ def scrapers_health(db: Session = Depends(get_db)) -> dict:
             "errors_24h": int(errors_24h or 0),
         }
     return result
+
+
+@router.get("/diagnostics/br-login-status")
+def br_login_status() -> dict:
+    """P1.9: verifies BR_USERNAME/BR_PASSWORD actually log in.
+
+    Mirrors /forum/login-status (app/api/forum.py). Deliberately NOT placed
+    at /companies/br-login-status: that single path segment would be caught
+    by companies.router's `GET /companies/{ticker}` dossier route (routers
+    are matched in registration order in app/main.py, and companies.router
+    is registered before diagnostics.router) — this path avoids the clash.
+
+    ASSUMPTION CAVEAT: BiznesRadar's real login markup is unverified in this
+    codebase (see app/scrapers/biznesradar.py BrClient docstring). A `false`
+    result on believed-correct credentials may mean the parser needs fixing
+    against a real recorded login page, not that the credentials are wrong.
+    """
+    return refresh_service.check_br_login()
 
 
 @router.get("/companies/{ticker}/mapping-report")

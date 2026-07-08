@@ -250,6 +250,146 @@ class InsightsOut(BaseModel):
     summary: str
 
 
+class ThesisFactorOut(BaseModel):
+    """A weighted pro or con; `text` mirrors the source Insight verbatim."""
+
+    id: str
+    text: str
+    weight: float
+    principle: str  # investor-principle tag (Polish)
+
+
+class VerifyNextOut(BaseModel):
+    id: str
+    text: str
+    why: str
+
+
+class EntryQualityOut(BaseModel):
+    code: str  # attractive | neutral | weak | insufficient_data
+    label: str  # Polish; framed as an analysis entrance, not a buy signal
+    rationale: str
+
+
+class StrategyRefOut(BaseModel):
+    id: str
+    label: str
+
+
+class ThesisOut(BaseModel):
+    """Rule-based investment-thesis read composed on top of the insights
+    (services/thesis.py). An entrance to human analysis, never a buy signal."""
+
+    entry_quality: EntryQualityOut
+    pros: list[ThesisFactorOut]
+    cons: list[ThesisFactorOut]
+    verify_next: list[VerifyNextOut]
+    thesis_read: str
+    disclaimer: str
+    valuation_basis: str  # forward vs trailing C/Z, honest about which
+    strategy: StrategyRefOut  # which profile produced the read
+    # WP2b provenance: "deterministic" (no key / AI fallback) or "ai". `ai_notes`
+    # (model, iterations, per-change rationale, case-similarity) is present only
+    # on the AI path; the frontend renders a "silnik: deterministyczny/AI" chip.
+    engine: str = "deterministic"
+    ai_notes: dict | None = None
+
+
+class ScenarioTargetMultipleOut(BaseModel):
+    type: str  # cz | cwk | ev_ebitda (the effective multiple used)
+    value: float | None  # the own-history quartile the scenario reverts to
+    basis_label: str  # Polish; names the quartile + observation count (n)
+
+
+class ScenarioHorizonOut(BaseModel):
+    low_months: int
+    high_months: int
+    basis_label: str  # Polish; a labelled default until the corpus cites real ones
+
+
+class ScenarioOut(BaseModel):
+    """One simulation scenario — an if-this-then-that projection, never a signal."""
+
+    id: str
+    kind: str  # negative | base | positive | event
+    label: str  # Polish
+    probability: float  # 0–1; the set sums to 1 (renormalised on the AI path)
+    narrative: str  # Polish, sourced (or a labelled data gap)
+    target_multiple: ScenarioTargetMultipleOut
+    target_price: float | None  # PLN; None when a driver is missing (labelled gap)
+    implied_upside_pct: float | None
+    horizon: ScenarioHorizonOut
+    drivers: list[str]  # each traceable
+    assumptions: list[str]  # each labelled as an assumption
+
+
+class ScenarioSetOut(BaseModel):
+    """The scenario set for one stock (services/scenarios.py). Framed as an
+    entrance to analysis; carries a set-level probability-weighted EV."""
+
+    scenarios: list[ScenarioOut]
+    valuation_multiple: str  # cz | cwk | ev_ebitda
+    current_price: float | None  # PLN
+    weighted_expected_price: float | None  # PLN, Σ pᵢ·target_priceᵢ
+    weighted_expected_upside_pct: float | None
+    framing: str  # fixed "punkt wejścia w analizę, nie sygnał"
+    disclaimer: str
+    # Provenance: "deterministic" (no key / AI fallback) or "ai" (+ ai_notes).
+    engine: str = "deterministic"
+    ai_notes: dict | None = None
+
+
+class ValuationPotentialOut(BaseModel):
+    value_pct: float | None  # anchored to the scenario set's weighted-EV upside
+    range_pct: list[float] | None  # [min, max] scenario upside band, or None
+    basis_label: str  # Polish; names what the number is (or the gap)
+
+
+class ValuationConfidenceOut(BaseModel):
+    level: str  # low | medium | high (deterministic coverage heuristic)
+    rationale: str  # Polish; the counts + level, AI may reword
+
+
+class WhatWouldChangeOut(BaseModel):
+    id: str
+    text: str
+    why: str
+
+
+class ValuationOut(BaseModel):
+    """Stock-potential valuation composed on top of the scenario set
+    (services/valuation_ai.py). An entrance to analysis, never a signal."""
+
+    potential: ValuationPotentialOut
+    confidence: ValuationConfidenceOut
+    what_would_change: list[WhatWouldChangeOut]
+    narrative: str
+    framing: str
+    disclaimer: str
+    # Provenance: "deterministic" (no key / AI fallback) or "ai" (+ ai_notes).
+    engine: str = "deterministic"
+    ai_notes: dict | None = None
+
+
+# ----------------------------------------------------------------- analyses
+
+class AnalysisOut(BaseModel):
+    """One persisted AI analysis run (services/claude_client.py, Phase 5).
+    `output` is the verdict object (PLAN §8 schema) kept as a permissive dict —
+    it is rendered by the frontend, not re-validated field-by-field here."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    model: str
+    alignment_score: int | None
+    input_tokens: int | None
+    output_tokens: int | None
+    created_by: str | None
+    output: dict
+
+
 class DossierOut(BaseModel):
     company: CompanyOut
     freshness: FreshnessOut
@@ -260,5 +400,8 @@ class DossierOut(BaseModel):
     dividends: list[DividendOut]
     prescore: PrescoreOut
     insights: InsightsOut
+    thesis: ThesisOut
+    scenarios: ScenarioSetOut
+    valuation: ValuationOut
     latest_forecast: ForecastOut | None
     forum: ForumStatsOut

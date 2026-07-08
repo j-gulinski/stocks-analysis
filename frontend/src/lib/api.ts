@@ -3,6 +3,7 @@
  * handler proxies it to FastAPI (never call the backend directly).
  */
 import type {
+  Analysis,
   Dividend,
   Dossier,
   Financials,
@@ -139,6 +140,17 @@ export const getForumPosts = (
     `/companies/${encodeURIComponent(ticker)}/forum?${params}`,
   );
 };
+
+// -------------------------------------------------------------- analyses
+// 429 (daily cap) / 503 (no ANTHROPIC_API_KEY) surface as ApiError with the
+// backend's Polish `detail` — the panel renders that message as-is.
+export const runAnalysis = (ticker: string) =>
+  request<Analysis>(`/companies/${encodeURIComponent(ticker)}/analyses`, {
+    method: "POST",
+  });
+
+export const listAnalyses = (ticker: string) =>
+  request<Analysis[]>(`/companies/${encodeURIComponent(ticker)}/analyses`);
 
 // ----------------------------------------------------------------- settings
 export const getHealth = () => request<{ status: string }>("/health");

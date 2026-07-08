@@ -135,7 +135,7 @@ export default function ForecastPanel({
   return (
     <div>
       {error && <div className="error-box">{error}</div>}
-      <div className="grid-2" style={{ gridTemplateColumns: "1.4fr 1fr" }}>
+      <div className="grid-2 wide-left">
         <div className="card">
           <div className="spread" style={{ marginBottom: 10 }}>
             <span style={{ fontWeight: 500, fontSize: 13 }}>Założenia</span>

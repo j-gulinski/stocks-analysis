@@ -18,7 +18,17 @@ from app.db.models import (
     Price,
     ReportValue,
 )
-from app.services import fields, insights, metrics
+from app.services import (
+    fields,
+    insights,
+    metrics,
+    scenarios,
+    scenarios_ai,
+    thesis,
+    thesis_ai,
+    valuation_ai,
+)
+from app.services.strategies import malik
 
 
 def load_income_series(db: Session, company_id: int, freq: str = "Q") -> metrics.IncomeSeries:
@@ -178,6 +188,7 @@ def build_dossier(db: Session, company: Company) -> dict:
     dividend_yield_latest = next(
         (float(d.yield_pct) for d in dividends if d.yield_pct is not None), None
     )
+    indicators_latest = load_indicators_latest(db, company.id)
     company_insights = insights.build_insights(
         sector=company.sector,
         quarters=quarters_dicts,
@@ -185,10 +196,95 @@ def build_dossier(db: Session, company: Company) -> dict:
         pe_history=pe_history_dict,
         net_cash_value=net_cash_value,
         balance_latest=balance_latest,
-        indicators_latest=load_indicators_latest(db, company.id),
+        indicators_latest=indicators_latest,
         dividend_years=[d.year for d in dividends],
         dividend_yield_latest=dividend_yield_latest,
         price_age_days=price_age_days,
+    )
+
+    # Investment-thesis layer: synthesise the insights into an entry-point read
+    # (weighted pros/cons + "what to check next") for the Malik profile — the
+    # only registered strategy this stage. Pure composition ON TOP of the
+    # insights above; recomputes nothing (stage TH / docs/plan-stage-thesis.md).
+    thesis_inputs = thesis.ThesisInputs(
+        insights=company_insights,
+        ttm=ttm_dict,
+        pe_history=pe_history_dict,
+        net_cash={"value": net_cash_value, "note": net_cash_note},
+        latest_forecast=(
+            {"result": latest_forecast.result}
+            if latest_forecast is not None
+            else None
+        ),
+        prescore=prescore.to_dict(),
+    )
+    company_thesis = thesis.build_thesis(thesis_inputs, profile=malik.MALIK)
+    # WP2b: try the optional iterative Claude-API refiner on top of the
+    # deterministic read. With no ANTHROPIC_API_KEY (the default) this is a
+    # transparent pass-through returning the exact deterministic body plus
+    # `engine: "deterministic"`; with a key it may return `engine: "ai"`
+    # (+ ai_notes). It never raises, so the dossier always has a thesis block.
+    thesis_block = thesis_ai.refine_thesis(
+        thesis_inputs,
+        malik.MALIK,
+        company_thesis,
+        ticker=company.ticker,
+    )
+
+    # Scenario-simulation layer (stage SC / WP3): a coherent negative/base/
+    # positive trio reverting the SECTOR-relevant multiple toward the company's
+    # own-history quartiles, plus the optional Claude-API refiner (event
+    # scenarios, reworded narratives). Pure composition on top of the pieces
+    # above; recomputes no indicator. Load the own-history series for the
+    # sector-appropriate multiple (C/Z generally, C/WK finance/realestate,
+    # EV/EBITDA energy) — parametrised by indicator code, same query shape as cz.
+    selected_multiple = scenarios.select_valuation_multiple(
+        company_insights.sector_group, malik.MALIK
+    )
+    if selected_multiple == "cz":
+        multiple_series, multiple_current = cz_values, ttm.pe
+    else:
+        multiple_series = [
+            float(v)
+            for v in db.scalars(
+                select(IndicatorValue.value).where(
+                    IndicatorValue.company_id == company.id,
+                    IndicatorValue.indicator == selected_multiple,
+                    IndicatorValue.value.is_not(None),
+                )
+            )
+        ]
+        latest_entry = indicators_latest.get(selected_multiple)
+        multiple_current = latest_entry[1] if latest_entry else None
+    multiple_history = metrics.compute_multiple_history(multiple_series, multiple_current)
+
+    scenario_inputs = scenarios.ScenarioInputs(
+        thesis_inputs=thesis_inputs,
+        multiple_history=multiple_history.to_dict(),
+        eps=ttm.eps,
+        book_value=balance_latest.get("equity"),  # equity, tys. PLN (C/WK driver)
+        # EBITDA TTM is not computed anywhere yet (labelled gap) → energy names
+        # fall back to their own C/Z history rather than fabricate an EV/EBITDA.
+        ebitda_ttm=None,
+        shares_outstanding=company.shares_outstanding,
+        current_price=ttm.price,
+        net_cash=net_cash_value,
+    )
+    scenario_set = scenarios.build_scenario_set(scenario_inputs, malik.MALIK)
+    # No ANTHROPIC_API_KEY (the default) ⇒ transparent pass-through returning the
+    # deterministic body + `engine: "deterministic"`; never raises.
+    scenarios_block = scenarios_ai.simulate_scenarios(
+        scenario_inputs, malik.MALIK, scenario_set, ticker=company.ticker
+    )
+
+    # AI valuation layer (stage SC / WP4): a stock-potential read on TOP of the
+    # scenario set — how much potential (anchored to the weighted EV), at what
+    # confidence (a deterministic coverage heuristic), and what would change the
+    # assessment. Same deterministic-first contract: no key ⇒ the deterministic
+    # valuation + `engine: "deterministic"`; never raises, so the dossier always
+    # has a valuation block.
+    valuation_block = valuation_ai.assess_potential(
+        scenario_inputs, scenarios_block, malik.MALIK, ticker=company.ticker
     )
 
     topics_count = db.scalar(
@@ -229,6 +325,9 @@ def build_dossier(db: Session, company: Company) -> dict:
         "dividends": dividends,
         "prescore": prescore.to_dict(),
         "insights": company_insights.to_dict(),
+        "thesis": thesis_block,
+        "scenarios": scenarios_block,
+        "valuation": valuation_block,
         "latest_forecast": (
             {
                 "id": latest_forecast.id,

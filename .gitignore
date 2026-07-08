@@ -24,3 +24,7 @@ out/
 # Local databases and scratch
 *.sqlite3
 *.db
+
+# AI response cache (WP2b thesis refiner — never commit cached model output)
+.cache/
+backend/.cache/

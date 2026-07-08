@@ -8,9 +8,11 @@ import os
 from pathlib import Path
 
 os.environ["DATABASE_URL"] = "sqlite://"
-# Neutralize any developer .env so tests never attempt a real forum login.
+# Neutralize any developer .env so tests never attempt a real forum/BR login.
 os.environ["PA_USERNAME"] = ""
 os.environ["PA_PASSWORD"] = ""
+os.environ["BR_USERNAME"] = ""
+os.environ["BR_PASSWORD"] = ""
 
 import pytest
 from fastapi.testclient import TestClient

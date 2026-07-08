@@ -32,7 +32,7 @@ Every completed phase additionally gets a one-page learning note `docs/learning/
 - [x] P1.6 `stooq.py`: daily CSV → `prices` (initial load + incremental by date)
 - [x] P1.7 Refresh orchestration: `POST /api/companies/{ticker}/refresh?scope=&force=` — sequential fetch, ~2 s delay, 24 h cache via `fetch_log`, per-page error isolation (one failed page ≠ failed refresh)
 - [x] P1.8 Read endpoints: `/financials`, `/indicators`, `/dividends`, `/prices` + watchlist CRUD (`/api/watchlist`)
-- [ ] P1.9 BiznesRadar premium session (user has an account): optional `BR_USERNAME/BR_PASSWORD`, login before fetches, longer histories; needs a recorded login-page fixture first; summary gains a `br_login` entry
+- [~] P1.9 BiznesRadar premium session (user has an account): optional `BR_USERNAME/BR_PASSWORD`, login before fetches, longer histories; summary gains a `br_login` entry. **Scaffolded (config + `BrClient` + session threading + diagnostics + synthetic-fixture test); login-form parser UNVERIFIED — record a real BR login page + one live login on the user machine to finish.**
 
 ## Phase 2 — Module A: PortalAnaliz forum
 
@@ -72,20 +72,111 @@ Every completed phase additionally gets a one-page learning note `docs/learning/
 - [x] P4.7 **Forum** tab: link-topic form, post timeline, author filter, pagination
 - [x] P4.8 `/settings` (nav in English per user decision): status checks (DB, PA login, Anthropic key present)
 
+## Stage TH — Investment-thesis layer (rule-based, pre-Phase-5)
+
+**Goal:** per-stock investment-thesis read in Malik's spirit — weighted
+pros/cons + entry-point quality + "what to check next", composed from the
+computed dossier (pure functions, like `insights.py`). Entrance point for human
+analysis, **not** a buy signal; **not** the Phase 5 Claude layer. Full spec:
+`docs/plan-stage-thesis.md`.
+**Done when:** `docs/strategy-malik.md` is source-cited; `thesis.py` +
+`test_thesis.py` green in-session; `ThesisPanel` renders traceable numbers;
+DGN/SNT + current-cap validation documented with gaps; memory/changelog updated.
+
+- [x] TH.1 Source-grounded strategy spec `docs/strategy-malik.md` (≥5 primary
+  web sources + reconcile 3 source-material files; every principle cited +
+  mapped to a computed field or a labelled gap; entry-quality thresholds)
+- [x] TH.2 Generic engine `services/thesis.py` + `services/strategies/`
+  (`base.py` StrategyProfile/Criterion interface, `malik.py` profile-as-data,
+  `cases.py` WorkedCase + evaluate_case) + `test_thesis.py` (in-session):
+  entry quality, weighted pros/cons, `verify_next`, forward-C/Z preference,
+  honest gaps, fabrication guard, toy-profile genericity test; wire into
+  `dossier.py` + `api/schemas.py` (compile-check)
+- [x] TH.2b Optional Claude-API iterative thesis refiner `services/thesis_ai.py`
+  + config (`anthropic_max_iterations`, `ai_cache_enabled`) + `test_thesis_ai.py`
+  (stub transport): **injectable transport** (anthropic SDK if importable →
+  stdlib `urllib` POST → `StubTransport` in tests), bounded N-round refine of the
+  WP2 read against the `WorkedCase` corpus + active profile, schema +
+  fabrication-guard validation, JSON-file cache keyed by
+  `(ticker, input-hash, model, profile-version)`, **no-key fallback** to the
+  deterministic read with an `engine: deterministic|ai` marker; stub-tested paths
+  (happy/malformed/iteration-limit/fabrication/convergence + cache), real-call
+  smoke deferred to user (`ANTHROPIC_API_KEY=… python scripts/thesis_ai_smoke.py
+  SNT`). Deterministic-first — does **not** replace Phase 5 (`skill/`/`analyses`/
+  AI tab). Full spec: `docs/plan-stage-thesis.md` §WP2b
+- [x] TH.3 `ThesisPanel.tsx` top of Overview (above InsightsPanel) + `types.ts`
+  `Thesis`; as-is rendering, degraded states, disclaimer (build deferred to user)
+- [x] TH.4 Validation `docs/validation-thesis.md`: DGN/SNT historical (with
+  gaps, no fabricated figures) + ≥4 current small/mid/large caps, numbers
+  cross-checked; archiwum page 1 only, quirks not re-derived; DGN/SNT recorded
+  as `WorkedCase` entries *(in-session part done + verifier-approved: fixture
+  pipeline + size-lens comparability + DGN/SNT `WorkedCase`s, documented with
+  gaps per the rescoped WP4 acceptance #1. **Deferred to the user's machine**
+  (sandbox has no egress): the live ≥4-ticker cross-check + DGN/SNT deep
+  backtest via `cd backend && python scripts/validate_thesis.py DGN SNT …` —
+  results append to `docs/validation-thesis.md`.)*
+- [x] TH.5 Conformance + memory: in-session test subset green, `docs/learning/
+  phase-thesis.md` (C# analogies), CLAUDE.md doc index + final CHANGELOG entry
+
+## Stage SC — Scenario simulation engine (deterministic-first + AI)
+
+**Goal:** per-stock simulation-based scenarios (negative/base/positive + event)
+— each with coherent probability, data-grounded narrative, sector-relevant
+target valuation (C/Z · C/WK · EV/EBITDA) off own + comparable multiple history,
+repricing horizon, implied upside, and a probability-weighted EV vs current
+price — plus an AI valuation agent (potential + confidence + what-would-change).
+Extends the `thesis_ai.py` deterministic-first pattern; surfaced next to
+`ThesisPanel`, framed as an analysis entry point, not a signal. Full spec:
+`docs/plan-stage-scenarios.md`.
+**Done when:** `scenarios.py`/`test_scenarios.py` + `scenarios_ai.py`/
+`test_scenarios_ai.py` + `valuation_ai.py`/`test_valuation_ai.py` green
+in-session; `ScenariosPanel` renders traceable numbers; corpus enriched with
+sourced multiples/durations incl. ≥1 miss; validation + memory/changelog updated.
+
+- [x] SC.1 Compact context: CLAUDE.md index + archive closed Stage-TH changelog
+  entries into `docs/changelog-archive-thesis-2026-07-08.md` (quirks ledger left
+  byte-identical); no code change
+- [x] SC.2 Clean project: remove provably-dead code (per-item zero-reference
+  grep proof in the CHANGELOG); full runnable test suite green as the safety proof
+- [x] SC.3 Scenario engine: pure `services/scenarios.py` (multiple-reversion
+  targets off own + corpus multiple history, Σ-prob=1, weighted EV) +
+  `services/scenarios_ai.py` (bounded rounds, cache, fabrication guard over
+  inputs∪engine∪corpus, no-key fallback) + `test_scenarios.py` (≥9) +
+  `test_scenarios_ai.py` (≥10); wire `scenarios` block into `dossier.py`/
+  `schemas.py`; `ScenariosPanel.tsx` + `types.ts`; `scripts/scenarios_smoke.py`
+- [x] SC.4 AI valuation agent `services/valuation_ai.py` (potential + confidence
+  + what-would-change; same guard/cache/fallback) + `test_valuation_ai.py` (≥8);
+  enrich `strategies/cases.py` WorkedCase corpus with sourced multiples/durations
+  incl. ≥1 documented miss (lazy CORPUS + import purity preserved); wire
+  `valuation` block into dossier/schemas + panel/types
+- [x] SC.5 Validation `docs/validation-scenarios.md` (hand-checked targets/EV,
+  fixture-first, gaps explicit) + exact test counts + `docs/learning/
+  phase-scenarios.md` (C# analogies) + CLAUDE.md index + final CHANGELOG entry
+
 ## Phase 5 — Module D: strategy skill + Claude analysis
 
 **Goal:** one click → structured verdict on strategy alignment and potential.
 **Done when:** analysis of a real watchlist stock returns valid schema, sensible Polish summary, stored history; verdicts reference actual evidence (numbers, forum posts).
 
-- [ ] P5.1 Author `skill/SKILL.md`: distill the 4 source docs (philosophy, 14-point checklist, 7 golden rules, catalyst taxonomy, one-off guidance, red flags, valuation via forward C/Z vs own history). Review together before wiring it in
-- [ ] P5.2 `skill/rubric.md`: item weights → alignment_score 0–100; explicit "unknown ≠ fail" scoring rule
-- [ ] P5.3 `skill/examples/`: 2–3 worked examples distilled from obs.txt reasoning (real thesis → outcome)
-- [ ] P5.4 `claude_client.py`: anthropic SDK, forced JSON output (tool use) with schema from PLAN §8, retries, token logging
-- [ ] P5.5 `prompts.py`: system = SKILL.md + rubric; user = dossier JSON + token-capped recent forum posts + prescore; deterministic assembly (snapshot stored with analysis)
-- [ ] P5.6 Endpoints: `POST /api/companies/{ticker}/analyses` (run), `GET .../analyses` (history); persist output + tokens + requesting user email; global `AI_DAILY_LIMIT` cap (429 with Polish message when hit)
-- [ ] P5.7 **Analiza AI** tab: run button, verdict card (score, thesis, catalysts, red flags, verify-next), history list with diff vs previous run
+**Reconciliation with Stage TH (TH.2b, 2026-07-08).** The Claude transport,
+`.env` config, and response-cache pattern now exist from TH.2b's engine-level
+thesis refiner (`services/thesis_ai.py`), and the dossier `thesis` block already
+carries an `engine: deterministic|ai` marker. So **P5.4 (`claude_client.py`)
+builds on / reuses that transport** rather than starting fresh. P5.1–P5.3
+(skill/rubric/examples), P5.5 (prompt assembly for the full verdict + forum
+distillation), P5.6–P5.7 (`analyses` table, endpoints, Analiza AI tab + history,
+`AI_DAILY_LIMIT`), and P5.9 remain as-is — the Phase-5 *analysis product* is
+distinct from TH.2b's thesis-block refinement. Tasks below are not rewritten.
+
+- [x] P5.1 Author `skill/SKILL.md`: distill the 4 source docs (philosophy, 14-point checklist, 7 golden rules, catalyst taxonomy, one-off guidance, red flags, valuation via forward C/Z vs own history). **Draft done — review together before wiring it in (P5.4+)**
+- [x] P5.2 `skill/rubric.md`: item weights → alignment_score 0–100; explicit "unknown ≠ fail" scoring rule
+- [x] P5.3 `skill/examples/`: 2–3 worked examples distilled from obs.txt reasoning (real thesis → outcome) — OPTEX (win), TOYA (durable discount), Suntech (documented miss)
+- [x] P5.4 `claude_client.py`: anthropic SDK, forced JSON output (tool use) with schema from PLAN §8, retries, token logging — `run_analysis` + `AnalysisUnavailable` (no deterministic fallback); 17 pure tests green
+- [x] P5.5 `prompts.py`: system = SKILL.md + rubric; user = dossier JSON + token-capped recent forum posts + prescore; deterministic assembly (snapshot returned; note: not persisted — `analyses` table has no snapshot column)
+- [x] P5.6 Endpoints: `POST /api/companies/{ticker}/analyses` (run), `GET .../analyses` (history); persist output + tokens + requesting user email; global `AI_DAILY_LIMIT` cap (429 with Polish message when hit) — no migration needed (`analyses` already in 0001); 4 client-gated tests deferred to user machine
+- [x] P5.7 **Analiza AI** tab: run button, verdict card (score, thesis, catalysts, red flags, verify-next), history list with diff vs previous run — `AnalysisPanel`, tsc green
 - [ ] P5.8 Calibration pass: run on 3–4 stocks you know well; tune SKILL/rubric until verdicts match your judgment of obvious cases
-- [ ] P5.9 Forum distiller (PLAN §8): batched cheap-model pass over already-synced posts → per-post cached claims {type, claim, confidence, source post ids}; upvote-weighted ordering within token budget; zero extra forum requests; verdict prompt consumes claims, never raw posts as facts
+- [x] P5.9 Forum distiller (PLAN §8): batched cheap-model pass over already-synced posts → per-post cached claims {type, claim, confidence, source post ids}; upvote-weighted ordering within token budget; zero extra forum requests; verdict prompt consumes claims, never raw posts as facts — file cache, 15 pure tests
 
 ## Phase 6 — Deploy & polish (Vercel + Railway, Google allowlist)
 

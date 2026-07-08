@@ -5,9 +5,11 @@ import { use, useState } from "react";
 import { IconRefresh, IconSparkles, IconX } from "@tabler/icons-react";
 import { getDossier, refreshCompany } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
-import { fmtMcap, fmtPln, fmtDate } from "@/lib/format";
+import { fmtMcap, fmtPln, fmtDate, staleDays } from "@/lib/format";
 import { LoadingMessages, SkeletonCards } from "@/components/Loading";
 import InsightsPanel from "@/components/InsightsPanel";
+import ThesisPanel from "@/components/ThesisPanel";
+import ScenariosPanel from "@/components/ScenariosPanel";
 import MetricCards from "@/components/MetricCards";
 import PrescoreChecklist from "@/components/PrescoreChecklist";
 import PriceChart from "@/components/PriceChart";
@@ -15,8 +17,9 @@ import FinancialsTable from "@/components/FinancialsTable";
 import QuarterlyCharts from "@/components/QuarterlyCharts";
 import ForecastPanel from "@/components/ForecastPanel";
 import ForumPanel from "@/components/ForumPanel";
+import AnalysisPanel from "@/components/AnalysisPanel";
 
-const TABS = ["Overview", "Financials", "Charts", "Forecast", "Forum"] as const;
+const TABS = ["Overview", "Financials", "Charts", "Forecast", "Forum", "AI analysis"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function StockPage({
@@ -74,10 +77,15 @@ export default function StockPage({
   const summaryHasErrors = summaryEntries.some(([, s]) => !s.startsWith("ok") && s !== "cached");
 
   const { company, ttm } = dossier;
+  // A weekend + a couple of trading days is normal; flag only clearly-stale
+  // quotes so the scenario valuation (computed off this price) is read with the
+  // right caveat instead of silently trusting an old number.
+  const priceAge = staleDays(ttm.price_date);
+  const priceStale = priceAge != null && priceAge > 5;
 
   return (
     <main>
-      <div className="spread">
+      <div className="spread" style={{ flexWrap: "wrap", gap: 10 }}>
         <div>
           <span style={{ fontSize: 19, fontWeight: 500 }}>
             {ticker}
@@ -94,6 +102,11 @@ export default function StockPage({
             {" · mcap "}
             {fmtMcap(ttm.market_cap)}
           </span>
+          {priceStale && (
+            <span className="badge warning" style={{ marginLeft: 8, fontSize: 11 }}>
+              kurs sprzed {priceAge} dni
+            </span>
+          )}
         </div>
         <div className="row">
           <button
@@ -104,7 +117,11 @@ export default function StockPage({
           >
             <IconRefresh size={14} className={refreshing ? "spin" : ""} /> Odśwież
           </button>
-          <button className="btn accent" disabled title="Analiza AI — Faza 5">
+          <button
+            className="btn accent"
+            onClick={() => setTab("AI analysis")}
+            title="Przejdź do zakładki Analiza AI"
+          >
             <IconSparkles size={14} /> Analizuj
           </button>
         </div>
@@ -171,14 +188,32 @@ export default function StockPage({
             {name}
           </button>
         ))}
-        <button disabled title="Phase 5">
-          AI analysis
-        </button>
       </div>
 
       {tab === "Overview" && (
         <>
           <MetricCards dossier={dossier} />
+          {/* Thesis is the synthesis; insights below are the evidence it is
+              built from (plan WP3 order). Guard the label too so an older
+              dossier without a thesis block shows nothing, not an orphan. */}
+          {dossier.thesis && (
+            <>
+              <p className="section-label">Teza inwestycyjna</p>
+              <ThesisPanel thesis={dossier.thesis} />
+            </>
+          )}
+          {/* Scenarios = the projections off the thesis read (plan WP3 order:
+              MetricCards → Teza → Scenariusze → Analiza → Prescore → Kurs).
+              Guard the label too so an older dossier without the block shows
+              nothing, not an orphan heading. */}
+          {dossier.scenarios && (
+            <>
+              <p className="section-label">Scenariusze</p>
+              {/* The AI valuation (WP4) rides inside the scenarios card, below
+                  the weighted-EV strip; passed through here (optional). */}
+              <ScenariosPanel scenarios={dossier.scenarios} valuation={dossier.valuation} />
+            </>
+          )}
           <p className="section-label">Analiza spółki</p>
           <InsightsPanel insights={dossier.insights} />
           <p className="section-label">Prescore strategii</p>
@@ -193,6 +228,7 @@ export default function StockPage({
         <ForecastPanel ticker={ticker} dossier={dossier} onSaved={reload} />
       )}
       {tab === "Forum" && <ForumPanel ticker={ticker} />}
+      {tab === "AI analysis" && <AnalysisPanel ticker={ticker} dossier={dossier} />}
     </main>
   );
 }

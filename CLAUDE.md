@@ -15,8 +15,17 @@ dynamic per-company insights → (Phase 5) Claude-API verdicts. UI designs in
   here**: diagnostic ladder + verified quirks ledger (BR slug/`,Q` redirect
   trap, robots rules, indicator label traps, price-chain order, storage
   rules). Do not re-derive these.
-- `CHANGELOG.md` — decisions digest; full build-day detail in
-  `docs/changelog-archive-2026-07-07.md`.
+- `CHANGELOG.md` — decisions digest; full detail archived per stage in
+  `docs/changelog-archive-*.md` (build day 07-07; Stage TH 07-08).
+- `docs/plan-stage-thesis.md` — investment-thesis stage (TH): architecture +
+  per-WP acceptance; read the WP relevant to the task.
+- `docs/strategy-malik.md` — source-cited Malik spec the thesis + scenario
+  engines implement (principles → dossier field or labelled gap).
+- `docs/validation-thesis.md` — thesis validation: DGN/SNT cases + current-cap
+  sanity, explicit gaps + deferred live run.
+- `docs/plan-stage-scenarios.md` — scenario-simulation stage (SC): per-WP
+  architecture + acceptance. Validation `docs/validation-scenarios.md` +
+  learning `docs/learning/phase-scenarios.md` land in WP5 (SC.5).
 - `docs/source-materials/` — strategy sources; `skill/SKILL.md` must stay
   faithful to them. `docs/learning/` — phase notes for the user.
 

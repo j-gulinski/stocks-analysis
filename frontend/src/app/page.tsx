@@ -190,6 +190,7 @@ export default function WatchlistPage() {
           Pusta watchlista — dodaj pierwszy ticker (np. DEC), potem kliknij odśwież.
         </p>
       ) : (
+        <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
@@ -267,6 +268,7 @@ export default function WatchlistPage() {
             })}
           </tbody>
         </table>
+        </div>
       )}
 
       {rows.length > 0 && (

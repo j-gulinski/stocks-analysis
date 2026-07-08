@@ -14,8 +14,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import date
+from urllib.parse import urljoin
 
+import requests
 from bs4 import BeautifulSoup
+
+from app.scrapers import http as polite_http
 
 BASE_URL = "https://www.biznesradar.pl"
 
@@ -488,3 +492,131 @@ def parse_price_history(html: str) -> list[PriceBar]:
 
     bars.sort(key=lambda bar: bar.day)
     return bars
+
+
+# ------------------------------------------------------------ premium login
+#
+# P1.9 (BiznesRadar premium session): a logged-in session unlocks longer
+# report/price history than the anonymous pages parsed above. This section
+# mirrors app/scrapers/portalanaliz.py's ForumClient/extract_login_fields
+# shape 1:1 (LoginError -> BrLoginError, ForumClient -> BrClient).
+#
+# UNVERIFIED ASSUMPTION: unlike the phpBB login form (verified against a real
+# PortalAnaliz page), BiznesRadar's real login page markup has never been
+# fetched in this environment (egress to biznesradar.pl is proxy-blocked in
+# the sandbox this was written in). Everything below — the login path, field
+# names, and "did it work" check — is a best-effort guess based on common PHP
+# login-form conventions, backed only by the SYNTHETIC fixture in
+# tests/fixtures/br_login.html. Before trusting this in production:
+#   1. run `python scripts/record_fixtures.py --login` (or equivalent) on a
+#      machine that can reach biznesradar.pl while logged out, to capture the
+#      real login page HTML;
+#   2. replace tests/fixtures/br_login.html with the real recording (or add
+#      it alongside) and fix extract_login_fields()/BrClient.LOGIN_PATH/the
+#      payload field names/the success check below to match reality;
+#   3. do one real login by hand (BR_USERNAME/BR_PASSWORD in backend/.env)
+#      and confirm BrClient.login() succeeds and a premium page actually
+#      differs from the anonymous one.
+# This module only implements the plumbing; it does NOT claim the parser is
+# correct against the real site yet.
+
+
+class BrLoginError(Exception):
+    pass
+
+
+def extract_login_fields(html: str) -> dict[str, str]:
+    """Hidden inputs of the BiznesRadar login form.
+
+    ASSUMPTION (see module banner above, UNVERIFIED against a real page):
+    looks for a `<form>` whose `action` mentions "login"/"logowanie"; falls
+    back to the first form containing a password input (works even if the
+    action attribute is relative/absent). Collects every hidden input as a
+    name -> value pair, exactly like portalanaliz.extract_login_fields does
+    for phpBB's creation_time/form_token/sid triplet — BiznesRadar likely has
+    an analogous CSRF-style token that must be echoed back unchanged.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    form = soup.find("form", action=re.compile(r"log(?:owanie|in)", re.IGNORECASE))
+    if form is None:
+        for candidate in soup.find_all("form"):
+            if candidate.find("input", attrs={"type": "password"}):
+                form = candidate
+                break
+    if form is None:
+        raise BrLoginError("Login form not found on BiznesRadar login page.")
+    fields_out: dict[str, str] = {}
+    for hidden in form.find_all("input", attrs={"type": "hidden"}):
+        name = hidden.get("name")
+        if name:
+            fields_out[name] = hidden.get("value", "")
+    return fields_out
+
+
+def _looks_logged_in(html: str) -> bool:
+    """Best-effort post-login success check — ASSUMPTION, see module banner.
+
+    Real markup unknown, so this checks for either signal: a logout
+    link/control, or simply the login form no longer being present.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    if soup.find("a", href=re.compile(r"log(?:out|owanie)", re.IGNORECASE)):
+        return True
+    return soup.find("input", attrs={"type": "password"}) is None
+
+
+class BrClient:
+    """Thin session wrapper for a logged-in (premium) BiznesRadar session.
+
+    Mirrors portalanaliz.ForumClient's shape. All HTTP goes through
+    app.scrapers.http.fetch so the same per-domain politeness/backoff policy
+    applies to the login page as to every other BiznesRadar request.
+    """
+
+    # ASSUMPTION (unverified, see module banner) — correct once the real
+    # login page is recorded.
+    LOGIN_PATH = "logowanie"
+
+    def __init__(self, base_url: str = BASE_URL):
+        self.base_url = base_url if base_url.endswith("/") else base_url + "/"
+        self.session = requests.Session()
+        self.session.headers["User-Agent"] = polite_http.USER_AGENT
+        self.logged_in = False
+
+    def login(self, username: str, password: str) -> None:
+        login_url = urljoin(self.base_url, self.LOGIN_PATH)
+        response = polite_http.fetch(login_url, session=self.session)
+        if response.status_code != 200:
+            raise BrLoginError(
+                f"Could not load BiznesRadar login page (HTTP {response.status_code})."
+            )
+
+        try:
+            payload = extract_login_fields(response.text)
+        except BrLoginError:
+            # No hidden fields found is not necessarily fatal — some login
+            # forms carry none. Try the bare credentials before giving up.
+            payload = {}
+        # ASSUMPTION (unverified, see module banner): field names guessed
+        # from common Polish-site conventions.
+        payload.update({"login": username, "password": password})
+
+        try:
+            post_response = self.session.post(
+                login_url, data=payload, timeout=polite_http.DEFAULT_TIMEOUT_SECONDS
+            )
+        except requests.RequestException as exc:
+            raise BrLoginError(f"Login request failed (network): {exc}") from exc
+
+        if post_response.status_code == 200 and _looks_logged_in(post_response.text):
+            self.logged_in = True
+            return
+
+        raise BrLoginError(
+            f"Login failed (HTTP {post_response.status_code}) — check BR_USERNAME/"
+            "BR_PASSWORD in backend/.env. Note: BiznesRadar's real login markup "
+            "has not been verified in this codebase yet (see BrClient's module "
+            "docstring) — if the credentials are correct, extract_login_fields/"
+            "LOGIN_PATH/the success check likely need updating against a real "
+            "recorded login page."
+        )

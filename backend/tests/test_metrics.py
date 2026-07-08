@@ -175,6 +175,22 @@ def test_prescore_prefers_forward_pe(income):
     assert pe_check.verdict == "pass"
 
 
+def test_prescore_evidence_uses_pl_decimal_comma(income):
+    """Displayed checklist evidence must use the pl-PL decimal comma, never a dot
+    — otherwise it drifts from the insights layer ('+1.8%' vs '+1,8%')."""
+    quarters = m.compute_quarter_metrics(income)
+    ttm = m.compute_ttm(income, SHARES, PRICE)
+    prescore = m.compute_prescore(
+        quarters, ttm, m.compute_pe_history(CZ_HISTORY, ttm.pe),
+        22000.0, "x", [2025],
+    )
+    ev = {c.id: c.evidence for c in prescore.checks}
+    # last two revenue-growth quarters (yoy 10.0 / 14.0) → decimal comma, no dot
+    assert ev["revenue_growth"] == "Ostatnie 2 kw.: +10,0% i +14,0%."
+    # a plain percentage (one-off share 1.1%) is comma-formatted too
+    assert "1,1%" in ev["profit_quality"] and "1.1" not in ev["profit_quality"]
+
+
 # ------------------------------------------------- size + reported market cap
 
 @pytest.mark.parametrize(

@@ -216,7 +216,10 @@ def test_force_refresh_replaces_stale_periods(client, stub_fetch, db):
 
     # forced: replace semantics purge it; summary stays healthy
     summary = client.post("/api/companies/DEC/refresh?force=true").json()["summary"]
-    assert summary["income_q"].startswith("ok (99 values)")
+    # refresh.py enriches the summary with table detail
+    # ("ok (99 values; N rows × M periods; first–last)"), so match the stable
+    # prefix rather than the exact old string.
+    assert summary["income_q"].startswith("ok (99 values")
     assert "database" not in summary
     periods = set(
         db.scalars(

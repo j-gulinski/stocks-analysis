@@ -36,10 +36,6 @@ def _avg(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 1) if values else None
 
 
-def _last_quarters(income: IncomeSeries, count: int) -> list[str]:
-    return sort_periods(income.keys())[-count:]
-
-
 def default_assumptions(income: IncomeSeries) -> ForecastAssumptions:
     """Prefill from history exactly like the transcript does (all overridable).
 

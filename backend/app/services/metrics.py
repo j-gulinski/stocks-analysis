@@ -225,23 +225,47 @@ def compute_ttm(
 # ------------------------------------------------------------------- P/E hist
 
 @dataclass
-class PeHistoryStats:
+class MultipleHistoryStats:
+    """Own-history distribution of a valuation multiple (C/Z, C/WK or EV/EBITDA).
+
+    Generalises the former `PeHistoryStats`: the strategy compares a stock
+    against its OWN past multiple, not against the market (docs/strategy-malik.md
+    §Valuation doctrine). `n` is the count of usable (positive) observations —
+    the scenario engine (stage SC) labels how deep the history is with it, and
+    the valuation-confidence heuristic (WP4) keys on it. `n` defaults to 0 so the
+    empty-history construction stays a one-liner.
+    """
+
     median: float | None
     q1: float | None
     q3: float | None
     current: float | None
     percentile: float | None
+    n: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
 
 
-def compute_pe_history(history: list[float], current: float | None) -> PeHistoryStats:
-    """Stats over the company's OWN historical P/E — the strategy compares a
-    stock against its history, not against the market."""
+# Back-compat alias: the P/E-history call sites (dossier, prescore signature,
+# validate_thesis, tests) predate the generalisation and keep working unchanged
+# — a P/E history IS a multiple history, just for the `cz` series.
+PeHistoryStats = MultipleHistoryStats
+
+
+def compute_multiple_history(
+    history: list[float], current: float | None
+) -> MultipleHistoryStats:
+    """Stats over a company's OWN historical valuation multiple.
+
+    The multiple can be C/Z, C/WK or EV/EBITDA — the maths is identical, only the
+    series differs (stage SC / WP3 generalised `compute_pe_history` into this).
+    Non-positive readings (loss quarters for C/Z, a negative EV/EBITDA) are
+    dropped: a negative multiple has no meaning inside a reversion band.
+    """
     values = sorted(v for v in history if v is not None and v > 0)
     if not values:
-        return PeHistoryStats(None, None, None, current, None)
+        return MultipleHistoryStats(None, None, None, current, None, n=0)
 
     if len(values) == 1:
         q1 = median = q3 = values[0]
@@ -252,13 +276,21 @@ def compute_pe_history(history: list[float], current: float | None) -> PeHistory
     if current is not None:
         percentile = round(100.0 * sum(v <= current for v in values) / len(values), 0)
 
-    return PeHistoryStats(
+    return MultipleHistoryStats(
         median=round(median, 2),
         q1=round(q1, 2),
         q3=round(q3, 2),
         current=current,
         percentile=percentile,
+        n=len(values),
     )
+
+
+def compute_pe_history(
+    history: list[float], current: float | None
+) -> MultipleHistoryStats:
+    """Thin C/Z alias so existing call sites need no change (stage SC / WP3)."""
+    return compute_multiple_history(history, current)
 
 
 # ------------------------------------------------------------------- net cash
@@ -314,7 +346,19 @@ class Prescore:
 
 
 def _fmt(value: float | None, suffix: str = "") -> str:
-    return "b/d" if value is None else f"{value:g}{suffix}"
+    # pl-PL decimal comma on the way out — prescore evidence is displayed text.
+    return "b/d" if value is None else f"{value:g}{suffix}".replace(".", ",")
+
+
+def _num(value: float, digits: int = 1) -> str:
+    """Fixed-decimal number, pl-PL comma (e.g. 9.5 → '9,5')."""
+    return f"{value:.{digits}f}".replace(".", ",")
+
+
+def _signed_pct(value: float, digits: int = 1) -> str:
+    """Signed percentage, pl-PL comma (e.g. 12.5 → '+12,5%'). Keeps the checklist
+    evidence consistent with the insights layer — no '+1.8' vs '+1,8' drift."""
+    return f"{value:+.{digits}f}%".replace(".", ",")
 
 
 def compute_prescore(
@@ -344,7 +388,7 @@ def compute_prescore(
         verdict = "pass" if all(v > 0 for v in recent_yoy) else "fail"
         add(
             "revenue_growth", "Wzrost przychodów r/r", verdict,
-            f"Ostatnie 2 kw.: {recent_yoy[0]:+.1f}% i {recent_yoy[1]:+.1f}%.",
+            f"Ostatnie 2 kw.: {_signed_pct(recent_yoy[0])} i {_signed_pct(recent_yoy[1])}.",
         )
 
     # 2. Gross sales margin: last 2 quarters vs the 4 before them.
@@ -357,7 +401,7 @@ def compute_prescore(
         base = sum(margins[-6:-2]) / 4
         verdict = "pass" if recent > base else "fail"
         add("gross_margin_trend", "Trend marży brutto na sprzedaży", verdict,
-            f"Śr. 2 ost. kw. {recent:.1f}% vs {base:.1f}% w 4 wcześniejszych.")
+            f"Śr. 2 ost. kw. {_num(recent)}% vs {_num(base)}% w 4 wcześniejszych.")
 
     # 3. Operating leverage: profit on sales growing faster than revenue.
     latest = quarters[-1] if quarters else None
@@ -378,8 +422,8 @@ def compute_prescore(
         profit_yoy = (latest.profit_on_sales / prev_year.profit_on_sales - 1) * 100
         verdict = "pass" if profit_yoy > latest.revenue_yoy_pct else "fail"
         add("operating_leverage", "Dźwignia operacyjna", verdict,
-            f"Zysk ze sprzedaży {profit_yoy:+.1f}% vs przychody "
-            f"{latest.revenue_yoy_pct:+.1f}% r/r.")
+            f"Zysk ze sprzedaży {_signed_pct(profit_yoy)} vs przychody "
+            f"{_signed_pct(latest.revenue_yoy_pct)} r/r.")
 
     # 4. Profit quality: one-offs small relative to operating profit.
     if latest is None or latest.one_off_share_pct is None:
@@ -388,7 +432,7 @@ def compute_prescore(
     else:
         verdict = "pass" if latest.one_off_share_pct < ONE_OFF_SHARE_LIMIT_PCT else "fail"
         add("profit_quality", "Jakość zysku (one-offy)", verdict,
-            f"Pozostała działalność = {latest.one_off_share_pct:.1f}% zysku operacyjnego "
+            f"Pozostała działalność = {_num(latest.one_off_share_pct)}% zysku operacyjnego "
             f"(limit {ONE_OFF_SHARE_LIMIT_PCT:.0f}%).")
 
     # 5. P/E vs the company's own history (forward P/E preferred when available).
@@ -400,7 +444,7 @@ def compute_prescore(
     else:
         verdict = "pass" if current_pe < pe_history.median else "fail"
         add("pe_vs_history", "C/Z vs własna historia", verdict,
-            f"{pe_label} {current_pe:.1f} vs mediana {pe_history.median:.1f}.")
+            f"{pe_label} {_num(current_pe)} vs mediana {_num(pe_history.median)}.")
 
     # 6. Net cash.
     if net_cash_value is None:

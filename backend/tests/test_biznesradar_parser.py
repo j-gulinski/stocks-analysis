@@ -1,16 +1,12 @@
 """Parser tests against committed synthetic fixtures (exact values) and,
 when present, real recorded pages (structure only — see scripts/record_fixtures.py)."""
-from datetime import date
 
 import pytest
 
 from app.scrapers.biznesradar import (
-    ParseError,
     normalize_period,
-    page_url,
     parse_dividends,
     parse_number,
-    parse_price_history,
     parse_profile,
     parse_report_table,
 )

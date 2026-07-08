@@ -51,6 +51,57 @@ class UnknownTickerError(Exception):
     """Ticker not found on BiznesRadar and unknown locally."""
 
 
+# --------------------------------------------------------- premium session
+
+
+def _build_br_session(summary: dict[str, str]) -> requests.Session | None:
+    """P1.9: optional logged-in BiznesRadar session, threaded into every BR
+    fetch below. Premium is an ENHANCEMENT, never a hard dependency — a login
+    failure is recorded in the summary and the refresh continues anonymously
+    (identical to pre-P1.9 behaviour) rather than aborting.
+
+    ASSUMPTION CAVEAT: BiznesRadar's real login markup is unverified in this
+    codebase (see app/scrapers/biznesradar.py BrClient docstring) — an
+    "error" here may mean the parser needs correcting against a real
+    recorded login page, not that BR_USERNAME/BR_PASSWORD are wrong.
+    """
+    settings = get_settings()
+    if not (settings.br_username and settings.br_password):
+        summary["br_login"] = "pominięto (brak danych logowania)"
+        return None
+    try:
+        client = biznesradar.BrClient()
+        client.login(settings.br_username, settings.br_password)
+    except (
+        biznesradar.BrLoginError,
+        polite_http.FetchError,
+        requests.RequestException,
+    ) as exc:
+        logger.warning("BiznesRadar premium login failed: %s", exc)
+        summary["br_login"] = f"error: {exc}"
+        return None
+    summary["br_login"] = f"ok (zalogowano jako {settings.br_username})"
+    return client.session
+
+
+def check_br_login() -> dict:
+    """Diagnostics endpoint: verifies BR_USERNAME/BR_PASSWORD actually work.
+
+    Mirrors app.services.forum_sync.check_login(). Must NEVER raise. See the
+    ASSUMPTION CAVEAT on _build_br_session/BrClient — a real recorded login
+    page has not been verified in this environment.
+    """
+    settings = get_settings()
+    if not (settings.br_username and settings.br_password):
+        return {"ok": False, "detail": "BR_USERNAME / BR_PASSWORD not configured."}
+    try:
+        client = biznesradar.BrClient()
+        client.login(settings.br_username, settings.br_password)
+        return {"ok": True, "detail": f"Logged in as {settings.br_username}."}
+    except Exception as exc:  # noqa: BLE001 — diagnostics endpoint, see docstring
+        return {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+
+
 def get_or_create_company(db: Session, ticker: str) -> Company:
     ticker = ticker.strip().upper()
     company = db.scalar(select(Company).where(Company.ticker == ticker))
@@ -84,11 +135,20 @@ def _is_fresh(db: Session, url: str) -> bool:
     return last_ok >= threshold
 
 
-def _get_page(db: Session, url: str, force: bool) -> str | None:
-    """Fetch a page through the polite client; None means 'use cache / skip'."""
+def _get_page(
+    db: Session,
+    url: str,
+    force: bool,
+    session: requests.Session | None = None,
+) -> str | None:
+    """Fetch a page through the polite client; None means 'use cache / skip'.
+
+    `session` reuses cookies (P1.9: an optional logged-in BiznesRadar premium
+    session) — None (the default) fetches exactly as before this task.
+    """
     if not force and _is_fresh(db, url):
         return None
-    response = polite_http.fetch(url)
+    response = polite_http.fetch(url, session=session)
     _log_fetch(db, url, response.status_code)
     if response.status_code == 404:
         raise LookupError(f"404 for {url}")
@@ -248,14 +308,21 @@ def refresh_company(
     requests_before = db.scalar(select(func.count()).select_from(FetchLog)) or 0
     profile_price: float | None = None
 
+    # P1.9: optional premium session, built once and reused for every BR page
+    # this refresh touches. No BR_USERNAME/BR_PASSWORD configured -> session
+    # stays None and every fetch below behaves exactly as before this task.
+    br_session = _build_br_session(summary)
+
     if scope in ("financials", "all"):
-        profile_price = _refresh_profile(db, company, force, summary)
-        _refresh_reports(db, company, force, summary)
-        _refresh_indicators(db, company, force, summary)
-        _refresh_dividends(db, company, force, summary)
+        profile_price = _refresh_profile(db, company, force, summary, session=br_session)
+        _refresh_reports(db, company, force, summary, session=br_session)
+        _refresh_indicators(db, company, force, summary, session=br_session)
+        _refresh_dividends(db, company, force, summary, session=br_session)
 
         every_page_failed = all(
-            status.startswith(("error", "none")) for status in summary.values()
+            status.startswith(("error", "none"))
+            for key, status in summary.items()
+            if key != "br_login"
         )
         if every_page_failed and company.name is None and not _has_any_data(db, company):
             db.commit()  # keep fetch_log entries for debugging
@@ -265,7 +332,9 @@ def refresh_company(
             )
 
     if scope in ("prices", "all"):
-        summary["prices"] = _refresh_prices(db, company, fallback_price=profile_price)
+        summary["prices"] = _refresh_prices(
+            db, company, fallback_price=profile_price, session=br_session
+        )
 
     company.updated_at = utcnow()
     try:
@@ -300,7 +369,11 @@ def _report_slug(company: Company) -> str:
 
 
 def _refresh_profile(
-    db: Session, company: Company, force: bool, summary: dict[str, str]
+    db: Session,
+    company: Company,
+    force: bool,
+    summary: dict[str, str],
+    session: requests.Session | None = None,
 ) -> float | None:
     """Update company metadata; returns the current quote when the page shows
     one (used as the price source of last resort).
@@ -311,7 +384,7 @@ def _refresh_profile(
     url = biznesradar.page_url("profile", company.ticker)
     must_fetch = force or company.br_slug is None
     try:
-        html = _get_page(db, url, must_fetch)
+        html = _get_page(db, url, must_fetch, session=session)
     except (LookupError, polite_http.FetchError, requests.RequestException) as exc:
         logger.warning("profile refresh failed for %s: %s", company.ticker, exc)
         summary["profile"] = f"error: {exc}"
@@ -358,12 +431,16 @@ def _grid_warning(table: biznesradar.ReportTable) -> str:
 
 
 def _refresh_reports(
-    db: Session, company: Company, force: bool, summary: dict[str, str]
+    db: Session,
+    company: Company,
+    force: bool,
+    summary: dict[str, str],
+    session: requests.Session | None = None,
 ) -> None:
     for kind, (statement, freq) in REPORT_PAGES.items():
         url = biznesradar.page_url(kind, _report_slug(company))
         try:
-            html = _get_page(db, url, force)
+            html = _get_page(db, url, force, session=session)
             if html is None:
                 summary[kind] = "cached"
                 continue
@@ -381,12 +458,16 @@ def _refresh_reports(
 
 
 def _refresh_indicators(
-    db: Session, company: Company, force: bool, summary: dict[str, str]
+    db: Session,
+    company: Company,
+    force: bool,
+    summary: dict[str, str],
+    session: requests.Session | None = None,
 ) -> None:
     for kind in INDICATOR_PAGES:
         url = biznesradar.page_url(kind, _report_slug(company))
         try:
-            html = _get_page(db, url, force)
+            html = _get_page(db, url, force, session=session)
             if html is None:
                 summary[kind] = "cached"
                 continue
@@ -409,11 +490,15 @@ def _refresh_indicators(
 
 
 def _refresh_dividends(
-    db: Session, company: Company, force: bool, summary: dict[str, str]
+    db: Session,
+    company: Company,
+    force: bool,
+    summary: dict[str, str],
+    session: requests.Session | None = None,
 ) -> None:
     url = biznesradar.page_url("dividends", _report_slug(company))
     try:
-        html = _get_page(db, url, force)
+        html = _get_page(db, url, force, session=session)
         if html is None:
             summary["dividends"] = "cached"
             return
@@ -432,7 +517,9 @@ def _refresh_dividends(
 
 
 def _fetch_br_history(
-    db: Session, company: Company
+    db: Session,
+    company: Company,
+    session: requests.Session | None = None,
 ) -> list[biznesradar.PriceBar]:
     """Archiwum notowań, PAGE 1 ONLY (~50 most recent sessions).
 
@@ -441,7 +528,7 @@ def _fetch_br_history(
     top-up and give a usable degraded history when deep sources are down.
     """
     url = biznesradar.page_url("price_history", _report_slug(company))
-    response = polite_http.fetch(url)
+    response = polite_http.fetch(url, session=session)
     _log_fetch(db, url, response.status_code)
     if response.status_code == 404:
         raise LookupError(f"404 for {url}")
@@ -450,7 +537,10 @@ def _fetch_br_history(
 
 
 def _refresh_prices(
-    db: Session, company: Company, fallback_price: float | None = None
+    db: Session,
+    company: Company,
+    fallback_price: float | None = None,
+    session: requests.Session | None = None,
 ) -> str:
     """Source chain, reworked after both CSV providers broke in production:
 
@@ -529,7 +619,7 @@ def _refresh_prices(
     def try_br_history() -> None:
         nonlocal bars, source
         try:
-            history_bars = _fetch_br_history(db, company)
+            history_bars = _fetch_br_history(db, company, session=session)
             if history_bars:
                 bars = history_bars
                 source = "BR archiwum"

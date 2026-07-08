@@ -297,12 +297,255 @@ input, select {
   .data-note { font-size: 12px; color: var(--text-warning); margin: 2px 0 0; }
 }
 
+// ---------------------------------------------------------------- thesis
+// Investment-thesis synthesis card (Przegląd tab, at the very top — the
+// synthesis; .insights sits below as its evidence). Self-contained so the
+// insights block stays untouched; mirrors its divider/section look so the two
+// cards read as one set.
+.thesis {
+  .rationale { color: var(--text-secondary); line-height: 1.5; margin: 10px 0 0; }
+  .ai-note { font-size: 12px; color: var(--text-muted); margin: 4px 0 0; }
+
+  // Headline verdict — the single most decision-relevant output, so it leads the
+  // card (icon + large label) rather than sitting as a small pill among the meta
+  // chips. Icon + text carry the meaning, so it never relies on colour alone.
+  .verdict {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    .verdict-icon { flex: none; display: flex; }
+    .verdict-label { font-size: 17px; font-weight: 500; line-height: 1.2; }
+    &.success { color: var(--text-success); }
+    &.warning { color: var(--text-warning); }
+    &.neutral { color: var(--text-primary); }
+    &.muted { color: var(--text-muted); }
+  }
+
+  // sections stacked inside one card → hairline dividers instead of gaps
+  .thesis-section { margin-top: 14px; padding-top: 12px; border-top: 0.5px solid var(--border); }
+  .thesis-title { font-weight: 500; margin: 0 0 8px; }
+
+  // pros/cons: colour only the bullet marker (verdict hint without shouting),
+  // mirroring .insights .points
+  .points {
+    margin: 0;
+    padding-left: 16px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    li { padding: 3px 0; }
+    &.good li::marker { color: var(--text-success); }
+    &.bad li::marker { color: var(--text-danger); }
+  }
+  .points-empty { color: var(--text-muted); font-size: 13px; margin: 0; }
+
+  // investor-principle tag trailing each pro/con — subtle, not shouting
+  .principle {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  // "Co sprawdzić dalej" — the human-analysis entrance
+  .verify-item {
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    margin: 0;
+    padding: 3px 0;
+    .why { color: var(--text-muted); }
+  }
+
+  .thesis-read { color: var(--text-secondary); line-height: 1.55; margin: 0; }
+  .valuation-basis { font-size: 12px; color: var(--text-muted); margin: 10px 0 0; }
+  .disclaimer {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-style: italic;
+    line-height: 1.5;
+    margin: 12px 0 0;
+  }
+}
+
+// -------------------------------------------------------------- scenarios
+// Scenario-simulation card (Przegląd tab, directly below .thesis — the
+// projections off the thesis read). Self-contained; reuses the thesis divider
+// look so the two cards read as one set.
+.scenarios {
+  .framing { font-size: 12px; color: var(--text-muted); margin: 10px 0 0; }
+  .ai-note { font-size: 12px; color: var(--text-muted); margin: 8px 0 0; }
+
+  // Headline: the probability-weighted potential is the card's primary output,
+  // so it leads (large signed number) with the current→expected reconciliation
+  // and the confidence badge beside it; the per-scenario rows below are the
+  // evidence. The sign (+/−) doubles the colour so it is never colour-only.
+  .headline {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 18px;
+    margin: 12px 0 2px;
+    .headline-k {
+      display: block;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      color: var(--text-muted);
+      margin-bottom: 2px;
+    }
+    .potential { font-size: 26px; font-weight: 500; line-height: 1; }
+    .potential.pos { color: var(--text-success); }
+    .potential.neg { color: var(--text-danger); }
+    .potential.muted, .potential.secondary { color: var(--text-muted); font-size: 18px; }
+    .headline-sub { font-size: 12px; color: var(--text-secondary); }
+    .headline-gap { font-size: 12px; color: var(--text-warning); }
+  }
+
+  .thesis-section { margin-top: 14px; padding-top: 12px; border-top: 0.5px solid var(--border); }
+  .thesis-title { font-weight: 500; margin: 0 0 8px; font-size: 13px; }
+
+  .scenario-list { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+
+  // one scenario = a soft inset row, kept visually lighter than the parent card
+  .scenario {
+    padding: 10px 12px;
+    border: 0.5px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-2, rgba(127, 127, 127, 0.04));
+    .prob { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+    .narrative { color: var(--text-secondary); line-height: 1.5; margin: 8px 0 0; font-size: 13px; }
+    .basis { font-size: 11.5px; color: var(--text-muted); margin: 8px 0 0; }
+    .assumptions {
+      margin: 8px 0 0;
+      padding-left: 16px;
+      font-size: 11.5px;
+      color: var(--text-muted);
+      li { padding: 2px 0; }
+    }
+  }
+
+  // target / potential / horizon metric strip
+  .scenario-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+    > div { display: flex; flex-direction: column; gap: 2px; }
+    .k { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; }
+    .v { font-size: 14px; font-weight: 500; }
+    .v.pos { color: var(--text-success); }
+    .v.neg { color: var(--text-danger); }
+    .v.muted { color: var(--text-muted); }
+    .v.secondary { color: var(--text-secondary); }
+  }
+
+  // AI valuation block (WP4) — a distinct section inside the scenarios card,
+  // below the weighted-EV strip. Reuses .thesis-title / .scenario-metrics /
+  // .framing / .ai-note (all .scenarios-scoped); only its prose needs styling.
+  .valuation {
+    .basis { font-size: 11.5px; color: var(--text-muted); margin: 8px 0 0; }
+    .rationale {
+      color: var(--text-secondary);
+      line-height: 1.5;
+      margin: 8px 0 0;
+      font-size: 13px;
+    }
+    .wwc-item {
+      margin: 6px 0 0;
+      font-size: 12.5px;
+      line-height: 1.5;
+      .why { color: var(--text-muted); }
+    }
+  }
+
+  .disclaimer {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-style: italic;
+    line-height: 1.5;
+    margin: 12px 0 0;
+  }
+}
+
+// -------------------------------------------------------------- analysis
+// AI-analysis verdict card (Analiza AI tab, Phase 5 P5.7 — the Claude-API
+// verdict). Self-contained like .thesis/.scenarios: same divided-section
+// look, own copies of the shared-looking classes (.points/.verify-item/
+// .disclaimer) so this card renders correctly wherever it's used.
+.analysis {
+  // Headline: the alignment score is the card's primary output, so it leads
+  // (large tone-coloured number) — same convention as .thesis .verdict and
+  // .scenarios .headline .potential.
+  .score {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    .score-value { font-size: 26px; font-weight: 500; line-height: 1; }
+    .score-label { font-size: 12px; color: var(--text-muted); }
+    &.success .score-value { color: var(--text-success); }
+    &.warning .score-value { color: var(--text-warning); }
+    &.danger .score-value { color: var(--text-danger); }
+    &.muted .score-value { color: var(--text-muted); }
+  }
+
+  .analysis-section { margin-top: 14px; padding-top: 12px; border-top: 0.5px solid var(--border); }
+  .analysis-title { font-weight: 500; margin: 0 0 8px; font-size: 13px; }
+
+  .catalyst-row {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 5px 0;
+    font-size: 13px;
+    .type { font-weight: 500; }
+    .desc { color: var(--text-secondary); flex: 1 1 260px; }
+  }
+
+  // red_flags list — colour only the bullet marker, mirroring .thesis .points
+  .points {
+    margin: 0;
+    padding-left: 16px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    li { padding: 3px 0; }
+    &.bad li::marker { color: var(--text-danger); }
+  }
+
+  // forum_insights + verify_next lines
+  .verify-item {
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    margin: 0;
+    padding: 3px 0;
+    .why { color: var(--text-muted); }
+    .badge { margin-left: 6px; }
+  }
+
+  .disclaimer {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-style: italic;
+    line-height: 1.5;
+    margin: 12px 0 0;
+  }
+}
+
 // -------------------------------------------------------------- utilities
 .row { display: flex; align-items: center; gap: 10px; }
 .spread { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .grid-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-@media (max-width: 760px) { .grid-2 { grid-template-columns: 1fr; } }
+// Asymmetric variant (e.g. forecast form | result). A class, not an inline
+// style, so the mobile 1-column collapse below can actually override it.
+.grid-2.wide-left { grid-template-columns: 1.4fr 1fr; }
+@media (max-width: 760px) {
+  .grid-2 { grid-template-columns: 1fr; }
+  .grid-2.wide-left { grid-template-columns: 1fr; }
+}
+
+// Horizontal-scroll wrapper for wide tables on a phone (the watchlist has ~10
+// columns). Keeps the layout intact instead of overflowing the viewport.
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
 .muted { color: var(--text-muted); }
 .secondary { color: var(--text-secondary); }

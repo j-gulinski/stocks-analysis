@@ -1,0 +1,552 @@
+"""Scenario simulation engine (stage SC / WP3a — docs/plan-stage-scenarios.md).
+
+What this is
+-----------
+A **small, discrete set of scenario projections** per stock — a
+`negative / base / positive` trio built by reverting the company's *own*
+valuation multiple toward its historical quartiles (Q1 / median / Q3), each
+carrying a probability, a target valuation, an expected repricing horizon, an
+implied upside, and a set-level probability-weighted expected value.
+
+What this is NOT (plan Non-goals, binding)
+-----------------------------------------
+- **Not** a stochastic Monte-Carlo — three deterministic multiple-reversion
+  paths, not thousands of random draws.
+- **Not** a buy/sell signal — every scenario is an *if-this-then-that*
+  projection with the standing `thesis.DISCLAIMER` and a fixed "punkt wejścia w
+  analizę, nie sygnał" framing.
+- **Not** a re-computation of any indicator — the target price is a NEW computed
+  number (a pure function of sourced inputs), never a restated dossier metric.
+- **Missing driver ≠ invented target** — if the sector multiple's per-share
+  driver (EBITDA TTM, book value, EPS) is missing, the scenario *labels the gap*
+  and yields a `None` target; it never guesses a price (the fabrication guard in
+  `test_scenarios.py` enforces this).
+
+Purity (plan acceptance #1). This module imports only `metrics` / `thesis` /
+`strategies` + stdlib — no DB, no framework, no PyPI, and (deliberately) not
+`thesis_ai`, so it — and `test_scenarios.py` — run under the bare system Python
+in the sandbox. It therefore carries its OWN small number-extraction vocabulary
+(`_numbers` / `input_numbers`) mirroring the established fabrication-guard
+grammar in `thesis_ai`/`test_thesis`, rather than importing it.
+
+For a C# dev: think of `build_scenario_set` as a strategy-pattern *projector* —
+it takes the sourced inputs + a `StrategyProfile` and returns a small immutable
+result collection (`ScenarioSet`), each element a pure projection. The
+`scenarios_ai` refiner then decorates this pure compute with an injected
+transport + a validation guard (same shape as the thesis refiner).
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+from app.services import thesis
+from app.services.strategies import base
+
+# --- fixed vocabulary (generic, not strategy data) ---------------------------
+
+# The three deterministic reversion paths. Probabilities are a documented
+# default that sums to 1.00 BY CONSTRUCTION (plan §WP3a); the AI refiner may
+# add event scenarios and renormalise, but the deterministic set is always
+# coherent. Each row: kind, id, Polish label, probability, own-history quartile
+# key, and the Polish basis phrase naming that quartile.
+_SCENARIO_SPECS: tuple[tuple[str, str, str, float, str, str], ...] = (
+    ("negative", "negative", "Scenariusz negatywny", 0.25, "q1",
+     "dolny kwartyl własnej historii"),
+    ("base", "base", "Scenariusz bazowy", 0.50, "median",
+     "mediana własnej historii"),
+    ("positive", "positive", "Scenariusz pozytywny", 0.25, "q3",
+     "górny kwartyl własnej historii"),
+)
+
+# Multiple-type token → Polish label shown in narratives / basis labels.
+_MULTIPLE_LABEL = {"cz": "C/Z", "cwk": "C/WK", "ev_ebitda": "EV/EBITDA"}
+
+# Which valuation criterion maps to which multiple-type token. The APPLICABILITY
+# (which sector gets which) is NOT re-encoded here — it is read from the
+# profile's own criteria (malik.py: `cwk`→finance/realestate, `ev_ebitda`→
+# energy), so there is no second copy of the sector mapping to drift.
+_CRITERION_MULTIPLE = {"pe_vs_history": "cz", "cwk": "cwk", "ev_ebitda": "ev_ebitda"}
+
+# How each reversion path narrates the multiple move (digit-free leads).
+_KIND_LEAD = {
+    "negative": "Mnożnik osuwa się w dół",
+    "base": "Mnożnik wraca do środka",
+    "positive": "Mnożnik odbija w górę",
+}
+
+# Fixed framing line (plan §WP3a): an analysis entrance, never a signal. Kept
+# digit-free so it can never trip the fabrication guard.
+FRAMING = "To punkt wejścia w analizę, nie sygnał kupna/sprzedaży."
+
+# Default repricing horizon when the corpus has no comparable durations
+# (deterministic engine has none — WP4's corpus lets the AI cite real ones).
+# The months live in the STRUCTURED fields; the basis label stays digit-free.
+_DEFAULT_HORIZON = {
+    "low_months": 12,
+    "high_months": 24,
+    "basis_label": "domyślny zakres — brak porównywalnych repricingów w korpusie",
+}
+
+# Public copy for `scenarios_ai` event scenarios (they inherit the same labelled
+# default band; WP4's corpus lets the refiner cite real repricing durations).
+DEFAULT_HORIZON = dict(_DEFAULT_HORIZON)
+
+# Same number grammar as the deterministic thesis fabrication guard: optional
+# sign, digits, optional decimal comma/period.
+_NUM = re.compile(r"-?\d+(?:[.,]\d+)?")
+
+
+# ------------------------------------------------------------------ data classes
+
+
+@dataclass
+class ScenarioInputs:
+    """The sourced pieces the projector consumes.
+
+    Wraps `thesis.ThesisInputs` (so the whole dossier read is available for the
+    AI refiner + the fabrication vocabulary) and adds the valuation drivers the
+    target math needs. All money in `tys. PLN` except `current_price` (PLN/share)
+    and `eps` (PLN/share); `multiple_history` is the own-history stats of the
+    SECTOR-relevant multiple (from `metrics.compute_multiple_history`).
+    """
+
+    thesis_inputs: thesis.ThesisInputs
+    multiple_history: dict = field(default_factory=dict)
+    eps: float | None = None  # PLN per share (from ttm.eps)
+    book_value: float | None = None  # equity, tys. PLN (latest balance)
+    ebitda_ttm: float | None = None  # tys. PLN or None (labelled gap)
+    shares_outstanding: int | None = None
+    current_price: float | None = None  # PLN (from ttm.price)
+    net_cash: float | None = None  # tys. PLN (cash − debt)
+
+    def to_dict(self) -> dict:
+        return {
+            "multiple_history": self.multiple_history,
+            "eps": self.eps,
+            "book_value": self.book_value,
+            "ebitda_ttm": self.ebitda_ttm,
+            "shares_outstanding": self.shares_outstanding,
+            "current_price": self.current_price,
+            "net_cash": self.net_cash,
+        }
+
+
+@dataclass
+class Scenario:
+    id: str
+    kind: str  # negative | base | positive | event
+    label: str  # Polish
+    probability: float  # 0–1
+    narrative: str  # Polish, sourced (or a labelled gap)
+    target_multiple: dict  # {"type", "value" (float|None), "basis_label"}
+    target_price: float | None  # PLN
+    implied_upside_pct: float | None
+    horizon: dict  # {"low_months", "high_months", "basis_label"}
+    drivers: list[str] = field(default_factory=list)  # each traceable
+    assumptions: list[str] = field(default_factory=list)  # each labelled
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "kind": self.kind,
+            "label": self.label,
+            "probability": self.probability,
+            "narrative": self.narrative,
+            "target_multiple": self.target_multiple,
+            "target_price": self.target_price,
+            "implied_upside_pct": self.implied_upside_pct,
+            "horizon": self.horizon,
+            "drivers": list(self.drivers),
+            "assumptions": list(self.assumptions),
+        }
+
+
+@dataclass
+class ScenarioSet:
+    scenarios: list[Scenario]
+    valuation_multiple: str  # cz | cwk | ev_ebitda (the effective one used)
+    current_price: float | None
+    weighted_expected_price: float | None  # PLN
+    weighted_expected_upside_pct: float | None
+    framing: str
+    disclaimer: str
+    engine: str = "deterministic"  # scenarios_ai may set "ai"
+
+    def to_dict(self) -> dict:
+        return {
+            "scenarios": [s.to_dict() for s in self.scenarios],
+            "valuation_multiple": self.valuation_multiple,
+            "current_price": self.current_price,
+            "weighted_expected_price": self.weighted_expected_price,
+            "weighted_expected_upside_pct": self.weighted_expected_upside_pct,
+            "framing": self.framing,
+            "disclaimer": self.disclaimer,
+            "engine": self.engine,
+        }
+
+
+# ------------------------------------------------------------ number helpers
+# Own copy of the fabrication-guard vocabulary (see module docstring: keeping
+# this module free of a `thesis_ai` import is what lets it run in-session).
+
+
+def _numbers(text: str) -> set[float]:
+    """Every numeric token in `text`, normalised (Polish comma → dot, rounded)."""
+    return {round(float(tok.replace(",", ".")), 4) for tok in _NUM.findall(text)}
+
+
+def _add_num(nums: set[float], value) -> None:
+    """Add a scalar at BOTH 4-dp and 2-dp precision. Prose is formatted at 2 dp
+    (`_fmt`), so the 2-dp variant guarantees a quoted figure is inside the
+    allowed set even when the stored value carries more precision."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return
+    nums.add(round(float(value), 4))
+    nums.add(round(float(value), 2))
+
+
+def input_numbers(inputs: ScenarioInputs) -> set[float]:
+    """Every number the engine is ALLOWED to quote from sourced data — the thesis
+    inputs (insights/ttm/pe_history/net_cash/forecast/prescore), the selected
+    multiple's own-history stats, and the valuation drivers. Mirrors
+    `thesis_ai.collect_input_numbers`, extended with the scenario drivers."""
+    ti = inputs.thesis_inputs
+    company = ti.insights
+    parts = [
+        str(company.coverage),
+        str(company.data_notes),
+        company.summary,
+        company.size_label or "",
+    ]
+    for ins in company.key_indicators:
+        parts += [ins.name, ins.value, ins.comment, ins.brief or ""]
+    for miss in company.missing:
+        parts += [miss.name, miss.why]
+    parts += [
+        str(ti.ttm),
+        str(ti.pe_history),
+        str(ti.net_cash),
+        str(ti.latest_forecast),
+        str(ti.prescore),
+        str(inputs.multiple_history),
+    ]
+    nums: set[float] = set()
+    for part in parts:
+        nums |= _numbers(part)
+    for value in (inputs.multiple_history or {}).values():
+        _add_num(nums, value)
+    for driver in (
+        inputs.eps,
+        inputs.book_value,
+        inputs.ebitda_ttm,
+        inputs.shares_outstanding,
+        inputs.current_price,
+        inputs.net_cash,
+    ):
+        _add_num(nums, driver)
+    return nums
+
+
+def computed_numbers(scenario_set: dict) -> set[float]:
+    """The numbers the engine itself COMPUTED — the structured numeric outputs
+    (probabilities, target prices/multiples/upsides, horizons, weighted EV). Used
+    together with `input_numbers` as the allowed set for the deterministic-set
+    traceability check."""
+    nums: set[float] = set()
+    _add_num(nums, scenario_set.get("current_price"))
+    _add_num(nums, scenario_set.get("weighted_expected_price"))
+    _add_num(nums, scenario_set.get("weighted_expected_upside_pct"))
+    for sc in scenario_set.get("scenarios", []):
+        _add_num(nums, sc.get("probability"))
+        _add_num(nums, sc.get("target_price"))
+        _add_num(nums, sc.get("implied_upside_pct"))
+        tm = sc.get("target_multiple") or {}
+        _add_num(nums, tm.get("value"))
+        hz = sc.get("horizon") or {}
+        _add_num(nums, hz.get("low_months"))
+        _add_num(nums, hz.get("high_months"))
+    return nums
+
+
+def prose_numbers(scenario_set: dict) -> set[float]:
+    """Every number in the PROSE fields the user reads (narrative, labels,
+    basis labels, drivers, assumptions, framing). The fabrication guard requires
+    these to be a subset of `input_numbers ∪ computed_numbers`."""
+    parts = [
+        scenario_set.get("framing", ""),
+        scenario_set.get("disclaimer", ""),
+    ]
+    for sc in scenario_set.get("scenarios", []):
+        parts += [sc.get("label", ""), sc.get("narrative", "")]
+        parts.append((sc.get("target_multiple") or {}).get("basis_label", ""))
+        parts.append((sc.get("horizon") or {}).get("basis_label", ""))
+        parts += list(sc.get("drivers") or [])
+        parts += list(sc.get("assumptions") or [])
+    nums: set[float] = set()
+    for part in parts:
+        nums |= _numbers(str(part))
+    return nums
+
+
+def scenario_numbers(scenario_set: dict) -> set[float]:
+    """EVERY number in a scenario set (structured + prose). This is the
+    `engine_scenario_numbers` term of the AI refiner's widened allowed-set —
+    a number the deterministic engine legitimately produced."""
+    return computed_numbers(scenario_set) | prose_numbers(scenario_set)
+
+
+# ------------------------------------------------------------- formatting
+
+
+def _fmt(value: float) -> str:
+    """Polish decimal, ≤2 dp, trailing zeros trimmed, so the printed token parses
+    back to `round(value, 2)` — keeping the fabrication guard exact (the 2-dp
+    variant is always in the allowed set via `_add_num`)."""
+    text = f"{round(value, 2):.2f}".rstrip("0").rstrip(".")
+    return text.replace(".", ",")
+
+
+def _fmt_signed(value: float) -> str:
+    body = _fmt(value)
+    return body if body.startswith("-") else "+" + body
+
+
+# --------------------------------------------------------- multiple selection
+
+
+def select_valuation_multiple(sector_group: str | None, profile: base.StrategyProfile) -> str:
+    """The sector-appropriate multiple token for `profile` (`cz` | `cwk` |
+    `ev_ebitda`).
+
+    Derived from the profile's `entry_rule.valuation` ∩ the criteria that APPLY
+    to this sector: a sector-specific valuation criterion (`cwk` for
+    finance/realestate, `ev_ebitda` for energy — as encoded in `malik.py`) wins;
+    otherwise the generic own-history `cz`. No hard-coded sector set here — the
+    applicability lives once, on the criteria.
+    """
+    rule = profile.entry_rule
+    for crit in profile.applicable_criteria(None, sector_group):
+        if crit.id in rule.valuation and crit.applies_to_sectors is not None:
+            mult = _CRITERION_MULTIPLE.get(crit.id)
+            if mult is not None:
+                return mult
+    return "cz"
+
+
+# ------------------------------------------------------------- target math
+
+
+def _target_price(mult_type: str, mult_value: float | None, inputs: ScenarioInputs):
+    """Target price (PLN) for one reversion multiple, or (None, note) when a
+    driver is missing. Money rules: statements are `tys. PLN` → ×1000 to PLN
+    exactly where the equity bridge needs absolute figures."""
+    if mult_value is None:
+        return None, None
+    if mult_type == "cz":
+        if inputs.eps is None:
+            return None, "Brak EPS (spółka nierentowna lub brak kursu) — ceny nie wyznaczono."
+        return round(mult_value * inputs.eps, 2), None
+    if mult_type == "cwk":
+        if inputs.book_value is None or not inputs.shares_outstanding:
+            return None, "Brak wartości księgowej lub liczby akcji — ceny nie wyznaczono."
+        bvps = inputs.book_value * 1000.0 / inputs.shares_outstanding  # tys.→PLN
+        return round(mult_value * bvps, 2), None
+    if mult_type == "ev_ebitda":
+        if inputs.ebitda_ttm is None or not inputs.shares_outstanding:
+            return None, "Brak EBITDA TTM lub liczby akcji — ceny nie wyznaczono."
+        implied_ev = mult_value * inputs.ebitda_ttm * 1000.0  # tys.→PLN
+        # net_debt = −net_cash: positive net cash ADDS to equity, net debt SUBTRACTS.
+        net_debt_pln = -(inputs.net_cash or 0.0) * 1000.0
+        implied_equity = implied_ev - net_debt_pln
+        return round(implied_equity / inputs.shares_outstanding, 2), None
+    return None, None
+
+
+def _upside(target_price: float | None, current_price: float | None):
+    if target_price is None or current_price is None or current_price == 0:
+        return None
+    return round((target_price / current_price - 1.0) * 100.0, 2)
+
+
+def _resolve_multiple(inputs: ScenarioInputs, preferred: str):
+    """Pick the EFFECTIVE multiple + its history, falling back to `cz` when the
+    preferred multiple's driver/history is unavailable (plan §WP3a). Returns
+    (effective_type, history_dict, gap_note|None). Never fabricates: if even
+    `cz` is unavailable the history is empty and every target ends up `None`."""
+
+    def driver_ok(mult: str) -> bool:
+        if mult == "cz":
+            return inputs.eps is not None
+        if mult == "cwk":
+            return inputs.book_value is not None and bool(inputs.shares_outstanding)
+        if mult == "ev_ebitda":
+            return inputs.ebitda_ttm is not None and bool(inputs.shares_outstanding)
+        return False
+
+    def has_history(hist: dict) -> bool:
+        return bool(hist) and hist.get("median") is not None
+
+    pref_hist = inputs.multiple_history or {}
+    if driver_ok(preferred) and has_history(pref_hist):
+        return preferred, pref_hist, None
+
+    # Fall back to the company's own C/Z history (always carried on the thesis
+    # inputs as `pe_history`), labelling the gap honestly.
+    cz_hist = (inputs.thesis_inputs.pe_history or {}) if inputs.thesis_inputs else {}
+    gap = None
+    if preferred != "cz":
+        gap = (
+            f"Brak danych dla mnożnika {_MULTIPLE_LABEL.get(preferred, preferred)} "
+            "— użyto własnej historii C/Z (fallback)."
+        )
+    if driver_ok("cz") and has_history(cz_hist):
+        return "cz", cz_hist, gap
+    # Nothing usable → targets will be None, gap surfaced on every scenario.
+    full_gap = (gap + " " if gap else "") + (
+        "Brak policzalnego mnożnika własnej historii — ceny docelowej nie wyznaczono."
+    )
+    return "cz", cz_hist, full_gap
+
+
+# ------------------------------------------------------------- construction
+
+
+def _build_scenario(
+    spec: tuple, effective: str, hist: dict, inputs: ScenarioInputs, gap_note: str | None
+) -> Scenario:
+    kind, sid, label, prob, quartile_key, quartile_phrase = spec
+    n = hist.get("n") if isinstance(hist.get("n"), int) else 0
+    mult_value = hist.get(quartile_key)
+    mult_label = _MULTIPLE_LABEL.get(effective, effective)
+
+    target_price, price_note = _target_price(effective, mult_value, inputs)
+    upside = _upside(target_price, inputs.current_price)
+
+    drivers = [
+        "Rewersja mnożnika wyceny do poziomu z własnej historii spółki",
+        "Wynik (zysk / EBITDA / wartość księgowa) utrzymany na bieżącym poziomie",
+    ]
+    assumptions = [
+        f"Założenie: mnożnik {mult_label} wraca do poziomu „{quartile_phrase}” "
+        "(porównanie do WŁASNEJ historii, nie do rynku/branży)",
+        "Założenie: brak zmiany wyniku — projekcja czysto wycenowa (sama rewersja "
+        "mnożnika)",
+    ]
+
+    if target_price is None or mult_value is None:
+        # Labelled gap — NEVER a fabricated price (plan §Risks).
+        note = gap_note or price_note or "Brak danych do wyznaczenia ceny docelowej."
+        basis = "brak policzalnej własnej historii mnożnika — ceny nie wyznaczono"
+        narrative = (
+            f"{_KIND_LEAD[kind]}: {mult_label} miałby wrócić do poziomu "
+            f"„{quartile_phrase}”, ale brak danych do wyznaczenia ceny docelowej "
+            "(luka danych — patrz założenia)."
+        )
+        assumptions = [f"Luka danych: {note}"] + assumptions
+        return Scenario(
+            id=sid,
+            kind=kind,
+            label=label,
+            probability=prob,
+            narrative=narrative,
+            target_multiple={"type": effective, "value": None, "basis_label": basis},
+            target_price=None,
+            implied_upside_pct=None,
+            horizon=dict(_DEFAULT_HORIZON),
+            drivers=drivers,
+            assumptions=assumptions,
+        )
+
+    basis = f"{quartile_phrase} {mult_label} {_fmt(mult_value)} (n={n})"
+    if inputs.current_price is None:
+        # WP5 fix: a target price CAN be computable (EPS/book value/EBITDA known)
+        # while the current price is not (e.g. every price source failed this
+        # refresh, or a fresh listing) — `upside` is honestly `None` from
+        # `_upside()`'s own guard, but formatting it via `_fmt_signed`/`_fmt`
+        # (which assume a number) used to crash the whole dossier. Never
+        # fabricate a comparison; label the gap instead (same honesty rule as
+        # a missing multiple driver, just for the OTHER side of the fraction).
+        narrative = (
+            f"{_KIND_LEAD[kind]} do poziomu „{quartile_phrase}” ({mult_label} "
+            f"{_fmt(mult_value)}) przy utrzymanym wyniku — cena docelowa "
+            f"{_fmt(target_price)} zł; potencjału wobec bieżącego kursu nie "
+            "wyznaczono (brak aktualnej ceny)."
+        )
+        assumptions = [
+            "Luka danych: brak bieżącego kursu — potencjału (upside) wobec "
+            "aktualnej ceny nie wyznaczono."
+        ] + assumptions
+    else:
+        narrative = (
+            f"{_KIND_LEAD[kind]} do poziomu „{quartile_phrase}” ({mult_label} "
+            f"{_fmt(mult_value)}) przy utrzymanym wyniku — cena docelowa "
+            f"{_fmt(target_price)} zł, {_fmt_signed(upside)}% wobec bieżącego kursu "
+            f"{_fmt(inputs.current_price)} zł."
+        )
+    if gap_note:  # C/Z fallback in play — say so on the scenario too.
+        assumptions = [f"Uwaga: {gap_note}"] + assumptions
+    return Scenario(
+        id=sid,
+        kind=kind,
+        label=label,
+        probability=prob,
+        narrative=narrative,
+        target_multiple={"type": effective, "value": mult_value, "basis_label": basis},
+        target_price=target_price,
+        implied_upside_pct=upside,
+        horizon=dict(_DEFAULT_HORIZON),
+        drivers=drivers,
+        assumptions=assumptions,
+    )
+
+
+def weighted_expected(scenarios: list, current_price: float | None):
+    """Probability-weighted expected price (Σ pᵢ·target_priceᵢ over priced
+    scenarios) and its implied upside vs the current price. `None` when no
+    scenario carries a price."""
+    priced = [
+        (s["probability"] if isinstance(s, dict) else s.probability,
+         s["target_price"] if isinstance(s, dict) else s.target_price)
+        for s in scenarios
+    ]
+    priced = [(p, tp) for p, tp in priced if tp is not None and p is not None]
+    if not priced:
+        return None, None
+    wprice = round(sum(p * tp for p, tp in priced), 2)
+    wupside = _upside(wprice, current_price)
+    return wprice, wupside
+
+
+def build_scenario_set(
+    inputs: ScenarioInputs, profile: base.StrategyProfile
+) -> ScenarioSet:
+    """Compose the deterministic scenario set for `profile` from `inputs`.
+
+    Selects the sector-appropriate multiple, resolves it (with an honest C/Z
+    fallback + gap label when a driver is missing), builds the negative/base/
+    positive reversion trio off the own-history quartiles, and computes the
+    set-level probability-weighted EV. Probabilities sum to 1.00 by construction.
+    Event scenarios are NOT emitted here — the deterministic engine cannot invent
+    catalysts (that is the AI refiner's honest, key-gated job).
+    """
+    company = inputs.thesis_inputs.insights
+    preferred = select_valuation_multiple(company.sector_group, profile)
+    effective, hist, gap_note = _resolve_multiple(inputs, preferred)
+
+    scenarios = [
+        _build_scenario(spec, effective, hist, inputs, gap_note)
+        for spec in _SCENARIO_SPECS
+    ]
+    wprice, wupside = weighted_expected(scenarios, inputs.current_price)
+
+    return ScenarioSet(
+        scenarios=scenarios,
+        valuation_multiple=effective,
+        current_price=inputs.current_price,
+        weighted_expected_price=wprice,
+        weighted_expected_upside_pct=wupside,
+        framing=FRAMING,
+        disclaimer=thesis.DISCLAIMER,
+        engine="deterministic",
+    )
