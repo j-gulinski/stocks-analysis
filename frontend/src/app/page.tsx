@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   IconArrowRight,
+  IconCircleCheck,
+  IconClockExclamation,
   IconPlus,
   IconRefresh,
   IconTrash,
@@ -154,23 +156,36 @@ export default function WatchlistPage() {
   };
 
   const anyRefreshing = rows.some((r) => r.refreshing);
+  const readyRows = rows.filter((r) => r.dossier).length;
+  const staleRows = rows.filter((r) => {
+    const scraped = r.dossier?.freshness.financials_scraped_at ?? null;
+    const days = staleDays(scraped);
+    return days != null && days > 3;
+  }).length;
 
   return (
-    <main>
-      <div className="spread">
-        <h1 style={{ fontSize: 19 }}>Watchlist</h1>
-        <form className="row" onSubmit={handleAdd}>
+    <main className="page-stack">
+      <section className="page-header">
+        <div>
+          <h1>Watchlist</h1>
+          <p>
+            Szybki pulpit spółek GPW: wyceny, świeżość danych i pierwsze sygnały
+            jakości w jednym widoku.
+          </p>
+        </div>
+        <form className="command-row" onSubmit={handleAdd}>
           <input
             placeholder="Ticker, np. DEC"
             value={newTicker}
             onChange={(e) => setNewTicker(e.target.value)}
-            style={{ width: 130 }}
+            className="ticker-input"
+            aria-label="Ticker spółki"
           />
           <button className="btn" type="submit" disabled={adding}>
             <IconPlus size={14} /> Dodaj
           </button>
         </form>
-      </div>
+      </section>
 
       {error && <div className="error-box">{error}</div>}
 
@@ -186,100 +201,115 @@ export default function WatchlistPage() {
           />
         </>
       ) : rows.length === 0 ? (
-        <p className="empty-state">
-          Pusta watchlista — dodaj pierwszy ticker (np. DEC), potem kliknij odśwież.
-        </p>
+        <section className="empty-state empty-panel">
+          <IconPlus size={18} />
+          <strong>Pusta watchlista</strong>
+          <span>Dodaj pierwszy ticker, potem odśwież dane spółki.</span>
+        </section>
       ) : (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Spółka</th>
-              <th>Kurs</th>
-              <th>Mcap</th>
-              <th>C/Z TTM</th>
-              <th>C/Z fwd</th>
-              <th>Marża br.</th>
-              <th>Przych. r/r</th>
-              <th style={{ textAlign: "center" }}>AI</th>
-              <th style={{ textAlign: "center" }}>Dane</th>
-              <th style={{ width: 70 }} />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const d = row.dossier;
-              const lastQ = d?.quarters.at(-1);
-              const scraped = d?.freshness.financials_scraped_at ?? null;
-              const days = staleDays(scraped);
-              return (
-                <tr
-                  key={row.ticker}
-                  className="clickable"
-                  onClick={() => router.push(`/stock/${row.ticker}`)}
-                >
-                  <td>
-                    <span style={{ fontWeight: 500 }}>{row.ticker}</span>
-                    <br />
-                    <span className="small muted">{row.name ?? "—"}</span>
-                  </td>
-                  <td>{fmtPln(d?.ttm.price)}</td>
-                  <td className="secondary">{fmtMcap(d?.ttm.market_cap)}</td>
-                  <td>{fmtNumber(d?.ttm.pe)}</td>
-                  <td className={d?.latest_forecast ? "pos" : "muted"}>
-                    {fmtNumber(d?.latest_forecast?.result.forward.pe)}
-                  </td>
-                  <td>
-                    <MarginTrend dossier={d} />
-                  </td>
-                  <td className={signClass(lastQ?.revenue_yoy_pct)}>
-                    {fmtPct(lastQ?.revenue_yoy_pct, { signed: true })}
-                  </td>
-                  <td style={{ textAlign: "center" }} className="muted small">
-                    brak
-                  </td>
-                  <td
-                    style={{ textAlign: "center" }}
-                    className={`small ${days != null && days > 3 ? "warn" : "secondary"}`}
-                  >
-                    {relativeDate(scraped)}
-                  </td>
-                  <td onClick={(e) => e.stopPropagation()}>
-                    <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
-                      <button
-                        className="btn icon"
-                        title="Odśwież dane"
-                        disabled={row.refreshing}
-                        onClick={() => handleRefresh(row.ticker)}
-                      >
-                        <IconRefresh size={15} className={row.refreshing ? "spin" : ""} />
-                      </button>
-                      <button
-                        className="btn icon"
-                        title="Usuń z watchlisty"
-                        onClick={() => handleRemove(row.ticker)}
-                      >
-                        <IconTrash size={15} />
-                      </button>
-                    </span>
-                  </td>
+        <section className="table-panel">
+          <div className="table-toolbar">
+            <div className="status-strip">
+              <span className="status-pill">
+                <IconCircleCheck size={13} /> {readyRows}/{rows.length} z dossier
+              </span>
+              <span className={`status-pill ${staleRows > 0 ? "warn" : ""}`}>
+                <IconClockExclamation size={13} /> {staleRows} po terminie
+              </span>
+            </div>
+            <button className="btn" onClick={handleRefreshAll} disabled={anyRefreshing}>
+              <IconRefresh size={13} className={anyRefreshing ? "spin" : ""} /> Odśwież
+              wszystkie
+            </button>
+          </div>
+          <div className="table-scroll watchlist-table">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Spółka</th>
+                  <th>Kurs</th>
+                  <th>Mcap</th>
+                  <th>C/Z TTM</th>
+                  <th>C/Z fwd</th>
+                  <th>Marża br.</th>
+                  <th>Przych. r/r</th>
+                  <th style={{ textAlign: "center" }}>AI</th>
+                  <th style={{ textAlign: "center" }}>Dane</th>
+                  <th style={{ width: 70 }} />
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const d = row.dossier;
+                  const lastQ = d?.quarters.at(-1);
+                  const scraped = d?.freshness.financials_scraped_at ?? null;
+                  const days = staleDays(scraped);
+                  return (
+                    <tr
+                      key={row.ticker}
+                      className="clickable"
+                      onClick={() => router.push(`/stock/${row.ticker}`)}
+                    >
+                      <td>
+                        <span className="ticker-mark">{row.ticker}</span>
+                        <span className="company-name">{row.name ?? "—"}</span>
+                      </td>
+                      <td>{fmtPln(d?.ttm.price)}</td>
+                      <td className="secondary">{fmtMcap(d?.ttm.market_cap)}</td>
+                      <td>{fmtNumber(d?.ttm.pe)}</td>
+                      <td className={d?.latest_forecast ? "pos" : "muted"}>
+                        {fmtNumber(d?.latest_forecast?.result.forward.pe)}
+                      </td>
+                      <td>
+                        <MarginTrend dossier={d} />
+                      </td>
+                      <td className={signClass(lastQ?.revenue_yoy_pct)}>
+                        {fmtPct(lastQ?.revenue_yoy_pct, { signed: true })}
+                      </td>
+                      <td style={{ textAlign: "center" }} className="muted small">
+                        brak
+                      </td>
+                      <td
+                        style={{ textAlign: "center" }}
+                        className={`small ${days != null && days > 3 ? "warn" : "secondary"}`}
+                      >
+                        {relativeDate(scraped)}
+                      </td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <span className="row row-actions">
+                          <button
+                            className="btn icon"
+                            title="Odśwież dane"
+                            aria-label={`Odśwież dane ${row.ticker}`}
+                            disabled={row.refreshing}
+                            onClick={() => handleRefresh(row.ticker)}
+                          >
+                            <IconRefresh size={15} className={row.refreshing ? "spin" : ""} />
+                          </button>
+                          <button
+                            className="btn icon"
+                            title="Usuń z watchlisty"
+                            aria-label={`Usuń ${row.ticker} z watchlisty`}
+                            onClick={() => handleRemove(row.ticker)}
+                          >
+                            <IconTrash size={15} />
+                          </button>
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
       {rows.length > 0 && (
-        <div className="spread" style={{ marginTop: 12 }}>
-          <span className="small muted">
-            {rows.length} {rows.length === 1 ? "spółka" : "spółki"} · odświeżanie działa
-            sekwencyjnie (limity zapytań)
-          </span>
-          <button className="btn" onClick={handleRefreshAll} disabled={anyRefreshing}>
-            <IconRefresh size={13} className={anyRefreshing ? "spin" : ""} /> Odśwież
-            wszystkie
-          </button>
-        </div>
+        <p className="small muted page-note">
+          {rows.length} {rows.length === 1 ? "spółka" : "spółki"} · odświeżanie działa
+          sekwencyjnie ze względu na limity źródeł.
+        </p>
       )}
     </main>
   );

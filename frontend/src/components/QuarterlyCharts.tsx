@@ -83,7 +83,7 @@ export default function QuarterlyCharts({ quarters }: { quarters: QuarterMetrics
             <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>
               {chart.title} <span className="muted">({chart.unit})</span>
             </p>
-            <div style={{ height: 200 }}>
+            <div className="chart-box">
               <ResponsiveContainer width="100%" height="100%">
                 {mode === "seq" ? (
                   <BarChart data={buildSequence(chart.field, chart.toMln)}>
@@ -91,6 +91,7 @@ export default function QuarterlyCharts({ quarters }: { quarters: QuarterMetrics
                       dataKey="period"
                       tick={{ fontSize: 10, fill: "var(--text-muted)" }}
                       stroke="var(--border)"
+                      minTickGap={18}
                     />
                     <YAxis
                       tick={{ fontSize: 10, fill: "var(--text-muted)" }}
