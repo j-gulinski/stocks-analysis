@@ -25,6 +25,7 @@ from app.services import (
     fields,
     insights,
     metrics,
+    operating_scenarios,
     scenarios,
     thesis,
     valuation_ai,
@@ -537,6 +538,9 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
         "approved_assumption_sets": approved_assumption_sets,
         "driver_sensitivity": scenarios.build_driver_sensitivity(
             scenario_inputs, malik.MALIK, approved_assumption_sets
+        ),
+        "operating_bridge": operating_scenarios.build_operating_bridge(
+            scenario_inputs, income, malik.MALIK, approved_assumption_sets
         ),
         "engine": "deterministic",
         "ai_notes": None,

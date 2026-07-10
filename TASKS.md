@@ -203,9 +203,11 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
   - [x] RT4.3b: Map the typed approved driver keys into copied pure scenario
     inputs and expose deterministic sensitivity changes; drafts, rejected
     sets, unsupported keys and model suggestions cannot alter saved valuation.
-  - [ ] RT4.3c: Add template-backed operating equations for revenue/margin,
-    cash conversion and the valuation bridge, retaining the RT4.3b overlay as
-    an explicit sensitivity rather than a hidden forecast.
+  - [x] RT4.3c: Add the first industrial/consumer P&L template for
+    revenue/margin, forecast net profit and C/Z or EV/EBITDA bridge, retaining
+    the RT4.3b overlay as an explicit sensitivity rather than a hidden forecast.
+  - [ ] RT4.3d: Add source-backed cash conversion, working capital and capex
+    drivers to the template, with explicit gaps where the pilot lacks them.
 - [~] RT4.5–RT4.7: report-first UI and manual QA slices exist; scenario rows
   now expose a qualitative negative/stable/improving company outcome and case
   assumptions have provenance-aware persistence/editor surfaces and appendable

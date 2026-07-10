@@ -580,6 +580,30 @@ class ScenarioDriverSensitivityOut(BaseModel):
     rows: list[ScenarioSensitivityRowOut] = Field(default_factory=list)
 
 
+class OperatingBridgeRowOut(BaseModel):
+    scenario_kind: AssumptionScenarioKind
+    label: str
+    baseline_target_price: float | None
+    operating_target_price: float | None
+    target_price_delta: float | None
+    operating_upside_pct: float | None
+    projected_revenue: float | None
+    projected_gross_margin_pct: float | None
+    projected_net_profit: float | None
+    projected_eps: float | None
+    projected_ebitda: float | None
+    applied: list[DriverAssumptionOut] = Field(default_factory=list)
+    ignored: list[DriverAssumptionOut] = Field(default_factory=list)
+    missing: list[str] = Field(default_factory=list)
+
+
+class OperatingBridgeOut(BaseModel):
+    status: Literal["none", "applied", "needs_human", "unsupported_template"]
+    template: dict | None
+    note: str
+    rows: list[OperatingBridgeRowOut] = Field(default_factory=list)
+
+
 class ScenarioSetOut(BaseModel):
     """The scenario set for one stock (services/scenarios.py). Framed as an
     entrance to analysis; carries a set-level probability-weighted EV."""
@@ -601,6 +625,11 @@ class ScenarioSetOut(BaseModel):
         default_factory=lambda: ScenarioDriverSensitivityOut(
             status="none",
             note="Brak zatwierdzonych zestawów sterowników do policzenia wrażliwości.",
+        )
+    )
+    operating_bridge: OperatingBridgeOut = Field(
+        default_factory=lambda: OperatingBridgeOut(
+            status="none", template=None, note="Brak projekcji operacyjnej."
         )
     )
     # Provenance: "deterministic" (no key / AI fallback) or "ai" (+ ai_notes).

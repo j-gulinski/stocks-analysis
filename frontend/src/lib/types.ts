@@ -158,6 +158,30 @@ export interface ScenarioDriverSensitivity {
   rows: ScenarioSensitivityRow[];
 }
 
+export interface OperatingBridgeRow {
+  scenario_kind: AssumptionScenarioKind;
+  label: string;
+  baseline_target_price: number | null;
+  operating_target_price: number | null;
+  target_price_delta: number | null;
+  operating_upside_pct: number | null;
+  projected_revenue: number | null;
+  projected_gross_margin_pct: number | null;
+  projected_net_profit: number | null;
+  projected_eps: number | null;
+  projected_ebitda: number | null;
+  applied: DriverAssumption[];
+  ignored: DriverAssumption[];
+  missing: string[];
+}
+
+export interface OperatingBridge {
+  status: "none" | "applied" | "needs_human" | "unsupported_template";
+  template: { id: string; label: string; sector_group: string; equation: string } | null;
+  note: string;
+  rows: OperatingBridgeRow[];
+}
+
 export interface RefreshSummary {
   ticker: string;
   summary: Record<string, string>;
@@ -449,6 +473,7 @@ export interface ScenarioSet {
   quality_warnings?: string[];
   approved_assumption_sets?: AssumptionSet[];
   driver_sensitivity?: ScenarioDriverSensitivity;
+  operating_bridge?: OperatingBridge;
   engine: "deterministic" | "ai";
   ai_notes: AiNotes | null;
 }

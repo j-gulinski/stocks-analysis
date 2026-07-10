@@ -1,5 +1,5 @@
 import type { AssumptionItem, Scenario, ScenarioSet, Valuation } from "@/lib/types";
-import { fmtPln, fmtPct, signClass } from "@/lib/format";
+import { fmtPln, fmtPct, fmtTys, signClass } from "@/lib/format";
 
 /**
  * Scenario simulation ("Scenariusze") — sits below the thesis section on the
@@ -238,6 +238,39 @@ export default function ScenariosPanel({
                     Pominięto: {row.ignored.map((item) => `${item.key} — ${item.note}`).join("; ")}
                   </p>
                 )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {scenarios.operating_bridge && scenarios.operating_bridge.status !== "none" && (
+        <div className="thesis-section operating-bridge">
+          <div className="spread" style={{ flexWrap: "wrap", gap: 8 }}>
+            <p className="thesis-title">Most operacyjny</p>
+            <span className={`badge ${scenarios.operating_bridge.status === "applied" ? "success" : "warning"}`}>
+              {scenarios.operating_bridge.status === "applied" ? "policzony" : "wymaga danych"}
+            </span>
+          </div>
+          {scenarios.operating_bridge.template && (
+            <p className="small muted">{scenarios.operating_bridge.template.label}: {scenarios.operating_bridge.template.equation}</p>
+          )}
+          <p className="sensitivity-note">{scenarios.operating_bridge.note}</p>
+          <div className="operating-bridge-list">
+            {scenarios.operating_bridge.rows.map((row) => (
+              <div className="operating-bridge-row" key={row.scenario_kind}>
+                <div className="spread" style={{ flexWrap: "wrap", gap: 6 }}>
+                  <strong>{row.label}</strong>
+                  <span className="badge muted">{row.scenario_kind}</span>
+                </div>
+                <div className="scenario-metrics">
+                  <div><span className="k">Przychód</span><span className="v">{fmtTys(row.projected_revenue)}</span></div>
+                  <div><span className="k">Marża brutto</span><span className="v">{fmtPct(row.projected_gross_margin_pct)}</span></div>
+                  <div><span className="k">Zysk netto</span><span className="v">{fmtTys(row.projected_net_profit)}</span></div>
+                  <div><span className="k">Cena z mostu</span><span className={`v ${signClass(row.target_price_delta)}`}>{fmtPln(row.operating_target_price)}</span></div>
+                </div>
+                {row.missing.length > 0 && <p className="sensitivity-detail muted">Luki: {row.missing.join("; ")}</p>}
+                {row.ignored.length > 0 && <p className="sensitivity-detail muted">Pominięto: {row.ignored.map((item) => `${item.key} — ${item.note}`).join("; ")}</p>}
               </div>
             ))}
           </div>

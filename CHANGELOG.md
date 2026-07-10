@@ -42,6 +42,16 @@ inputs; a model suggestion must be explicitly converted to evidence or a human
 assumption before it can affect the deterministic what-if result. Template
 operating equations remain the next RT4.3c slice.
 
+## 2026-07-10 · RT4.3c industrial/consumer operating bridge
+
+Added the first bounded company-template equation using the existing pure
+forecast service: revenue, gross margin, selling/admin and other P&L drivers
+flow through projected net profit/EPS or EBITDA and a transparent C/Z or
+EV/EBITDA bridge. The dossier compares operating target price with the current
+multiple-only baseline. Only industrial and consumer archetypes are supported
+in this pilot; unsupported sectors remain explicit. Cash conversion, working
+capital and capex are deferred to RT4.3d rather than inferred.
+
 ## 2026-07-10 · Refined RT4 next task
 
 The next implementation target is now RT4.1a: establish the durable

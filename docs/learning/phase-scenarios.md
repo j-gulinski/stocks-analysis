@@ -86,3 +86,9 @@ can produce a deterministic sensitivity row; model suggestions, unsupported
 keys, drafts and rejected sets stay visible but inactive. This mirrors a C#
 service boundary where an immutable input record is projected into a separate
 what-if result instead of mutating the saved aggregate.
+
+RT4.3c reuses the existing forecast function as a versioned pilot template for
+industrial and consumer companies. The bridge is intentionally additive: it
+shows projected P&L and the operating target beside the existing multiple-only
+baseline, so a missing working-capital or cash-conversion equation cannot hide
+inside a confident-looking price.
