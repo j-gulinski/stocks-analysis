@@ -612,6 +612,23 @@ textarea {
     strong { font-size: 12.5px; font-weight: 500; }
     p, small { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
     small { color: var(--text-muted); }
+    .scenario-gate-checks {
+      display: grid;
+      gap: 4px;
+      margin-top: 2px;
+      padding-top: 6px;
+      border-top: 0.5px solid var(--border);
+    }
+    .scenario-gate-check {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 11px;
+      line-height: 1.35;
+      .badge { flex: 0 0 auto; font-size: 10px; }
+    }
     &.approved { border-color: rgba(44, 205, 161, 0.35); }
     &.blocked { border-color: rgba(239, 180, 84, 0.35); }
   }

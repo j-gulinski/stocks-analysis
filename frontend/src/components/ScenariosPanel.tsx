@@ -1,4 +1,4 @@
-import type { AssumptionItem, Scenario, ScenarioSet, Valuation } from "@/lib/types";
+import type { AssumptionItem, PricedOutcomeGate, Scenario, ScenarioSet, Valuation } from "@/lib/types";
 import { fmtNumber, fmtPln, fmtPct, fmtTys, signClass } from "@/lib/format";
 
 /**
@@ -33,6 +33,40 @@ function scenarioTone(scenario: Scenario): string {
   if (scenario.implied_upside_pct < 0) return "warning";
   if (scenario.implied_upside_pct > 0) return "success";
   return "neutral";
+}
+
+const pricedCheckLabels: Record<string, string> = {
+  representative_archetypes: "archetypy: industrial / financial / event-driven",
+  no_lookahead: "brak look-ahead",
+  math_reconciliation: "zgodność matematyczna",
+  source_lineage: "linia źródłowa",
+};
+
+function pricedCheckState(gate: PricedOutcomeGate, checkId: string) {
+  if (gate.status === "approved") return "pass";
+  const checks = gate.verification?.checks;
+  if (!checks || typeof checks !== "object") return "pending";
+  const raw = (checks as Record<string, unknown>)[checkId];
+  if (checkId === "representative_archetypes") {
+    const archetypes =
+      raw && typeof raw === "object" && "archetypes" in raw
+        ? (raw as { archetypes?: unknown }).archetypes
+        : raw;
+    return Array.isArray(archetypes) &&
+      ["industrial", "financial", "event-driven"].every((item) => archetypes.includes(item))
+      ? "pass"
+      : raw == null
+        ? "pending"
+        : "fail";
+  }
+  if (raw === true) return "pass";
+  if (raw && typeof raw === "object") {
+    const check = raw as { passed?: unknown; verdict?: unknown };
+    if (check.passed === true || ["pass", "passed", "spełnia"].includes(String(check.verdict))) {
+      return "pass";
+    }
+  }
+  return raw == null ? "pending" : "fail";
 }
 
 const PROVENANCE_LABEL: Record<AssumptionItem["provenance"], string> = {
@@ -120,6 +154,19 @@ export default function ScenariosPanel({
           {scenarios.priced_operating_outcomes.status === "blocked" && (
             <small>Warunki spółki pozostają jakościowe do czasu niezależnego przejścia gate’u.</small>
           )}
+          <div className="scenario-gate-checks" aria-label="Wymagane kontrole priced outcomes">
+            {scenarios.priced_operating_outcomes.required_checks.map((checkId) => {
+              const state = pricedCheckState(scenarios.priced_operating_outcomes!, checkId);
+              return (
+                <div className="scenario-gate-check" key={checkId}>
+                  <span>{pricedCheckLabels[checkId] ?? checkId}</span>
+                  <span className={`badge ${state === "pass" ? "success" : state === "fail" ? "danger" : "muted"}`}>
+                    {state === "pass" ? "pass" : state === "fail" ? "fail" : "oczekuje"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

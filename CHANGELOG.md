@@ -90,6 +90,15 @@ keeps the existing qualitative company outcome and exposes the blocked reason
 in the dossier/UI. No migration was needed; the safer default is to remain
 qualitative until a persisted analysis-linked verification run exists.
 
+## 2026-07-10 · RT4.5b priced-outcome gate checklist
+
+The scenario panel now shows each required priced-outcome check separately:
+industrial/financial/event-driven coverage, no look-ahead, math reconciliation
+and source lineage. Missing evidence is labelled `oczekuje`, partial evidence
+is not promoted to pass, and an approved gate remains the only path that
+changes the company outcome from qualitative to priced. Representative
+persisted verifier cases remain the open acceptance item.
+
 ## 2026-07-10 · Refined RT4 next task
 
 The next implementation target is now RT4.1a: establish the durable

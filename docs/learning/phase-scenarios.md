@@ -123,3 +123,9 @@ reconciliation and no look-ahead. Until that contract is satisfied, the UI
 keeps the qualitative result. This is similar to a C# approval pipeline where
 the calculation service can return a candidate, but a separate validator must
 approve it before the DTO is promoted to a decision-ready state.
+
+RT4.5b makes that validation inspectable instead of hiding it in one status
+badge. Each required check has its own `pass`, `fail` or `oczekuje` state, so a
+reviewer can see whether the gap is coverage, chronology, arithmetic or source
+lineage. This is the UI equivalent of returning a C# validation-result object
+with field-level errors rather than only a boolean `IsValid`.

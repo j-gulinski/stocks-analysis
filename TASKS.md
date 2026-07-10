@@ -224,8 +224,10 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
   driven QA remain.
   - [x] RT4.5a: Add company-outcome conditions to C/Z, C/WK and EV/EBITDA
     rows, including fallback/missing-data and AI-event boundaries.
-  - [ ] RT4.5b: After RT4.1–RT4.4, replace qualitative outcome conditions with
-    priced operating drivers and source-backed scenario equations.
+  - [~] RT4.5b: Priced outcomes now use the approved FCF equation only after
+    the RT4.4a gate; the UI exposes every required verifier check. Remaining
+    acceptance is representative persisted verifier evidence for industrial,
+    financial and event-driven cases.
 
 ### RT.5 — OpenAI orchestration and Codex workflow
 

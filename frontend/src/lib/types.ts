@@ -509,14 +509,16 @@ export interface ScenarioSet {
   approved_assumption_sets?: AssumptionSet[];
   driver_sensitivity?: ScenarioDriverSensitivity;
   operating_bridge?: OperatingBridge;
-  priced_operating_outcomes?: {
-    status: "blocked" | "approved";
-    reason: string;
-    required_checks: string[];
-    verification: Record<string, unknown> | null;
-  };
+  priced_operating_outcomes?: PricedOutcomeGate;
   engine: "deterministic" | "ai";
   ai_notes: AiNotes | null;
+}
+
+export interface PricedOutcomeGate {
+  status: "blocked" | "approved";
+  reason: string;
+  required_checks: string[];
+  verification: Record<string, unknown> | null;
 }
 
 // --- AI valuation (stage SC / WP4) — mirrors schemas.ValuationOut -------------
