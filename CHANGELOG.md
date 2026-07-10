@@ -36,6 +36,14 @@ complete ingestion; it cannot claim work, call a model or approve output.
 Hosted use requires private deployment controls and never receives personal
 Codex/provider credentials.
 
+## 2026-07-10 · CX.16a frozen cohort
+
+Created the first research-only cohort manifest with one documented hit (DGN),
+one documented miss (Suntech), one unmeasured control candidate (OPTEX) and one
+excluded unverified placeholder (SNT). No delisting was found in the stored
+corpus. Selection, identity, publication availability and corporate-action
+limits are recorded; no replay or performance claim is permitted yet.
+
 ## 2026-07-10 · IL.4 read-only position context
 
 Added migration `0014` for a position ledger containing ticker, entry, size,

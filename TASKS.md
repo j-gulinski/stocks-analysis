@@ -81,9 +81,11 @@ Detailed contracts: `docs/plan-stage-codex-pivot.md`.
     The documented command only polls and queues after complete ingestion;
     overlapping runs, queue claims, model calls and approvals remain outside
     the scheduled job.
-- [ ] **CX.16 Historical cohort replay.** Research-only precursor to RT6.6.
-  - [ ] **CX.16a** Freeze a mixed cohort: winners, matched controls, failures,
-    delistings where possible; record survivorship limits before replay.
+- [~] **CX.16 Historical cohort replay.** Research-only precursor to RT6.6.
+  - [x] **CX.16a** Freeze a mixed cohort: documented hit, documented miss,
+    control candidate and excluded unverified placeholder are recorded in
+    `docs/backtest-cohort-cx16a.md`. No delisting was found in the stored
+    corpus; selection, identity and availability limits remain explicit.
   - [ ] **CX.16b** Reconstruct historical inputs with an explicit estimated-lag
     policy and restatement caveat.
   - [ ] **CX.16c** Replay deterministic prescore, thesis and scenario ranges;
