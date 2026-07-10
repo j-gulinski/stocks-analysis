@@ -18,6 +18,33 @@ keep the decisions scannable.
 
 ---
 
+## 2026-07-10 · Stage IL — investor decision loop pulled forward; UI simplification/alignment contract
+
+Plan evolution encoding the day's usability principles: the RT stages build
+research infrastructure, but the features that change a weekly decision must
+not wait for it. New Stage IL (TASKS.md, interleaves with RT.2–RT.4, IL.1/IL.2
+first): IL.1 decision journal (one form, under a minute, append-only — also
+the source of decision/confidence data RT.6 calibration and CX.16 replay
+need); IL.2 "what changed vs thesis" diff card after each session's ingestion
+(pure dossier-state comparison, no scraping, no model calls); IL.3 falsifiers
+as first-class status (`holding`/`warning`/`fired`) with thesis-at-risk queue
+ordering — Malik's "sell when the thesis stops confirming" as a surface;
+IL.4 minimal read-only position ledger (sizing-rule flag, no broker sync,
+never influences scoring); IL.5 UI simplification/alignment slice.
+
+UI/UX contract updates (`docs/design/research-workspace.md` +
+`plan-research-platform.md` §3.0/§3.1): canonical mapping of the four live
+tabs onto the contract screens ends the tabs-vs-contract drift
+(Raport=Brief, Wykresy=Scenarios, Źródła=Evidence/Financials audit,
+Codex=Review); Monitor/Journal join Brief and queue as strips/actions, not
+new tabs; progressive disclosure — no empty Evidence/Business shells before
+RT.2/RT.3 data exists; queue default order becomes thesis-at-risk with held
+positions first; one canonical read per company stays enforced. Added the
+monthly scope-creep guard to §3.0: a feature that never changes a decision is
+infrastructure for its own sake. Success definition (§10) now includes
+recording a decision in under a minute and being pulled back when its
+falsifiers fire.
+
 ## 2026-07-10 · CX.16e/f + CX.17 — multi-as_of replay, masked AI replay limits, verify_next automation path
 
 Extended the cohort-replay design after user review. CX.16e grows sample size

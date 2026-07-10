@@ -138,6 +138,22 @@ Do not duplicate the same conclusion in deterministic thesis, AI-refined
 thesis, AI valuation and final verdict cards. The target is one canonical case
 with deterministic facts/calculations and separately labelled interpretations.
 
+### 3.0 Investor decision loop is pulled forward (decided 2026-07-10)
+
+The platform exists to improve real decisions, so the thin features that
+change a weekly decision land before the deep infrastructure completes
+(TASKS.md Stage IL, interleaving with RT.2–RT.4): a decision journal, a
+"what changed vs thesis" diff after each session's ingestion, first-class
+falsifier status with a thesis-at-risk queue order, and a minimal read-only
+position ledger. They reuse the session-triggered operating model (§7.3) and
+existing dossier state, and must not wait for the evidence ledger. The
+journal doubles as the source of decision/confidence data that RT.6
+calibration and the CX.16 cohort replay require; the monitor diff implements
+north-star point 8 ("re-open the case after new information and show what
+changed") at low fidelity now instead of high fidelity later. Guard: review
+monthly whether a built feature changed an actual decision — infrastructure
+that never touches a decision is scope creep.
+
 ### 3.1 UI/UX overhaul at RT.4
 
 The current dark workspace is a useful functional baseline, not the final
@@ -161,7 +177,13 @@ The overhaul must be workflow-first:
 - responsive layouts, keyboard navigation, accessible contrast/focus, Polish
   financial formatting and helpful empty/error/conflict states;
 - no dashboard density for its own sake: company-specific content determines
-  which panels appear.
+  which panels appear;
+- progressive disclosure (added 2026-07-10): a workflow surface exists only
+  when its data exists — no empty Evidence/Business shells before RT.2/RT.3;
+- the research queue orders by thesis-at-risk (fired falsifiers, flipped
+  checklist rows, stale evidence), not by activity or freshness alone;
+- the Brief carries falsifier status, the latest "what changed" line and the
+  journal entry point, while keeping exactly one canonical read per company.
 
 Process: audit the existing screens with screenshots and task walkthroughs;
 make low-fidelity flow/wireframes; update the design tokens/components; build
@@ -531,6 +553,15 @@ Add immutable source documents/facts/events and `as_of` reads. Implement issuer
 IR + ESPI/EBI ingestion for a small pilot set. Every material claim in the case
 links to evidence.
 
+### Stage IL — investor decision loop (interleaved; not a numbered RT gate)
+
+Journal, "what changed" monitor diff, falsifier status with thesis-at-risk
+queue order, minimal position ledger and the UI simplification/alignment
+slice (TASKS.md Stage IL, §3.0). Thin and low-infra by design; may run any
+time after RT.1 and must not be blocked on RT.2–RT.3 completeness. IL.1/IL.2
+come first: their output (decisions, confidence, falsifier events) is the raw
+material for RT.6 calibration and honest self-evaluation.
+
 ### RT.3 — Fundamental depth and company templates
 
 The first low-request Discover slice now preserves and parses one market-wide
@@ -585,6 +616,8 @@ The revised platform is successful when, for a pilot company, the user can:
   visible;
 - give feedback that changes the next review without rewriting history;
 - re-open after a new report and see fact/thesis/scenario changes;
+- record a decision with size, confidence and reasoning in under a minute,
+  and get pulled back to it when its falsifiers fire;
 - replay the same case at an earlier `as_of` date without future leakage.
 
 That is a comprehensive research tool. A larger source list or a more eloquent

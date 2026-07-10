@@ -512,7 +512,55 @@ backtest service) already exist, and it feeds RT6.1 gold cases; CX.10 (legacy
 sunset) waits for RT1.3's remaining legacy migration; CX.11 is data-readiness
 only and naturally lands with RT.2 evidence work; CX.13 continues as verified
 outputs accumulate; CX.14's remaining scope is executed as part of RT4.5/4.6,
-not separately.
+not separately. Stage IL below interleaves with RT.2–RT.4: IL.1/IL.2 first,
+none of it blocked on ledger completeness.
+
+## Stage IL — Investor decision loop (added 2026-07-10; interleaves with RT.2–RT.4)
+
+Rationale: the RT stages build research infrastructure; these thin slices make
+the daily investing loop pay off now. Principles they implement, decided in
+the 2026-07-10 usability review: "what changed since I last looked" is the
+highest-frequency investor question; the journal is the cheapest high-value
+feature and produces the decision/confidence data RT.6 calibration and CX.16
+replay need anyway; the sell side (falsifiers) deserves a surface equal to the
+buy side; the tool improves decisions only if a feature changes one — check
+that monthly. All slices reuse existing contracts (CX.15 session model,
+dossier state, `event_reports`); none require the evidence ledger to be
+complete.
+
+- [ ] IL.1 Decision journal: one table + one form (ticker, date, decision
+  buy/hold/sell/pass/trim, size, confidence, reasoning, thesis snapshot id,
+  planned review date). Entry points on the company Brief and the Research
+  queue; append-only (corrections are new entries, history never rewritten).
+  Under one minute to record. Feeds CX.16 calibration and RT6.1 gold cases.
+- [ ] IL.2 "What changed" monitor diff: after a session's ingestion (CX.15b),
+  each affected company gets one diff card vs the stored thesis — flipped
+  checklist verdicts, touched falsifiers, new one-off flags, valuation-vs-own-
+  history move, new ESPI/report titles. Pure comparison of dossier state
+  before/after refresh; no new scraping, no model calls. The card is the
+  queue's stated reason a case needs attention.
+- [ ] IL.3 Falsifiers first-class + thesis-at-risk ordering: falsifier rows get
+  explicit status (`holding` / `warning` / `fired`) updated by IL.2 diffs and
+  human toggle with a required one-line reason. Research queue default sort
+  becomes thesis-at-risk (fired falsifiers > flipped checklist > stale
+  evidence > freshness). Implements Malik row 13 — "sell when the thesis stops
+  confirming" — as a surface, not a memory.
+- [ ] IL.4 Minimal position ledger (read-only): ticker, entry date/price,
+  size, linked journal entry/thesis version. No broker sync, no P&L
+  dashboard. Purpose: the queue shows real-money-at-risk first, and the Brief
+  can flag the ~10 % position-sizing rule (Malik row 15). Positions never
+  influence scoring or verdicts.
+- [ ] IL.5 UI simplification/alignment slice: declare the canonical screen set
+  in `docs/design/research-workspace.md` and map the four live tabs onto it
+  (ends the tabs-vs-contract drift); progressive disclosure — a surface
+  appears only when its data exists, no empty Evidence/Business shells before
+  RT.2/RT.3; Brief gains the falsifier strip, the latest "what changed" line
+  and the journal button while keeping exactly one canonical read per company;
+  Playwright screenshot pass at 1280/390 px for changed surfaces.
+- Acceptance: after a new report lands for a held company, one session shows —
+  with no always-on process — what changed vs the thesis and whether a
+  falsifier fired, lets the user record the decision in under a minute, and
+  the queue orders by thesis-at-risk. No duplicated verdict surface returns.
 
 ## Stages RT.0–RT.7 — Research-platform roadmap (binding next work)
 

@@ -8,8 +8,17 @@ behaviour. The old mockups remain a visual-history reference.
 
 ```text
 Discover -> Research -> company Brief -> Evidence -> Financials
-         -> Scenarios -> Review -> future Monitor / Journal
+         -> Scenarios -> Review -> Monitor / Journal (Stage IL — no longer "future")
 ```
+
+**Canonical tab mapping (decided 2026-07-10, ends the tabs-vs-contract
+drift):** the four live workflow tabs are the compact rendering of the
+contract screens — `Raport` = Brief, `Wykresy` = Scenarios (+ valuation
+sensitivity), `Źródła` = Evidence + Financials audit layer, `Codex` = Review +
+run history. Monitor and Journal join the Brief and the Research queue as
+strips/actions (Stage IL), not as new tabs; a surface splits into its own tab
+only when its data exists (progressive disclosure — no empty Evidence/
+Business shells before RT.2/RT.3).
 
 The application is a research workbench, not a stock leaderboard. Every screen
 must make one decision easier:
@@ -51,6 +60,28 @@ P/E formula.
 The queue exposes one state, two signals, one risk/gap, one next action and
 freshness per company. It does not expose scenario upside or rank companies by
 forum/model activity. Maintenance actions remain visually subordinate.
+
+Default order (IL.3): thesis-at-risk first — fired falsifiers, then flipped
+checklist rows, then stale evidence, then freshness. Held positions (IL.4)
+sort above watch-only names at equal risk. The stated reason a case needs
+attention is its latest "what changed" diff line, never raw activity volume.
+
+## Monitor / Journal contract (Stage IL)
+
+- The monitor is a diff, not a feed: after a session's ingestion each affected
+  company gets at most one card — flipped checklist verdicts, touched
+  falsifiers (`holding`/`warning`/`fired`), new one-off flags,
+  valuation-vs-own-history move, new report/ESPI titles. Empty diff ⇒ no card.
+- Falsifier status changes by rule (IL.2 diff) or by human toggle with a
+  required one-line reason; the strip is visible on the Brief.
+- The journal form fits one screen and under one minute: decision
+  (buy/hold/sell/pass/trim), size, confidence, reasoning, planned review
+  date; thesis version attaches automatically. Append-only — corrections are
+  new entries. Entry points: Brief header and queue row; never a separate
+  workflow stage to click through.
+- Position rows are read-only context (entry, size, journal link) and flag
+  the ~10 % sizing rule; they never alter scores, verdicts or queue risk
+  computation beyond the held-position sort priority.
 
 ## Company Brief limits
 
