@@ -579,15 +579,36 @@ complete.
   dashboard. Purpose: the queue shows real-money-at-risk first, and the Brief
   can flag the ~10 % position-sizing rule (Malik row 15). Positions never
   influence scoring or verdicts.
-  - [ ] IL.4a myfund.pl import (feasibility-first, decided 2026-07-10): the
-    user's real portfolio lives in myfund.pl, which offers a per-user API key
-    (menu → Konto → Ustawienia konta) and CSV export of operation history —
-    so integration uses the official key or exported CSV, **never stored
-    login credentials**. Key lives in `backend/.env` like other secrets.
-    Slice order: (1) one-shot CSV/API import into the position ledger,
-    (2) session-triggered re-sync via CX.15b if the API proves stable,
-    (3) manual entry stays as fallback. Fetch/parse/upsert only, politeness
-    rules apply; positions remain read-only context.
+  - [ ] IL.4a myfund.pl import (feasibility-first, decided 2026-07-10;
+    config landed same day): integration uses the per-user API key
+    (myfund: Konto → Ustawienia konta) or exported CSV — **never stored
+    login credentials**. `MYFUND_API_KEY` + `MYFUND_PORTFOLIO` live in
+    `backend/.env` (placeholders added; `Settings.myfund_*` in config.py).
+    Smart-usage rules, binding for the implementation:
+    - **One portfolio only.** `MYFUND_PORTFOLIO` pins the tracked wallet;
+      the importer must scope every request to it and never enumerate the
+      whole account (data minimization).
+    - **Probe before build.** Step 1 documents the actual API surface from
+      the logged-in help (the public help page/PDF is not fetchable
+      anonymously): endpoints, auth header, whether current positions are
+      exposed directly or must be reconstructed from operation history.
+      Record findings + terms note per the source-adapter rule before any
+      parser is written; CSV-export import is the fallback if the API is
+      too thin.
+    - **Positions, not P&L.** Import per instrument: identifier, quantity,
+      average entry price, currency, entry date(s) from operations. myfund
+      instrument names map to workbench tickers via an explicit mapping
+      table; unmatched instruments are listed, never guessed (foreign
+      listings/funds may stay unmapped as cash-like context rows).
+    - **Session-triggered only.** Re-sync runs inside the CX.15b pre-session
+      hook or the manual re-check action — one bounded request batch through
+      `scrapers/http.py` politeness limits, no polling. Manual entry stays
+      as fallback; a failed sync degrades to last-known positions with a
+      staleness label, never blocks the session.
+    - **Privacy:** the key is never logged, never in fixtures (recorded
+      fixtures are sanitized like PA's), and position data stays in the
+      local DB — it must not appear in AI prompts or committed test data.
+      Positions remain read-only context and never influence scoring.
 - [ ] IL.5 UI simplification/alignment slice: declare the canonical screen set
   in `docs/design/research-workspace.md` and map the four live tabs onto it
   (ends the tabs-vs-contract drift); progressive disclosure — a surface

@@ -18,6 +18,22 @@ keep the decisions scannable.
 
 ---
 
+## 2026-07-10 · IL.4a config — myfund token slots + binding smart-usage rules
+
+Added `MYFUND_API_KEY` / `MYFUND_PORTFOLIO` placeholders to `backend/.env`
+(user pastes the key generated in myfund: Konto → Ustawienia konta) and
+`.env.example`, plus typed optional `Settings.myfund_api_key/myfund_portfolio/
+myfund_base_url` in config.py — no key means the position ledger silently
+runs on manual entries. IL.4a in TASKS.md now carries the binding usage
+rules: one pinned portfolio only (no account-wide pulls), probe the
+authenticated API surface and record a terms note before writing any parser
+(public help page/PDF is not anonymously fetchable — verified), import
+positions not P&L with an explicit instrument→ticker mapping that lists
+unmatched names instead of guessing, session-triggered sync only through the
+politeness-limited HTTP layer with graceful staleness on failure, and
+privacy rules (key never logged, sanitized fixtures, positions never in AI
+prompts and never a scoring input).
+
 ## 2026-07-10 · Execution sequence + myfund.pl import (IL.4a)
 
 Replaced the risk of a "Now/Next/Later" parking lot with an ordered,
