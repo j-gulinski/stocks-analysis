@@ -224,9 +224,23 @@ def _quarterly_observation_prices(
     )
     by_quarter: dict[tuple[int, int], Price] = {}
     for price in prices:
+        if not _price_known_on(price):
+            continue
         quarter = (price.date.year, (price.date.month - 1) // 3 + 1)
         by_quarter[quarter] = price
     return [by_quarter[key] for key in sorted(by_quarter)]
+
+
+def _price_known_on(price: Price) -> bool:
+    """Treat SQLite's naive round-trip timestamps as UTC for portability."""
+    if price.scraped_at is None:
+        return False
+    scraped_at = price.scraped_at
+    if scraped_at.tzinfo is None:
+        scraped_at = scraped_at.replace(tzinfo=timezone.utc)
+    else:
+        scraped_at = scraped_at.astimezone(timezone.utc)
+    return scraped_at <= datetime.combine(price.date, time.max, tzinfo=timezone.utc)
 
 
 def _build_observation(
@@ -278,7 +292,11 @@ def _build_observation(
                 "latest_income_available_at": latest_available_at,
                 "restatement_caveat": _restatement_caveat(financial_availability_policy),
             },
-            "price": {"date": price.date, "close": float(price.close)},
+            "price": {
+                "date": price.date,
+                "close": float(price.close),
+                "scraped_at": price.scraped_at,
+            },
             "financials": {
                 "latest_income_period": latest_period,
                 "revenue": latest.get("revenue"),

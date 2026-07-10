@@ -867,6 +867,7 @@ def _refresh_prices(
     chain forever via the `last_day >= today` guard) are purged up front.
     """
     today = date.today()
+    scraped_at = utcnow()
     purged_future = (
         db.execute(
             delete(Price).where(Price.company_id == company.id, Price.date > today)
@@ -924,7 +925,14 @@ def _refresh_prices(
         # BiznesRadar profile page — keeps kurs/mcap/C-Z alive.
         if fallback_price is not None:
             if last_day is None or last_day < today:
-                db.add(Price(company_id=company.id, date=today, close=fallback_price))
+                db.add(
+                    Price(
+                        company_id=company.id,
+                        date=today,
+                        close=fallback_price,
+                        scraped_at=scraped_at,
+                    )
+                )
             return (
                 "ok (fallback: 1 dzien, kurs z profilu BiznesRadar; historia "
                 "niedostepna: " + " | ".join(errors)[:160] + ")"
@@ -945,7 +953,13 @@ def _refresh_prices(
         if bar.day > today:
             continue  # never store the future again (see purge above)
         db.add(
-            Price(company_id=company.id, date=bar.day, close=bar.close, volume=bar.volume)
+            Price(
+                company_id=company.id,
+                date=bar.day,
+                close=bar.close,
+                volume=bar.volume,
+                scraped_at=scraped_at,
+            )
         )
         added += 1
 

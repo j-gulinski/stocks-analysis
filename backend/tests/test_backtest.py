@@ -30,7 +30,12 @@ def test_backtest_excludes_future_scraped_financial_rows_but_attaches_outcomes(d
 
     db.add_all(
         [
-            Price(company_id=company.id, date=date(2024, 3, 31), close=10.0),
+            Price(
+                company_id=company.id,
+                date=date(2024, 3, 31),
+                close=10.0,
+                scraped_at=datetime(2024, 3, 30, tzinfo=timezone.utc),
+            ),
             Price(company_id=company.id, date=date(2024, 5, 1), close=15.0),
         ]
     )
@@ -88,8 +93,18 @@ def test_backtest_estimated_period_lag_is_opt_in_and_date_bounded(db):
     db.commit()
     db.add_all(
         [
-            Price(company_id=company.id, date=date(2024, 4, 28), close=10.0),
-            Price(company_id=company.id, date=date(2024, 4, 29), close=11.0),
+            Price(
+                company_id=company.id,
+                date=date(2024, 4, 28),
+                close=10.0,
+                scraped_at=datetime(2024, 4, 27, tzinfo=timezone.utc),
+            ),
+            Price(
+                company_id=company.id,
+                date=date(2024, 4, 29),
+                close=11.0,
+                scraped_at=datetime(2024, 4, 29, tzinfo=timezone.utc),
+            ),
         ]
     )
     _add_income_row(
@@ -143,6 +158,36 @@ def test_backtest_estimated_period_lag_is_opt_in_and_date_bounded(db):
     assert "Research-only" in after["summary"]["known_inputs_policy"]
 
 
+def test_backtest_excludes_price_learned_after_observation_date(db):
+    from app.db.models import Company, Price
+    from app.services import backtest
+
+    company = Company(ticker="LATE", name="LATE PRICE", sector="test")
+    db.add(company)
+    db.commit()
+    db.add(
+        Price(
+            company_id=company.id,
+            date=date(2024, 3, 31),
+            close=10.0,
+            scraped_at=datetime(2024, 4, 1, tzinfo=timezone.utc),
+        )
+    )
+    db.commit()
+
+    result = backtest.run_strategy_backtest(
+        db,
+        strategy="malik_v1",
+        from_date=date(2024, 3, 31),
+        to_date=date(2024, 3, 31),
+        tickers=["LATE"],
+        outcome_windows=[30],
+        persist=False,
+    )
+
+    assert result["summary"]["observation_count"] == 0
+
+
 def test_backtest_rejects_unknown_strategy(db):
     from app.services import backtest
 
@@ -180,7 +225,14 @@ def test_backtest_api_creates_lists_and_reads_detail(client, db):
     company = Company(ticker="SNT", name="SYNEKTIK")
     db.add(company)
     db.commit()
-    db.add(Price(company_id=company.id, date=date(2024, 3, 31), close=20.0))
+    db.add(
+        Price(
+            company_id=company.id,
+            date=date(2024, 3, 31),
+            close=20.0,
+            scraped_at=datetime(2024, 3, 30, tzinfo=timezone.utc),
+        )
+    )
     db.commit()
 
     created = client.post(

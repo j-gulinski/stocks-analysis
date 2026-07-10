@@ -57,6 +57,14 @@ OPTEX or SUNTECH; current SNT fixture data is not admitted as the unverified
 historical case. This is an evidence-backed `needs-human` boundary, not a
 failed replay.
 
+## 2026-07-10 · CX.11 price availability boundary
+
+Added migration `0015` with nullable `prices.scraped_at`, populated by price
+refreshes and exposed in the API. Strict deterministic backtests now exclude a
+price learned after its observation date or with unknown availability; older
+rows remain unknown until refreshed. Financial version lineage and sufficient
+historical depth are still open.
+
 ## 2026-07-10 · IL.4 read-only position context
 
 Added migration `0014` for a position ledger containing ticker, entry, size,

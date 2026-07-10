@@ -53,9 +53,11 @@ Detailed contracts: `docs/plan-stage-codex-pivot.md`.
   Claude configuration, clients, direct analysis behavior and compatibility
   tests after RT1.3 migrates the remaining legacy calls. Verify with an
   `rg` sweep; preserve explicit migration notes and historical archives.
-- [ ] **CX.11 Backtest data readiness.** Add publication/availability dates,
-  point-in-time snapshots, and sufficient historical price depth. Walk-forward
-  review is owned by CX.16/RT6.6, not this task.
+- [~] **CX.11 Backtest data readiness.** Price migration `0015` now records
+  `scraped_at`; refreshes populate it and strict backtests exclude prices
+  learned after the observation date or with unknown availability. Financial
+  publication/version coverage, point-in-time snapshots and sufficient
+  historical depth remain open. Walk-forward review is owned by CX.16/RT6.6.
 - [ ] **CX.13 Agent valuation evaluation.** Continue structured replay of saved
   `analysis_runs`; prose-only predictions remain `unknown`/`needs-human`.
   Do not change prompts or strategy rules without separated validation and

@@ -123,7 +123,12 @@ class Dividend(Base):
 
 
 class Price(Base):
-    """Daily close from BiznesRadar history/profile quote."""
+    """Daily close plus when the workbench learned the source row.
+
+    Older rows may have no availability timestamp; strict historical replay
+    excludes them rather than pretending their original publication time is
+    known.
+    """
 
     __tablename__ = "prices"
     __table_args__ = (
@@ -135,6 +140,9 @@ class Price(Base):
     date: Mapped[date] = mapped_column(Date)
     close: Mapped[float] = mapped_column(Numeric(12, 4))
     volume: Mapped[int | None] = mapped_column(BigInteger)
+    scraped_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, default=utcnow
+    )
 
 
 class CompanyMarketData(Base):

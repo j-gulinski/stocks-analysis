@@ -149,6 +149,7 @@ class PriceOut(BaseModel):
     date: date
     close: float
     volume: int | None
+    scraped_at: datetime | None
 
 
 # -------------------------------------------------------------------- forum
