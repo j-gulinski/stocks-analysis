@@ -38,7 +38,8 @@ transport + a validation guard (same shape as the thesis refiner).
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from math import isfinite
 
 from app.services import thesis
 from app.services.strategies import base
@@ -76,6 +77,18 @@ _OUTCOME_DRIVER = {
 # profile's own criteria (malik.py: `cwk`→finance/realestate, `ev_ebitda`→
 # energy), so there is no second copy of the sector mapping to drift.
 _CRITERION_MULTIPLE = {"pe_vs_history": "cz", "cwk": "cwk", "ev_ebitda": "ev_ebitda"}
+
+# RT4.3b deliberately starts with the valuation drivers already owned by the
+# deterministic engine. Broader revenue/margin trees belong to a versioned
+# company template; accepting arbitrary JSON here would make the valuation
+# look more precise without equations that can consume it.
+_ASSUMPTION_DRIVER_KEYS = {
+    "eps": "eps",
+    "book_value": "book_value",
+    "ebitda_ttm": "ebitda_ttm",
+    "shares_outstanding": "shares_outstanding",
+    "net_cash": "net_cash",
+}
 
 # How each reversion path narrates the multiple move (digit-free leads).
 _KIND_LEAD = {
@@ -619,6 +632,159 @@ def scenario_quality_warnings(scenario_rows: list, weighted_upside: float | None
             "ostrzeżenie o punkcie wejścia, nie jako pozytywną tezę."
         )
     return warnings
+
+
+def _driver_assumption_detail(item: dict, *, applied: bool, note: str) -> dict:
+    """Keep the original provenance next to the deterministic decision."""
+    return {
+        "key": item.get("key", ""),
+        "value": item.get("value"),
+        "unit": item.get("unit"),
+        "provenance": item.get("provenance", "human_assumption"),
+        "source_ref": item.get("source_ref"),
+        "rationale": item.get("rationale", ""),
+        "applied": applied,
+        "note": note,
+    }
+
+
+def _apply_driver_assumptions(
+    inputs: ScenarioInputs, items: list[dict]
+) -> tuple[ScenarioInputs, list[dict], list[dict]]:
+    """Apply the small, typed RT4.3b driver allow-list to a copy of inputs.
+
+    Model suggestions stay visible but never change math until a human turns
+    them into an evidence or human-assumption item. This makes the approval
+    boundary explicit even when a whole assumption set is marked approved.
+    """
+    overlay = replace(inputs)
+    applied: list[dict] = []
+    ignored: list[dict] = []
+    for raw in items:
+        item = raw if isinstance(raw, dict) else {}
+        key = item.get("key")
+        provenance = item.get("provenance")
+        if provenance == "model_suggestion":
+            ignored.append(
+                _driver_assumption_detail(
+                    item,
+                    applied=False,
+                    note="Sugestia modelu wymaga jawnego przyjęcia przez człowieka.",
+                )
+            )
+            continue
+        target = _ASSUMPTION_DRIVER_KEYS.get(key)
+        value = item.get("value")
+        if target is None:
+            ignored.append(
+                _driver_assumption_detail(
+                    item,
+                    applied=False,
+                    note="Klucz nie ma jeszcze deterministycznego równania.",
+                )
+            )
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
+            ignored.append(
+                _driver_assumption_detail(
+                    item, applied=False, note="Wartość sterownika nie jest liczbą."
+                )
+            )
+            continue
+        if target in {"eps", "book_value", "ebitda_ttm", "shares_outstanding"} and value <= 0:
+            ignored.append(
+                _driver_assumption_detail(
+                    item, applied=False, note="Wartość sterownika musi być dodatnia."
+                )
+            )
+            continue
+        if target == "shares_outstanding" and int(value) != value:
+            ignored.append(
+                _driver_assumption_detail(
+                    item, applied=False, note="Liczba akcji musi być całkowita."
+                )
+            )
+            continue
+        setattr(overlay, target, int(value) if target == "shares_outstanding" else float(value))
+        applied.append(
+            _driver_assumption_detail(
+                item, applied=True, note="Zastosowano w deterministycznej wrażliwości."
+            )
+        )
+    return overlay, applied, ignored
+
+
+def build_driver_sensitivity(
+    inputs: ScenarioInputs,
+    profile: base.StrategyProfile,
+    approved_assumption_sets: list[dict] | None = None,
+) -> dict:
+    """Project approved case drivers without replacing the base valuation.
+
+    Each approved negative/base/positive set is applied to a copied
+    ``ScenarioInputs`` and re-run through the pure engine. The result compares
+    that deterministic projection with the unchanged dossier scenario row.
+    Draft/rejected sets are filtered here as a second safety boundary, and
+    model suggestions are reported as ignored rather than priced.
+    """
+    approved = [
+        row for row in (approved_assumption_sets or [])
+        if isinstance(row, dict)
+        and row.get("status") == "approved"
+        and row.get("scenario_kind") in {"negative", "base", "positive"}
+    ]
+    if not approved:
+        return {
+            "status": "none",
+            "note": "Brak zatwierdzonych zestawów sterowników do policzenia wrażliwości.",
+            "rows": [],
+        }
+
+    baseline = build_scenario_set(inputs, profile).to_dict()
+    baseline_by_kind = {row["kind"]: row for row in baseline["scenarios"]}
+    rows: list[dict] = []
+    for assumption_set in approved:
+        kind = assumption_set["scenario_kind"]
+        overlay, applied, ignored = _apply_driver_assumptions(
+            inputs, assumption_set.get("assumptions") or []
+        )
+        projected = build_scenario_set(overlay, profile).to_dict()
+        projected_row = next(row for row in projected["scenarios"] if row["kind"] == kind)
+        baseline_row = baseline_by_kind[kind]
+        baseline_price = baseline_row["target_price"]
+        projected_price = projected_row["target_price"]
+        baseline_upside = baseline_row["implied_upside_pct"]
+        projected_upside = projected_row["implied_upside_pct"]
+        rows.append(
+            {
+                "scenario_kind": kind,
+                "label": assumption_set.get("label", kind),
+                "baseline_target_price": baseline_price,
+                "sensitivity_target_price": projected_price if applied else baseline_price,
+                "target_price_delta": (
+                    round(projected_price - baseline_price, 2)
+                    if applied and projected_price is not None and baseline_price is not None
+                    else None
+                ),
+                "baseline_upside_pct": baseline_upside,
+                "sensitivity_upside_pct": projected_upside if applied else baseline_upside,
+                "upside_delta_pct": (
+                    round(projected_upside - baseline_upside, 2)
+                    if applied and projected_upside is not None and baseline_upside is not None
+                    else None
+                ),
+                "applied": applied,
+                "ignored": ignored,
+            }
+        )
+    return {
+        "status": "applied" if any(row["applied"] for row in rows) else "human_review_required",
+        "note": (
+            "Wrażliwość jest liczona deterministycznie na kopii wejść. Nie zmienia "
+            "bazowej ceny; szkice, odrzucone zestawy i sugestie modelu nie są wyceniane."
+        ),
+        "rows": rows,
+    }
 
 
 def build_scenario_set(

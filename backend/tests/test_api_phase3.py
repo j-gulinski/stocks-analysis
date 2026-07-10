@@ -110,6 +110,14 @@ def test_dossier_exposes_only_approved_case_assumptions(refreshed):
             "status": "approved",
             "assumptions": [
                 {
+                    "key": "eps",
+                    "value": 3.0,
+                    "unit": "PLN/share",
+                    "provenance": "evidence",
+                    "source_ref": "fact:eps-scenario",
+                    "rationale": "Jawnie zatwierdzone wejście testowe.",
+                },
+                {
                     "key": "revenue_growth",
                     "value": 0.12,
                     "unit": "ratio",
@@ -140,7 +148,12 @@ def test_dossier_exposes_only_approved_case_assumptions(refreshed):
     assert visible[0]["label"] == "Bazowe wejścia zatwierdzone"
     assert visible[0]["status"] == "approved"
     assert visible[0]["assumptions"][0]["provenance"] == "evidence"
-    assert visible[0]["assumptions"][0]["source_ref"] == "fact:revenue-growth"
+    assert visible[0]["assumptions"][0]["source_ref"] == "fact:eps-scenario"
+    sensitivity = dossier["scenarios"]["driver_sensitivity"]
+    assert sensitivity["status"] == "applied"
+    assert sensitivity["rows"][0]["target_price_delta"] is not None
+    assert sensitivity["rows"][0]["applied"][0]["key"] == "eps"
+    assert any(item["key"] == "revenue_growth" for item in sensitivity["rows"][0]["ignored"])
 
 
 def test_consensus_eps_basis_uses_sane_biznesradar_net_income():

@@ -200,9 +200,12 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
   - [x] RT4.3a: Connect approved case assumptions to the scenario context and
     keep sourced, human and model suggestions distinct in the dossier/UI;
     approved inputs remain context-only until priced equations are added.
-  - [ ] RT4.3b: Map approved driver keys into pure scenario inputs and expose
-    deterministic sensitivity changes without allowing drafts or suggestions
-    to alter the saved valuation silently.
+  - [x] RT4.3b: Map the typed approved driver keys into copied pure scenario
+    inputs and expose deterministic sensitivity changes; drafts, rejected
+    sets, unsupported keys and model suggestions cannot alter saved valuation.
+  - [ ] RT4.3c: Add template-backed operating equations for revenue/margin,
+    cash conversion and the valuation bridge, retaining the RT4.3b overlay as
+    an explicit sensitivity rather than a hidden forecast.
 - [~] RT4.5–RT4.7: report-first UI and manual QA slices exist; scenario rows
   now expose a qualitative negative/stable/improving company outcome and case
   assumptions have provenance-aware persistence/editor surfaces and appendable

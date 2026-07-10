@@ -31,6 +31,17 @@ as non-priced so the current deterministic multiple valuation cannot be
 silently changed. RT4.3b remains the separate step for mapping approved driver
 keys into tested operating equations and valuation sensitivity.
 
+## 2026-07-10 · RT4.3b deterministic driver sensitivity
+
+Added a pure, typed overlay for approved case drivers already understood by
+the valuation engine: EPS, book value, EBITDA TTM, share count and net cash.
+The dossier keeps its base multiple valuation unchanged and exposes separate
+sensitivity rows with baseline, projected and delta values. Draft/rejected
+sets, unsupported keys and model suggestions remain visible as inactive
+inputs; a model suggestion must be explicitly converted to evidence or a human
+assumption before it can affect the deterministic what-if result. Template
+operating equations remain the next RT4.3c slice.
+
 ## 2026-07-10 · Refined RT4 next task
 
 The next implementation target is now RT4.1a: establish the durable

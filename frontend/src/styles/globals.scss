@@ -701,6 +701,30 @@ textarea {
     }
   }
 
+  .driver-sensitivity {
+    .sensitivity-note {
+      margin: 0 0 9px;
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .sensitivity-list { display: grid; gap: 8px; }
+    .sensitivity-row {
+      padding: 9px 10px;
+      border: 0.5px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface-1);
+      strong { font-size: 13px; font-weight: 500; }
+      .scenario-metrics { margin-top: 8px; }
+      .sensitivity-detail {
+        margin: 7px 0 0;
+        color: var(--text-secondary);
+        font-size: 11.5px;
+        line-height: 1.45;
+      }
+    }
+  }
+
   .valuation {
     .basis { font-size: 11.5px; color: var(--text-muted); margin: 8px 0 0; }
     .rationale {

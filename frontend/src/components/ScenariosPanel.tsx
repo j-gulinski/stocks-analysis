@@ -192,6 +192,58 @@ export default function ScenariosPanel({
         </div>
       )}
 
+      {scenarios.driver_sensitivity && scenarios.driver_sensitivity.status !== "none" && (
+        <div className="thesis-section driver-sensitivity">
+          <p className="thesis-title">Wrażliwość na zatwierdzone sterowniki</p>
+          <p className="sensitivity-note">{scenarios.driver_sensitivity.note}</p>
+          <div className="sensitivity-list">
+            {scenarios.driver_sensitivity.rows.map((row) => (
+              <div className="sensitivity-row" key={row.scenario_kind}>
+                <div className="spread" style={{ flexWrap: "wrap", gap: 6 }}>
+                  <strong>{row.label}</strong>
+                  <span className={`badge ${row.applied.length > 0 ? "success" : "warning"}`}>
+                    {row.applied.length > 0 ? "zastosowano" : "wymaga decyzji"}
+                  </span>
+                </div>
+                <div className="scenario-metrics">
+                  <div>
+                    <span className="k">Cena bazowa</span>
+                    <span className="v">{fmtPln(row.baseline_target_price)}</span>
+                  </div>
+                  <div>
+                    <span className="k">Cena po założeniu</span>
+                    <span className="v">{fmtPln(row.sensitivity_target_price)}</span>
+                  </div>
+                  <div>
+                    <span className="k">Zmiana</span>
+                    <span className={`v ${signClass(row.target_price_delta)}`}>
+                      {row.target_price_delta != null && row.target_price_delta > 0 ? "+" : ""}
+                      {fmtPln(row.target_price_delta)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="k">Zmiana potencjału</span>
+                    <span className={`v ${signClass(row.upside_delta_pct)}`}>
+                      {fmtPct(row.upside_delta_pct, { signed: true })}
+                    </span>
+                  </div>
+                </div>
+                {row.applied.length > 0 && (
+                  <p className="sensitivity-detail">
+                    Zastosowano: {row.applied.map((item) => `${item.key} (${PROVENANCE_LABEL[item.provenance]})`).join(", ")}.
+                  </p>
+                )}
+                {row.ignored.length > 0 && (
+                  <p className="sensitivity-detail muted">
+                    Pominięto: {row.ignored.map((item) => `${item.key} — ${item.note}`).join("; ")}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* AI path only: a minimal secondary line (model / iteration count). */}
       {scenarios.engine === "ai" && scenarios.ai_notes && (
         <p className="ai-note">

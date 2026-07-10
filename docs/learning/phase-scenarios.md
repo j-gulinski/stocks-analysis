@@ -78,3 +78,11 @@ more edge case, even after the suite is green, is how these are found.
 `tests/test_valuation_ai.py` (25 checks, incl. corpus integrity) →
 `components/ScenariosPanel.tsx`. Spec: `docs/plan-stage-scenarios.md`;
 validation + the WP5 defect write-up: `docs/validation-scenarios.md`.
+
+**Approved inputs need an explicit bridge** — RT4.3b keeps the base multiple
+valuation unchanged and runs typed `eps`, book value, EBITDA, share-count and
+net-cash overlays on copied `ScenarioInputs`. Evidence and human assumptions
+can produce a deterministic sensitivity row; model suggestions, unsupported
+keys, drafts and rejected sets stay visible but inactive. This mirrors a C#
+service boundary where an immutable input record is projected into a separate
+what-if result instead of mutating the saved aggregate.

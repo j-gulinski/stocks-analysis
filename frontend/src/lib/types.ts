@@ -134,6 +134,30 @@ export interface AssumptionSet {
   updated_at: string;
 }
 
+export interface DriverAssumption extends AssumptionItem {
+  applied: boolean;
+  note: string;
+}
+
+export interface ScenarioSensitivityRow {
+  scenario_kind: AssumptionScenarioKind;
+  label: string;
+  baseline_target_price: number | null;
+  sensitivity_target_price: number | null;
+  target_price_delta: number | null;
+  baseline_upside_pct: number | null;
+  sensitivity_upside_pct: number | null;
+  upside_delta_pct: number | null;
+  applied: DriverAssumption[];
+  ignored: DriverAssumption[];
+}
+
+export interface ScenarioDriverSensitivity {
+  status: "none" | "applied" | "human_review_required";
+  note: string;
+  rows: ScenarioSensitivityRow[];
+}
+
 export interface RefreshSummary {
   ticker: string;
   summary: Record<string, string>;
@@ -424,6 +448,7 @@ export interface ScenarioSet {
   disclaimer: string;
   quality_warnings?: string[];
   approved_assumption_sets?: AssumptionSet[];
+  driver_sensitivity?: ScenarioDriverSensitivity;
   engine: "deterministic" | "ai";
   ai_notes: AiNotes | null;
 }

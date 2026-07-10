@@ -554,6 +554,32 @@ class ScenarioOut(BaseModel):
     company_outcome: ScenarioCompanyOutcomeOut | None = None
 
 
+class DriverAssumptionOut(AssumptionItemIn):
+    """One approved input and the deterministic application decision."""
+
+    applied: bool
+    note: str
+
+
+class ScenarioSensitivityRowOut(BaseModel):
+    scenario_kind: AssumptionScenarioKind
+    label: str
+    baseline_target_price: float | None
+    sensitivity_target_price: float | None
+    target_price_delta: float | None
+    baseline_upside_pct: float | None
+    sensitivity_upside_pct: float | None
+    upside_delta_pct: float | None
+    applied: list[DriverAssumptionOut] = Field(default_factory=list)
+    ignored: list[DriverAssumptionOut] = Field(default_factory=list)
+
+
+class ScenarioDriverSensitivityOut(BaseModel):
+    status: Literal["none", "applied", "human_review_required"]
+    note: str
+    rows: list[ScenarioSensitivityRowOut] = Field(default_factory=list)
+
+
 class ScenarioSetOut(BaseModel):
     """The scenario set for one stock (services/scenarios.py). Framed as an
     entrance to analysis; carries a set-level probability-weighted EV."""
@@ -571,6 +597,12 @@ class ScenarioSetOut(BaseModel):
     # here prevents sourced facts and human/model assumptions from collapsing
     # into one unlabeled number.
     approved_assumption_sets: list[AssumptionSetOut] = Field(default_factory=list)
+    driver_sensitivity: ScenarioDriverSensitivityOut = Field(
+        default_factory=lambda: ScenarioDriverSensitivityOut(
+            status="none",
+            note="Brak zatwierdzonych zestawów sterowników do policzenia wrażliwości.",
+        )
+    )
     # Provenance: "deterministic" (no key / AI fallback) or "ai" (+ ai_notes).
     engine: str = "deterministic"
     ai_notes: dict | None = None

@@ -331,6 +331,55 @@ def test_scenario_set_shape_and_engine():
     assert sc["horizon"]["low_months"] == 12 and sc["horizon"]["high_months"] == 24
 
 
+def test_driver_sensitivity_applies_only_typed_human_or_evidence_inputs():
+    inputs = cz_inputs()
+    sensitivity = scenarios.build_driver_sensitivity(
+        inputs,
+        malik.MALIK,
+        [
+            {"scenario_kind": "negative", "status": "draft", "assumptions": []},
+            {"scenario_kind": "positive", "status": "rejected", "assumptions": []},
+            {
+                "scenario_kind": "base",
+                "status": "approved",
+                "label": "Bazowy driver",
+                "assumptions": [
+                    {
+                        "key": "eps",
+                        "value": inputs.eps * 1.2,
+                        "unit": "PLN/share",
+                        "provenance": "human_assumption",
+                        "rationale": "Testowy wzrost EPS.",
+                    },
+                    {
+                        "key": "revenue_growth",
+                        "value": 0.12,
+                        "unit": "ratio",
+                        "provenance": "evidence",
+                        "rationale": "Klucz bez równania w tej wersji.",
+                    },
+                    {
+                        "key": "net_cash",
+                        "value": 999.0,
+                        "unit": "tys. PLN",
+                        "provenance": "model_suggestion",
+                        "rationale": "Sugestia wymaga akceptacji.",
+                    },
+                ],
+            },
+        ],
+    )
+
+    assert sensitivity["status"] == "applied"
+    assert len(sensitivity["rows"]) == 1
+    row = sensitivity["rows"][0]
+    assert row["scenario_kind"] == "base"
+    assert row["target_price_delta"] != 0
+    assert [item["key"] for item in row["applied"]] == ["eps"]
+    assert {item["key"] for item in row["ignored"]} == {"revenue_growth", "net_cash"}
+    assert all(not item["applied"] for item in row["ignored"])
+
+
 # ------------------------------------------------------------- in-session runner
 
 if __name__ == "__main__":  # pragma: no cover — pytest ignores this block
