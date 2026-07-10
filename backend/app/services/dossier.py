@@ -114,6 +114,27 @@ def load_balance_latest(db: Session, company_id: int) -> dict[str, float]:
     return latest
 
 
+def load_cashflow_latest(db: Session, company_id: int) -> dict[str, tuple[str, float]]:
+    """Latest canonical cash-flow rows, preserving their reporting period."""
+    rows = db.scalars(
+        select(ReportValue).where(
+            ReportValue.company_id == company_id,
+            ReportValue.statement == "cashflow",
+            ReportValue.freq == "Q",
+            ReportValue.value.is_not(None),
+        )
+    ).all()
+    latest: dict[str, tuple[str, float]] = {}
+    for row in rows:
+        canonical = fields.match_cashflow_field(row.field_label, row.field_code)
+        if canonical is None:
+            continue
+        current = latest.get(canonical)
+        if current is None or row.period > current[0]:
+            latest[canonical] = (row.period, float(row.value))
+    return latest
+
+
 def load_approved_assumption_sets(db: Session, company_id: int) -> list[dict]:
     """Expose only approved case inputs as scenario context.
 
@@ -364,6 +385,7 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
     pe_history = metrics.compute_pe_history(cz_values, ttm.valuation_pe)
 
     balance_latest = load_balance_latest(db, company.id)
+    cashflow_latest = load_cashflow_latest(db, company.id)
     net_cash_value, net_cash_note = metrics.compute_net_cash(balance_latest)
 
     dividends = db.scalars(
@@ -540,7 +562,11 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
             scenario_inputs, malik.MALIK, approved_assumption_sets
         ),
         "operating_bridge": operating_scenarios.build_operating_bridge(
-            scenario_inputs, income, malik.MALIK, approved_assumption_sets
+            scenario_inputs,
+            income,
+            malik.MALIK,
+            approved_assumption_sets,
+            cashflow_latest=cashflow_latest,
         ),
         "engine": "deterministic",
         "ai_notes": None,

@@ -180,6 +180,16 @@ export interface OperatingBridge {
   template: { id: string; label: string; sector_group: string; equation: string } | null;
   note: string;
   rows: OperatingBridgeRow[];
+  cash_conversion: {
+    status: "none" | "partial" | "needs_human";
+    period: string | null;
+    operating_cashflow: number | null;
+    net_profit: number | null;
+    conversion_ratio: number | null;
+    capex: number | null;
+    capex_intensity_pct: number | null;
+    gaps: string[];
+  };
 }
 
 export interface RefreshSummary {

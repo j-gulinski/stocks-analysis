@@ -256,6 +256,19 @@ export default function ScenariosPanel({
             <p className="small muted">{scenarios.operating_bridge.template.label}: {scenarios.operating_bridge.template.equation}</p>
           )}
           <p className="sensitivity-note">{scenarios.operating_bridge.note}</p>
+          <div className="cash-conversion">
+            <strong>Cash conversion / capex</strong>
+            <span className="badge muted">{scenarios.operating_bridge.cash_conversion.status}</span>
+            <div className="scenario-metrics">
+              <div><span className="k">CF operacyjny</span><span className="v">{fmtTys(scenarios.operating_bridge.cash_conversion.operating_cashflow)}</span></div>
+              <div><span className="k">CF / zysk netto</span><span className="v">{fmtPct(scenarios.operating_bridge.cash_conversion.conversion_ratio ? scenarios.operating_bridge.cash_conversion.conversion_ratio * 100 : null)}</span></div>
+              <div><span className="k">Capex</span><span className="v">{fmtTys(scenarios.operating_bridge.cash_conversion.capex)}</span></div>
+              <div><span className="k">Capex / przychód</span><span className="v">{fmtPct(scenarios.operating_bridge.cash_conversion.capex_intensity_pct)}</span></div>
+            </div>
+            {scenarios.operating_bridge.cash_conversion.gaps.length > 0 && (
+              <p className="sensitivity-detail muted">Luki: {scenarios.operating_bridge.cash_conversion.gaps.join("; ")}</p>
+            )}
+          </div>
           <div className="operating-bridge-list">
             {scenarios.operating_bridge.rows.map((row) => (
               <div className="operating-bridge-row" key={row.scenario_kind}>

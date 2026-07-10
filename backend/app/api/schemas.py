@@ -602,6 +602,7 @@ class OperatingBridgeOut(BaseModel):
     template: dict | None
     note: str
     rows: list[OperatingBridgeRowOut] = Field(default_factory=list)
+    cash_conversion: dict
 
 
 class ScenarioSetOut(BaseModel):
@@ -629,7 +630,10 @@ class ScenarioSetOut(BaseModel):
     )
     operating_bridge: OperatingBridgeOut = Field(
         default_factory=lambda: OperatingBridgeOut(
-            status="none", template=None, note="Brak projekcji operacyjnej."
+            status="none",
+            template=None,
+            note="Brak projekcji operacyjnej.",
+            cash_conversion={"status": "needs_human", "gaps": []},
         )
     )
     # Provenance: "deterministic" (no key / AI fallback) or "ai" (+ ai_notes).

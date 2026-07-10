@@ -358,6 +358,8 @@ def test_income_field_matching_disambiguates_gross_lines():
     assert fields.match_income_field("Zysk brutto") == "pretax_profit"
     assert fields.match_income_field("anything", "IncomeNetProfit") == "net_profit"
     assert fields.match_balance_field("Środki pieniężne i inne aktywa pieniężne") == "cash"
+    assert fields.match_cashflow_field("anything", "CashflowOperatingCashflow") == "operating_cashflow"
+    assert fields.match_cashflow_field("Wydatki inwestycyjne") == "capex"
 
 
 # ------------------------------------------------- real recorded fixtures

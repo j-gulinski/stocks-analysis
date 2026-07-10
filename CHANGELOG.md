@@ -52,6 +52,15 @@ multiple-only baseline. Only industrial and consumer archetypes are supported
 in this pilot; unsupported sectors remain explicit. Cash conversion, working
 capital and capex are deferred to RT4.3d rather than inferred.
 
+## 2026-07-10 · RT4.3d cash-conversion readiness (partial)
+
+Added canonical cash-flow field mapping for operating CF, investing CF,
+financing CF and capex, plus a dossier readiness snapshot showing CF/net-profit
+conversion and capex intensity when comparable periods exist. The UI keeps the
+working-capital gap explicit: receivable/inventory changes are not inferred
+from one balance snapshot. RT4.3d remains open until that source-backed bridge
+is implemented and tested.
+
 ## 2026-07-10 · Refined RT4 next task
 
 The next implementation target is now RT4.1a: establish the durable

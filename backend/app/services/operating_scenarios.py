@@ -106,20 +106,70 @@ def _bridge_price(
     return None, "C/WK nie ma jeszcze projekcji wartości księgowej w tym template."
 
 
+def build_cash_conversion_snapshot(
+    cashflow_latest: dict[str, tuple[str, float]] | None,
+    income: forecast.IncomeSeries,
+) -> dict:
+    """Report cash-conversion readiness without inventing missing bridges."""
+    cashflow_latest = cashflow_latest or {}
+    operating = cashflow_latest.get("operating_cashflow")
+    capex = cashflow_latest.get("capex")
+    period = operating[0] if operating else None
+    income_row = income.get(period or "", {})
+    operating_value = operating[1] if operating else None
+    net_profit = income_row.get("net_profit")
+    revenue = income_row.get("revenue")
+    conversion_ratio = (
+        round(operating_value / net_profit, 2)
+        if operating_value is not None and net_profit and net_profit > 0
+        else None
+    )
+    capex_intensity = (
+        round(abs(capex[1]) / revenue * 100.0, 2)
+        if capex is not None and revenue and revenue > 0
+        else None
+    )
+    gaps: list[str] = []
+    if conversion_ratio is None:
+        gaps.append("Brak porównywalnego przepływu operacyjnego i zysku netto.")
+    if capex_intensity is None:
+        gaps.append("Brak capex lub przychodu do policzenia intensywności inwestycji.")
+    gaps.append("Zmiana należności i zapasów wymaga jeszcze osobnego mostu bilansowego.")
+    if operating_value is None:
+        status = "needs_human"
+    elif conversion_ratio is not None and capex_intensity is not None:
+        status = "partial"
+    else:
+        status = "partial"
+    return {
+        "status": status,
+        "period": period,
+        "operating_cashflow": operating_value,
+        "net_profit": net_profit,
+        "conversion_ratio": conversion_ratio,
+        "capex": capex[1] if capex is not None else None,
+        "capex_intensity_pct": capex_intensity,
+        "gaps": gaps,
+    }
+
+
 def build_operating_bridge(
     inputs: scenarios.ScenarioInputs,
     income: forecast.IncomeSeries,
     profile: base.StrategyProfile,
     approved_assumption_sets: list[dict] | None = None,
+    cashflow_latest: dict[str, tuple[str, float]] | None = None,
 ) -> dict:
     """Build explicit operating what-if rows for supported company templates."""
     sector = inputs.thesis_inputs.insights.sector_group
+    cash_conversion = build_cash_conversion_snapshot(cashflow_latest, income)
     if sector not in _SUPPORTED_SECTORS:
         return {
             "status": "unsupported_template",
             "template": None,
             "note": "Brak zatwierdzonego równania operacyjnego dla tego archetypu spółki.",
             "rows": [],
+            "cash_conversion": cash_conversion,
         }
     approved = [
         row for row in (approved_assumption_sets or [])
@@ -139,6 +189,7 @@ def build_operating_bridge(
             "template": template,
             "note": "Brak zatwierdzonych założeń operacyjnych do projekcji.",
             "rows": [],
+            "cash_conversion": cash_conversion,
         }
     try:
         defaults = forecast.default_assumptions(income)
@@ -148,6 +199,7 @@ def build_operating_bridge(
             "template": template,
             "note": str(exc),
             "rows": [],
+            "cash_conversion": cash_conversion,
         }
 
     baseline = scenarios.build_scenario_set(inputs, profile).to_dict()
@@ -203,4 +255,5 @@ def build_operating_bridge(
         "template": template,
         "note": "Projekcja używa wyłącznie zatwierdzonych wejść i jawnego równania; bazowa wycena pozostaje osobnym punktem odniesienia.",
         "rows": rows,
+        "cash_conversion": cash_conversion,
     }

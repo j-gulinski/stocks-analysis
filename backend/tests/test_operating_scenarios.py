@@ -85,3 +85,17 @@ def test_bridge_keeps_unsupported_archetype_explicit():
     result = operating_scenarios.build_operating_bridge(inputs, _income(), malik.MALIK, [])
     assert result["status"] == "unsupported_template"
     assert result["rows"] == []
+
+
+def test_cash_conversion_snapshot_keeps_working_capital_gap_explicit():
+    snapshot = operating_scenarios.build_cash_conversion_snapshot(
+        {
+            "operating_cashflow": ("2025Q1", 1_500.0),
+            "capex": ("2025Q1", -400.0),
+        },
+        {"2025Q1": {"net_profit": 1_000.0, "revenue": 10_000.0}},
+    )
+    assert snapshot["status"] == "partial"
+    assert snapshot["conversion_ratio"] == 1.5
+    assert snapshot["capex_intensity_pct"] == 4.0
+    assert any("należności" in gap for gap in snapshot["gaps"])

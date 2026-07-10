@@ -92,3 +92,9 @@ industrial and consumer companies. The bridge is intentionally additive: it
 shows projected P&L and the operating target beside the existing multiple-only
 baseline, so a missing working-capital or cash-conversion equation cannot hide
 inside a confident-looking price.
+
+RT4.3d demonstrates the evidence boundary for cash conversion: operating CF
+and capex can be surfaced from canonical cash-flow rows, but a single latest
+balance snapshot cannot prove receivable or inventory movement. The UI reports
+the partial ratio and keeps that working-capital gap visible, like a C# DTO
+with a nullable field rather than silently defaulting it to zero.

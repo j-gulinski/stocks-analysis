@@ -153,6 +153,23 @@ BALANCE_ALIASES: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Cash-flow rows are kept separate from income/balance meanings. Codes are
+# stable in the recorded BiznesRadar pages; aliases remain intentionally small
+# until more issuers prove equivalent labels.
+CASHFLOW_FIELD_CODES: dict[str, tuple[str, ...]] = {
+    "operating_cashflow": ("CashflowOperatingCashflow",),
+    "investing_cashflow": ("CashflowInvestingCashflow",),
+    "financing_cashflow": ("CashflowFinancingCashflow",),
+    "capex": ("CashflowCapex",),
+}
+
+CASHFLOW_ALIASES: dict[str, tuple[str, ...]] = {
+    "operating_cashflow": ("przepływy pieniężne z działalności operacyjnej",),
+    "investing_cashflow": ("przepływy pieniężne z działalności inwestycyjnej",),
+    "financing_cashflow": ("przepływy pieniężne z działalności finansowej",),
+    "capex": ("wydatki inwestycyjne", "nakłady inwestycyjne"),
+}
+
 # indicator label -> short code used in indicator_values.indicator
 # (labels are normalized first: lowercase, "/" tightened — live pages write
 # the long forms "Cena / Zysk", "Cena / Wartość księgowa", …)
@@ -257,6 +274,14 @@ def match_balance_field(label: str, field_code: str | None = None) -> str | None
             if field_code in codes:
                 return canonical
     return _match(BALANCE_ALIASES, label)
+
+
+def match_cashflow_field(label: str, field_code: str | None = None) -> str | None:
+    if field_code:
+        for canonical, codes in CASHFLOW_FIELD_CODES.items():
+            if field_code in codes:
+                return canonical
+    return _match(CASHFLOW_ALIASES, label)
 
 
 def match_indicator(label: str, field_code: str | None = None) -> str | None:
