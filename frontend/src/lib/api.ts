@@ -33,6 +33,8 @@ import type {
   PreSessionBriefResult,
   QueueAttemptResult,
   ResearchCase,
+  ResearchCaseState,
+  ResearchCaseStep,
   RefreshSummary,
   ScraperHealth,
   WatchlistItem,
@@ -106,6 +108,20 @@ export const createResearchCase = (ticker: string, purpose = "investment-researc
   request<ResearchCase>(`/companies/${encodeURIComponent(ticker)}/research-case`, {
     method: "POST",
     body: JSON.stringify({ purpose }),
+  });
+
+export const updateResearchCase = (
+  ticker: string,
+  patch: {
+    state?: ResearchCaseState;
+    current_step?: ResearchCaseStep;
+    blocked_reason?: string | null;
+    as_of?: string | null;
+  },
+) =>
+  request<ResearchCase>(`/companies/${encodeURIComponent(ticker)}/research-case`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
   });
 
 export const refreshCompany = (ticker: string, force = false) =>

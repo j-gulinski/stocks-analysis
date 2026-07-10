@@ -41,8 +41,15 @@ the case root is exercised by the next RT4 slice.
 
 The company header now reads the purpose-scoped `ResearchCase` without creating
 one on page load, shows its workflow state when present, and offers an
-explicit `Utwórz przypadek` action when absent. The next slice will add
-state/step editing and use the case in the decision brief.
+explicit `Utwórz przypadek` action when absent. State/step editing and brief
+composition landed in the following RT4.1c slice.
+
+## 2026-07-10 · RT4.1c case workflow editing
+
+Added an explicit case editor for workflow state, current step and blocked
+reason. The report brief now names the selected case step so the deterministic
+read is anchored to the current research task; case state is never advanced
+automatically. Creation and update failures remain visible in the page.
 
 ## 2026-07-10 · Explore ranking rationale and stale-analysis queue
 

@@ -19,6 +19,7 @@ import {
   listAgentRuns,
   listAnalysisRuns,
   refreshCompany,
+  updateResearchCase,
 } from "@/lib/api";
 import { findCurrentVerifiedRun } from "@/lib/analysis";
 import { ApiError } from "@/lib/api";
@@ -74,13 +75,25 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
   const [agentRuns, setAgentRuns] = useState<AgentRun[] | null>(null);
   const [researchCase, setResearchCase] = useState<ResearchCase | null>(null);
   const [creatingCase, setCreatingCase] = useState(false);
+  const [caseStateDraft, setCaseStateDraft] = useState<ResearchCase["state"]>("new");
+  const [caseStepDraft, setCaseStepDraft] = useState<ResearchCase["current_step"]>("ingest");
+  const [caseReasonDraft, setCaseReasonDraft] = useState("");
+  const [savingCase, setSavingCase] = useState(false);
+  const [caseUpdateError, setCaseUpdateError] = useState<string | null>(null);
   const { data: dossier, error, loading, reload } = useApi(() => getDossier(ticker), [ticker]);
 
   useEffect(() => {
     let cancelled = false;
     setResearchCase(null);
     getResearchCase(ticker)
-      .then((caseRow) => { if (!cancelled) setResearchCase(caseRow); })
+      .then((caseRow) => {
+        if (!cancelled) {
+          setResearchCase(caseRow);
+          setCaseStateDraft(caseRow.state);
+          setCaseStepDraft(caseRow.current_step);
+          setCaseReasonDraft(caseRow.blocked_reason ?? "");
+        }
+      })
       .catch((err: unknown) => {
         // A missing case is an honest empty state, not a page failure.
         if (!cancelled && (!(err instanceof ApiError) || err.status !== 404)) setResearchCase(null);
@@ -90,10 +103,35 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
 
   const createCase = async () => {
     setCreatingCase(true);
+    setCaseUpdateError(null);
     try {
-      setResearchCase(await createResearchCase(ticker));
+      const created = await createResearchCase(ticker);
+      setResearchCase(created);
+      setCaseStateDraft(created.state);
+      setCaseStepDraft(created.current_step);
+      setCaseReasonDraft(created.blocked_reason ?? "");
+    } catch (err) {
+      setCaseUpdateError(err instanceof Error ? err.message : String(err));
     } finally {
       setCreatingCase(false);
+    }
+  };
+
+  const saveCase = async () => {
+    setSavingCase(true);
+    setCaseUpdateError(null);
+    try {
+      const updated = await updateResearchCase(ticker, {
+        state: caseStateDraft,
+        current_step: caseStepDraft,
+        blocked_reason: caseStateDraft === "blocked" ? caseReasonDraft : null,
+      });
+      setResearchCase(updated);
+      setCaseReasonDraft(updated.blocked_reason ?? "");
+    } catch (err) {
+      setCaseUpdateError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingCase(false);
     }
   };
 
@@ -223,6 +261,20 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
         <div className="command-row header-actions"><button className="btn" onClick={() => void handleRefresh()} disabled={refreshing}><IconRefresh size={14} className={refreshing ? "spin" : ""} /> {refreshing ? "Odświeżanie…" : "Odśwież"}</button>{!researchCase && <button className="btn" onClick={() => void createCase()} disabled={creatingCase}>{creatingCase ? "Tworzę przypadek…" : "Utwórz przypadek"}</button>}<button className="btn accent" onClick={() => setTab("History")}><IconSparkles size={14} /> Analiza Codex</button></div>
       </section>
 
+      {researchCase && (
+        <section className="case-editor" aria-label="Edytor przypadku badawczego">
+          <div>
+            <span className="case-label">Przypadek badawczy</span>
+            <p>Stan i etap są ręcznym kontekstem workflow; system nie przesuwa ich automatycznie.</p>
+          </div>
+          <label>Stan<select value={caseStateDraft} onChange={(event) => setCaseStateDraft(event.target.value as ResearchCase["state"])}><option value="new">Nowy</option><option value="ingesting">Zbieranie danych</option><option value="data_review">Przegląd danych</option><option value="business_model">Model biznesowy</option><option value="thesis">Teza</option><option value="scenarios">Scenariusze</option><option value="review">Weryfikacja</option><option value="monitoring">Monitoring</option><option value="blocked">Zablokowany</option><option value="closed">Zamknięty</option></select></label>
+          <label>Etap<select value={caseStepDraft} onChange={(event) => setCaseStepDraft(event.target.value as ResearchCase["current_step"])}><option value="ingest">Ingest</option><option value="data_review">Przegląd danych</option><option value="business_model">Model biznesowy</option><option value="thesis">Teza</option><option value="scenarios">Scenariusze</option><option value="review">Weryfikacja</option><option value="monitoring">Monitoring</option></select></label>
+          {caseStateDraft === "blocked" && <label>Powód blokady<input value={caseReasonDraft} onChange={(event) => setCaseReasonDraft(event.target.value)} placeholder="Brakujący dowód lub decyzja" /></label>}
+          <button className="btn accent" onClick={() => void saveCase()} disabled={savingCase}>{savingCase ? "Zapisuję…" : "Zapisz stan"}</button>
+          {caseUpdateError && <span className="case-update-error">{caseUpdateError}</span>}
+        </section>
+      )}
+
       {refreshing && (
         <section className="refresh-activity" aria-live="polite">
           <IconRefresh size={15} className="spin" />
@@ -242,7 +294,7 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
         {TABS.map(({ id, label, icon: Icon }, index) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)} role="tab" aria-selected={tab === id}><span className="tab-step">{index + 1}</span><Icon size={13} /> {label}</button>)}
       </div>
 
-      {tab === "Report" && <><CompanyReport dossier={dossier} analysis={currentAnalysis} reviewAnalysis={reviewAnalysis} analysisJob={latestDeepJob} onRequestAnalysis={() => setTab("History")} /><PositionPanel ticker={ticker} /><FalsifiersPanel ticker={ticker} /><DecisionJournalPanel ticker={ticker} thesis={dossier.thesis} /><section className="overview-section report-chart"><div className="section-heading"><div><p className="section-label">Trend operacyjny</p><h2>Najważniejsze wykresy wyników</h2></div><p>W raporcie pozostaje tylko trend potrzebny do oceny tezy.</p></div><QuarterlyCharts quarters={dossier.quarters} preferContinuingNet /></section></>}
+      {tab === "Report" && <><CompanyReport dossier={dossier} analysis={currentAnalysis} reviewAnalysis={reviewAnalysis} analysisJob={latestDeepJob} researchCase={researchCase} onRequestAnalysis={() => setTab("History")} /><PositionPanel ticker={ticker} /><FalsifiersPanel ticker={ticker} /><DecisionJournalPanel ticker={ticker} thesis={dossier.thesis} /><section className="overview-section report-chart"><div className="section-heading"><div><p className="section-label">Trend operacyjny</p><h2>Najważniejsze wykresy wyników</h2></div><p>W raporcie pozostaje tylko trend potrzebny do oceny tezy.</p></div><QuarterlyCharts quarters={dossier.quarters} preferContinuingNet /></section></>}
 
       {tab === "Charts" && <><section className="scenario-warning"><IconAlertTriangle size={17} /><div><strong>Ograniczenie scenariuszy</strong><p>Warunek wyniku spółki jest pokazany jakościowo, ale cena nadal wynika głównie ze zmiany mnożnika. Traktuj to jako wrażliwość wyceny do czasu scenariuszy operacyjnych v2.</p></div></section><section className="overview-section"><div className="section-heading"><div><p className="section-label">Wycena</p><h2>Scenariusze i kurs</h2></div><p>Widoki wspierające raport, bez surowych tabel.</p></div>{dossier.scenarios && <ScenariosPanel scenarios={dossier.scenarios} valuation={dossier.valuation} />}<div className="overview-grid scenario-context"><ForecastPanel ticker={ticker} dossier={dossier} onSaved={reload} /><PriceChart ticker={ticker} /></div></section></>}
 

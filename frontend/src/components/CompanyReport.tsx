@@ -7,13 +7,14 @@ import {
   IconSparkles,
 } from "@tabler/icons-react";
 import { fmtNumber, fmtPct, fmtTysAsMln, signClass } from "@/lib/format";
-import type { AgentRun, AnalysisRun, Dossier } from "@/lib/types";
+import type { AgentRun, AnalysisRun, Dossier, ResearchCase } from "@/lib/types";
 
 type Props = {
   dossier: Dossier;
   analysis: AnalysisRun | null;
   reviewAnalysis: AnalysisRun | null;
   analysisJob: AgentRun | null;
+  researchCase: ResearchCase | null;
   onRequestAnalysis: () => void;
 };
 
@@ -210,6 +211,7 @@ export default function CompanyReport({
   analysis,
   reviewAnalysis,
   analysisJob,
+  researchCase,
   onRequestAnalysis,
 }: Props) {
   const latest = dossier.quarters.at(-1);
@@ -236,6 +238,27 @@ export default function CompanyReport({
     ? "wynik kontynuowany"
     : "wynik raportowany";
   const prescore = userPrescore(dossier);
+  const caseStateLabels: Record<ResearchCase["state"], string> = {
+    new: "nowy",
+    ingesting: "zbieranie danych",
+    data_review: "przegląd danych",
+    business_model: "model biznesowy",
+    thesis: "teza",
+    scenarios: "scenariusze",
+    review: "weryfikacja",
+    monitoring: "monitoring",
+    blocked: "zablokowany",
+    closed: "zamknięty",
+  };
+  const caseStepLabels: Record<ResearchCase["current_step"], string> = {
+    ingest: "ingest",
+    data_review: "przegląd danych",
+    business_model: "model biznesowy",
+    thesis: "teza",
+    scenarios: "scenariusze",
+    review: "weryfikacja",
+    monitoring: "monitoring",
+  };
 
   const pros = thesis
     ? thesis.pros.filter((item) => item.id !== "size").map((item) => item.text)
@@ -255,11 +278,14 @@ export default function CompanyReport({
     : needsReview
       ? "Analiza Codex — wymaga przeglądu"
       : "Szkic analityczny";
-  const reportLead = verified && executiveRead
+  const baseReportLead = verified && executiveRead
     ? concise(executiveRead)
     : needsReview
       ? "Research i niezależna weryfikacja zostały zakończone. Wniosek pozostaje niezatwierdzony, ponieważ część źródeł i ocena governance wymagają kontroli."
       : "Skrót z zapisanych faktów i scenariuszy; pełny wniosek pojawi się dopiero po niezależnej weryfikacji.";
+  const reportLead = researchCase
+    ? `${baseReportLead} Przypadek jest obecnie na etapie ${caseStepLabels[researchCase.current_step]}.`
+    : baseReportLead;
 
   return (
     <article className="company-report" aria-label="Przygotowany raport spółki">
@@ -280,6 +306,14 @@ export default function CompanyReport({
           )}
         </div>
       </header>
+      {researchCase && (
+        <div className="company-report-case" aria-label="Stan przypadku badawczego">
+          <span className="case-label">Przypadek badawczy</span>
+          <strong>{caseStateLabels[researchCase.state]}</strong>
+          <span>etap: {caseStepLabels[researchCase.current_step]}</span>
+          {researchCase.blocked_reason && <span className="warning">blokada: {researchCase.blocked_reason}</span>}
+        </div>
+      )}
 
       <section className="company-report-summary" aria-label="Podsumowanie decyzji">
         <div>

@@ -2399,6 +2399,39 @@ textarea {
 }
 
 .research-arrow { color: var(--text-muted); }
+
+.case-editor {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(150px, 0.7fr) minmax(150px, 0.7fr) minmax(180px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 12px 0;
+  border-bottom: 0.5px solid var(--border);
+
+  > div { color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
+  > div p { margin: 4px 0 0; }
+  label { display: grid; gap: 4px; color: var(--text-muted); font-size: 11px; }
+  select, input { min-height: 34px; padding: 6px 8px; border: 0.5px solid var(--border); border-radius: var(--radius); background: var(--surface-1); color: var(--text-primary); font: inherit; }
+  .case-update-error { color: var(--text-warning); font-size: 12px; }
+}
+
+.case-label { color: var(--text-muted); font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
+
+.company-report-case {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 7px 12px;
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 12px;
+  strong { color: var(--text-primary); font-weight: 500; }
+  .warning { color: var(--text-warning); }
+}
 .research-maintenance {
   position: absolute;
   top: 50%;
@@ -2746,6 +2779,9 @@ textarea {
   .research-maintenance { top: auto; right: 0; bottom: 10px; transform: none; }
   .workspace-header { position: static; }
   .workflow-tabs { top: 0; }
+  .case-editor { grid-template-columns: 1fr 1fr; }
+  .case-editor > div { grid-column: 1 / -1; }
+  .case-editor .case-update-error { grid-column: 1 / -1; }
   .key-number-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .key-number-strip > div:nth-child(3) { border-left: 0; border-top: 0.5px solid var(--border); }
   .key-number-strip > div:nth-child(4) { border-top: 0.5px solid var(--border); }
@@ -2777,6 +2813,9 @@ textarea {
 
 @media (max-width: 560px) {
   .container { padding: 0 16px 42px; }
+  .case-editor { grid-template-columns: 1fr; }
+  .case-editor > div,
+  .case-editor .case-update-error { grid-column: auto; }
   .workflow-tabs {
     display: flex;
     gap: 0;
