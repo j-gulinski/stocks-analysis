@@ -269,6 +269,60 @@ textarea {
   &.unchanged { background: var(--bg-success); color: var(--text-success); }
 }
 
+.falsifier-panel { margin: 14px 0; }
+
+.falsifier-heading {
+  align-items: flex-start;
+  margin-bottom: 12px;
+
+  h2 {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 17px;
+  }
+
+  p { margin: 2px 0 0; }
+}
+
+.falsifier-list { display: grid; gap: 7px; }
+
+.falsifier-row {
+  display: grid;
+  gap: 5px;
+  padding: 9px 10px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  font-size: 13px;
+
+  p { margin: 0; }
+  &.fired { border-color: var(--text-danger); }
+  &.warning { border-color: var(--text-warning); }
+}
+
+.falsifier-edit,
+.falsifier-form {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(180px, 1.5fr) minmax(130px, 0.8fr) auto;
+  gap: 7px;
+  align-items: center;
+
+  input, select { width: 100%; min-width: 0; }
+}
+
+.falsifier-form {
+  grid-template-columns: minmax(100px, 0.7fr) minmax(180px, 1.5fr) minmax(180px, 1fr) minmax(130px, 0.8fr) auto;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--border);
+}
+
+@media (max-width: 760px) {
+  .falsifier-edit,
+  .falsifier-form { grid-template-columns: 1fr; }
+}
+
 .journal-entry {
   display: grid;
   gap: 4px;

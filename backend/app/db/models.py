@@ -314,6 +314,35 @@ class MonitorChange(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class ThesisFalsifier(Base):
+    """Explicit user-managed condition that can put a thesis at risk.
+
+    Status is never inferred from a metric or model. Every state change carries
+    a human/evidence reason so a fired falsifier remains auditable.
+    """
+
+    __tablename__ = "thesis_falsifiers"
+    __table_args__ = (
+        UniqueConstraint("company_id", "key", name="uq_thesis_falsifier_company_key"),
+        Index("ix_thesis_falsifiers_company_status", "company_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), index=True
+    )
+    key: Mapped[str] = mapped_column(String(80))
+    statement: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="holding", index=True)
+    reason: Mapped[str] = mapped_column(Text)
+    review_date: Mapped[date | None] = mapped_column(Date)
+    thesis_hash: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class Forecast(Base):
     """A saved next-quarter forecast scenario (assumptions + computed result)."""
 

@@ -19,6 +19,7 @@ import type {
   DiscoveryResult,
   Dossier,
   Financials,
+  Falsifier,
   Forecast,
   ForecastAssumptions,
   ForumPage,
@@ -241,6 +242,28 @@ export const checkMonitor = (ticker: string) =>
   request<MonitorCheckResult>(
     `/companies/${encodeURIComponent(ticker)}/monitor/check`,
     { method: "POST" },
+  );
+
+export const getFalsifiers = (ticker: string) =>
+  request<Falsifier[]>(`/companies/${encodeURIComponent(ticker)}/falsifiers`);
+
+export const createFalsifier = (
+  ticker: string,
+  payload: Omit<Falsifier, "id" | "ticker" | "created_at" | "updated_at" | "thesis_hash">,
+) =>
+  request<Falsifier>(`/companies/${encodeURIComponent(ticker)}/falsifiers`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const updateFalsifier = (
+  ticker: string,
+  id: number,
+  payload: Pick<Falsifier, "status" | "reason" | "review_date">,
+) =>
+  request<Falsifier>(
+    `/companies/${encodeURIComponent(ticker)}/falsifiers/${id}`,
+    { method: "PATCH", body: JSON.stringify(payload) },
   );
 
 export const listBacktestRuns = (params: { limit?: number; strategy?: string } = {}) => {

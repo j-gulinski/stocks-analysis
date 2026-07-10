@@ -15,11 +15,22 @@ from app.db.models import (
     IndicatorValue,
     Price,
     ReportValue,
+    ThesisFalsifier,
     WatchlistItem,
 )
 from app.services.refresh import get_or_create_company
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
+
+
+def _risk_summary(db: Session, company_id: int) -> tuple[str, int, int]:
+    rows = db.scalars(
+        select(ThesisFalsifier.status).where(ThesisFalsifier.company_id == company_id)
+    ).all()
+    fired = sum(status == "fired" for status in rows)
+    warning = sum(status == "warning" for status in rows)
+    level = "fired" if fired else "warning" if warning else "none"
+    return level, fired, warning
 
 
 @router.get("", response_model=list[WatchlistItemOut])
@@ -29,12 +40,22 @@ def list_watchlist(db: Session = Depends(get_db)) -> list[WatchlistItemOut]:
         .join(Company, WatchlistItem.company_id == Company.id)
         .order_by(WatchlistItem.added_at)
     ).all()
-    return [
-        WatchlistItemOut(
-            ticker=company.ticker, name=company.name, note=item.note, added_at=item.added_at
+    result = []
+    for item, company in rows:
+        risk_level, fired, warning = _risk_summary(db, company.id)
+        result.append(
+            WatchlistItemOut(
+                ticker=company.ticker,
+                name=company.name,
+                note=item.note,
+                added_at=item.added_at,
+                risk_level=risk_level,
+                fired_falsifiers=fired,
+                warning_falsifiers=warning,
+            )
         )
-        for item, company in rows
-    ]
+    risk_order = {"fired": 0, "warning": 1, "none": 2}
+    return sorted(result, key=lambda row: (risk_order.get(row.risk_level, 3), row.added_at))
 
 
 @router.post("", response_model=WatchlistItemOut, status_code=status.HTTP_201_CREATED)
@@ -53,8 +74,15 @@ def add_to_watchlist(
     item = WatchlistItem(company_id=company.id, note=payload.note)
     db.add(item)
     db.commit()
+    risk_level, fired, warning = _risk_summary(db, company.id)
     return WatchlistItemOut(
-        ticker=company.ticker, name=company.name, note=item.note, added_at=item.added_at
+        ticker=company.ticker,
+        name=company.name,
+        note=item.note,
+        added_at=item.added_at,
+        risk_level=risk_level,
+        fired_falsifiers=fired,
+        warning_falsifiers=warning,
     )
 
 

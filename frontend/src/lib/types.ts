@@ -8,6 +8,9 @@ export interface WatchlistItem {
   name: string | null;
   note: string | null;
   added_at: string;
+  risk_level: "fired" | "warning" | "none";
+  fired_falsifiers: number;
+  warning_falsifiers: number;
 }
 
 export interface DiscoveryCandidate {
@@ -733,6 +736,19 @@ export interface MonitorCheckResult {
   snapshot_id: number;
   snapshot_hash: string;
   change: MonitorChange | null;
+}
+
+export interface Falsifier {
+  id: number;
+  ticker: string;
+  key: string;
+  statement: string;
+  status: "holding" | "warning" | "fired";
+  reason: string;
+  review_date: string | null;
+  thesis_hash: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface BacktestObservation {

@@ -25,6 +25,9 @@ class WatchlistItemOut(BaseModel):
     name: str | None
     note: str | None
     added_at: datetime
+    risk_level: str = "none"
+    fired_falsifiers: int = 0
+    warning_falsifiers: int = 0
 
 
 # -------------------------------------------------------- decision journal
@@ -579,6 +582,36 @@ class MonitorCheckOut(BaseModel):
     snapshot_id: int
     snapshot_hash: str
     change: MonitorChangeOut | None
+
+
+class FalsifierOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ticker: str
+    key: str
+    statement: str
+    status: str
+    reason: str
+    review_date: date | None
+    thesis_hash: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class FalsifierCreateIn(BaseModel):
+    key: str = Field(min_length=1, max_length=80)
+    statement: str = Field(min_length=1, max_length=2000)
+    status: str = Field(default="holding", min_length=1, max_length=20)
+    reason: str = Field(min_length=1, max_length=2000)
+    review_date: date | None = None
+    thesis_hash: str | None = Field(default=None, min_length=64, max_length=64)
+
+
+class FalsifierUpdateIn(BaseModel):
+    status: str = Field(min_length=1, max_length=20)
+    reason: str = Field(min_length=1, max_length=2000)
+    review_date: date | None = None
 
 
 class AnalysisRunOut(BaseModel):

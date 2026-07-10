@@ -20,7 +20,7 @@ Take the first unchecked item. Each item should be a bounded, verifiable slice.
 2. CX.15b — `workbench start` pre-session hook.
 3. [x] IL.1 — decision journal.
 4. [x] IL.2 + CX.15c — thesis-change diff and ESPI/queue actions.
-5. IL.3 — falsifiers and thesis-at-risk ordering.
+5. [x] IL.3 — falsifiers and thesis-at-risk ordering.
 6. IL.4/IL.4a — read-only positions and myfund API-key/CSV import.
 7. IL.5 — UI alignment and screenshot QA.
 8. CX.16a–d — first mixed-outcome historical cohort replay.
@@ -104,8 +104,10 @@ rules: `docs/plan-research-platform.md` §3.0 and §9, plus `AGENTS.md`.
 - [x] **IL.2 Change monitor:** compare deterministic dossier/event snapshots
   after a session; no scraping or model call in the diff computation.
   Migration `0012` stores one immutable change card per changed baseline.
-- [ ] **IL.3 Falsifiers:** `holding`/`warning`/`fired` state and thesis-at-risk
-  queue order; never silently infer a fired falsifier.
+- [x] **IL.3 Falsifiers:** explicit `holding`/`warning`/`fired` state with a
+  required human/evidence reason; watchlist orders fired then warning cases.
+  No status is inferred from metrics or models. Migration `0013` and company
+  editor are covered by focused API/migration/UI build checks.
 - [ ] **IL.4 Position ledger:** read-only ticker, entry, size and sizing-rule
   flag; never an analysis score or AI input.
   - [ ] **IL.4a myfund import:** one pinned portfolio, official API key or CSV,

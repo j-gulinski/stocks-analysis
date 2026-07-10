@@ -10,6 +10,14 @@ default for basic bounded implementation; Terra high remains the default for
 ordinary implementation, and Sol is reserved for complex or decision-critical
 work. Earlier ledger rows remain historical records, not active routing rules.
 
+## 2026-07-10 · IL.3 explicit falsifiers
+
+Added migration `0013` and company-linked falsifiers with explicit
+`holding`/`warning`/`fired` states. Every transition requires a human/evidence
+reason; metrics and models never infer a fired state. The research queue now
+orders fired cases before warnings, and the company report exposes a compact
+editor with visible status and review date.
+
 ## 2026-07-10 · Active documentation compaction
 
 Reduced `PLAN.md`, the canonical research-platform plan and the changelog to

@@ -19,6 +19,7 @@ from app.api import (
     diagnostics,
     discovery,
     evidence,
+    falsifiers,
     forum,
     journal,
     monitor,
@@ -40,6 +41,7 @@ app.include_router(agent_runs.router, prefix="/api")
 app.include_router(backtests.router, prefix="/api")
 app.include_router(agent_evaluations.router, prefix="/api")
 app.include_router(evidence.router, prefix="/api")
+app.include_router(falsifiers.router, prefix="/api")
 app.include_router(discovery.router, prefix="/api")
 app.include_router(journal.router, prefix="/api")
 app.include_router(monitor.router, prefix="/api")

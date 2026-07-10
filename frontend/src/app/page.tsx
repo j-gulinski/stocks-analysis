@@ -30,6 +30,9 @@ interface Row {
   name: string | null;
   dossier: Dossier | null;
   refreshing: boolean;
+  riskLevel: "fired" | "warning" | "none";
+  firedFalsifiers: number;
+  warningFalsifiers: number;
 }
 
 function confidenceLabel(level: string | undefined): string {
@@ -55,7 +58,10 @@ function strategyFitOnly(value: string): boolean {
   return normalized.includes("sweet spot") || normalized.includes("przewaga informacyjna");
 }
 
-function compactRisk(dossier: Dossier | null): { label: string; value: string; clear: boolean } {
+function compactRisk(row: Row): { label: string; value: string; clear: boolean } {
+  if (row.firedFalsifiers > 0) return { label: "Ryzyko tezy", value: `${row.firedFalsifiers} uruchomiony falsyfikator`, clear: false };
+  if (row.warningFalsifiers > 0) return { label: "Ryzyko tezy", value: `${row.warningFalsifiers} ostrzeżenie`, clear: false };
+  const dossier = row.dossier;
   if (!dossier) return { label: "Stan danych", value: "Dossier czeka na odświeżenie", clear: false };
   if (dossier.result_quality.is_material) {
     return {
@@ -74,6 +80,8 @@ function compactRisk(dossier: Dossier | null): { label: string; value: string; c
 
 function researchState(row: Row): { label: string; tone: string; next: string } {
   if (row.refreshing) return { label: "Zbieranie danych", tone: "accent", next: "Poczekaj na zakończenie odświeżenia" };
+  if (row.riskLevel === "fired") return { label: "Teza zagrożona", tone: "danger", next: "Rozpatrz uruchomiony falsyfikator" };
+  if (row.riskLevel === "warning") return { label: "Ryzyko tezy", tone: "warning", next: "Sprawdź ostrzeżenie" };
   if (!hasDossierData(row.dossier)) return { label: "Nowa", tone: "warning", next: "Zbierz dane źródłowe" };
   if ((row.dossier?.insights.missing.length ?? 0) > 0) return { label: "Do weryfikacji", tone: "warning", next: "Rozwiąż najważniejszą lukę" };
   return { label: "Teza robocza", tone: "neutral", next: "Przejrzyj tezę i scenariusze" };
@@ -106,6 +114,9 @@ export default function ResearchQueuePage() {
         name: item.name,
         dossier: dossiers[index],
         refreshing: false,
+        riskLevel: item.risk_level,
+        firedFalsifiers: item.fired_falsifiers,
+        warningFalsifiers: item.warning_falsifiers,
       })));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -156,6 +167,9 @@ export default function ResearchQueuePage() {
         name: created.name,
         dossier: null,
         refreshing: true,
+        riskLevel: created.risk_level,
+        firedFalsifiers: created.fired_falsifiers,
+        warningFalsifiers: created.warning_falsifiers,
       }]);
       setAdding(false);
       await refresh(created.ticker, true);
@@ -228,7 +242,7 @@ export default function ResearchQueuePage() {
               const dossier = row.dossier;
               const state = researchState(row);
               const signals = dossier?.insights.key_indicators.slice(0, 2) ?? [];
-              const risk = compactRisk(dossier);
+              const risk = compactRisk(row);
               const scrapedAt = dossier?.freshness.financials_scraped_at ?? null;
               const days = staleDays(scrapedAt);
               return (

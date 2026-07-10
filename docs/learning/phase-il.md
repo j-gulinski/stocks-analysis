@@ -21,3 +21,9 @@ The runtime check also exposed a practical development issue: rebuilding a
 Next.js `.next` directory while an older dev process is serving it can produce
 missing chunk errors. Restarting the managed frontend after a production build
 restores a coherent runtime bundle.
+
+IL.3 adds a useful state-machine boundary: `holding`, `warning` and `fired` are
+stored facts about the user’s thesis process, not computed verdicts. The API
+requires a reason for every transition, similar to requiring an audit comment
+when changing a workflow state in a C# service. The research queue can then use
+the stored state for ordering without pretending it discovered the evidence.
