@@ -221,6 +221,8 @@ def test_income_codes_real_semantics():
     assert fields.match_income_field("Koszty sprzedaży", "IncomeDistributionExpenses") == "selling_costs"
     assert fields.match_income_field("Zysk operacyjny (EBIT)", "IncomeEBIT") == "operating_profit"
     assert fields.match_income_field("Zysk przed opodatkowaniem", "IncomeBeforeTaxProfit") == "pretax_profit"
+    assert fields.match_income_field("Wynik zdarzeń nadzwyczajnych", "IncomeExtraordinarProfit") == "extraordinary_profit"
+    assert fields.match_income_field("Zysk (strata) netto z działalności zaniechanej", "IncomeDiscontinuedProfit") == "discontinued_profit"
     assert fields.match_income_field("EBITDA", "BanIncomeEBITDA") == "ebitda"
 
 

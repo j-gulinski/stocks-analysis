@@ -52,6 +52,20 @@ function analysisRunSummary(run: AnalysisRun): string {
   );
 }
 
+function isCurrentVerifiedRun(run: AnalysisRun, dossier: Dossier): boolean {
+  if (run.verification_status !== "pass") return false;
+  const root = recordField(run.input_snapshot.dossier) ?? run.input_snapshot;
+  const snapshotTtm = recordField(root.ttm);
+  const snapshotQuality = recordField(root.result_quality);
+  const snapshotPe = numberField(snapshotTtm?.valuation_pe);
+  const currentPe = dossier.ttm.valuation_pe;
+  const peMatches =
+    snapshotPe == null || currentPe == null
+      ? snapshotPe === currentPe
+      : Math.abs(snapshotPe - currentPe) < 0.01;
+  return snapshotQuality != null && peMatches;
+}
+
 function runStatusTone(status: string): string {
   if (status === "verified") return "success";
   if (status === "completed") return "success";
@@ -463,7 +477,8 @@ export default function AnalysisPanel({
         if (cancelled) return;
         setAgentHistory(agentRows);
         setAgentWorkflowRows(workflowRows);
-        setSelectedAgentRunId(agentRows[0]?.id ?? null);
+        const currentVerified = agentRows.find((run) => isCurrentVerifiedRun(run, dossier));
+        setSelectedAgentRunId(currentVerified?.id ?? null);
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -480,21 +495,23 @@ export default function AnalysisPanel({
       cancelled = true;
       window.clearInterval(pollId);
     };
-  }, [ticker]);
+  }, [dossier, ticker]);
 
   const handleQueueCodex = async () => {
     setQueueing(true);
     setError(null);
     try {
       const run = await queueAgentRun({
-        workflow: "stock-quick-analysis",
+        workflow: "stock-deep-analysis",
         ticker,
         trigger: "ui-request",
-        model_role: "worker_standard",
-        orchestrator_model: "gpt-5.5",
+        model_role: "orchestrator",
+        model: "gpt-5.3-codex-spark",
+        orchestrator_model: "gpt-5.3-codex-spark",
         inputs: {
-          objective: "Create a compact verifier-gated company analysis.",
-          required_verification: "stock-verifier before UI-visible result",
+          objective: "Create a complete, concise company report from stored evidence and primary-source research.",
+          required_verification: "Strongest configured verifier independently owns prediction, confidence, result quality and approval.",
+          ui_contract: "Prepared report only; keep raw evidence in audit storage.",
         },
       });
       setAgentWorkflowRows((current) => [run, ...(current ?? [])]);
@@ -515,6 +532,7 @@ export default function AnalysisPanel({
     selectedAgentRunId == null
       ? null
       : agentRows.find((run) => run.id === selectedAgentRunId) ?? null;
+  const currentVerifiedRows = agentRows.filter((run) => isCurrentVerifiedRun(run, dossier));
   const context = dossier.analysis_context_status;
   const selectedOutput = selectedAgentRun?.output ?? {};
   const selectedRedFlags = textList(selectedOutput.red_flags ?? selectedOutput.risks).slice(0, 4);
@@ -527,7 +545,7 @@ export default function AnalysisPanel({
     <div>
       <div className="row wrap" style={{ marginBottom: 14 }}>
         <button className="btn accent" onClick={handleQueueCodex} disabled={queueing}>
-          <IconSparkles size={14} className={queueing ? "spin" : ""} /> Queue Codex
+          <IconSparkles size={14} className={queueing ? "spin" : ""} /> Zleć pełny raport
         </button>
         {context && (
           <span className={`badge ${context.ready_for_ai ? "success" : "warning"}`}>
@@ -536,7 +554,7 @@ export default function AnalysisPanel({
         )}
         {agentRows.length > 0 && (
           <span className="small muted">
-            {agentRows.length} {agentRows.length === 1 ? "analiza" : "analiz"} w historii
+            {currentVerifiedRows.length} aktualnych i zweryfikowanych · {agentRows.length} w historii
           </span>
         )}
       </div>
@@ -606,6 +624,7 @@ export default function AnalysisPanel({
           <div className="analysis-section" style={{ marginTop: 10 }}>
             {agentRows.slice(0, 5).map((run) => {
               const signal = analysisRunSignal(run);
+              const currentVerified = isCurrentVerifiedRun(run, dossier);
               return (
                 <button
                   className={`verify-item analysis-run-select${
@@ -628,6 +647,7 @@ export default function AnalysisPanel({
                       <span className={`badge ${verificationTone(run.verification_status)}`}>
                         {run.status} / {run.verification_status}
                       </span>
+                      {!currentVerified && <span className="badge muted">historyczny / audyt</span>}
                     </span>
                   </div>
                   <p className="secondary" style={{ lineHeight: 1.5, marginTop: 6 }}>
@@ -644,7 +664,9 @@ export default function AnalysisPanel({
       )}
 
       {!selectedAgentRun && !error && (
-        <p className="empty-state">Brak analiz — zakolejkuj pierwszą pracę Codex.</p>
+        <p className="empty-state">
+          Brak aktualnego raportu po pełnej weryfikacji. Historyczne wyniki pozostają poniżej wyłącznie do audytu.
+        </p>
       )}
 
       {selectedAgentRun && (

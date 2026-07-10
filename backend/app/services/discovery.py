@@ -23,6 +23,8 @@ class DiscoveryResult:
     fetched_at: datetime
     source_url: str
     source_note: str
+    source_version_id: int
+    source_version_created: bool
 
 
 def _latest_parsed_version(db: Session) -> DocumentVersion | None:
@@ -43,6 +45,7 @@ def discover_candidates(db: Session, *, force: bool = False) -> DiscoveryResult:
     """Return the cached BR universe, fetching at most one page when stale."""
     page = _get_page(db, DISCOVERY_URL, force)
     version: DocumentVersion | None = None
+    version_created = False
     if page is not None:
         recorded = evidence.record_market_document_version(
             db,
@@ -60,6 +63,7 @@ def discover_candidates(db: Session, *, force: bool = False) -> DiscoveryResult:
             fetched_at=page.fetched_at,
         )
         version = recorded.version
+        version_created = recorded.version_created
         page.fetch_log.document_version_id = version.id
         try:
             biznesradar.parse_market_rating(version.raw_content)
@@ -93,6 +97,7 @@ def discover_candidates(db: Session, *, force: bool = False) -> DiscoveryResult:
             fetched_at=page.fetched_at,
         )
         version = recorded.version
+        version_created = recorded.version_created
         page.fetch_log.document_version_id = version.id
         try:
             biznesradar.parse_market_rating(version.raw_content)
@@ -112,6 +117,8 @@ def discover_candidates(db: Session, *, force: bool = False) -> DiscoveryResult:
             else version.fetched_at
         ),
         source_url=version.effective_url,
+        source_version_id=version.id,
+        source_version_created=version_created,
         source_note=(
             "Rating kondycji BiznesRadar (Altman EM-Score) i Piotroski F-Score "
             "służą wyłącznie do wstępnej selekcji. Dopasowanie do strategii "

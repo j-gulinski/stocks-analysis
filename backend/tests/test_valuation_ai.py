@@ -243,6 +243,26 @@ def test_confidence_high_full_coverage_deep_history():
     assert out["confidence"]["level"] == "high"
 
 
+def test_confidence_high_is_capped_by_material_red_flag():
+    inputs = _inputs(n_indicators=6, n_hist=8)
+    one_off = next(
+        item
+        for item in inputs.thesis_inputs.insights.key_indicators
+        if item.id == "one_offs"
+    )
+    one_off.verdict = "bad"
+    one_off.importance = 3
+    ss = _scenario_set(inputs)
+
+    out = valuation_ai.assess_potential(
+        inputs, ss, malik.MALIK, settings=_settings(anthropic_api_key=None)
+    )
+
+    assert out["confidence"]["level"] == "medium"
+    assert "Zdarzenia jednorazowe" in out["confidence"]["rationale"]
+    assert "ogranicza wiarygodność wyceny" in out["confidence"]["rationale"]
+
+
 def test_what_would_change_never_empty_and_carries_thesis_gaps():
     inputs = _inputs()
     ss = _scenario_set(inputs)

@@ -26,6 +26,10 @@ If inputs are missing, return `needs-human` or `fail`; do not infer.
    - Every material event claim must cite an event report or stored source.
    - Forum claims must remain labelled as opinion unless independently
      confirmed.
+   - A forum contributor's reported performance may prioritize which tactic to
+     inspect, but it must not raise factual confidence, prediction confidence
+     or the company score. Any reliability claim needs a dated track-record
+     manifest with cash-flow method, total-return benchmark and evidence gaps.
 2. Schema completeness:
    - Required fields for the workflow are present.
    - Missing data is explicit in `data_gaps`, `missing_data`, or equivalent.

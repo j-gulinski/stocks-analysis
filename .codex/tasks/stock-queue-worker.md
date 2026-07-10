@@ -24,9 +24,12 @@ source of truth.
 
 4. Follow the returned `execution_contract`.
 5. Use the repo MCP tools or JSON scripts to gather only stored/sourced data.
-6. For quick/bounded drafts, `gpt-5.3-codex-spark` is acceptable. For
-   decision-relevant synthesis, use the stronger analyst role. Any UI-visible
-   verified result must pass `stock-verifier`.
+6. Follow the claimed skill's routing. For `stock-deep-analysis`, use
+   `gpt-5.3-codex-spark` for the source-completion loop and full draft, then use
+   the strongest configured `verifier_strict` model (currently `gpt-5.5` high)
+   to decide the final prediction/confidence and approve or reject the result.
+   Any UI-visible verified result must pass both `stock-result-verifier` and
+   `stock-verifier`.
 7. Save results with the same `agent_run_id`, for example:
 
    ```bash

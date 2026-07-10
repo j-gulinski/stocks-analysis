@@ -75,8 +75,8 @@ export const removeFromWatchlist = (ticker: string) =>
 
 // --------------------------------------------------------------- discovery
 export const getDiscovery = (
-  minRating = 7,
-  minFScore: number | null = 5,
+  minRating = 5,
+  minFScore: number | null = null,
   force = false,
 ) => {
   const params = new URLSearchParams({

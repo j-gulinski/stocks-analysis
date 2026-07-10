@@ -165,6 +165,10 @@ def _fmt_mln(value_tys: float | None) -> str:
     return f"{value_tys / 1000.0:,.0f} mln zł".replace(",", " ")
 
 
+def _fmt_tys(value_tys: float) -> str:
+    return f"{value_tys:,.0f} tys. zł".replace(",", " ")
+
+
 def _last_known(values: list[float | None]) -> float | None:
     for value in reversed(values):
         if value is not None:
@@ -409,24 +413,34 @@ def build_insights(
         if share is None:
             return MissingData(
                 "one_offs", "Udział zdarzeń jednorazowych",
-                "Brak danych o pozostałej działalności operacyjnej — bez tego "
-                "nie widać, ile zysku jest powtarzalne.",
+                "Brak porównywalnego wyniku podstawowego i operacyjnego — bez "
+                "tego nie widać, ile zysku jest powtarzalne.",
             )
+        explicit = []
+        discontinued = latest_quarter.get("discontinued_profit")
+        extraordinary = latest_quarter.get("extraordinary_profit")
+        if discontinued not in (None, 0):
+            explicit.append(f"działalność zaniechana {_fmt_tys(discontinued)}")
+        if extraordinary not in (None, 0):
+            explicit.append(f"zdarzenia nadzwyczajne {_fmt_tys(extraordinary)}")
+        detail = f" ({'; '.join(explicit)})" if explicit else ""
         if share < 15:
             verdict, comment = "good", (
-                f"One-offy to tylko {_fmt_pct(share)} zysku operacyjnego — "
+                f"Odchylenia od wyniku podstawowego to tylko {_fmt_pct(share)} "
+                "zysku operacyjnego — "
                 "wynik wygląda na powtarzalny."
             )
         elif share <= metrics.ONE_OFF_SHARE_LIMIT_PCT:
             verdict, comment = "neutral", (
-                f"One-offy {_fmt_pct(share)} zysku operacyjnego — akceptowalne, "
+                f"Odchylenia od wyniku podstawowego to {_fmt_pct(share)} zysku "
+                "operacyjnego — akceptowalne, "
                 "ale sprawdź noty."
             )
         else:
             verdict, comment = "bad", (
-                f"Aż {_fmt_pct(share)} zysku operacyjnego to pozostała "
-                "działalność — zysk może być jednorazowy (sprzedaż aktywów, "
-                "odpisy, przeszacowania)."
+                f"Odchylenia od wyniku podstawowego to aż {_fmt_pct(share)} "
+                f"zysku operacyjnego{detail} — wynik netto i C/Z mogą być "
+                "zniekształcone przez zdarzenia jednorazowe."
             )
         return Insight("one_offs", "Udział zdarzeń jednorazowych", _fmt_pct(share),
                        verdict, comment, 3 if group in ("biotech_med", "energy") else 2,
@@ -491,7 +505,9 @@ def build_insights(
                        brief=f"{label} {_fmt_mln(abs(net_cash_value))}")
 
     def spec_cash_runway() -> Insight | MissingData:
-        ttm_net = ttm.get("net_profit")
+        ttm_net = ttm.get("continuing_net_profit")
+        if ttm_net is None:
+            ttm_net = ttm.get("net_profit")
         if net_cash_value is None:
             return MissingData(
                 "cash_runway", "Zapas gotówki (runway)",

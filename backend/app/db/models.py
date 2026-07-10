@@ -537,6 +537,9 @@ class AgentRun(Base):
     model_role: Mapped[str | None] = mapped_column(String(40))
     model: Mapped[str | None] = mapped_column(String(80))
     orchestrator_model: Mapped[str | None] = mapped_column(String(80))
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(160), unique=True, index=True
+    )
     inputs: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     outputs: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     error: Mapped[str | None] = mapped_column(Text)

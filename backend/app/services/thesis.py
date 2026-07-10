@@ -167,15 +167,22 @@ def _valuation_basis(inputs: ThesisInputs, forward_pe: float | None) -> str:
     """Honest statement of which C/Z the read leans on. Forward preferred; fall
     back to trailing; say plainly when neither exists (spec §Valuation
     doctrine). Numbers here are copied straight from the inputs."""
-    ttm_pe = inputs.ttm.get("pe")
+    ttm_pe = inputs.ttm.get("valuation_pe", inputs.ttm.get("pe"))
+    valuation_basis = inputs.ttm.get("valuation_basis")
     if forward_pe is not None:
         return (
             f"Wycena wg C/Z prognozowanego (forward) {_fmt_pe(forward_pe)} — "
             "zgodnie z preferencją strategii (forward przed kroczącym)."
         )
     if ttm_pe is not None:
+        basis_note = (
+            " działalności kontynuowanej"
+            if valuation_basis == "continuing"
+            else ""
+        )
         return (
-            f"Brak prognozy — użyto C/Z kroczącego (TTM) {_fmt_pe(ttm_pe)}; "
+            f"Brak prognozy — użyto C/Z kroczącego (TTM){basis_note} "
+            f"{_fmt_pe(ttm_pe)}; "
             "strategia woli C/Z prognozowane, gdy pojawi się prognoza "
             "(zbuduj ją w zakładce Prognoza)."
         )
@@ -245,7 +252,9 @@ def _collect_signals(
     )
 
     net_cash_value = inputs.net_cash.get("value")
-    net_profit = inputs.ttm.get("net_profit")
+    net_profit = inputs.ttm.get("continuing_net_profit")
+    if net_profit is None:
+        net_profit = inputs.ttm.get("net_profit")
 
     return _EntryReasons(
         computable=computable,
@@ -420,8 +429,7 @@ def _build_verify_next(
                 id="one_off_risk",
                 text="Zweryfikuj powtarzalność zysku — ile pochodzi ze zdarzeń "
                 "jednorazowych.",
-                why="Wysoki udział pozostałej działalności operacyjnej zawyża "
-                "bieżący zysk; sprawdź noty do sprawozdania.",
+                why=one_off.comment,
             )
         )
         seen.add("one_off_risk")

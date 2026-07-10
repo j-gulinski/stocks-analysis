@@ -58,11 +58,41 @@ def test_quarter_metrics(income):
     assert by_period["2025Q1"].one_off_share_pct == 1.1  # |10000−9894|/10000
 
 
+def test_quarter_metrics_flags_discontinued_result_as_one_off():
+    income = {
+        "2026Q2": {
+            "revenue": 213_185.0,
+            "profit_on_sales": 53_653.0,
+            "operating_profit": 53_718.0,
+            "extraordinary_profit": 0.0,
+            "discontinued_profit": 256_562.0,
+            "net_profit": 296_362.0,
+        }
+    }
+
+    quarter = m.compute_quarter_metrics(income)[0]
+
+    assert quarter.one_off_share_pct == 477.7
+    assert quarter.discontinued_profit == 256_562.0
+    assert quarter.continuing_net_profit == 39_800.0
+    assert quarter.discontinued_share_of_net_pct == 86.6
+    assert m.compute_one_off_share(
+        {
+            "net_profit": 10_000.0,
+            "extraordinary_profit": 0.0,
+            "discontinued_profit": 0.0,
+        }
+    ) is None
+
+
 def test_ttm(income):
     ttm = m.compute_ttm(income, SHARES, PRICE)
     assert ttm.net_profit == 26892.0  # 6107+6691+6132+7962
     assert ttm.eps == 2.545  # tys. PLN → PLN per share
     assert ttm.pe == 9.63
+    assert ttm.continuing_net_profit is None
+    assert ttm.valuation_pe == 9.63
+    assert ttm.valuation_basis == "reported"
     assert ttm.market_cap == 258_877_658.0
 
     # negative TTM → no P/E instead of a nonsense negative multiple
@@ -70,6 +100,40 @@ def test_ttm(income):
     assert m.compute_ttm(losses, SHARES, PRICE).pe is None
 
     assert m.compute_ttm({}, None, None).net_profit is None
+
+
+def test_ttm_uses_complete_discontinued_bridge_for_valuation():
+    income = {
+        "2025Q3": {"net_profit": 40_000.0, "discontinued_profit": -6_829.0},
+        "2025Q4": {"net_profit": 45_000.0, "discontinued_profit": -8_658.0},
+        "2026Q1": {"net_profit": 5_000.0, "discontinued_profit": -8_100.0},
+        "2026Q2": {"net_profit": 296_362.0, "discontinued_profit": 256_562.0},
+    }
+    ttm = m.compute_ttm(income, shares_outstanding=8_529_120, price=381.6)
+
+    assert ttm.net_profit == 386_362.0
+    assert ttm.discontinued_profit == 232_975.0
+    assert ttm.continuing_net_profit == 153_387.0
+    assert ttm.continuing_eps == pytest.approx(17.984, abs=0.001)
+    assert ttm.continuing_pe == pytest.approx(21.22, abs=0.01)
+    assert ttm.valuation_eps == ttm.continuing_eps
+    assert ttm.valuation_pe == ttm.continuing_pe
+    assert ttm.valuation_basis == "continuing"
+
+
+def test_ttm_does_not_invent_missing_discontinued_rows():
+    income = {
+        "2025Q3": {"net_profit": 40_000.0, "discontinued_profit": 0.0},
+        "2025Q4": {"net_profit": 45_000.0},  # missing is not an explicit zero
+        "2026Q1": {"net_profit": 5_000.0, "discontinued_profit": 0.0},
+        "2026Q2": {"net_profit": 296_362.0, "discontinued_profit": 256_562.0},
+    }
+    ttm = m.compute_ttm(income, shares_outstanding=8_529_120, price=381.6)
+
+    assert ttm.continuing_net_profit is None
+    assert ttm.continuing_eps is None
+    assert ttm.valuation_basis == "reported"
+    assert ttm.valuation_pe == ttm.pe
 
 
 def test_pe_history():

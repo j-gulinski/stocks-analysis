@@ -23,7 +23,7 @@ from app.db.models import (
     ReportValue,
 )
 from app.services import fields
-from app.services.metrics import period_key, previous_year_period
+from app.services.metrics import compute_one_off_share, period_key, previous_year_period
 DEFAULT_OUTCOME_WINDOWS = (30, 90, 180, 365)
 DEFAULT_REPORT_LAG_DAYS = 120
 FINANCIAL_AVAILABILITY_SCRAPED_AT = "scraped_at"
@@ -364,11 +364,7 @@ def _revenue_yoy(income: dict[str, dict[str, float]], period: str | None) -> flo
 
 
 def _one_off_share(latest: dict[str, float]) -> float | None:
-    operating = latest.get("operating_profit")
-    on_sales = latest.get("profit_on_sales")
-    if operating is None or on_sales is None or operating == 0:
-        return None
-    return round(abs(operating - on_sales) / abs(operating) * 100.0, 1)
+    return compute_one_off_share(latest)
 
 
 def _signal(

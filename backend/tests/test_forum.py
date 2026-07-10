@@ -82,6 +82,44 @@ def test_extract_login_fields():
         extract_login_fields("<html><body>no form here</body></html>")
 
 
+def test_forum_login_uses_shared_polite_fetcher(monkeypatch):
+    calls = []
+
+    class Response:
+        status_code = 200
+
+        def __init__(self, text):
+            self.text = text
+
+    login_form = """
+    <form id="login">
+      <input type="hidden" name="creation_time" value="123" />
+      <input type="hidden" name="form_token" value="abc" />
+    </form>
+    """
+
+    def fake_fetch(url, **kwargs):
+        calls.append((url, kwargs))
+        if kwargs.get("method") == "POST":
+            return Response('<a href="./ucp.php?mode=logout">logout</a>')
+        return Response(login_form)
+
+    monkeypatch.setattr("app.scrapers.portalanaliz.polite_http.fetch", fake_fetch)
+    monkeypatch.setattr("app.scrapers.portalanaliz.time.sleep", lambda _seconds: None)
+
+    from app.scrapers.portalanaliz import ForumClient
+
+    client = ForumClient()
+    client.login("user", "password")
+
+    assert client.logged_in is True
+    assert len(calls) == 2
+    assert calls[0][1]["session"] is client.session
+    assert calls[1][1]["session"] is client.session
+    assert calls[1][1]["method"] == "POST"
+    assert calls[1][1]["data"]["username"] == "user"
+
+
 # ------------------------------------------------------------- link + sync
 
 class FakeForumClient:

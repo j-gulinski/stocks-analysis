@@ -103,11 +103,18 @@ def _execution_contract(agent: AgentRun) -> dict[str, Any]:
             ],
         }
     if agent.workflow == "stock-candidate-scout":
+        source = (agent.inputs or {}).get("source")
+        source_step = (
+            "Use inputs.candidates as the immutable source shortlist; do not replace "
+            "it with rank_candidates and do not broad-refresh companies."
+            if source == "biznesradar-market-rating"
+            else "Run rank_candidates or backend/scripts/codex_candidate_scan.py."
+        )
         return {
             **base,
             "skill": "stock-candidate-scout",
             "steps": [
-                "Run rank_candidates or backend/scripts/codex_candidate_scan.py.",
+                source_step,
                 "Interpret candidate readiness without inventing missing financial facts.",
                 "Run stock-verifier before promoting any candidate.",
                 "Complete the queue row with codex_complete_agent_run.py or MCP complete_agent_run.",

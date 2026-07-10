@@ -11,8 +11,9 @@ gathered data + that scenario set** and produces a compact `valuation` block:
     (deterministic: `potential.value_pct == weighted_expected_upside_pct`);
   * **`confidence`** — a `low/medium/high` level from a **deterministic heuristic
     with explicit thresholds** (data coverage = the thesis `computable` count +
-    the own-history depth `multiple_history.n`); the AI may reword the rationale
-    but the counts and the level stay sourced;
+    the own-history depth `multiple_history.n`, capped when a high-importance
+    negative signal remains); the AI may reword the rationale but the counts
+    and the level stay sourced;
   * **`what_would_change`** — what would move the assessment (the thesis
     `verify_next` gaps + the scenario reversion assumption);
   * a Polish `narrative`, the fixed `framing`, the standing `disclaimer`.
@@ -111,7 +112,9 @@ def _fmt_signed(value: float) -> str:
     return body if body.startswith("-") else "+" + body
 
 
-def _confidence_level(computable: int, n: int, min_key: int) -> str:
+def _confidence_level(
+    computable: int, n: int, min_key: int, material_red_flags: list[str] | None = None
+) -> str:
     """The amended WP4a heuristic, in order (plan §WP4a):
       < min_key indicators OR n == 0            → low
       ≥ 5 indicators AND n ≥ 4                   → high
@@ -120,11 +123,19 @@ def _confidence_level(computable: int, n: int, min_key: int) -> str:
     if computable < min_key or n == 0:
         return LOW
     if computable >= _HIGH_KEY_INDICATORS and n >= _STABLE_HISTORY_N:
+        if material_red_flags:
+            return MEDIUM
         return HIGH
     return MEDIUM
 
 
-def _confidence_rationale(level: str, computable: int, n: int, min_key: int) -> str:
+def _confidence_rationale(
+    level: str,
+    computable: int,
+    n: int,
+    min_key: int,
+    material_red_flags: list[str] | None = None,
+) -> str:
     """Deterministic, sourced rationale (the counts are number-bearing facts the
     AI may reword but not change)."""
     if level == LOW:
@@ -139,6 +150,14 @@ def _confidence_rationale(level: str, computable: int, n: int, min_key: int) -> 
             f"wskaźników kluczowych (≥{_HIGH_KEY_INDICATORS}) i n={n} obserwacji "
             f"własnej historii mnożnika (≥{_STABLE_HISTORY_N}) dają w miarę stabilną "
             "medianę i kwartyle, na których oparte są scenariusze."
+        )
+    if material_red_flags:
+        labels = ", ".join(material_red_flags)
+        return (
+            f"Umiarkowana pewność: mimo {computable} policzalnych wskaźników "
+            f"kluczowych i n={n} obserwacji historii mnożnika, istotny sygnał "
+            f"negatywny ({labels}) ogranicza wiarygodność wyceny. Najpierw "
+            "wyjaśnij to ryzyko."
         )
     return (
         f"Umiarkowana pewność: pokrycie częściowe — {computable} policzalnych "
@@ -199,9 +218,16 @@ def _build_deterministic_valuation(
     if isinstance(hist_n, int):
         n = hist_n
     min_key = profile.entry_rule.min_key_indicators
+    material_red_flags = [
+        item.name
+        for item in inputs.thesis_inputs.insights.key_indicators
+        if item.verdict == "bad" and item.importance >= 3
+    ]
 
-    level = _confidence_level(computable, n, min_key)
-    rationale = _confidence_rationale(level, computable, n, min_key)
+    level = _confidence_level(computable, n, min_key, material_red_flags)
+    rationale = _confidence_rationale(
+        level, computable, n, min_key, material_red_flags
+    )
 
     value_pct = scenario_set.get("weighted_expected_upside_pct")
     lo, hi = _scenario_upside_band(scenario_set)

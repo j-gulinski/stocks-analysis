@@ -24,7 +24,9 @@ Every completed phase additionally gets a one-page learning note `docs/learning/
 **Done when:** for a real ticker (e.g. DEC or NVT) all statements Q+Y, indicators, dividends, profile and prices are in Postgres; parser tests green against fixtures.
 
 - [x] P1.0 Shared fetch helper `scrapers/http.py`: per-domain rate limiter with randomized jitter (BR 2–4 s, PA 1.5–3 s), realistic UA, exponential backoff on 403/429/5xx + hard stop after repeated failures, `fetch_log` writes — **all scraper requests go through this**
-- [ ] P1.1 *(synthetic fixtures committed + structural tests ready — run `python scripts/record_fixtures.py DEC` locally to record real pages)* Record fixtures: fetch and save real HTML for every page type from PLAN §6 (2 different companies — one GPW, one NewConnect); confirm URL patterns
+- [x] P1.1 Record fixtures: real SNT (GPW) + CRB (NewConnect) captures cover
+  all nine page types, use profile-resolved canonical slugs and pass the
+  structural/parser matrix; synthetic fixtures remain for small focused cases.
 - [x] P1.2 Generic `report-table` parser: headers/periods, rows, `span.value` extraction, number + period normalization, units (tys. PLN); unit tests on fixtures
 - [x] P1.3 Statement scrapers: income (Q+Y), balance, cashflow → upsert into `report_values`
 - [x] P1.4 Indicator scrapers: wskaźniki wartości rynkowej (C/Z, C/WK, EV/EBITDA history) + rentowności → `indicator_values`
@@ -50,7 +52,10 @@ Every completed phase additionally gets a one-page learning note `docs/learning/
 - [x] P2.3 Topic linking: `POST /api/forum/topics` {url, ticker} → resolve canonical topic id, store in `forum_topics`
 - [x] P2.4 Sync: full first pull, incremental after (from max post_no); all requests via `scrapers/http.py` (jittered delays, backoff); `POST /api/forum/topics/{id}/sync`
 - [x] P2.5 Read endpoint: `GET /api/companies/{ticker}/forum?page=&author=` (paginated, newest first)
-- [~] P2.6 Post upvotes: `forum_posts.upvotes` (migration 0002), best-effort parser (selector list + text pattern), `sort=top` API + UI toggle; feeds AI token budgeting. **Mechanical synthetic tests pass; keep partial until `real/pa/topic.html` proves the actual PortalAnaliz vote markup.**
+- [x] P2.6 Post upvotes: `forum_posts.upvotes` (migration 0002), live-verified
+  `a.post-reputation` parsing plus selector/text fallbacks, `sort=top` API + UI
+  toggle; the authenticated recorder stores a minimal sanitized real fixture
+  with no account/session/post content.
 
 ## Phase 3 — Module C backend: metrics, prescore, forecast, dossier
 
@@ -216,6 +221,11 @@ are tool-accessible, and verifier-gated outputs are auditable.
   strict verification; subtasks route by precision/risk to `worker_standard`;
   future sessions inspect `docs/project-guardrails.md` before and after each
   phase/work package.
+  - 2026-07-10 routing refinement: `stock-deep-analysis` uses
+    `gpt-5.3-codex-spark` for long primary-source research and the full draft.
+    The strongest configured `verifier_strict` model independently owns final
+    prediction/confidence/result quality and pass/fail; both passes are stored
+    in the frozen model trace.
 - [x] CX.5 MCP server: expose stable app tools (`get_company_dossier`,
   `save_analysis_run`, `list_queued_agent_runs`, etc.) to Codex with structured
   JSON and explicit approval policy for mutating tools.
@@ -275,6 +285,18 @@ are tool-accessible, and verifier-gated outputs are auditable.
     `stock-candidate-scout` that do not produce a single company analysis row.
     A supervised `gpt-5.3-codex-spark` worker attempted a candidate-scout claim
     and correctly stopped because the queue was empty.
+  - 2026-07-10 progress: Discover now defaults to recall-first `rating >= 5`
+    with no mandatory F-Score, retains up to 300 candidates and labels missing
+    F-Score as a gap. Every immutable BR market snapshot ensures one durable,
+    concurrency-safe aggregate `stock-candidate-scout` job (`recall-v1`), with
+    a 12-name evaluation budget and no automatic watchlist/company crawl.
+    Pickup consumes the frozen source list; per-company candidate persistence,
+    bounded dossier-refresh transitions and a continuously scheduled worker
+    remain follow-ups.
+  - 2026-07-10 progress: live runtime verified `246/384` recall candidates;
+    job `#4` was created once and reused on an identical request. Company-page
+    requests now queue `stock-deep-analysis` with 5.3 Spark research/drafting
+    and reserve prediction/result-quality approval for the strongest verifier.
 - [ ] CX.13 Agent valuation backtests: evaluate saved `analysis_runs` and
   valuation memos against future price/source outcomes. See
   `docs/plan-agent-valuation-backtest.md`. First slice is schema + Python replay
@@ -313,6 +335,12 @@ are tool-accessible, and verifier-gated outputs are auditable.
     `queued` as waiting for Codex/MCP execution, and surface
     `outputs.analysis_run_id` when a worker saved an analysis. A 5.3 audit pass
     then added 30s silent polling and mobile wrapping for the Analysis toolbar.
+  - 2026-07-10 progress: company pages are report-first. The default screen is
+    a concise prepared report plus key charts; full financial tables, forum
+    leads, checklist details and historical model output moved behind Source/
+    Codex audit views. Old `needs-human` analyses are no longer selected as the
+    current report. A current model result must be verifier `pass` and match the
+    normalized valuation snapshot.
 
 ### Relationship to the RT roadmap
 
@@ -340,15 +368,16 @@ evaluation. IDs below are stable.
   brief → forecast/scenario → analysis history. **Clean install/build/audit and
   manual browser smoke are green; persist the automated Playwright path after
   the RT.4 workflow contracts replace the current overlapping views.**
-- [ ] RT0.3 Finish real-fixture gaps: two companies for every BR page type, real
-  BR login form/session, real PA upvote markup and parser tests. **Recorders now
-  preserve ticker-specific companies, require the profile's canonical slug,
-  cover all nine BR page types and connect the PA real fixture to tests; the
-  actual two-company/login/upvote captures still require live source access.**
-- [~] RT0.4 Add one `doctor` command/report covering DB, backend, frontend,
+- [x] RT0.3 Finish real-fixture gaps: SNT (GPW) + CRB (NewConnect) cover every
+  BR page type; premium login succeeds with the fixed endpoint/session marker;
+  authenticated PA capture proves `a.post-reputation` and is sanitized before
+  persistence. Recorder/login/parser focused suites are green.
+- [x] RT0.4 Add one `doctor` command/report covering DB, backend, frontend,
   credentials, source reachability and model providers; run one documented
-  end-to-end local pilot. **`doctor/start/status/stop` and a stored-data browser
-  pilot are complete; a live refresh pilot waits on RT0.3 real-source gaps.**
+  end-to-end local pilot. The 2026-07-10 pilot recovered a stale-worktree
+  Compose port collision, passed `doctor/start/status`, completed a live SNT
+  financial refresh (nine polite requests), traversed Brief/Evidence/
+  Financials/Scenarios/Review and found no browser-console errors.
 - [x] RT0.5 Reconcile README/PLAN/TASKS with actual commands, routes and source
   chain; remove stale Yahoo/stooq/Claude-only claims.
 
@@ -419,10 +448,17 @@ evaluation. IDs below are stable.
   period, Altman EM-Score rating and Piotroski F-Score; missing values remain
   missing and the UI explicitly withholds strategy-fit claims. Template-aware,
   point-in-time filters for liquidity, growth, margins, cash conversion,
-  leverage and own-history valuation remain after RT3.1–RT3.3.**
+  leverage and own-history valuation remain after RT3.1–RT3.3. A 2026-07-10
+  source audit identified consecutive-snapshot deltas and a separately labelled
+  NewConnect universe as the next high-value BR extensions; technical buy/sell
+  signals remain explicitly out of scope.**
 - [ ] RT3.1 Compute operating cash flow vs profit, cash conversion, capex
   intensity, working-capital/receivables/inventory trends, ROIC/ROE where valid,
-  share-count dilution and normalized one-offs.
+  share-count dilution and normalized one-offs. **First normalized-one-off
+  slice now keeps reported and continuing TTM net/EPS/C/Z, requires a complete
+  discontinued-operation bridge and feeds decision valuation from continuing
+  earnings. BR sector medians, per-share reconciliation and stored-volume
+  liquidity remain verifier-gated follow-ups.**
 - [ ] RT3.2 Add segment/geography/KPI facts and a versioned `CompanyTemplate`
   contract: required evidence, driver tree, scenario equations, valuation views,
   red flags and optional external series.
@@ -446,7 +482,9 @@ evaluation. IDs below are stable.
   Scenarios, AI review and Journal; show fact/thesis/scenario changes after a
   new report instead of multiple overlapping verdict cards. **The first slice
   consolidates the duplicated Brief, moves full scenarios out, reframes AI as
-  Review and separates Evidence/Financials. Persistent case changes,
+  Review and separates Evidence/Financials. A second report-first slice makes
+  the prepared report and key charts the default while moving raw evidence and
+  run history to explicit audit views. Persistent case changes,
   Business/Thesis editing and Journal remain.**
 - [~] RT4.6 UI/UX overhaul: audit existing screens/task flows; create and approve
   research-workspace wireframes + updated design tokens; implement a persistent
@@ -531,6 +569,14 @@ evaluation. IDs below are stable.
 after RT.0–RT.6 prove the local research workflow. Adapt deploy topology for
 durable source documents, background analysis jobs and run traces before RT.7.
 
+**2026-07-10 exploration:** `docs/hosting-codex-automation.md` selects a
+hybrid first deployment: Vercel UI; Railway API/Postgres/short-lived ingestion
+and notifier jobs; subscription-entitled Codex remains on a trusted Mac and
+connects through a scoped HTTPS MCP/API boundary. Slack is the first alert lane
+through a durable outbox; e-mail is an optional digest. A fully hosted model
+worker uses the OpenAI API and billing only after RT.5/RT.6 gates. No deploy or
+external notification has been authorized yet.
+
 - [ ] P6.1 Backend Dockerfile + Railway: service from repo, managed Postgres plugin, env vars (PLAN §9), `alembic upgrade head` on release, healthcheck on `/api/health`
 - [ ] P6.2 Backend auth middleware: require `Authorization: Bearer $API_TOKEN` when set (skip when unset = local dev); read `X-User-Email` into request context for analyses/forecasts attribution
 - [ ] P6.3 Auth.js on frontend: Google provider, `signIn` callback checks `ALLOWED_EMAILS`, middleware guards all pages, `/api/auth/*` excluded from proxy; login page (Polish) + user menu with sign-out
@@ -538,6 +584,12 @@ durable source documents, background analysis jobs and run traces before RT.7.
 - [ ] P6.5 Backups: `pg_dump` script against Railway `DATABASE_URL` + restore-locally instructions; document env setup for both dashboards in README
 - [ ] P6.6 Housekeeping: error toasts, empty states, refresh-all-watchlist button
 - [ ] P6.7 (Optional/extension) Nightly watchlist + forum refresh via Railway cron hitting an internal refresh endpoint
+- [ ] P6.8 Remote Codex boundary: bearer-protected Streamable HTTP MCP or thin
+  HTTPS tool adapter reusing `stock_tools`; separate read/mutate scopes and no
+  personal Codex credential in hosting secrets.
+- [ ] P6.9 Notification outbox + Slack dispatcher; optional idempotent e-mail
+  digest after Slack proves useful. Only verified/needs-human/failure summaries,
+  never raw forum/dossier/model context.
 
 ---
 

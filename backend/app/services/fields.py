@@ -58,6 +58,11 @@ INCOME_ALIASES: dict[str, tuple[str, ...]] = {
         "zysk (strata) brutto",
         "zysk brutto",
     ),
+    "extraordinary_profit": ("wynik zdarzeń nadzwyczajnych",),
+    "discontinued_profit": (
+        "zysk (strata) netto z działalności zaniechanej",
+        "zysk netto z działalności zaniechanej",
+    ),
     "net_profit": (
         "zysk netto",
         "zysk (strata) netto",
@@ -83,6 +88,11 @@ INCOME_FIELD_CODES: dict[str, tuple[str, ...]] = {
         "IncomeNetGrossProfit",
         "IncomeProfitBeforeTax",
     ),
+    "extraordinary_profit": (
+        "IncomeExtraordinarProfit",
+        "IncomeExtraordinaryProfit",
+    ),
+    "discontinued_profit": ("IncomeDiscontinuedProfit",),
     "net_profit": ("IncomeNetProfit",),
     "ebitda": ("BanIncomeEBITDA", "IncomeEBITDA"),
 }

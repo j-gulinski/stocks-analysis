@@ -42,7 +42,13 @@ function scaled(value: number | null, toMln?: boolean): number | null {
   return toMln ? Math.round((value / 1000) * 10) / 10 : value;
 }
 
-export default function QuarterlyCharts({ quarters }: { quarters: QuarterMetrics[] }) {
+export default function QuarterlyCharts({
+  quarters,
+  preferContinuingNet = false,
+}: {
+  quarters: QuarterMetrics[];
+  preferContinuingNet?: boolean;
+}) {
   const [mode, setMode] = useState<Mode>("seq");
 
   const years = useMemo(() => {
@@ -53,15 +59,20 @@ export default function QuarterlyCharts({ quarters }: { quarters: QuarterMetrics
   if (quarters.length === 0)
     return <p className="empty-state">Brak danych kwartalnych — odśwież spółkę.</p>;
 
+  const chartValue = (quarter: QuarterMetrics, field: Field) =>
+    field === "net_profit" && preferContinuingNet && quarter.continuing_net_profit != null
+      ? quarter.continuing_net_profit
+      : quarter[field];
+
   const buildSequence = (field: Field, toMln?: boolean) =>
-    quarters.map((q) => ({ period: q.period, value: scaled(q[field], toMln) }));
+    quarters.map((q) => ({ period: q.period, value: scaled(chartValue(q, field), toMln) }));
 
   const buildYoy = (field: Field, toMln?: boolean) =>
     ["Q1", "Q2", "Q3", "Q4"].map((label) => {
       const row: Record<string, string | number | null> = { quarter: label };
       for (const year of years) {
         const match = quarters.find((q) => q.period === `${year}${label}`);
-        row[year] = match ? scaled(match[field], toMln) : null;
+        row[year] = match ? scaled(chartValue(match, field), toMln) : null;
       }
       return row;
     });
@@ -81,7 +92,10 @@ export default function QuarterlyCharts({ quarters }: { quarters: QuarterMetrics
         {CHARTS.map((chart) => (
           <div className="card" key={chart.field}>
             <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>
-              {chart.title} <span className="muted">({chart.unit})</span>
+              {chart.field === "net_profit" && preferContinuingNet
+                ? "Zysk netto działalności kontynuowanej"
+                : chart.title}{" "}
+              <span className="muted">({chart.unit})</span>
             </p>
             <div className="chart-box">
               <ResponsiveContainer width="100%" height="100%">

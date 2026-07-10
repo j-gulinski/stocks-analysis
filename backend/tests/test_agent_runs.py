@@ -459,6 +459,39 @@ def test_codex_complete_agent_run_script_closes_queue_item(db, monkeypatch, caps
     assert agent.outputs["output"]["workflow"] == "stock-candidate-scout"
 
 
+def test_candidate_pickup_consumes_frozen_discovery_shortlist(
+    db, monkeypatch, capsys
+):
+    from app.db.models import AgentRun
+    from scripts import codex_pick_agent_run
+
+    agent = AgentRun(
+        workflow="stock-candidate-scout",
+        trigger="discovery-refresh",
+        status="queued",
+        model_role="worker_standard",
+        model="gpt-5.3-codex-spark",
+        inputs={
+            "source": "biznesradar-market-rating",
+            "candidates": [{"ticker": "DEK", "br_rating": "AAA"}],
+            "evaluation_budget": 1,
+        },
+        outputs={},
+    )
+    db.add(agent)
+    db.commit()
+    monkeypatch.setattr(
+        "sys.argv",
+        ["codex_pick_agent_run.py", "--agent-run-id", str(agent.id)],
+    )
+
+    assert codex_pick_agent_run.main() == 0
+    out = json.loads(capsys.readouterr().out)
+    first_step = out["execution_contract"]["steps"][0]
+    assert "inputs.candidates" in first_step
+    assert "do not broad-refresh" in first_step
+
+
 def test_codex_contract_scripts_return_json(client, db, monkeypatch, capsys):
     from app.db.models import AgentRun, Company
     from scripts import (

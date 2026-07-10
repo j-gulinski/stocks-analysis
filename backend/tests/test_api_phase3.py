@@ -47,7 +47,16 @@ def test_dossier(refreshed, monkeypatch):
     assert dossier["ttm"]["net_profit"] == 26892.0
     assert dossier["ttm"]["eps"] == 2.545
     assert dossier["ttm"]["pe"] == 9.74
+    assert dossier["ttm"]["valuation_pe"] == 9.74
+    assert dossier["ttm"]["valuation_basis"] == "reported"
     assert dossier["ttm"]["price"] == 24.80
+
+    result_quality = dossier["result_quality"]
+    assert result_quality["period"] == "2025Q1"
+    assert result_quality["is_material"] is False
+    assert result_quality["cause_status"] == "not_applicable"
+    assert result_quality["valuation_basis"] == "reported"
+    assert result_quality["source_fields"]
 
     assert dossier["pe_history"]["median"] == 11.35
     assert dossier["pe_history"]["percentile"] == 0.0

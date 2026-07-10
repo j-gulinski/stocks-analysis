@@ -29,6 +29,13 @@ export interface DiscoveryResult {
   result_count: number;
   source_note: string;
   candidates: DiscoveryCandidate[];
+  evaluation_job: {
+    id: number;
+    status: string;
+    candidate_count: number;
+    evaluation_budget: number;
+    reused: boolean;
+  } | null;
 }
 
 export interface Company {
@@ -101,12 +108,22 @@ export interface QuarterMetrics {
   operating_profit: number | null;
   net_profit: number | null;
   one_off_share_pct: number | null;
+  discontinued_profit: number | null;
+  continuing_net_profit: number | null;
+  discontinued_share_of_net_pct: number | null;
 }
 
 export interface Ttm {
   net_profit: number | null;
   eps: number | null;
   pe: number | null;
+  discontinued_profit: number | null;
+  continuing_net_profit: number | null;
+  continuing_eps: number | null;
+  continuing_pe: number | null;
+  valuation_eps: number | null;
+  valuation_pe: number | null;
+  valuation_basis: "continuing" | "reported";
   market_cap: number | null;
   // "reported" = scraped as-is, "derived" = price × shares (estimate)
   market_cap_source: "reported" | "derived" | null;
@@ -122,6 +139,27 @@ export interface PeHistory {
   q3: number | null;
   current: number | null;
   percentile: number | null;
+}
+
+export interface ResultQuality {
+  period: string | null;
+  is_material: boolean;
+  cause_status: "unresolved_from_stored_evidence" | "not_applicable" | string;
+  reported_net_profit: number | null;
+  discontinued_profit: number | null;
+  continuing_net_profit: number | null;
+  discontinued_share_of_net_pct: number | null;
+  one_off_share_pct: number | null;
+  reported_ttm_net_profit: number | null;
+  continuing_ttm_net_profit: number | null;
+  reported_eps: number | null;
+  continuing_eps: number | null;
+  reported_pe: number | null;
+  continuing_pe: number | null;
+  valuation_basis: "continuing" | "reported" | string;
+  summary: string;
+  valuation_warning: string | null;
+  source_fields: string[];
 }
 
 export interface ForecastAssumptions {
@@ -347,6 +385,7 @@ export interface Dossier {
   };
   quarters: QuarterMetrics[];
   ttm: Ttm;
+  result_quality: ResultQuality;
   pe_history: PeHistory;
   net_cash: { value: number | null; note: string };
   market_data: {

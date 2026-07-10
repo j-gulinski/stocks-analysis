@@ -156,6 +156,20 @@ def test_backtest_rejects_unknown_strategy(db):
         raise AssertionError("Expected BacktestInputError")
 
 
+def test_backtest_one_off_signal_includes_discontinued_result():
+    from app.services import backtest
+
+    assert backtest._one_off_share(
+        {
+            "profit_on_sales": 53_653.0,
+            "operating_profit": 53_718.0,
+            "extraordinary_profit": 0.0,
+            "discontinued_profit": 256_562.0,
+            "net_profit": 296_362.0,
+        }
+    ) == 477.7
+
+
 def test_backtest_api_creates_lists_and_reads_detail(client, db):
     from app.db.models import Company, Price
 

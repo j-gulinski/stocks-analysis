@@ -117,6 +117,35 @@ def test_gross_margin_trend_uses_pl_decimal_comma():
     assert "+1.5" not in result["summary"]
 
 
+def test_discontinued_result_is_a_bad_one_off_signal():
+    quarters = _industrial_quarters()
+    quarters[-1] = {
+        **quarters[-1],
+        "one_off_share_pct": 477.7,
+        "discontinued_profit": 256_562.0,
+    }
+    result = insights.build_insights(
+        sector="Przemysł elektromaszynowy",
+        quarters=quarters,
+        ttm={"net_profit": 300_000.0, "eps": 30.0, "pe": 8.0,
+             "market_cap": 450e6, "price": 240.0,
+             "market_cap_source": "reported", "market_cap_check_pct": 2.0},
+        pe_history={"median": 14.0, "q1": 10.0, "q3": 18.0, "current": 8.0,
+                    "percentile": 10.0},
+        net_cash_value=12_000.0,
+        balance_latest={"equity": 80_000.0},
+        indicators_latest={},
+        dividend_years=[],
+        dividend_yield_latest=None,
+        price_age_days=1,
+    ).to_dict()
+
+    one_off = next(i for i in result["key_indicators"] if i["id"] == "one_offs")
+    assert one_off["verdict"] == "bad"
+    assert "działalność zaniechana 256 562 tys. zł" in one_off["comment"]
+    assert "wynik netto i C/Z mogą być zniekształcone" in one_off["comment"]
+
+
 # ------------------------------------------------ bank, no income statement
 
 def test_bank_without_income_data_stays_honest():

@@ -120,10 +120,50 @@ class QuarterMetrics:
     profit_on_sales: float | None
     operating_profit: float | None
     net_profit: float | None
-    one_off_share_pct: float | None  # |EBIT − profit on sales| / |EBIT|
+    one_off_share_pct: float | None
+    # Kept inside the deterministic quarter object so the insights layer can
+    # name an explicit source of distortion. The public quarter DTO may ignore
+    # these internal trace fields until its evidence contract is expanded.
+    extraordinary_profit: float | None = None
+    discontinued_profit: float | None = None
+    continuing_net_profit: float | None = None
+    discontinued_share_of_net_pct: float | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def compute_one_off_share(quarter: dict[str, float]) -> float | None:
+    """Material non-recurring impact relative to the operating result.
+
+    The original proxy only measured ``|EBIT - profit_on_sales|`` and missed
+    explicit extraordinary/discontinued rows below EBIT. That made SNT's large
+    discontinued-operation gain look like clean, repeatable net profit. Keep
+    the operating proxy, then add the absolute magnitude of explicitly
+    reported extraordinary and discontinued results.
+    """
+    operating = quarter.get("operating_profit")
+    on_sales = quarter.get("profit_on_sales")
+    net_profit = quarter.get("net_profit")
+
+    components: list[float] = []
+    has_operating_comparison = operating is not None and on_sales is not None
+    if has_operating_comparison:
+        components.append(abs(operating - on_sales))
+    for field in ("extraordinary_profit", "discontinued_profit"):
+        value = quarter.get(field)
+        # A non-zero explicit row can flag distortion even when the operating
+        # comparison is unavailable. Explicit zeroes alone do not prove the
+        # rest of the result clean.
+        if value not in (None, 0):
+            components.append(abs(value))
+
+    if not components:
+        return None
+    denominator = abs(operating) if operating not in (None, 0) else abs(net_profit or 0)
+    if denominator == 0:
+        return None
+    return round(sum(components) / denominator * 100.0, 1)
 
 
 def compute_quarter_metrics(income: IncomeSeries) -> list[QuarterMetrics]:
@@ -136,9 +176,19 @@ def compute_quarter_metrics(income: IncomeSeries) -> list[QuarterMetrics]:
         operating = quarter.get("operating_profit")
         on_sales = quarter.get("profit_on_sales")
 
-        one_off_share = None
-        if operating is not None and on_sales is not None and operating != 0:
-            one_off_share = round(abs(operating - on_sales) / abs(operating) * 100.0, 1)
+        one_off_share = compute_one_off_share(quarter)
+        net_profit = quarter.get("net_profit")
+        discontinued = quarter.get("discontinued_profit")
+        continuing_net = (
+            round(net_profit - discontinued, 1)
+            if net_profit is not None and discontinued is not None
+            else None
+        )
+        discontinued_share = (
+            round(abs(discontinued) / abs(net_profit) * 100.0, 1)
+            if discontinued is not None and net_profit not in (None, 0)
+            else None
+        )
 
         result.append(
             QuarterMetrics(
@@ -150,8 +200,12 @@ def compute_quarter_metrics(income: IncomeSeries) -> list[QuarterMetrics]:
                 net_margin_pct=_ratio_pct(quarter.get("net_profit"), revenue),
                 profit_on_sales=on_sales,
                 operating_profit=operating,
-                net_profit=quarter.get("net_profit"),
+                net_profit=net_profit,
                 one_off_share_pct=one_off_share,
+                extraordinary_profit=quarter.get("extraordinary_profit"),
+                discontinued_profit=discontinued,
+                continuing_net_profit=continuing_net,
+                discontinued_share_of_net_pct=discontinued_share,
             )
         )
     return result
@@ -166,6 +220,13 @@ class TtmAggregates:
     pe: float | None
     market_cap: float | None  # PLN
     price: float | None
+    discontinued_profit: float | None  # tys. PLN, only with complete TTM rows
+    continuing_net_profit: float | None  # tys. PLN
+    continuing_eps: float | None  # PLN
+    continuing_pe: float | None
+    valuation_eps: float | None  # continuing when available, otherwise reported
+    valuation_pe: float | None
+    valuation_basis: str  # continuing | reported
     # Where market_cap came from and how well the two sources agree.
     # "reported" = BiznesRadar profile figure (authoritative); "derived" =
     # price × shares (fallback). check_pct = |derived − reported| / reported,
@@ -190,13 +251,36 @@ def compute_ttm(
     if len(periods_with_net) >= 4:
         ttm_net = round(sum(income[p]["net_profit"] for p in periods_with_net[-4:]), 1)
 
-    derived_cap = eps = pe = None
+    # A continuing-operations bridge is safe only when every quarter used by
+    # TTM explicitly reports the discontinued row. Missing is not zero: using
+    # a partial bridge would silently invent normalized earnings.
+    ttm_periods = periods_with_net[-4:] if len(periods_with_net) >= 4 else []
+    has_complete_discontinued = bool(ttm_periods) and all(
+        "discontinued_profit" in income[p] and income[p]["discontinued_profit"] is not None
+        for p in ttm_periods
+    )
+    discontinued_ttm = continuing_ttm = None
+    if has_complete_discontinued and ttm_net is not None:
+        discontinued_ttm = round(
+            sum(income[p]["discontinued_profit"] for p in ttm_periods), 1
+        )
+        continuing_ttm = round(ttm_net - discontinued_ttm, 1)
+
+    derived_cap = eps = pe = continuing_eps = continuing_pe = None
     if shares_outstanding and price is not None:
         derived_cap = round(price * shares_outstanding, 0)
     if shares_outstanding and ttm_net is not None:
         eps = round(ttm_net * 1000.0 / shares_outstanding, 4)  # tys. PLN → PLN
     if eps is not None and eps > 0 and price is not None:
         pe = round(price / eps, 2)
+    if shares_outstanding and continuing_ttm is not None:
+        continuing_eps = round(continuing_ttm * 1000.0 / shares_outstanding, 4)
+    if continuing_eps is not None and continuing_eps > 0 and price is not None:
+        continuing_pe = round(price / continuing_eps, 2)
+
+    valuation_basis = "continuing" if continuing_eps is not None else "reported"
+    valuation_eps = continuing_eps if valuation_basis == "continuing" else eps
+    valuation_pe = continuing_pe if valuation_basis == "continuing" else pe
 
     # The REPORTED market cap wins: deriving it silently understates size when
     # the stored price or the share count is stale/misparsed (production bug:
@@ -217,6 +301,13 @@ def compute_ttm(
         pe=pe,
         market_cap=market_cap,
         price=price,
+        discontinued_profit=discontinued_ttm,
+        continuing_net_profit=continuing_ttm,
+        continuing_eps=continuing_eps,
+        continuing_pe=continuing_pe,
+        valuation_eps=valuation_eps,
+        valuation_pe=valuation_pe,
+        valuation_basis=valuation_basis,
         market_cap_source=source,
         market_cap_check_pct=check_pct,
     )
@@ -425,19 +516,27 @@ def compute_prescore(
             f"Zysk ze sprzedaży {_signed_pct(profit_yoy)} vs przychody "
             f"{_signed_pct(latest.revenue_yoy_pct)} r/r.")
 
-    # 4. Profit quality: one-offs small relative to operating profit.
+    # 4. Profit quality: operating deviations plus explicit extraordinary/
+    # discontinued results, relative to operating profit.
     if latest is None or latest.one_off_share_pct is None:
         add("profit_quality", "Jakość zysku (one-offy)", "unknown",
-            "Brak danych o pozostałej działalności operacyjnej.")
+            "Brak porównywalnego wyniku podstawowego i operacyjnego.")
     else:
         verdict = "pass" if latest.one_off_share_pct < ONE_OFF_SHARE_LIMIT_PCT else "fail"
         add("profit_quality", "Jakość zysku (one-offy)", verdict,
-            f"Pozostała działalność = {_num(latest.one_off_share_pct)}% zysku operacyjnego "
+            f"Odchylenia od wyniku podstawowego = {_num(latest.one_off_share_pct)}% "
+            "zysku operacyjnego "
             f"(limit {ONE_OFF_SHARE_LIMIT_PCT:.0f}%).")
 
     # 5. P/E vs the company's own history (forward P/E preferred when available).
-    current_pe = forward_pe if forward_pe is not None else ttm.pe
-    pe_label = "C/Z prognozowane" if forward_pe is not None else "C/Z TTM"
+    current_pe = forward_pe if forward_pe is not None else ttm.valuation_pe
+    pe_label = (
+        "C/Z prognozowane"
+        if forward_pe is not None
+        else "C/Z TTM działalności kontynuowanej"
+        if ttm.valuation_basis == "continuing"
+        else "C/Z TTM"
+    )
     if current_pe is None or pe_history.median is None:
         add("pe_vs_history", "C/Z vs własna historia", "unknown",
             f"{pe_label}: {_fmt(current_pe)}, mediana hist.: {_fmt(pe_history.median)}.")

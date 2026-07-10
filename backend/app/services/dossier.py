@@ -227,6 +227,77 @@ def _consensus_eps_basis(
     return None
 
 
+def _result_quality_block(
+    quarters: list[metrics.QuarterMetrics],
+    ttm: metrics.TtmAggregates,
+) -> dict:
+    """Concise bridge between reported and repeatable earnings.
+
+    The stored statement proves the amount classified as discontinued, but it
+    does not by itself prove the economic event behind that classification.
+    Keep that cause unresolved until a primary event/report source is stored.
+    """
+    latest = quarters[-1] if quarters else None
+    discontinued = latest.discontinued_profit if latest is not None else None
+    is_material = discontinued not in (None, 0)
+    if latest is None:
+        summary = "Brak kwartalnych danych do oceny jakości wyniku."
+    elif is_material and latest.continuing_net_profit is not None:
+        summary = (
+            "Raportowany wynik netto zawiera istotny wynik działalności "
+            "zaniechanej. Wynik działalności kontynuowanej pokazujemy osobno "
+            "i na nim opieramy kroczącą wycenę, gdy most TTM jest kompletny."
+        )
+    else:
+        summary = (
+            "W najnowszym kwartale nie wykryto niezerowej, jawnie oznaczonej "
+            "pozycji działalności zaniechanej."
+        )
+
+    return {
+        "period": latest.period if latest is not None else None,
+        "is_material": is_material,
+        "cause_status": (
+            "unresolved_from_stored_evidence" if is_material else "not_applicable"
+        ),
+        "reported_net_profit": latest.net_profit if latest is not None else None,
+        "discontinued_profit": discontinued,
+        "continuing_net_profit": (
+            latest.continuing_net_profit if latest is not None else None
+        ),
+        "discontinued_share_of_net_pct": (
+            latest.discontinued_share_of_net_pct if latest is not None else None
+        ),
+        "one_off_share_pct": latest.one_off_share_pct if latest is not None else None,
+        "reported_ttm_net_profit": ttm.net_profit,
+        "continuing_ttm_net_profit": ttm.continuing_net_profit,
+        "reported_eps": ttm.eps,
+        "continuing_eps": ttm.continuing_eps,
+        "reported_pe": ttm.pe,
+        "continuing_pe": ttm.continuing_pe,
+        "valuation_basis": ttm.valuation_basis,
+        "summary": summary,
+        "valuation_warning": (
+            "Raportowane C/Z jest zniekształcone przez działalność zaniechaną; "
+            "wycena używa wyniku kontynuowanego."
+            if is_material and ttm.valuation_basis == "continuing"
+            else "Brak kompletnego mostu TTM do wyniku kontynuowanego; wycena pozostaje raportowana."
+            if is_material
+            else None
+        ),
+        "source_fields": [
+            f"quarters.{latest.period}.net_profit" if latest is not None else "quarters",
+            (
+                f"quarters.{latest.period}.discontinued_profit"
+                if latest is not None
+                else "quarters"
+            ),
+            "ttm.continuing_net_profit",
+            "ttm.continuing_pe",
+        ],
+    }
+
+
 def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = False) -> dict:
     # Compatibility argument only: dossier reads stay deterministic and
     # provider work belongs to explicit, audited analysis runs.
@@ -252,7 +323,7 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
             )
         )
     ]
-    pe_history = metrics.compute_pe_history(cz_values, ttm.pe)
+    pe_history = metrics.compute_pe_history(cz_values, ttm.valuation_pe)
 
     balance_latest = load_balance_latest(db, company.id)
     net_cash_value, net_cash_note = metrics.compute_net_cash(balance_latest)
@@ -364,7 +435,7 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
         company_insights.sector_group, malik.MALIK
     )
     if selected_multiple == "cz":
-        multiple_series, multiple_current = cz_values, ttm.pe
+        multiple_series, multiple_current = cz_values, ttm.valuation_pe
     else:
         multiple_series = [
             float(v)
@@ -397,7 +468,9 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
         current_price=ttm.price,
     )
     scenario_eps = (
-        consensus_eps_basis["eps"] if consensus_eps_basis is not None else ttm.eps
+        consensus_eps_basis["eps"]
+        if consensus_eps_basis is not None
+        else ttm.valuation_eps
     )
 
     scenario_inputs = scenarios.ScenarioInputs(
@@ -411,9 +484,13 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
         net_cash=net_cash_value,
         market_data=market_snapshot,
         earnings_basis=consensus_eps_basis or {
-            "source": "ttm",
-            "source_field": "ttm.eps",
-            "eps": ttm.eps,
+            "source": "ttm_continuing" if ttm.valuation_basis == "continuing" else "ttm",
+            "source_field": (
+                "ttm.continuing_eps"
+                if ttm.valuation_basis == "continuing"
+                else "ttm.eps"
+            ),
+            "eps": ttm.valuation_eps,
         },
     )
     scenario_set = scenarios.build_scenario_set(scenario_inputs, malik.MALIK)
@@ -498,6 +575,7 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
         },
         "quarters": quarters_dicts,
         "ttm": {**ttm_dict, "price_date": price_date},
+        "result_quality": _result_quality_block(quarters, ttm),
         "pe_history": pe_history_dict,
         "net_cash": {"value": net_cash_value, "note": net_cash_note},
         "market_data": market_snapshot,

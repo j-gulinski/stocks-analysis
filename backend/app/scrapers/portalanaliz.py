@@ -108,6 +108,7 @@ _UPVOTE_SELECTORS = (
     "span.post-rating",
     ".post_rating",
     ".post-likes",
+    ".post-reputation",
     ".like-count",
     ".thanks-counter",
     ".post_thanks_count",
@@ -414,8 +415,13 @@ class ForumClient:
         # type gets rejected as "form invalid". Two seconds keeps it happy.
         time.sleep(2.0)
         try:
-            response = self.session.post(login_url, data=payload, timeout=30)
-        except requests.RequestException as exc:
+            response = polite_http.fetch(
+                login_url,
+                method="POST",
+                data=payload,
+                session=self.session,
+            )
+        except polite_http.FetchError as exc:
             raise LoginError(f"Login request failed (network): {exc}") from exc
 
         if response.status_code == 200 and "mode=logout" in response.text:

@@ -61,6 +61,9 @@ Before marking a phase or work package done:
 - Update `TASKS.md` status.
 - Add or update tests proportional to risk.
 - Run focused verification commands and record failures honestly.
+- Run `./workbench doctor`, `./workbench start`, and `./workbench status`,
+  verify backend HTTP health and frontend readiness, and inspect matching logs;
+  do not mark the phase done if this runtime gate fails.
 - Confirm no secrets, local tokens, or private credentials were added.
 - Confirm the result advances the investing workflow instead of adding
   impressive but unused machinery.

@@ -40,6 +40,14 @@ class DiscoveryCandidateOut(BaseModel):
     caveat: str
 
 
+class DiscoveryEvaluationJobOut(BaseModel):
+    id: int
+    status: str
+    candidate_count: int
+    evaluation_budget: int
+    reused: bool
+
+
 class DiscoveryOut(BaseModel):
     source: str
     source_url: str
@@ -48,6 +56,7 @@ class DiscoveryOut(BaseModel):
     result_count: int
     source_note: str
     candidates: list[DiscoveryCandidateOut]
+    evaluation_job: DiscoveryEvaluationJobOut | None = None
 
 
 # ---------------------------------------------------------------- companies
@@ -199,12 +208,22 @@ class QuarterMetricsOut(BaseModel):
     operating_profit: float | None
     net_profit: float | None
     one_off_share_pct: float | None
+    discontinued_profit: float | None = None
+    continuing_net_profit: float | None = None
+    discontinued_share_of_net_pct: float | None = None
 
 
 class TtmOut(BaseModel):
     net_profit: float | None  # tys. PLN
     eps: float | None  # PLN per share
     pe: float | None
+    discontinued_profit: float | None = None
+    continuing_net_profit: float | None = None
+    continuing_eps: float | None = None
+    continuing_pe: float | None = None
+    valuation_eps: float | None = None
+    valuation_pe: float | None = None
+    valuation_basis: str = "reported"
     market_cap: float | None  # PLN
     price: float | None
     price_date: date | None
@@ -212,6 +231,29 @@ class TtmOut(BaseModel):
     # check_pct = deviation between the two when both are known.
     market_cap_source: str | None = None
     market_cap_check_pct: float | None = None
+
+
+class ResultQualityOut(BaseModel):
+    """Prepared bridge for report UI; raw evidence stays in audit views."""
+
+    period: str | None
+    is_material: bool
+    cause_status: str
+    reported_net_profit: float | None
+    discontinued_profit: float | None
+    continuing_net_profit: float | None
+    discontinued_share_of_net_pct: float | None
+    one_off_share_pct: float | None
+    reported_ttm_net_profit: float | None
+    continuing_ttm_net_profit: float | None
+    reported_eps: float | None
+    continuing_eps: float | None
+    reported_pe: float | None
+    continuing_pe: float | None
+    valuation_basis: str
+    summary: str
+    valuation_warning: str | None
+    source_fields: list[str]
 
 
 class PeHistoryOut(BaseModel):
@@ -641,6 +683,7 @@ class DossierOut(BaseModel):
     freshness: FreshnessOut
     quarters: list[QuarterMetricsOut]
     ttm: TtmOut
+    result_quality: ResultQualityOut
     pe_history: PeHistoryOut
     net_cash: NetCashOut
     market_data: dict

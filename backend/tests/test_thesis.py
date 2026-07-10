@@ -358,6 +358,22 @@ def test_every_factor_and_verify_is_traceable():
                 assert v["id"] in gaps and v["why"] == gaps[v["id"]]
 
 
+def test_one_off_verify_next_reuses_evidence_specific_comment():
+    inp = industrial_inputs()
+    one_off = next(
+        item for item in inp.insights.key_indicators if item.id == "one_offs"
+    )
+    one_off.verdict = "bad"
+    one_off.comment = (
+        "Działalność zaniechana 256 562 tys. zł zniekształca wynik netto i C/Z."
+    )
+
+    result = thesis.build_thesis(inp, malik.MALIK).to_dict()
+    verify = next(item for item in result["verify_next"] if item["id"] == "one_off_risk")
+
+    assert verify["why"] == one_off.comment
+
+
 def test_missing_inputs_route_to_verify_next_not_pros_cons():
     inp = industrial_inputs()
     td = thesis.build_thesis(inp, malik.MALIK).to_dict()

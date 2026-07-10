@@ -177,8 +177,17 @@ are NON-NEGOTIABLE at every step (see bottom).
   `time[datetime]`; body `div.content`. Pagination via `start`, 50/page.
 - Login needs the form's hidden anti-CSRF fields AND a ~2 s pause before the
   POST (form-token minimum age).
-- Upvote markup: try `_UPVOTE_SELECTORS` first; if real markup differs,
-  record a topic fixture and extend THAT list only.
+- Topic pages can return the login page with HTTP 200 to an anonymous client;
+  `record_topic_fixture.py` must authenticate through `ForumClient`, validate
+  that posts/votes parse and persist only the sanitized structural subset.
+- Live upvote markup (verified 2026-07-10): `a.post-reputation`, with the
+  numeric score in its text and `positive`/`neutral` as presentation classes.
+  The thumbs-up/down buttons are actions, not counts. Try `_UPVOTE_SELECTORS`
+  first; if real markup differs, record one authenticated fixture and extend
+  THAT list only.
+- Both the phpBB login-form GET and credential POST go through
+  `scrapers/http.py`; the session stays in memory and no `sid`, account label,
+  author, location, signature or post body is written to the real fixture.
 
 ## Politeness invariants (never relax while debugging)
 

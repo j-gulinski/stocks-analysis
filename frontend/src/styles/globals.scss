@@ -2282,6 +2282,97 @@ input, select {
 }
 
 .brief-workspace { display: grid; gap: 24px; }
+
+.company-report { display: grid; gap: 24px; }
+.company-report-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px 0 6px;
+
+  h2 { max-width: 780px; font-size: clamp(24px, 3vw, 32px); line-height: 1.18; }
+  > div:first-child > p:last-child {
+    max-width: 780px;
+    margin-top: 10px;
+    color: var(--text-secondary);
+    font-size: 16px;
+    line-height: 1.55;
+  }
+}
+.company-report-status { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.company-report-status .badge { gap: 5px; white-space: nowrap; }
+.company-report-numbers { margin-top: 0; }
+
+.company-report-quality {
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px;
+  border: 0.5px solid color-mix(in srgb, var(--text-warning) 40%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg-warning) 45%, transparent);
+  > p { max-width: 900px; color: var(--text-secondary); line-height: 1.55; }
+}
+.company-report-section-title {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  svg { flex: none; color: var(--text-warning); }
+  h3 { margin-top: 1px; font-size: 16px; }
+}
+.company-report-quality-bridge {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-block: 0.5px solid color-mix(in srgb, var(--text-warning) 30%, var(--border));
+  > div { padding: 12px 14px; border-left: 0.5px solid var(--border); }
+  > div:first-child { border-left: 0; }
+  span, strong { display: block; }
+  span { color: var(--text-muted); font-size: 11px; }
+  strong { margin-top: 3px; font-size: 17px; font-weight: 500; }
+}
+.company-report-source-gap { color: var(--text-warning) !important; font-size: 12px; }
+.company-report-valuation-warning { font-size: 13px; font-weight: 500; }
+
+.company-report-lists {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-block: 0.5px solid var(--border);
+}
+.company-report-list {
+  padding: 18px 22px;
+  border-left: 0.5px solid var(--border);
+  &:first-child { padding-left: 0; border-left: 0; }
+  h3 { font-size: 15px; }
+  ul { margin: 10px 0 0; padding-left: 18px; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+  li { padding: 3px 0; }
+}
+
+.company-report-valuation {
+  display: grid;
+  gap: 10px;
+  max-width: 920px;
+  .company-report-section-title svg { color: var(--text-accent); }
+  > p { color: var(--text-secondary); line-height: 1.55; }
+}
+.company-report-valuation-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  strong { font-size: 24px; font-weight: 500; }
+  span:not(.badge) { color: var(--text-secondary); font-size: 13px; }
+}
+.company-report-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-top: 18px;
+  border-top: 0.5px solid var(--border);
+  .product-disclosure { margin: 0; }
+}
+.report-chart { margin-top: 10px; }
+.audit-detail { margin-top: 14px; }
 .decision-brief {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.65fr);
@@ -2402,6 +2493,15 @@ input, select {
   .thesis-balance > div:first-child { border-top: 0; }
   .scenario-boundary { grid-template-columns: auto minmax(0, 1fr); }
   .scenario-boundary .badge { grid-column: 2; justify-self: start; }
+  .company-report-header { display: grid; gap: 14px; }
+  .company-report-status { justify-content: flex-start; }
+  .company-report-quality-bridge,
+  .company-report-lists { grid-template-columns: 1fr; }
+  .company-report-quality-bridge > div,
+  .company-report-list { padding: 14px 0; border-left: 0; border-top: 0.5px solid var(--border); }
+  .company-report-quality-bridge > div:first-child,
+  .company-report-list:first-child { border-top: 0; }
+  .company-report-footer { display: grid; }
 }
 
 @media (max-width: 560px) {

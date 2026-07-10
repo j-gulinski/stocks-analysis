@@ -16,14 +16,14 @@ import { fmtDate } from "@/lib/format";
 import type { DiscoveryResult } from "@/lib/types";
 
 const PRESETS = [
+  { id: "broad", label: "Szeroki radar", minRating: 5, minFScore: null },
   { id: "selective", label: "Selekcja jakościowa", minRating: 7, minFScore: 5 },
   { id: "strict", label: "Wysoka jakość", minRating: 8, minFScore: 7 },
-  { id: "broad", label: "Szerszy radar", minRating: 6, minFScore: 4 },
 ] as const;
 
 export default function DiscoverPage() {
   const router = useRouter();
-  const [presetId, setPresetId] = useState<(typeof PRESETS)[number]["id"]>("selective");
+  const [presetId, setPresetId] = useState<(typeof PRESETS)[number]["id"]>("broad");
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +44,7 @@ export default function DiscoverPage() {
   };
 
   useEffect(() => {
-    void load(false, "selective");
+    void load(false, "broad");
     // Initial source load only. Preset changes are explicit button actions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -102,7 +102,10 @@ export default function DiscoverPage() {
       <section className="screening-controls" aria-label="Wybór sita">
         <div>
           <h2>Wybierz szerokość sita</h2>
-          <p>Każda reguła jest jawna; brak F-Score pozostaje brakiem, nigdy zerem.</p>
+          <p>
+            Domyślny radar stawia na kompletność: brak F-Score pozostaje jawną
+            luką, ale nie usuwa pomysłu przed oceną Codex.
+          </p>
         </div>
         <div className="preset-row">
           {PRESETS.map((preset) => (
@@ -114,7 +117,9 @@ export default function DiscoverPage() {
             >
               <strong>{preset.label}</strong>
               <span>
-                Rating ≥ {preset.minRating} · F-Score ≥ {preset.minFScore}
+                Rating ≥ {preset.minRating} · {preset.minFScore == null
+                  ? "bez minimum F-Score"
+                  : `F-Score ≥ ${preset.minFScore}`}
               </span>
             </button>
           ))}
@@ -176,7 +181,22 @@ export default function DiscoverPage() {
         )}
       </section>
 
-      {result && <p className="discovery-note">{result.source_note}</p>}
+      {result && (
+        <div className="discovery-note">
+          <p>{result.source_note}</p>
+          {result.evaluation_job && (
+            <p>
+              Ocena Codex #{result.evaluation_job.id}: {result.evaluation_job.status}
+              {result.evaluation_job.status === "queued"
+                ? " — czeka na uruchomienie workera"
+                : ""}
+              . Szeroki snapshot zachował {result.evaluation_job.candidate_count}
+              {" "}pomysłów; pierwsza partia oceny obejmuje maksymalnie{" "}
+              {result.evaluation_job.evaluation_budget} spółek.
+            </p>
+          )}
+        </div>
+      )}
     </main>
   );
 }

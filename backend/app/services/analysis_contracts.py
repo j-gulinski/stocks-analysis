@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 ChecklistId = Literal[
@@ -44,6 +44,38 @@ class ForumInsight(StrictModel):
     claim: str = Field(min_length=1)
     confidence: Literal["low", "medium", "high"]
     post_ids: list[int]
+
+
+class ForumDistillationClaim(StrictModel):
+    claim: str = Field(min_length=1)
+    confidence: Literal["low", "medium", "high"]
+
+    @field_validator("claim", mode="before")
+    @classmethod
+    def trim_claim(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("claim must contain non-whitespace text")
+        return cleaned
+
+
+class ForumDistillation(StrictModel):
+    type: Literal["fact-claim", "opinion", "question", "noise"]
+    claims: list[ForumDistillationClaim]
+
+    @model_validator(mode="after")
+    def validate_claim_counts(self):
+        has_claims = len(self.claims) > 0
+        if (self.type == "fact-claim") != has_claims:
+            expected = (
+                "at least one claim"
+                if self.type == "fact-claim"
+                else "zero claims"
+            )
+            raise ValueError(
+                f"{self.type} distillation must contain {expected}"
+            )
+        return self
 
 
 class Potential(StrictModel):

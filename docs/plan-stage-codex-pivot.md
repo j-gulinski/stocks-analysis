@@ -158,8 +158,13 @@ everywhere:
 |---|---|---|
 | `orchestrator` | `gpt-5.5` medium/high | Plan the run, choose tools, merge worker outputs, decide next step. |
 | `worker_standard` | suitable model by task risk; use `gpt-5.3-codex-spark` for bounded loops and `gpt-5.5` when a summary can change an investment view | ESPI triage, candidate/backtest sweeps, forum claim extraction drafts, routine refresh notes, JSON formatting. |
-| `analyst_deep` | `gpt-5.5` medium/high | Full company thesis, scenario read, backtest interpretation, candidate memo. |
+| `analyst_deep` | workflow-selected; `stock-deep-analysis` uses `gpt-5.3-codex-spark` for source completion and the draft, with a stronger model only on explicit escalation | Full company thesis draft, scenario read, backtest interpretation, candidate memo. |
 | `verifier_strict` | `gpt-5.5` high | Check source grounding, fabricated numbers, look-ahead bias, schema completeness, and whether output should be visible in UI. |
+
+For `stock-deep-analysis`, the final saved prediction and assessment belong to
+`verifier_strict`, not to the drafting model. The frozen model trace records
+both the 5.3 research/draft pass and the strongest-model verifier pass; a
+detailed 5.3 memo alone is never sufficient for `verified`.
 
 If a named model is unavailable in a surface, the skill should ask Codex to use
 the best available model for the role and task risk. The workflow contract is
@@ -436,12 +441,18 @@ flowchart TB
     J --> K
 ```
 
-Initial candidate sourcing should be conservative:
+Initial candidate sourcing is conservative but recall-first:
 
-- Start with manual BiznesRadar/GPW exports or user-provided ticker lists.
-- Add broad crawling only after fixture-tested source rules and rate limits.
-- Candidate ranking should separate "interesting" from "actionable"; most
-  candidates should remain unpromoted until refreshed and verified.
+- The fixture-tested BiznesRadar GPW rating universe is one cached market-wide
+  request, not a company crawler. Policy `recall-v1` retains numeric rating
+  `>=5` without requiring Piotroski F-Score; missing F-Score remains a gap.
+- Each immutable source version creates one idempotent aggregate
+  `stock-candidate-scout` job containing the complete source shortlist. The
+  5.3 worker rates only a bounded top batch; it does not auto-refresh hundreds
+  of companies or add them to the watchlist.
+- Candidate ranking separates "interesting" from "actionable"; a stronger
+  verifier reviews promotions, and detailed dossier refresh remains a later
+  bounded/user-visible step.
 
 Agent routing:
 

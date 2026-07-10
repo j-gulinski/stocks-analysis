@@ -18,6 +18,182 @@ keep the decisions scannable.
 
 ---
 
+## 2026-07-10 · RT.7 exploration — hosted Codex boundary and communication flow
+
+Added `docs/hosting-codex-automation.md` after checking the current code and
+official OpenAI, Railway, Vercel, Slack and Resend documentation. The selected
+first topology keeps the existing Vercel UI + Railway API/Postgres direction,
+adds short-lived Railway ingestion/notifier jobs, and leaves
+subscription-entitled Codex on a trusted Mac connected through a future scoped
+HTTPS MCP/API boundary. The hosted app queues durable work; it does not embed a
+personal Codex credential. A fully hosted 24/7 model worker is a later OpenAI
+API/billing option behind RT.5/RT.6 evaluation and budget gates.
+
+Slack is the recommended first communication lane through a transactional
+Postgres notification outbox; e-mail is an optional digest via a transactional
+provider. Notifications carry only prepared verified/needs-human/failure
+summaries and links, never raw forum posts, dossier JSON or model reasoning.
+Recorded auth, scoped-token, idempotency, backup, cloud-source-egress and
+Warsaw/UTC scheduling gates plus staged P6.8/P6.9 follow-ups. This is an
+architecture decision only: no hosting account, deployment, webhook or message
+was created.
+
+## 2026-07-10 · RT3.1/RT4.5 — continuing-earnings bridge and report-first company UI
+
+Changed the company workspace from a growing data dashboard into a prepared
+report. The default Raport view now presents one executive read, four key
+numbers, a result-quality bridge, the most important pros/risks/next checks and
+the relevant operating chart. Scenario/price views remain curated in Wykresy;
+financial tables, prescore detail and unverified forum material moved behind
+the Źródła audit tab, while historical model output moved to Codex. Old
+`needs-human` rows are no longer selected as current analysis. A saved model
+result must be verifier `pass` and match the normalized valuation snapshot.
+The company-page action now queues the full `stock-deep-analysis` workflow:
+5.3 Spark owns source research/drafting, while the strongest verifier owns the
+final prediction, result quality and approval.
+
+Added a deterministic bridge between reported and continuing earnings.
+Quarter metrics expose the explicit discontinued result, continuing net and
+its share of reported net. TTM continuing net/EPS/C/Z is computed only when all
+four source quarters explicitly contain the discontinued row; missing is never
+silently treated as zero. Reported figures remain available for reconciliation,
+but prescore, thesis, own-history current C/Z and scenario fallback EPS use the
+continuing basis when complete. SNT therefore shows the economic bridge in
+prose instead of promoting the raw `477.7%` proxy to a KPI. Because the stored
+ledger still lacks the issuer/ESPI explanation, the cause is labelled
+`unresolved_from_stored_evidence` and the report remains a draft.
+
+The isolated report component was routed to `gpt-5.3-codex-spark` under the
+session's lightweight-task rule. The primary feedback loop caught a missing
+first-pass artifact and then rejected a resumed pass that drifted from the
+typed dossier contract; the corrected component passed the production
+TypeScript build. Focused backend metrics/API tests cover the complete bridge,
+the missing-row guard and the report DTO.
+
+Final in-app browser QA caught two presentation/runtime regressions that static
+checks could not: the verbose `477.7%` insight still leaked into the prepared
+risk list, and the report chart still plotted reported rather than continuing
+net profit. The duplicate was removed, the chart now prefers continuing net
+where the bridge exists, and raw values remain in audit data. Running `next
+build` beside the live dev server also temporarily mixed production/development
+RSC assets; the owned processes were restarted and the final SNT Raport/Codex
+checks have zero console errors. The SNT demo is left open on Raport.
+
+## 2026-07-10 · Research tactics — PortalAnaliz track records and expanded BiznesRadar roles
+
+Completed bounded, read-only learning audits without persisting forum authors
+or post bodies. The strongest accessible PortalAnaliz record was the collective
+FIPA portfolio's reported `+239.7%` over 2020–2023, with contemporary
+transactions, some cash-flow/benchmark disclosure and substantial drawdowns.
+It merits medium-high research-priority confidence but remains `needs-human`
+for verified alpha because the exact TWR/XIRR method is absent. The individual
+2011–2020 IKE record is longer but less reproducible: its `+380%` value increase
+and claimed 31% average annual return cannot be reconciled without dated
+contributions. The deep-analysis/verifier skills now allow credible
+long-duration authors to prioritize process tactics only—pre-trade case and
+maximum price, explicit invalidation, thesis-delta, patience and concentration
+review. Reputation cannot promote a forum claim to fact, prediction confidence
+or stock score.
+
+The BiznesRadar audit identified useful controlled extensions: consecutive
+market-snapshot deltas for candidate scheduling, a separate NewConnect recall
+universe, sector-relative context with fiscal/peer caveats, per-share
+reconciliation checks and liquidity/execution labels from stored volume. These
+are recorded as verifier/backtest-gated follow-ups. RSI/MACD, candlestick and
+BR buy/sell labels remain out of scope. The learning note explains the
+report/read-model split and both source audits for a C# developer.
+
+## 2026-07-10 · CX.12 — recall-first Discover and idempotent scout queue
+
+Broadened the default Discover funnel so useful ideas are not discarded before
+Codex review. The fixed `recall-v1` policy keeps BiznesRadar numeric ratings of
+at least 5 without requiring Piotroski F-Score; missing F-Score is now an
+explicit caveat rather than an implicit rejection. The API can return up to 300
+matches while the UI still renders 15 initially and reveals more on demand.
+Presentation presets no longer affect the automatic evaluation payload.
+
+Every immutable market-rating source version now ensures exactly one aggregate
+`stock-candidate-scout` job. Migration `0009` adds a nullable unique
+`agent_runs.idempotency_key`, so cached reads, identical forced refreshes and
+concurrent page loads cannot flood the queue. A changed source version creates
+one new job. Its frozen payload retains the full recall shortlist, but the 5.3
+worker evaluates only a 12-name budget in batches of four; it performs a
+source-only prescreen, never broad-refreshes companies and never mutates the
+watchlist. The UI reports the job id/status honestly, including that `queued`
+means waiting for the Codex worker. Focused discovery/pickup tests cover recall,
+missing values, provenance, dedupe and changed-version behavior.
+
+## 2026-07-10 · CX.4 — cost-aware deep research, strong final judgment
+
+Refined `stock-deep-analysis` model routing at the user's request. Long
+source-completion loops, official-web research and full memo drafting now
+default to `gpt-5.3-codex-spark`. Research stops on evidence coverage rather
+than an artificially small page budget, while repeated searches that add no
+primary evidence remain forbidden. Official evidence is persisted through app
+adapters when supported; otherwise it remains an explicit `needs-human` input.
+
+The strongest configured `verifier_strict` model (currently `gpt-5.5` high)
+independently checks the frozen dossier/source manifest and owns the final
+prediction, confidence, result-quality fields and verification status. Queue
+worker guidance and the model-role plan now match the skill. A detailed 5.3
+draft alone can no longer be saved as verified, and deep runs record both
+drafting and verifier roles/models in `input_snapshot.model_trace`.
+
+## 2026-07-10 · RT0.3/RT0.4 — real-source baseline, runtime exit gate and result-quality correction
+
+Closed the remaining trustworthy-baseline source gates. Recorded complete
+ticker-specific BiznesRadar fixture matrices for SNT (GPW, canonical slug
+`SYNEKTIK`) and CRB (NewConnect), covering profile, quarterly/annual income,
+balance, cash flow, both indicator pages, dividends and first-page price
+history. The live premium session passed the fixed `/login/` marker check.
+PortalAnaliz topics were found to return a login page with HTTP 200
+anonymously, so `record_topic_fixture.py` now uses the configured
+`ForumClient`, refuses non-post/non-vote captures and stores only the minimal
+sanitized parser structure. The live vote selector is `a.post-reputation`;
+session ids, account data, authors, locations, signatures and post bodies are
+not persisted. The phpBB credential POST was also moved onto the shared polite
+HTTP path, closing an existing all-HTTP-through-`scrapers/http.py` violation.
+
+The browser pilot exposed a decision-relevant quality bug in SNT rather than
+only checking that pages rendered. The old one-off proxy measured
+`|EBIT - profit_on_sales|` and called earnings repeatable even though the
+statement contained `256 562 tys. zł` from discontinued operations. Added
+canonical mappings for extraordinary/discontinued rows; the shared pure metric
+now includes those explicit magnitudes, so SNT reports `477,7%`, fails profit
+quality and warns that net profit/C/Z are distorted. Backtests reuse the same
+function. Thesis `verify_next` now reuses the evidence-specific insight comment
+instead of a narrower hard-coded explanation. Deterministic valuation
+confidence is capped at medium when a high-importance negative signal remains;
+coverage/history depth alone can no longer label this case high confidence.
+
+Added the user's mandatory runtime phase-exit gate to
+`docs/project-guardrails.md`: every phase/work package must pass
+`./workbench doctor`, idempotent `start`, `status`, backend HTTP health and
+frontend readiness, with matching logs inspected on failure. The pilot caught
+an operational collision because a stale Codex worktree with the same Compose
+project name recreated Postgres on host `5432` while the current primary
+checkout correctly expected `5433`; after the stale `start --open` completed,
+the primary checkout recreated the container from its current Compose file and
+remained healthy. Run operator commands from the checkout being verified.
+
+Model routing followed the session policy: GPT-5.3-Codex-Spark handled the
+bounded one-file guardrail wording, live selector insertion and thesis wording
+lineage edits. The primary/strong loop reviewed every diff, sent formatting
+feedback where needed, ran focused tests and owned the multi-file diagnosis,
+financial semantics, confidence policy and browser verification.
+
+RT0.4 live pilot: `doctor/start/status` passed; a non-forced SNT financial
+refresh completed with nine polite HTTP requests and all source surfaces OK;
+Brief/Evidence/Financials/Scenarios/Review loaded, scenario live-preview POSTs
+were confirmed `save:false` with zero persisted forecasts, and browser console
+errors were empty. Focused parser/login/HTTP/metrics/insights/thesis/scenario/
+valuation/backtest suites are green; full backend/frontend/runtime exit results
+also pass: the complete backend `pytest` suite, Next.js production build
+(compile + lint/typecheck + static generation), `git diff --check`, fixture
+secret-marker scan, final `doctor`, idempotent `start` and `status`. Backend
+health is HTTP 200, frontend readiness is green and both stored source-health
+checks pass. The workbench is intentionally left running.
+
 ## 2026-07-10 · Documentation merge — one evidence-first Codex roadmap
 
 Reconciled the parallel Codex-agent/evaluation work and the evidence-first RT

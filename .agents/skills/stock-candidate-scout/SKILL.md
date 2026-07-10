@@ -21,6 +21,9 @@ actionable. Do not broad-crawl websites from the skill prompt.
 1. Determine source:
    - Default to stored companies in the database.
    - If the user supplies tickers or an export, scan only that set.
+   - If a queued run contains `source=biznesradar-market-rating`, use its frozen
+     `inputs.candidates` directly. This is a source-only prescreen: do not
+     replace it with stored-company ranking and do not broad-refresh the market.
 2. Run the local contract:
    - Prefer MCP `rank_candidates`.
    - If MCP is unavailable, run `cd backend && python3 scripts/codex_candidate_scan.py`.
@@ -31,6 +34,10 @@ actionable. Do not broad-crawl websites from the skill prompt.
    - Prefer transparent reasons: valuation vs own history, net cash, growth
      signals, profit quality, source freshness.
    - Penalize stale or missing data instead of guessing.
+   - For a discovery-refresh batch, rate only the top `evaluation_budget`
+     candidates but preserve the complete recall-first list in the run input.
+     Recommend a later bounded dossier refresh for promising names; do not
+     create companies or add them to the watchlist automatically.
 4. Verify:
    - Check top candidates against their dossiers before recommending watchlist
      promotion.
