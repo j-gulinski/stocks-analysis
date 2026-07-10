@@ -12,7 +12,7 @@ from app.scrapers.portalanaliz import (
     parse_topic_page,
     topic_page_url,
 )
-from tests.conftest import load_fixture
+from tests.conftest import FIXTURES_DIR, load_fixture
 
 
 # ----------------------------------------------------------------- parsing
@@ -37,6 +37,18 @@ def test_parse_topic_page_fixture():
     assert "Backlog wygląda dobrze" in second.content_text
     # Quoted text is kept — it is part of the discussion context.
     assert "eksport UE" in second.content_text
+
+
+def test_real_topic_fixture_recognizes_real_upvote_markup():
+    path = FIXTURES_DIR / "real" / "pa" / "topic.html"
+    if not path.exists():
+        pytest.skip("RT0.3 open: record a public topic with visible vote markup")
+    page = parse_topic_page(path.read_text(encoding="utf-8"))
+    assert page.posts
+    assert any(post.upvotes is not None for post in page.posts), (
+        "real topic recorded, but no upvote value was recognized; extend only "
+        "_UPVOTE_SELECTORS/_UPVOTE_TEXT_RE from this fixture"
+    )
 
 
 def test_url_helpers():
@@ -137,4 +149,5 @@ def test_sync_unknown_topic_404(client):
 def test_login_status_without_credentials(client):
     status_body = client.get("/api/forum/login-status").json()
     assert status_body["ok"] is False
+    assert status_body["status"] == "not_configured"
     assert "not configured" in status_body["detail"]

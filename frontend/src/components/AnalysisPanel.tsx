@@ -49,17 +49,16 @@ function scoreTone(score: number | null): string {
   return "danger";
 }
 
-/** Per-item checklist verdict changes between two runs, matched by the item
- * text (the backend doesn't emit stable item ids). Kept deliberately simple —
- * a name match miss just means no diff line, not a crash. */
+/** Per-item checklist verdict changes between two runs, matched by the stable
+ * rubric id. */
 function checklistChanges(
   current: AnalysisChecklistItem[],
   previous: AnalysisChecklistItem[],
 ): { item: string; from: string; to: string }[] {
-  const prevByItem = new Map(previous.map((c) => [c.item, c.verdict]));
+  const prevByItem = new Map(previous.map((c) => [c.id, c.verdict]));
   const changes: { item: string; from: string; to: string }[] = [];
   for (const c of current) {
-    const prevVerdict = prevByItem.get(c.item);
+    const prevVerdict = prevByItem.get(c.id);
     if (prevVerdict != null && prevVerdict !== c.verdict) {
       changes.push({ item: c.item, from: prevVerdict, to: c.verdict });
     }
@@ -83,6 +82,7 @@ export default function AnalysisPanel({
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showFullReview, setShowFullReview] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -180,6 +180,10 @@ export default function AnalysisPanel({
 
           <p style={{ marginTop: 12, fontWeight: 500, lineHeight: 1.5 }}>{verdict.thesis}</p>
 
+          <button className="btn compact" onClick={() => setShowFullReview((value) => !value)}>
+            {showFullReview ? "Ukryj pełny zapis" : "Pokaż pełny zapis recenzji"}
+          </button>
+
           {changes.length > 0 && (
             <div className="analysis-section">
               <p className="analysis-title">Zmiany checklisty vs poprzednia analiza</p>
@@ -191,7 +195,7 @@ export default function AnalysisPanel({
             </div>
           )}
 
-          {verdict.catalysts.length > 0 && (
+          {showFullReview && verdict.catalysts.length > 0 && (
             <div className="analysis-section">
               <p className="analysis-title">Katalizatory</p>
               {verdict.catalysts.map((cat, i) => (
@@ -207,7 +211,7 @@ export default function AnalysisPanel({
             </div>
           )}
 
-          {verdict.checklist.length > 0 && (
+          {showFullReview && verdict.checklist.length > 0 && (
             <div className="analysis-section">
               <p className="analysis-title">Checklista strategii</p>
               <div className="checklist">
@@ -241,7 +245,7 @@ export default function AnalysisPanel({
             </div>
           )}
 
-          <div className="analysis-section">
+          {showFullReview && <div className="analysis-section">
             <p className="analysis-title">Potencjał</p>
             <div className="grid-2">
               <p className="secondary" style={{ lineHeight: 1.5 }}>
@@ -253,9 +257,9 @@ export default function AnalysisPanel({
                 {verdict.potential.downside}
               </p>
             </div>
-          </div>
+          </div>}
 
-          {verdict.forum_insights.length > 0 && (
+          {showFullReview && verdict.forum_insights.length > 0 && (
             <div className="analysis-section">
               <p className="analysis-title">
                 Wnioski z forum <span className="small muted">(opinie, nie fakty)</span>
@@ -291,19 +295,19 @@ export default function AnalysisPanel({
             </div>
           )}
 
-          <div className="analysis-section">
+          {showFullReview && <div className="analysis-section">
             <p className="secondary" style={{ lineHeight: 1.55, margin: 0 }}>
               {verdict.summary_pl}
             </p>
-          </div>
+          </div>}
 
           <p className="disclaimer">Analiza, nie rekomendacja inwestycyjna.</p>
         </div>
       )}
 
       {rows.length > 0 && (
-        <>
-          <p className="section-label">Historia analiz</p>
+        <details className="review-history">
+          <summary>Historia recenzji ({rows.length})</summary>
           <table className="table">
             <thead>
               <tr>
@@ -333,7 +337,7 @@ export default function AnalysisPanel({
               ))}
             </tbody>
           </table>
-        </>
+        </details>
       )}
     </div>
   );

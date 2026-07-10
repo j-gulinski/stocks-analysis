@@ -3,9 +3,11 @@
  * handler proxies it to FastAPI (never call the backend directly).
  */
 import type {
+  AiUsageHealth,
   Analysis,
   Dividend,
   Dossier,
+  DiscoveryResult,
   Financials,
   Forecast,
   ForecastAssumptions,
@@ -59,6 +61,20 @@ export const addToWatchlist = (ticker: string, note?: string) =>
 
 export const removeFromWatchlist = (ticker: string) =>
   request<void>(`/watchlist/${encodeURIComponent(ticker)}`, { method: "DELETE" });
+
+// --------------------------------------------------------------- discovery
+export const getDiscovery = (
+  minRating = 7,
+  minFScore: number | null = 5,
+  force = false,
+) => {
+  const params = new URLSearchParams({
+    min_rating: String(minRating),
+    force: String(force),
+  });
+  if (minFScore != null) params.set("min_f_score", String(minFScore));
+  return request<DiscoveryResult>(`/discovery?${params}`);
+};
 
 // ---------------------------------------------------------------- companies
 export const getDossier = (ticker: string) =>
@@ -158,3 +174,4 @@ export const getForumLoginStatus = () => request<LoginStatus>("/forum/login-stat
 export const getBrLoginStatus = () => request<LoginStatus>("/diagnostics/br-login-status");
 export const getScrapersHealth = () =>
   request<Record<string, ScraperHealth>>("/health/scrapers");
+export const getAiUsage = () => request<AiUsageHealth>("/health/ai-usage");

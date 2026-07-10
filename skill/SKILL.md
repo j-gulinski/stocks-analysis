@@ -302,12 +302,14 @@ Return **only** the structured object the tool schema defines (PLAN §8):
 - `thesis` — the investment thesis in Polish, or an explicit *"Brak wyraźnej
   tezy inwestycyjnej"* if none is supportable.
 - `catalysts[]` — each `{type, description, horizon, priced_in}`.
-- `checklist[]` — each `{item, verdict (spełnia/nie spełnia/nieznane), evidence}`;
-  cite the actual dossier number in `evidence`.
+- `checklist[]` — each `{id, item, verdict
+  (spełnia/nie spełnia/nieznane), evidence}`; `id` must use the stable rubric
+  id from the tool schema and `evidence` cites the actual dossier figure.
 - `red_flags[]` — concrete, evidence-backed.
 - `one_off_risk` — assessment of profit durability.
 - `forum_insights` — candidate claims to verify, with confidence, never as fact.
-- `alignment_score` — 0–100 per `rubric.md`.
+- `alignment_score` — propose 0–100 per `rubric.md`; the server recomputes and
+  overwrites it deterministically before persistence.
 - `potential` — a plain upside/downside frame (no target price invented; lean on
   the dossier's own `scenarios`/`valuation` when present).
 - `verify_next[]` — what to re-check after the next quarterly report; must

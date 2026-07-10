@@ -10,8 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db.base import get_db
-from app.db.models import Company, FetchLog, IndicatorValue, ReportValue
+from app.db.models import AiUsageDaily, Company, FetchLog, IndicatorValue, ReportValue
 from app.services import fields
 from app.services import refresh as refresh_service
 
@@ -25,7 +26,12 @@ SOURCES = {
 
 @router.get("/health/scrapers")
 def scrapers_health(db: Session = Depends(get_db)) -> dict:
-    """Per-source status from fetch_log: last success, last failure, 24 h errors."""
+    """Per-source status from fetch_log: current state plus 24 h history.
+
+    A failure followed by a success is ``recovered`` rather than an active
+    outage. We still expose the historical error count for debugging, but UI
+    and operator diagnostics should not treat it as current source failure.
+    """
     since = datetime.now(timezone.utc) - timedelta(hours=24)
     result: dict[str, dict] = {}
     for name, pattern in SOURCES.items():
@@ -53,7 +59,17 @@ def scrapers_health(db: Session = Depends(get_db)) -> dict:
                 (FetchLog.status.is_(None)) | (FetchLog.status != 200),
             )
         )
+        if last_fail and (not last_ok or last_fail.fetched_at > last_ok.fetched_at):
+            current_status = "degraded"
+        elif last_fail:
+            current_status = "recovered"
+        elif last_ok:
+            current_status = "healthy"
+        else:
+            current_status = "unknown"
+
         result[name] = {
+            "status": current_status,
             "last_ok_at": last_ok.fetched_at if last_ok else None,
             "last_error": (
                 {
@@ -67,6 +83,52 @@ def scrapers_health(db: Session = Depends(get_db)) -> dict:
             "errors_24h": int(errors_24h or 0),
         }
     return result
+
+
+@router.get("/health/ai-usage")
+def ai_usage_health(db: Session = Depends(get_db)) -> dict:
+    """Today's UTC run/call/token usage; contains no keys or prompt content."""
+    today = datetime.now(timezone.utc).date()
+    rows = db.scalars(
+        select(AiUsageDaily).where(AiUsageDaily.day == today)
+    ).all()
+    global_row = next((row for row in rows if row.provider == "_all"), None)
+    providers = [row for row in rows if row.provider != "_all"]
+    settings = get_settings()
+    return {
+        "day": today,
+        "limits": {
+            "runs": settings.ai_daily_limit,
+            "provider_attempts": settings.ai_daily_call_limit,
+            "tokens": settings.ai_daily_token_limit,
+        },
+        "usage": {
+            "runs": global_row.run_count if global_row else 0,
+            "logical_operations": sum(row.logical_operations for row in providers),
+            "provider_attempts": global_row.provider_attempts if global_row else 0,
+            "cache_hits": sum(row.cache_hits for row in providers),
+            "billable_calls": global_row.billable_calls if global_row else 0,
+            "unknown_billing_calls": (
+                global_row.unknown_billing_calls if global_row else 0
+            ),
+            "input_tokens": global_row.input_tokens if global_row else 0,
+            "output_tokens": global_row.output_tokens if global_row else 0,
+        },
+        "providers": [
+            {
+                "provider": row.provider,
+                "logical_operations": row.logical_operations,
+                "provider_attempts": row.provider_attempts,
+                "cache_hits": row.cache_hits,
+                "billable_calls": row.billable_calls,
+                "unknown_billing_calls": row.unknown_billing_calls,
+                "input_tokens": row.input_tokens,
+                "output_tokens": row.output_tokens,
+            }
+            for row in sorted(providers, key=lambda item: item.provider)
+        ],
+        "pricing_status": "not_configured",
+    }
 
 
 @router.get("/diagnostics/br-login-status")

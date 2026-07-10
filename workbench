@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Stable repository entry point for local workbench operations."""
+
+from scripts.workbench import main
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

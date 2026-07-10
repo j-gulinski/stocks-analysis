@@ -7,6 +7,7 @@ whole refresh — the summary tells the UI exactly what happened per page.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
 import requests
@@ -25,6 +26,7 @@ from app.db.models import (
     Company,
     Dividend,
     FetchLog,
+    DocumentVersion,
     IndicatorValue,
     Price,
     ReportValue,
@@ -33,6 +35,7 @@ from app.db.models import (
 from app.scrapers import biznesradar
 from app.scrapers import http as polite_http
 from app.services import fields
+from app.services import evidence
 
 # report pages: kind -> (statement, freq)
 REPORT_PAGES: dict[str, tuple[str, str]] = {
@@ -49,6 +52,18 @@ MIN_PRICE_HISTORY_ROWS = 30
 
 class UnknownTickerError(Exception):
     """Ticker not found on BiznesRadar and unknown locally."""
+
+
+@dataclass(frozen=True)
+class FetchedPage:
+    text: str
+    content: bytes
+    requested_url: str
+    effective_url: str
+    status_code: int
+    mime_type: str
+    fetched_at: datetime
+    fetch_log: FetchLog
 
 
 # --------------------------------------------------------- premium session
@@ -93,13 +108,25 @@ def check_br_login() -> dict:
     """
     settings = get_settings()
     if not (settings.br_username and settings.br_password):
-        return {"ok": False, "detail": "BR_USERNAME / BR_PASSWORD not configured."}
+        return {
+            "ok": False,
+            "status": "not_configured",
+            "detail": "BR_USERNAME / BR_PASSWORD not configured.",
+        }
     try:
         client = biznesradar.BrClient()
         client.login(settings.br_username, settings.br_password)
-        return {"ok": True, "detail": f"Logged in as {settings.br_username}."}
+        return {
+            "ok": True,
+            "status": "ok",
+            "detail": f"Logged in as {settings.br_username}.",
+        }
     except Exception as exc:  # noqa: BLE001 — diagnostics endpoint, see docstring
-        return {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+        return {
+            "ok": False,
+            "status": "error",
+            "detail": f"{type(exc).__name__}: {exc}",
+        }
 
 
 def get_or_create_company(db: Session, ticker: str) -> Company:
@@ -114,8 +141,10 @@ def get_or_create_company(db: Session, ticker: str) -> Company:
 
 # ------------------------------------------------------------ fetch helpers
 
-def _log_fetch(db: Session, url: str, status: int | None) -> None:
-    db.add(FetchLog(url=url, status=status))
+def _log_fetch(db: Session, url: str, status: int | None) -> FetchLog:
+    row = FetchLog(url=url, status=status, fetched_at=utcnow())
+    db.add(row)
+    return row
 
 
 def _is_fresh(db: Session, url: str) -> bool:
@@ -140,7 +169,7 @@ def _get_page(
     url: str,
     force: bool,
     session: requests.Session | None = None,
-) -> str | None:
+) -> FetchedPage | None:
     """Fetch a page through the polite client; None means 'use cache / skip'.
 
     `session` reuses cookies (P1.9: an optional logged-in BiznesRadar premium
@@ -149,11 +178,23 @@ def _get_page(
     if not force and _is_fresh(db, url):
         return None
     response = polite_http.fetch(url, session=session)
-    _log_fetch(db, url, response.status_code)
+    fetch_log = _log_fetch(db, url, response.status_code)
     if response.status_code == 404:
         raise LookupError(f"404 for {url}")
     response.raise_for_status()  # non-retryable, non-404 errors are real errors
-    return response.text
+    content = getattr(response, "content", None) or response.text.encode("utf-8")
+    headers = getattr(response, "headers", {}) or {}
+    mime_type = headers.get("content-type", "text/html").split(";", 1)[0].strip()
+    return FetchedPage(
+        text=response.text,
+        content=content,
+        requested_url=url,
+        effective_url=str(getattr(response, "url", None) or url),
+        status_code=response.status_code,
+        mime_type=mime_type,
+        fetched_at=fetch_log.fetched_at,
+        fetch_log=fetch_log,
+    )
 
 
 # ------------------------------------------------------------------ upserts
@@ -163,6 +204,7 @@ def _upsert_report_values(
     company: Company,
     statement: str,
     table: biznesradar.ReportTable,
+    source_version: DocumentVersion,
     replace: bool = False,
 ) -> int:
     """Store report cells; returns number of processed values.
@@ -204,10 +246,33 @@ def _upsert_report_values(
                 "position": position,
                 "value": value,
                 "scraped_at": now,
+                "_locator": {
+                    "table": statement,
+                    "frequency": table.freq,
+                    "row_position": position,
+                    "field_code": row.field_code,
+                    "field_label": row.label,
+                    "period": period,
+                },
             }
 
     if not rows_by_key:
         return 0
+
+    for payload in rows_by_key.values():
+        locator = payload.pop("_locator")
+        fact = evidence.record_numeric_fact(
+            db,
+            company,
+            source_version,
+            fact_type="financial_statement",
+            fact_key=f"{statement}.{payload['field_code']}",
+            value=payload["value"],
+            unit="tys_pln",
+            period=payload["period"],
+            locator=locator,
+        )
+        payload["source_fact_id"] = fact.id
 
     if db.get_bind().dialect.name == "postgresql":
         from sqlalchemy.dialects.postgresql import insert as dialect_insert
@@ -222,6 +287,7 @@ def _upsert_report_values(
             "field_label": statement_insert.excluded.field_label,
             "position": statement_insert.excluded.position,
             "scraped_at": statement_insert.excluded.scraped_at,
+            "source_fact_id": statement_insert.excluded.source_fact_id,
         },
     )
     db.execute(statement_insert)
@@ -229,7 +295,10 @@ def _upsert_report_values(
 
 
 def _upsert_indicators(
-    db: Session, company: Company, table: biznesradar.ReportTable
+    db: Session,
+    company: Company,
+    table: biznesradar.ReportTable,
+    source_version: DocumentVersion,
 ) -> tuple[int, list[str]]:
     """Returns (stored value count, labels the mapper did not recognize).
 
@@ -246,13 +315,31 @@ def _upsert_indicators(
     now = utcnow()
     count = 0
     unmapped: list[str] = []
-    for row in table.rows:
+    for row_position, row in enumerate(table.rows):
         # Code-first (data-field survives label drift), label as fallback.
         code = fields.match_indicator(row.label, row.field_code)
         if code is None:
             unmapped.append(row.label)
             continue
         for period, value in zip(table.periods, row.values):
+            fact = evidence.record_numeric_fact(
+                db,
+                company,
+                source_version,
+                fact_type="indicator",
+                fact_key=f"indicator.{code}",
+                value=value,
+                unit=fields.indicator_unit(code),
+                period=period,
+                locator={
+                    "table": "indicator",
+                    "row_position": row_position,
+                    "source_field_code": row.field_code,
+                    "source_label": row.label,
+                    "canonical_indicator": code,
+                    "period": period,
+                },
+            )
             record = existing.get((code, period))
             if record is None:
                 record = IndicatorValue(
@@ -261,7 +348,14 @@ def _upsert_indicators(
                 db.add(record)
                 existing[(code, period)] = record
             else:
+                evidence.record_conflict_if_needed(
+                    db,
+                    company,
+                    previous_fact_id=record.source_fact_id,
+                    new_fact=fact,
+                )
                 record.value = value
+            record.source_fact_id = fact.id
             record.scraped_at = now
             count += 1
     return count, unmapped
@@ -373,6 +467,40 @@ def _report_slug(company: Company) -> str:
     return company.br_slug or company.ticker
 
 
+def _record_page_evidence(
+    db: Session,
+    company: Company,
+    page: FetchedPage,
+    *,
+    source_type: str,
+    scope_key: str,
+) -> evidence.RecordedDocument:
+    recorded = evidence.record_document_version(
+        db,
+        company,
+        source_name="biznesradar",
+        source_type=source_type,
+        scope_key=scope_key,
+        requested_url=page.requested_url,
+        effective_url=page.effective_url,
+        content=page.content,
+        text=page.text,
+        response_status=page.status_code,
+        mime_type=page.mime_type,
+        fetched_at=page.fetched_at,
+    )
+    page.fetch_log.document_version_id = recorded.version.id
+    return recorded
+
+
+def _require_usable_grid(table: biznesradar.ReportTable) -> None:
+    """Never let a structurally empty forced page erase current serving data."""
+    if not table.periods or not table.rows:
+        raise biznesradar.ParseError("parsed page has no usable period/value grid")
+    if not any(any(value is not None for value in row.values) for row in table.rows):
+        raise biznesradar.ParseError("parsed page has no numeric values")
+
+
 def _refresh_profile(
     db: Session,
     company: Company,
@@ -389,16 +517,16 @@ def _refresh_profile(
     url = biznesradar.page_url("profile", company.ticker)
     must_fetch = force or company.br_slug is None
     try:
-        html = _get_page(db, url, must_fetch, session=session)
+        page = _get_page(db, url, must_fetch, session=session)
     except (LookupError, polite_http.FetchError, requests.RequestException) as exc:
         logger.warning("profile refresh failed for %s: %s", company.ticker, exc)
         summary["profile"] = f"error: {exc}"
         return None
-    if html is None:
+    if page is None:
         summary["profile"] = "cached"
         return None
 
-    profile = biznesradar.parse_profile(html, company.ticker)
+    profile = biznesradar.parse_profile(page.text, company.ticker)
     company.name = profile.name or company.name
     company.br_slug = profile.slug or company.br_slug
     company.sector = profile.sector or company.sector
@@ -445,12 +573,32 @@ def _refresh_reports(
     for kind, (statement, freq) in REPORT_PAGES.items():
         url = biznesradar.page_url(kind, _report_slug(company))
         try:
-            html = _get_page(db, url, force, session=session)
-            if html is None:
+            page = _get_page(db, url, force, session=session)
+            if page is None:
                 summary[kind] = "cached"
                 continue
-            table = biznesradar.parse_report_table(html, freq)
-            count = _upsert_report_values(db, company, statement, table, replace=force)
+            recorded = _record_page_evidence(
+                db,
+                company,
+                page,
+                source_type="financial_report",
+                scope_key=kind,
+            )
+            try:
+                table = biznesradar.parse_report_table(page.text, freq)
+                _require_usable_grid(table)
+            except biznesradar.ParseError as exc:
+                evidence.mark_parse_result(recorded.version, success=False, error=str(exc))
+                raise
+            evidence.mark_parse_result(recorded.version, success=True)
+            count = _upsert_report_values(
+                db,
+                company,
+                statement,
+                table,
+                recorded.version,
+                replace=force,
+            )
             summary[kind] = f"ok ({count} values{_table_detail(table)}){_grid_warning(table)}"
         except (
             polite_http.FetchError,
@@ -472,12 +620,27 @@ def _refresh_indicators(
     for kind in INDICATOR_PAGES:
         url = biznesradar.page_url(kind, _report_slug(company))
         try:
-            html = _get_page(db, url, force, session=session)
-            if html is None:
+            page = _get_page(db, url, force, session=session)
+            if page is None:
                 summary[kind] = "cached"
                 continue
-            table = biznesradar.parse_report_table(html, freq="Q")
-            count, unmapped = _upsert_indicators(db, company, table)
+            recorded = _record_page_evidence(
+                db,
+                company,
+                page,
+                source_type="market_indicators",
+                scope_key=kind,
+            )
+            try:
+                table = biznesradar.parse_report_table(page.text, freq="Q")
+                _require_usable_grid(table)
+            except biznesradar.ParseError as exc:
+                evidence.mark_parse_result(recorded.version, success=False, error=str(exc))
+                raise
+            evidence.mark_parse_result(recorded.version, success=True)
+            count, unmapped = _upsert_indicators(
+                db, company, table, recorded.version
+            )
             note = ""
             if unmapped:
                 shown = ", ".join(sorted(unmapped)[:4])
@@ -503,11 +666,11 @@ def _refresh_dividends(
 ) -> None:
     url = biznesradar.page_url("dividends", _report_slug(company))
     try:
-        html = _get_page(db, url, force, session=session)
-        if html is None:
+        page = _get_page(db, url, force, session=session)
+        if page is None:
             summary["dividends"] = "cached"
             return
-        entries = biznesradar.parse_dividends(html)
+        entries = biznesradar.parse_dividends(page.text)
         count = _upsert_dividends(db, company, entries)
         summary["dividends"] = f"ok ({count} years)"
     except LookupError:

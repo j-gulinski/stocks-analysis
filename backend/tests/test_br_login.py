@@ -117,4 +117,5 @@ def test_br_login_status_endpoint_without_credentials(client):
     the network — mirrors test_forum.py's test_login_status_without_credentials."""
     body = client.get("/api/diagnostics/br-login-status").json()
     assert body["ok"] is False
+    assert body["status"] == "not_configured"
     assert "not configured" in body["detail"]

@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { IconListDetails, IconRadar2, IconSettings } from "@tabler/icons-react";
+import { IconFlask2, IconRadar2, IconSettings } from "@tabler/icons-react";
 
 const links = [
-  { href: "/", label: "Watchlist", icon: IconListDetails },
-  { href: "/settings", label: "Settings", icon: IconSettings },
+  { href: "/discover", label: "Discover", icon: IconRadar2 },
+  { href: "/", label: "Research", icon: IconFlask2 },
+  { href: "/settings", label: "System", icon: IconSettings },
 ];
 
 export default function Nav() {
@@ -23,8 +24,7 @@ export default function Nav() {
 
       <div className="nav-links">
         {links.map(({ href, label, icon: Icon }) => {
-          const active =
-            pathname === href || (href === "/" && pathname.startsWith("/stock/"));
+          const active = pathname === href || (href === "/" && pathname.startsWith("/stock/"));
 
           return (
             <Link

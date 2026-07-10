@@ -23,9 +23,7 @@ from app.services import (
     insights,
     metrics,
     scenarios,
-    scenarios_ai,
     thesis,
-    thesis_ai,
     valuation_ai,
 )
 from app.services.strategies import malik
@@ -219,23 +217,18 @@ def build_dossier(db: Session, company: Company) -> dict:
         prescore=prescore.to_dict(),
     )
     company_thesis = thesis.build_thesis(thesis_inputs, profile=malik.MALIK)
-    # WP2b: try the optional iterative Claude-API refiner on top of the
-    # deterministic read. With no ANTHROPIC_API_KEY (the default) this is a
-    # transparent pass-through returning the exact deterministic body plus
-    # `engine: "deterministic"`; with a key it may return `engine: "ai"`
-    # (+ ai_notes). It never raises, so the dossier always has a thesis block.
-    thesis_block = thesis_ai.refine_thesis(
-        thesis_inputs,
-        malik.MALIK,
-        company_thesis,
-        ticker=company.ticker,
-    )
+    # Read paths are deterministic and network-free. Optional model refinement
+    # belongs to an explicit analysis run with quota/provenance, never a GET.
+    thesis_block = {
+        **company_thesis.to_dict(),
+        "engine": "deterministic",
+        "ai_notes": None,
+    }
 
     # Scenario-simulation layer (stage SC / WP3): a coherent negative/base/
     # positive trio reverting the SECTOR-relevant multiple toward the company's
-    # own-history quartiles, plus the optional Claude-API refiner (event
-    # scenarios, reworded narratives). Pure composition on top of the pieces
-    # above; recomputes no indicator. Load the own-history series for the
+    # own-history quartiles. Pure composition on top of the pieces above;
+    # recomputes no indicator. Load the own-history series for the
     # sector-appropriate multiple (C/Z generally, C/WK finance/realestate,
     # EV/EBITDA energy) — parametrised by indicator code, same query shape as cz.
     selected_multiple = scenarios.select_valuation_multiple(
@@ -271,21 +264,17 @@ def build_dossier(db: Session, company: Company) -> dict:
         net_cash=net_cash_value,
     )
     scenario_set = scenarios.build_scenario_set(scenario_inputs, malik.MALIK)
-    # No ANTHROPIC_API_KEY (the default) ⇒ transparent pass-through returning the
-    # deterministic body + `engine: "deterministic"`; never raises.
-    scenarios_block = scenarios_ai.simulate_scenarios(
-        scenario_inputs, malik.MALIK, scenario_set, ticker=company.ticker
-    )
+    scenarios_block = {**scenario_set.to_dict(), "ai_notes": None}
 
     # AI valuation layer (stage SC / WP4): a stock-potential read on TOP of the
     # scenario set — how much potential (anchored to the weighted EV), at what
     # confidence (a deterministic coverage heuristic), and what would change the
-    # assessment. Same deterministic-first contract: no key ⇒ the deterministic
-    # valuation + `engine: "deterministic"`; never raises, so the dossier always
-    # has a valuation block.
-    valuation_block = valuation_ai.assess_potential(
-        scenario_inputs, scenarios_block, malik.MALIK, ticker=company.ticker
-    )
+    # assessment. This public deterministic entry point does not resolve model
+    # settings; explicit analysis jobs own every provider call.
+    valuation_block = {
+        **valuation_ai.build_potential(scenario_inputs, scenarios_block, malik.MALIK),
+        "ai_notes": None,
+    }
 
     topics_count = db.scalar(
         select(func.count()).select_from(ForumTopic).where(ForumTopic.company_id == company.id)

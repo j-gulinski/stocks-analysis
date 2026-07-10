@@ -13,6 +13,8 @@ os.environ["PA_USERNAME"] = ""
 os.environ["PA_PASSWORD"] = ""
 os.environ["BR_USERNAME"] = ""
 os.environ["BR_PASSWORD"] = ""
+os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["OPENAI_API_KEY"] = ""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -57,7 +59,10 @@ class FakeResponse:
 
     def __init__(self, text: str = "", status_code: int = 200):
         self.text = text
+        self.content = text.encode("utf-8")
         self.status_code = status_code
+        self.url = ""
+        self.headers = {"content-type": "text/html; charset=utf-8"}
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:

@@ -6,6 +6,7 @@ to appsettings + user-secrets in ASP.NET.
 """
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,7 +32,11 @@ class Settings(BaseSettings):
     # Claude API (Phase 5 verdict product; also the WP2b thesis refiner).
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-5"
-    ai_daily_limit: int = 20
+    ai_daily_limit: int = Field(default=20, ge=0)
+    # Global provider-attempt and measured-token ceilings. Each retry consumes
+    # another attempt; 0 intentionally disables model execution for the day.
+    ai_daily_call_limit: int = Field(default=60, ge=0)
+    ai_daily_token_limit: int = Field(default=500_000, ge=0)
 
     # WP2b iterative thesis refiner (services/thesis_ai.py). No key ⇒ the refiner
     # is a transparent pass-through to the deterministic read; these only bite on

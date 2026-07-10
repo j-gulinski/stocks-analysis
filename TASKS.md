@@ -44,7 +44,7 @@ Every completed phase additionally gets a one-page learning note `docs/learning/
 - [x] P2.3 Topic linking: `POST /api/forum/topics` {url, ticker} → resolve canonical topic id, store in `forum_topics`
 - [x] P2.4 Sync: full first pull, incremental after (from max post_no); all requests via `scrapers/http.py` (jittered delays, backoff); `POST /api/forum/topics/{id}/sync`
 - [x] P2.5 Read endpoint: `GET /api/companies/{ticker}/forum?page=&author=` (paginated, newest first)
-- [x] P2.6 Post upvotes: `forum_posts.upvotes` (migration 0002), best-effort parser (selector list + text pattern — verify against a recorded real page), `sort=top` API + UI toggle; feeds AI token budgeting
+- [~] P2.6 Post upvotes: `forum_posts.upvotes` (migration 0002), best-effort parser (selector list + text pattern), `sort=top` API + UI toggle; feeds AI token budgeting. **Mechanical synthetic tests pass; keep partial until `real/pa/topic.html` proves the actual PortalAnaliz vote markup.**
 
 ## Phase 3 — Module C backend: metrics, prescore, forecast, dossier
 
@@ -175,13 +175,218 @@ distinct from TH.2b's thesis-block refinement. Tasks below are not rewritten.
 - [x] P5.5 `prompts.py`: system = SKILL.md + rubric; user = dossier JSON + token-capped recent forum posts + prescore; deterministic assembly (snapshot returned; note: not persisted — `analyses` table has no snapshot column)
 - [x] P5.6 Endpoints: `POST /api/companies/{ticker}/analyses` (run), `GET .../analyses` (history); persist output + tokens + requesting user email; global `AI_DAILY_LIMIT` cap (429 with Polish message when hit) — no migration needed (`analyses` already in 0001); 4 client-gated tests deferred to user machine
 - [x] P5.7 **Analiza AI** tab: run button, verdict card (score, thesis, catalysts, red flags, verify-next), history list with diff vs previous run — `AnalysisPanel`, tsc green
-- [ ] P5.8 Calibration pass: run on 3–4 stocks you know well; tune SKILL/rubric until verdicts match your judgment of obvious cases
+- [ ] P5.8 Calibration pass — **superseded by RT.6**. Do not tune a skill to
+  3–4 familiar winners. Build mixed-outcome training + untouched holdout cases,
+  then use the judge loop and walk-forward protocol below.
 - [x] P5.9 Forum distiller (PLAN §8): batched cheap-model pass over already-synced posts → per-post cached claims {type, claim, confidence, source post ids}; upvote-weighted ordering within token budget; zero extra forum requests; verdict prompt consumes claims, never raw posts as facts — file cache, 15 pure tests
 
-## Phase 6 — Deploy & polish (Vercel + Railway, Google allowlist)
+## Stages RT.0–RT.7 — Research-platform roadmap (binding next work)
+
+**Goal:** evolve the completed first vertical slice into the evidence-first,
+company-specific research workflow in `docs/plan-research-platform.md`.
+Deployment is RT.7, after the local pilot proves provenance, scenarios and
+evaluation. IDs below are stable.
+
+### RT.0 — Trustworthy baseline
+
+- [x] RT0.1 Fix the two currently failing backend tests and prove the full suite
+  is green without weakening assertions; document why fixture/current-price
+  expectations drifted.
+- [~] RT0.2 Reproduce frontend from a clean install (`npm ci`, typecheck,
+  production build); add a minimal browser smoke test for add → refresh → stock
+  brief → forecast/scenario → analysis history. **Clean install/build/audit and
+  manual browser smoke are green; persist the automated Playwright path after
+  the RT.4 workflow contracts replace the current overlapping views.**
+- [ ] RT0.3 Finish real-fixture gaps: two companies for every BR page type, real
+  BR login form/session, real PA upvote markup and parser tests. **Recorders now
+  preserve ticker-specific companies, require the profile's canonical slug,
+  cover all nine BR page types and connect the PA real fixture to tests; the
+  actual two-company/login/upvote captures still require live source access.**
+- [~] RT0.4 Add one `doctor` command/report covering DB, backend, frontend,
+  credentials, source reachability and model providers; run one documented
+  end-to-end local pilot. **`doctor/start/status/stop` and a stored-data browser
+  pilot are complete; a live refresh pilot waits on RT0.3 real-source gaps.**
+- [x] RT0.5 Reconcile README/PLAN/TASKS with actual commands, routes and source
+  chain; remove stale Yahoo/stooq/Claude-only claims.
+
+### RT.1 — Explicit, reproducible AI runs
+
+- [x] RT1.1 Remove `thesis_ai`, `scenarios_ai` and `valuation_ai` calls from
+  `build_dossier`; GET endpoints are deterministic, side-effect-free and tested
+  to make zero provider calls.
+- [~] RT1.2 Add analysis-run provenance + `model_calls`: status/purpose/as-of, complete
+  input snapshot, evidence ids, skill hash/version, provider/model/config,
+  validation, tokens/cost/latency, retries/escalation and user. **Core run and
+  verdict-call provenance extend the current `analyses` table without
+  overwriting a conflicting pilot `analysis_runs` contract; child distillation attempts, exact
+  retry rows and price-based cost calculation move into RT1.3/RT1.6.**
+- [~] RT1.3 Introduce a single run orchestrator + provider interface; migrate
+  existing Anthropic calls behind it before adding OpenAI. Replace file-only
+  production caches with durable hash/idempotency records. **The verdict path
+  now uses `analysis/orchestrator → executor → AnthropicProvider`, supports
+  scoped `Idempotency-Key`, durable validated request reuse and per-attempt
+  rows. Legacy direct-client compatibility and forum distillation still need
+  migration before OpenAI is added.**
+- [~] RT1.4 Define strict Pydantic output contracts and validate before
+  persistence/rendering. Handle refusal, truncation, malformed evidence and
+  stale run states explicitly. **Strict/no-coercion validation, stable ids,
+  cache revalidation, failed/succeeded/stale recovery and distinct provider
+  truncation/refusal/invalid-output states are implemented; material claim to
+  evidence-id enforcement remains RT2/RT5.3.**
+- [~] RT1.5 Compute strategy score/vetoes and all financial math
+  deterministically. Models produce evidence-linked interpretations, not the
+  authoritative number. **Alignment weights, unknown handling and current
+  vetoes are server-owned and tested; future company-template/scenario math
+  remains RT3–RT4.**
+- [~] RT1.6 Add async job progress/cancellation and quota/cost accounting for
+  every child call; hidden refiners cannot bypass the limit. **Verdict attempts
+  record heartbeat/status/cache/billed/token/latency data. Atomic UTC-day run,
+  provider-attempt and measured-token limits include retries; zero disables a
+  budget, and stale work is claimed once and conservatively marked
+  unknown-billed. Hidden forum model calls stay disabled until migrated.
+  Monetary price snapshots/reservations, async progress/cancellation and every
+  future child role remain.**
+
+### RT.2 — Point-in-time evidence ledger + primary disclosures
+
+- [~] RT2.1 Migrate immutable source documents/versions, typed facts with
+  `known_at` + page/section locator, events and explicit data conflicts.
+  **Migration `0008` adds the complete ledger contracts; BR report/indicator
+  versions, typed facts and cross-document conflicts are active. Official
+  event ingestion and object storage remain.**
+- [~] RT2.2 Make current report/indicator serving rows traceable to source facts;
+  refresh appends versions and supports an `as_of` read instead of destroying
+  historical truth. **New report/indicator rows carry immutable fact pointers;
+  identical content deduplicates, changed/failed versions are preserved, and
+  point-in-time APIs select the latest complete parsed version per document.
+  Legacy rows remain honestly unlinked until refreshed.**
+- [ ] RT2.3 Pilot issuer-IR and official ESPI/EBI ingestion for 3–5 watchlist
+  companies: periodic/current reports, guidance, material contracts/backlog,
+  buybacks, dilution and management/shareholder events.
+- [ ] RT2.4 Build source-quality/terms/rate notes and parser fixtures; material
+  case claims must cite immutable source spans.
+- [ ] RT2.5 Evaluate one corporate-action-aware, long-history market-data source
+  against GPW coverage, licensing, delistings and total-return needs before
+  choosing it.
+
+### RT.3 — Fundamental depth + company templates
+
+- [~] RT3.0 Add a low-request market discovery funnel. **One cached, immutable
+  BiznesRadar GPW rating document now seeds transparent candidates with report
+  period, Altman EM-Score rating and Piotroski F-Score; missing values remain
+  missing and the UI explicitly withholds strategy-fit claims. Template-aware,
+  point-in-time filters for liquidity, growth, margins, cash conversion,
+  leverage and own-history valuation remain after RT3.1–RT3.3.**
+- [ ] RT3.1 Compute operating cash flow vs profit, cash conversion, capex
+  intensity, working-capital/receivables/inventory trends, ROIC/ROE where valid,
+  share-count dilution and normalized one-offs.
+- [ ] RT3.2 Add segment/geography/KPI facts and a versioned `CompanyTemplate`
+  contract: required evidence, driver tree, scenario equations, valuation views,
+  red flags and optional external series.
+- [ ] RT3.3 Implement and hand-check 2–3 templates selected from real watchlist
+  archetypes; deterministic selection plus visible user override.
+- [ ] RT3.4 Add relevant official macro/sector adapters only for a template that
+  consumes them (first candidates: NBP, GUS, PSE/URE); no generic macro feed.
+
+### RT.4 — Research case + operating-driver scenarios
+
+- [ ] RT4.1 Persist research-case state, blockers, thesis/counter-thesis,
+  catalysts, falsifiers, next checks, user decisions and version history.
+- [ ] RT4.2 Scenario engine v2: template driver assumptions → statements/cash
+  flow/balance bridge → valuation → equity value/share; pure math with unit and
+  sensitivity tests.
+- [ ] RT4.3 Track each assumption as sourced fact, human assumption or model
+  suggestion. Model suggestions and probabilities require user approval.
+- [ ] RT4.4 Move current own-history multiple reversion into a valuation
+  sensitivity; show unweighted ranges alongside probability-weighted values.
+- [~] RT4.5 Rework stock UI around Evidence, Business, Performance, Thesis,
+  Scenarios, AI review and Journal; show fact/thesis/scenario changes after a
+  new report instead of multiple overlapping verdict cards. **The first slice
+  consolidates the duplicated Brief, moves full scenarios out, reframes AI as
+  Review and separates Evidence/Financials. Persistent case changes,
+  Business/Thesis editing and Journal remain.**
+- [~] RT4.6 UI/UX overhaul: audit existing screens/task flows; create and approve
+  research-workspace wireframes + updated design tokens; implement a persistent
+  case header, progressive workflow/navigation, evidence provenance states,
+  non-blocking run progress, scenario driver/valuation bridge editor and strong
+  empty/error/conflict states. **Three independent UX reviews converged on the
+  new `docs/design/research-workspace.md`; Discover, Research, compact Brief,
+  progressive workflow tabs, higher-contrast typography and mobile table
+  containment are implemented. The case-state contract, evidence drawer and
+  driver editor remain.**
+- [~] RT4.7 Verify industrial, financial and event-driven cases at desktop and
+  mobile widths with Playwright interactions/screenshots plus accessibility,
+  keyboard, contrast and `pl-PL` formatting checks. Store the approved design
+  spec in `docs/design/`; do not treat visual polish as proof of analytical
+  correctness. **Manual in-app browser QA is green at 1280 px and 390 px for
+  Discover, Research, all five SNT workflow tabs and raw table containment;
+  automated screenshots, keyboard/axe checks and representative financial/
+  event-driven cases remain.**
+
+### RT.5 — OpenAI orchestration + Codex-facilitated workflow
+
+- [ ] RT5.1 Add OpenAI Responses API adapter with strict structured outputs,
+  background jobs and versioned skill attachment. Configure models by role
+  (classify/extract/verify/analyze/adjudicate/judge), never as a hard-coded
+  “latest” id. Include GPT-5.3 as a user-approved bounded-loop candidate when
+  available, plus smaller model candidates for simpler work.
+- [ ] RT5.1b Implement `ModelPolicy` per role: ordered allowed models, reasoning
+  level, max calls/iterations/tokens/cost/timeout and explicit escalation
+  conditions; enforce a run-level budget and persist the selection reason.
+- [ ] RT5.2 Implement bounded cheap-model extraction/verification loops:
+  deterministic schema/unit/period/arithmetic/citation checks → retry failed
+  fields only → strong-model or human escalation. Test whether independent
+  cheap passes add value; never equate self-agreement with correctness.
+- [ ] RT5.3 Add prompt-injection isolation for untrusted source documents and
+  evidence-id requirements for all material claims.
+- [~] RT5.4 Build an idempotent `workbench` CLI: `doctor`, `start`, `stop`,
+  `status`, `refresh`, `case`, `analyze`, `feedback`, `backtest`. **The four
+  operator commands are implemented; add research commands with their RT.2–RT.6
+  domain contracts rather than wrapping unstable endpoints early.**
+- [~] RT5.5 Create `skills/workbench-research/SKILL.md` so a Codex task starts
+  or checks the app when asked to research a company, facilitates the case
+  stages, reports blockers and opens the relevant UI. Keep `skill/SKILL.md` as
+  the investment-analyst skill. **The operator/research skill is created,
+  validated and forward-tested for the commands that exist; extend its case
+  workflow only as the remaining CLI contract lands.**
+- [ ] RT5.6 After the CLI stabilizes, expose the same typed contract through an
+  optional MCP/plugin; do not make Codex UI automation the only interface.
+
+### RT.6 — Seasoned-investor judge + evaluation/backtest
+
+- [ ] RT6.1 Build gold data/extraction/scenario cases with mixed outcomes and a
+  failure taxonomy; split training/calibration from untouched holdout cases.
+- [ ] RT6.2 Create a versioned `seasoned-investor-judge` skill and structured
+  rubric: source correctness, accounting/units/periods, template choice,
+  thesis/counter-thesis/falsifiers, scenario coherence, uncertainty,
+  company-specificity, missing-evidence detection, usability, cost and latency.
+  Judge input should be a compact validated trace plus disputed spans so its
+  own cost stays proportionate.
+- [ ] RT6.3 Build an isolated evaluator that launches the app, waits for health,
+  seeds a frozen `as_of` case, drives the public CLI/API plus a small Playwright
+  user path, runs scenarios/cheap models and captures the full trace for the
+  judge.
+- [ ] RT6.4 Implement the bounded improvement loop: judge failure labels →
+  candidate prompt/template/validator/routing change in an experiment → replay
+  training → replay holdout → cost/regression report → explicit user approval
+  before versioned promotion. Judge never edits production directly.
+- [ ] RT6.5 Add AI trace/dataset evals and regression gates; use batch processing
+  for non-urgent large evaluation jobs when cost-effective.
+- [ ] RT6.6 Add point-in-time walk-forward case replay with 3/6/12/24-month
+  total/benchmark-relative return, adverse excursion, thesis-break timing and
+  probability calibration. Require publication timestamps, corporate actions,
+  delistings and no future leakage.
+- [ ] RT6.7 Consider market-wide factor backtesting/weight tuning only after the
+  case replay is credible; keep a final out-of-time holdout.
+
+## RT.7 / legacy Phase 6 — Deploy & polish (Vercel + Railway, Google allowlist)
 
 **Goal:** app live for you and allowlisted friends; everyone else hits a login wall.
 **Done when:** friend signs in with Google on the Vercel URL and runs the full workflow; non-allowlisted account is rejected; direct Railway URL without token returns 401; DB backup restores locally.
+
+**Scheduling decision (2026-07-09):** these tasks remain useful, but execute
+after RT.0–RT.6 prove the local research workflow. Adapt deploy topology for
+durable source documents, background analysis jobs and run traces before RT.7.
 
 - [ ] P6.1 Backend Dockerfile + Railway: service from repo, managed Postgres plugin, env vars (PLAN §9), `alembic upgrade head` on release, healthcheck on `/api/health`
 - [ ] P6.2 Backend auth middleware: require `Authorization: Bearer $API_TOKEN` when set (skip when unset = local dev); read `X-User-Email` into request context for analyses/forecasts attribution
@@ -193,6 +398,10 @@ distinct from TH.2b's thesis-block refinement. Tasks below are not rewritten.
 
 ---
 
-## Extension backlog (explicitly not v1)
+## Extension backlog
 
-Screener over prescore for the whole GPW · forum topic auto-discovery · full-thread AI summarization cache · **ESPI/EBI poller + e-mail alerts for watchlist** (PLAN §10) · **hotness score 0–100 with self-learning backtests** (PLAN §10 — parked until production base is stable) · price alerts · US stocks (stockanalysis.com) · Playwright smoke tests · scraping from home machine/VPS pushing to the same DB (if cloud IPs ever get blocked) · per-user AI quotas
+Template-aware market-wide screener after the source-seed MVP · portfolio/position/risk module ·
+forum topic auto-discovery · full-thread evidence-aware summarization · alerts ·
+additional company templates and non-GPW markets · home/VPS ingestion agent if
+cloud IPs are blocked. ESPI/EBI, Playwright workflow checks and honest
+walk-forward evaluation are no longer extensions; they are RT.2/RT.0/RT.6.

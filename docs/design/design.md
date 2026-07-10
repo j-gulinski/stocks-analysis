@@ -1,6 +1,9 @@
-# UI design reference
+# Legacy UI design reference
 
-Open `mockups.html` in a browser — it contains both approved screens (watchlist + stock page) rendered with the final dark palette. Frontend work (Phase 4) must match these. This file defines the tokens and component rules to translate into SCSS.
+`mockups.html` contains the completed Phase-4 watchlist and stock screens. It is
+kept as design history, but it no longer defines the product information
+architecture. New frontend work follows `research-workspace.md`; this file still
+documents the original palette and component lineage.
 
 ## Tokens (`src/styles/_variables.scss`)
 

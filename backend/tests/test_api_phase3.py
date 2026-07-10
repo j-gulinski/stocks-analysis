@@ -17,12 +17,26 @@ def refreshed(client, monkeypatch):
     return client
 
 
-def test_dossier(refreshed):
+def test_dossier(refreshed, monkeypatch):
+    # Freeze "today" so the recorded quote is deterministically older than the
+    # seven-day insight threshold. Without this, the assertion changes with the
+    # wall clock whenever a price fixture is refreshed.
+    from datetime import date as real_date
+
+    class FixedDate(real_date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 7, 15)
+
+    monkeypatch.setattr("app.services.dossier.date", FixedDate)
     dossier = refreshed.get("/api/companies/DEC").json()
 
     assert dossier["company"]["name"] == "DECORA"
     assert dossier["freshness"]["financials_scraped_at"] is not None
-    assert dossier["freshness"]["last_price_date"] == "2025-07-01"
+    # The current price chain uses the BiznesRadar archive fixture, not the
+    # removed stooq CSV path. Keep this integration expectation tied to the
+    # newest row in br_price_history.html.
+    assert dossier["freshness"]["last_price_date"] == "2026-07-03"
 
     quarters = dossier["quarters"]
     assert quarters[-1]["period"] == "2025Q1"
@@ -31,8 +45,8 @@ def test_dossier(refreshed):
 
     assert dossier["ttm"]["net_profit"] == 26892.0
     assert dossier["ttm"]["eps"] == 2.545
-    assert dossier["ttm"]["pe"] == 9.63
-    assert dossier["ttm"]["price"] == 24.50
+    assert dossier["ttm"]["pe"] == 9.74
+    assert dossier["ttm"]["price"] == 24.80
 
     assert dossier["pe_history"]["median"] == 11.35
     assert dossier["pe_history"]["percentile"] == 0.0
@@ -55,11 +69,34 @@ def test_dossier(refreshed):
                for i in insights["key_indicators"])
     assert insights["summary"]  # non-empty, honest Polish summary
     assert insights["coverage"]["available"] >= 5
-    # stale fixture price (2025-07-01) must be flagged, not glossed over
+    # The recorded quote is older than the freshness threshold and must be
+    # flagged rather than treated as current merely because it was re-parsed.
     assert any("Kurs sprzed" in note for note in insights["data_notes"])
 
     assert dossier["latest_forecast"] is None
     assert dossier["forum"] == {"topics": 0, "posts": 0, "last_post_at": None}
+
+
+def test_dossier_read_never_calls_ai_refiners(refreshed, monkeypatch):
+    """A GET must stay cheap, quota-free and reproducible even when providers
+    are configured. Explicit analysis endpoints own all model calls."""
+
+    def unexpected_call(*_args, **_kwargs):
+        raise AssertionError("dossier GET attempted an AI refinement")
+
+    monkeypatch.setattr("app.services.thesis_ai.refine_thesis", unexpected_call)
+    monkeypatch.setattr("app.services.scenarios_ai.simulate_scenarios", unexpected_call)
+    monkeypatch.setattr("app.services.valuation_ai.assess_potential", unexpected_call)
+
+    response = refreshed.get("/api/companies/DEC")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["thesis"]["engine"] == "deterministic"
+    assert body["scenarios"]["engine"] == "deterministic"
+    assert body["valuation"]["engine"] == "deterministic"
+    assert body["thesis"]["ai_notes"] is None
+    assert body["scenarios"]["ai_notes"] is None
+    assert body["valuation"]["ai_notes"] is None
 
 
 def test_income_series_prefers_parent_net_profit(refreshed, db):
@@ -115,7 +152,7 @@ def test_forecast_preview_compute_save_and_dossier_pickup(refreshed):
     ).json()
     assert preview["id"] is None
     assert preview["result"]["pnl"]["net_profit"] == 7904.8
-    assert preview["result"]["forward"]["pe"] == 9.02
+    assert preview["result"]["forward"]["pe"] == 9.13
     assert refreshed.get("/api/companies/DEC/forecasts").json() == []
 
     # save: persisted with attribution from the proxy header
@@ -130,9 +167,9 @@ def test_forecast_preview_compute_save_and_dossier_pickup(refreshed):
     forecasts = refreshed.get("/api/companies/DEC/forecasts").json()
     assert len(forecasts) == 1
 
-    # the dossier now uses forward P/E (9.02) for the valuation check
+    # the dossier now uses forward P/E (9.13) for the valuation check
     dossier = refreshed.get("/api/companies/DEC").json()
-    assert dossier["latest_forecast"]["result"]["forward"]["pe"] == 9.02
+    assert dossier["latest_forecast"]["result"]["forward"]["pe"] == 9.13
     pe_check = next(
         c for c in dossier["prescore"]["checks"] if c["id"] == "pe_vs_history"
     )

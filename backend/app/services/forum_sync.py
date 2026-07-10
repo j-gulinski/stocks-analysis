@@ -37,13 +37,25 @@ def check_login() -> dict:
     """
     settings = get_settings()
     if not (settings.pa_username and settings.pa_password):
-        return {"ok": False, "detail": "PA_USERNAME / PA_PASSWORD not configured."}
+        return {
+            "ok": False,
+            "status": "not_configured",
+            "detail": "PA_USERNAME / PA_PASSWORD not configured.",
+        }
     try:
         client = portalanaliz.ForumClient(base_url=settings.pa_base_url)
         client.login(settings.pa_username, settings.pa_password)
-        return {"ok": True, "detail": f"Logged in as {settings.pa_username}."}
+        return {
+            "ok": True,
+            "status": "ok",
+            "detail": f"Logged in as {settings.pa_username}.",
+        }
     except Exception as exc:  # noqa: BLE001 — diagnostics endpoint, see docstring
-        return {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+        return {
+            "ok": False,
+            "status": "error",
+            "detail": f"{type(exc).__name__}: {exc}",
+        }
 
 
 def link_topic(db: Session, url: str, ticker: str) -> ForumTopic:

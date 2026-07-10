@@ -96,6 +96,23 @@ class DividendEntry:
     yield_pct: float | None
 
 
+@dataclass(frozen=True)
+class MarketCandidate:
+    """One row from BiznesRadar's market-wide financial rating table.
+
+    This is discovery evidence, not our strategy score.  Keeping the source
+    fields verbatim lets the research layer explain why a ticker surfaced
+    without pretending the BR rating is a Malik/OBS recommendation.
+    """
+
+    ticker: str
+    name: str | None
+    report_period: str
+    rating: str | None
+    rating_value: float | None
+    piotroski_f_score: int | None
+
+
 # --------------------------------------------------------------- primitives
 
 _SPACE_CHARS = "\u00a0\u2009\u202f "  # nbsp, thin, narrow-nbsp, regular (escaped: editor-proof)
@@ -163,6 +180,71 @@ def _slugify(label: str) -> str:
     """Stable ascii code for rows without a data-field attribute."""
     folded = label.lower().translate(str.maketrans("ąćęłńóśźż", "acelnoszz"))
     return re.sub(r"[^a-z0-9]+", "_", folded).strip("_")[:80]
+
+
+# ---------------------------------------------------------- market discovery
+
+_CANDIDATE_NAME_RE = re.compile(r"^([A-Z0-9]{2,12})(?:\s*\(([^)]+)\))?$")
+_CANDIDATE_PERIOD_RE = re.compile(r"\b((?:19|20)\d{2})\s*/\s*Q([1-4])\b")
+_CANDIDATE_RATING_RE = re.compile(
+    r"\b(AAA|AA|A|BBB|BB|B|CCC|CC|C|D)([+-]?)\s*"
+    r"\(\s*(-?[\d\s]+(?:[,.]\d+)?)\s*\)"
+)
+
+
+def parse_market_rating(html: str) -> list[MarketCandidate]:
+    """Parse the single-page GPW rating universe used for candidate discovery.
+
+    The parser identifies rows by their profile link + report period + rating
+    pattern instead of table position.  That survives extra navigation tables
+    and missing F-scores.  Duplicate tickers keep the first (highest) row.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    candidates: list[MarketCandidate] = []
+    seen: set[str] = set()
+    for row in soup.find_all("tr"):
+        cells = row.find_all(["td", "th"])
+        if len(cells) < 3:
+            continue
+        profile_link = cells[0].find("a")
+        profile_text = (
+            profile_link.get_text(" ", strip=True)
+            if profile_link is not None
+            else cells[0].get_text(" ", strip=True)
+        )
+        profile_match = _CANDIDATE_NAME_RE.match(profile_text.upper())
+        row_text = row.get_text(" ", strip=True)
+        period_match = _CANDIDATE_PERIOD_RE.search(row_text)
+        rating_match = _CANDIDATE_RATING_RE.search(row_text)
+        if profile_match is None or period_match is None or rating_match is None:
+            continue
+
+        ticker = profile_match.group(1)
+        if ticker in seen:
+            continue
+        rating_value = parse_number(rating_match.group(3))
+        rating = rating_match.group(1) + rating_match.group(2)
+
+        # BR documents this final integer as Piotroski F-Score.  It is absent
+        # for some company types, which remains None rather than becoming 0.
+        trailing_text = row_text[rating_match.end() :].strip()
+        f_score_match = re.search(r"\b([0-9])\b", trailing_text)
+        candidates.append(
+            MarketCandidate(
+                ticker=ticker,
+                name=(profile_match.group(2) or "").strip() or None,
+                report_period=f"{period_match.group(1)}Q{period_match.group(2)}",
+                rating=rating,
+                rating_value=rating_value,
+                piotroski_f_score=(
+                    int(f_score_match.group(1)) if f_score_match is not None else None
+                ),
+            )
+        )
+        seen.add(ticker)
+    if not candidates:
+        raise ParseError("No market-rating candidates found on page.")
+    return candidates
 
 
 # ------------------------------------------------------------ report tables
