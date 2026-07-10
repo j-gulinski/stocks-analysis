@@ -55,6 +55,18 @@ reference for the completed first vertical slice.
 - **Changelog discipline:** every change to code/schema/plan/config needs a
   `CHANGELOG.md` entry (date · scope · what + why + decisions). A diff
   without an entry is incomplete — enforced by `.githooks/pre-commit`.
+- **Implementation-phase migrations:** keep each schema slice to one forward
+  Alembic migration. Do not add compatibility/follow-up migrations for a
+  locally generated database during implementation; local DB state and data
+  may be discarded or recreated from the current migration chain.
+- **Model-usage statistics:** every implementation, review, testing, or
+  research session adds one row to `docs/model-usage.md` before completion.
+  Record the stable task ID, work type, model role, selected tier/model,
+  reasoning level, concrete host model, any substitution or escalation, and
+  verification result. If the host does not expose the concrete deployment,
+  say so explicitly; never infer it from a role label. Use the ledger to audit
+  whether work was routed to the lightest suitable model and divided between
+  worker, analyst, and verifier roles correctly.
 - Simple first, no speculative framework work; implement RT stages in order and
   add company templates/source adapters only for real pilot needs.
 - Scrapers: fetch + parse + upsert only. ALL HTTP through
@@ -109,15 +121,18 @@ UI-visible investment output must pass `verifier_strict`.
 
 | Work tier | Model and reasoning | Suitable work |
 |---|---|---|
-| **Testing / mechanical** | GPT-5.3 · high–extra-high | Tests, formatting, linting, repository exploration, log reading, small mechanical edits, simple bug fixes, documentation, repetitive refactors, dependency bumps, and simple scripts. |
-| **Medium** (default) | GPT-5.6 Luna · high | Feature implementation, API development, ordinary debugging, tests, medium refactors, code review, architecture comprehension, DB queries, and scoped performance work. |
-| **High** | GPT-5.6 Sol · high | System architecture, multi-service changes, trading algorithms, financial calculations, data pipelines, concurrency, security, hard debugging, and migration planning. |
-| **Hardest** (exceptional) | GPT-5.6 Sol · ultra | Critical production incidents, extremely difficult bugs, or architectural redesign after the High tier has proved insufficient. Never the default. |
+| **Testing / mechanical** | GPT-5.3 · high, only when capable; fallback Luna · medium | Tests, formatting, linting, repository exploration, log reading, small mechanical edits, simple bug fixes, documentation, repetitive refactors, dependency bumps, and simple scripts. |
+| **Default implementation** | Terra · high | Feature implementation, API development, ordinary debugging, tests, medium refactors, code review, architecture comprehension, DB queries, and scoped performance work. |
+| **High-complexity** | Sol · high | System architecture, multi-service changes, financial calculations, data pipelines, concurrency, security, hard debugging, migration planning, and deep synthesis. |
+| **Hardest** (exceptional) | Sol · ultra | Critical production incidents, security-sensitive work, investment-policy changes, or architectural redesign after Sol high has proved insufficient. Never the default. |
 
-Default to the Medium tier when unsure; never start at Hardest. If a named
-model is unavailable on the current Codex host, use the closest available model
-at the same reasoning level and record the substitution. This is a host
-constraint, not a reason to change the requested model tier.
+When classification is uncertain, choose the lightest plausible tier and
+escalate only on evidence; ordinary implementation remains Terra high,
+testing/mechanical work remains GPT-5.3 high when capable, and high-complexity
+work starts at Sol high. Never start at Hardest. If a named model is unavailable
+on the current Codex host, use the closest available model at the same reasoning
+level and record the substitution. This is a host constraint, not a reason to
+change the requested model tier.
 
 ### Escalation
 
@@ -144,6 +159,28 @@ Follow this sequence for every implementation task:
 6. Before completion, re-read the guardrails, update `CHANGELOG.md` and
    `TASKS.md` when required, record decisions/failures honestly, and confirm
    that the result advances the investment workflow.
+
+### Delegation and judge loop
+
+- For medium or high-complexity work, use a manager → bounded workers →
+  independent judge/verifier loop when the task can be split meaningfully.
+  The manager owns the plan and integration; workers have disjoint write
+  targets or produce drafts; the judge reads the integrated result, tests and
+  evidence and does not merely repeat the worker's conclusion.
+- Use `worker_standard` for mechanical/data-gathering slices, `analyst_deep`
+  for cross-source synthesis, and `verifier_strict` for decision-relevant or
+  UI-visible output. A worker draft is never an approval.
+- Do not delegate trivial edits, tightly coupled changes, or work where
+  coordination overhead exceeds the risk. Never allow parallel workers to
+  edit overlapping files without an explicit integration pass.
+- After a worker completes, run the judge in a separate context or clearly
+  separate review pass with the worker's conclusion treated as untrusted.
+  Verify source grounding, deterministic numbers, schema, look-ahead, tests
+  and relevant guardrails. Record worker/judge roles and actual model metadata
+  in `docs/model-usage.md`.
+- If the current Codex surface does not expose separate agents, do not pretend
+  that multiple agents ran: perform sequential worker-style passes and an
+  independent judge pass, and record that limitation in the ledger.
 
 ### Code quality
 

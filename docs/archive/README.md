@@ -14,7 +14,8 @@ When a phase or stage closes:
    note and `CHANGELOG.md`;
 2. reduce `TASKS.md` to a one-line or table summary with stable IDs;
 3. move superseded detailed task/plan prose here as
-   `<topic>-<YYYY-MM-DD>.md`;
+   `<topic>-<YYYY-MM-DD>.md`, or retain it in git when the compact live page
+   already preserves the durable contract and validation pointer;
 4. leave a link from the live document and label the archive historical;
 5. search for stale references before marking the cleanup complete.
 
@@ -26,3 +27,7 @@ Current detailed archives:
 
 - [`changelog-archive-2026-07-07.md`](../changelog-archive-2026-07-07.md)
 - [`changelog-archive-thesis-2026-07-08.md`](../changelog-archive-thesis-2026-07-08.md)
+
+Several completed stage plans now use compact index pages. Their removed
+implementation detail remains recoverable in git history; validation evidence
+and current acceptance criteria remain linked from the live pages.

@@ -32,10 +32,10 @@ It is the quality bar for the Stock Analysis Workbench.
 ## Codex/model discipline
 
 - `AGENTS.md` §Operating policy is the binding source for model selection and
-  execution workflow. Use its exact tiers: GPT-5.3 high–extra-high for
-  testing/mechanical work; GPT-5.6 Luna high for the default medium tier;
-  GPT-5.6 Sol high for high-complexity work; and GPT-5.6 Sol ultra only for
-  exceptional hardest work.
+  execution workflow. Use its exact ladder: GPT-5.3 high only when capable for
+  testing/mechanical work; Luna medium when GPT-5.3 is insufficient there;
+  Terra high for default implementation; Sol high for high-complexity work; and
+  Sol ultra only for exceptional hardest work.
 - Select the tier before work begins, escalate one tier only on evidence, and
   record any escalation or same-reasoning-level host substitution for persisted
   runs.

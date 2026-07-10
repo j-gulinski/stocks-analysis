@@ -30,6 +30,8 @@ FRONTEND = ROOT / "frontend"
 STATE_DIR = ROOT / ".workbench"
 BACKEND_URL = "http://127.0.0.1:8000"
 FRONTEND_URL = "http://127.0.0.1:3000"
+SESSION_HOOK_PID = STATE_DIR / "session-hook.pid"
+SESSION_HOOK_LOG = STATE_DIR / "session-hook.log"
 
 
 @dataclass(frozen=True)
@@ -165,6 +167,56 @@ def _pid_alive(pid: int | None) -> bool:
         return True
     except OSError:
         return False
+
+
+def _start_session_hook() -> Check:
+    """Start one detached pre-session/queue attempt after app startup.
+
+    The hook is deliberately detached: source polling can take several polite
+    requests and must never make the local health gate look broken. A PID file
+    makes repeated ``workbench start`` calls idempotent while the same hook is
+    still running; a later invocation can retry once the process has exited.
+    """
+    existing_pid = _read_pid_file(SESSION_HOOK_PID)
+    if _pid_alive(existing_pid):
+        return Check("session hook", "pass", f"already running (pid {existing_pid})")
+    SESSION_HOOK_PID.unlink(missing_ok=True)
+
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        log_handle = SESSION_HOOK_LOG.open("a", encoding="utf-8")
+        process = subprocess.Popen(
+            [
+                str(_python_executable()),
+                str(BACKEND / "scripts" / "codex_session_start.py"),
+                "--trigger",
+                "session-start",
+                "--pretty",
+            ],
+            cwd=BACKEND,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            text=True,
+        )
+    except OSError as exc:
+        return Check("session hook", "warn", f"could not start: {exc}")
+    finally:
+        if "log_handle" in locals():
+            log_handle.close()
+    SESSION_HOOK_PID.write_text(str(process.pid), encoding="utf-8")
+    return Check(
+        "session hook",
+        "pass",
+        f"started in background pid {process.pid}; log: {SESSION_HOOK_LOG}",
+    )
+
+
+def _read_pid_file(path: Path) -> int | None:
+    try:
+        return int(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
 
 
 def _owned_status(name: str, port: int) -> dict[str, Any]:
@@ -422,6 +474,8 @@ def _start_postgres() -> Check:
 
 def start_services(open_browser: bool = False) -> list[Check]:
     checks: list[Check] = []
+    backend_before = _owned_status("backend", 8000)
+    frontend_before = _owned_status("frontend", 3000)
     postgres = _start_postgres()
     checks.append(postgres)
     if postgres.status == "fail":
@@ -461,6 +515,13 @@ def start_services(open_browser: bool = False) -> list[Check]:
         )
     )
 
+    if backend_ok and frontend_ok:
+        app_was_already_ready = backend_before["listening"] and frontend_before["listening"]
+        if app_was_already_ready:
+            checks.append(Check("session hook", "info", "skipped; workbench already ready"))
+        else:
+            checks.append(_start_session_hook())
+
     if open_browser and frontend_ok:
         opener = _run(["open", FRONTEND_URL])
         checks.append(
@@ -471,6 +532,28 @@ def start_services(open_browser: bool = False) -> list[Check]:
 
 def stop_services() -> list[Check]:
     checks: list[Check] = []
+    session_pid = _read_pid_file(SESSION_HOOK_PID)
+    if not _pid_alive(session_pid):
+        SESSION_HOOK_PID.unlink(missing_ok=True)
+        checks.append(Check("session hook", "info", "no active workbench-owned hook"))
+    else:
+        try:
+            if os.name == "posix":
+                os.killpg(session_pid, signal.SIGTERM)
+            else:  # pragma: no cover - Windows fallback
+                os.kill(session_pid, signal.SIGTERM)
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and _pid_alive(session_pid):
+                time.sleep(0.1)
+            if _pid_alive(session_pid):
+                if os.name == "posix":
+                    os.killpg(session_pid, signal.SIGKILL)
+                else:  # pragma: no cover
+                    os.kill(session_pid, signal.SIGKILL)
+            SESSION_HOOK_PID.unlink(missing_ok=True)
+            checks.append(Check("session hook", "pass", f"stopped workbench-owned pid {session_pid}"))
+        except OSError as exc:
+            checks.append(Check("session hook", "warn", f"could not stop pid {session_pid}: {exc}"))
     for name in ("frontend", "backend"):
         pid = _read_pid(name)
         if not _pid_alive(pid):

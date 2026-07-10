@@ -1,131 +1,80 @@
-# Research workspace — information architecture and UX contract
+# Research workspace — compact UX contract
 
-**Status:** implemented first vertical slice on 2026-07-09. This specification
-supersedes `mockups.html` for navigation, content hierarchy and responsive
-behaviour. The old mockups remain a visual-history reference.
+**Status:** first vertical slice implemented 2026-07-09. This page defines the
+workflow surface; [`TASKS.md`](../../TASKS.md) owns status and
+[`../plan-research-platform.md`](../plan-research-platform.md) owns future
+architecture.
 
 ## Product path
 
 ```text
-Discover -> Research -> company Brief -> Evidence -> Financials
-         -> Scenarios -> Review -> Monitor / Journal (Stage IL — no longer "future")
+Discover → Research queue → Brief → Evidence/Financials
+                         → Scenarios → Codex Review → Monitor/Journal
 ```
 
-**Canonical tab mapping (decided 2026-07-10, ends the tabs-vs-contract
-drift):** the four live workflow tabs are the compact rendering of the
-contract screens — `Raport` = Brief, `Wykresy` = Scenarios (+ valuation
-sensitivity), `Źródła` = Evidence + Financials audit layer, `Codex` = Review +
-run history. Monitor and Journal join the Brief and the Research queue as
-strips/actions (Stage IL), not as new tabs; a surface splits into its own tab
-only when its data exists (progressive disclosure — no empty Evidence/
-Business shells before RT.2/RT.3).
+The live tabs are deliberately compact: `Raport` = Brief, `Wykresy` =
+Scenarios, `Źródła` = Evidence/Financials audit, and `Codex` = Review/history.
+Monitor and Journal are Brief/queue actions, not empty tabs. Add a surface only
+when its data exists.
 
-The application is a research workbench, not a stock leaderboard. Every screen
-must make one decision easier:
-
-| Screen | Decision |
+| Surface | One decision it should support |
 |---|---|
-| Discover | Is this candidate worth beginning research on? |
-| Research | Which active case needs attention, and why? |
-| Brief | What is the current read and the next evidence check? |
+| Discover | Is this candidate worth researching? |
+| Research | Which case needs attention, and why? |
+| Brief | What is the current read and next check? |
 | Evidence | Which claims are supported, missing or conflicted? |
-| Financials | Are the operating economics improving and durable? |
-| Scenarios | Which operating assumptions and valuation bridge drive the range? |
-| Review | What did the reviewer dispute or fail to support? |
+| Financials | Are the economics improving and durable? |
+| Scenarios | Which drivers and valuation bridge set the range? |
+| Review | What is disputed, unsupported or unresolved? |
 
-AI is a review method, not a separate domain object. PortalAnaliz posts are
-unverified leads. Malik/OBS is a disclosed strategy lens, not the master answer.
+AI is a review method, not a separate domain. Forum posts are leads, not facts;
+Malik/OBS is a disclosed lens, not the master answer.
 
-## Discover contract
+## Contracts
 
-The first release uses one cached, immutable BiznesRadar GPW rating document to
-seed candidates. It displays the source's Altman EM-Score rating, Piotroski
-F-Score, report period and capture time. This is deliberately a low-request
-source screen; it does not call every company endpoint.
+**Discover:** seed candidates from the cached immutable BiznesRadar rating
+document. Show source, period and capture time; never call it a strategy score
+or recommendation. Missing F-Score is missing, not zero. Start a research case
+only after `Rozpocznij analizę`.
 
-- Never call the source rating a strategy score, recommendation or "best stock".
-- Missing F-Score is missing, not zero, and fails a minimum-F-Score preset.
-- Explain every inclusion with at most two source-rule chips.
-- Show the caveat that strategy fit is unverified until a dossier is built.
-- No target price, scenario upside, forum volume or model score in discovery.
-- A candidate becomes an active research case only after `Rozpocznij analizę`.
+**Queue:** show state, freshness, one risk/gap, one next action and the latest
+change line. Order fired falsifiers, flipped checks, stale evidence, then
+freshness; held positions sort above watch-only cases at equal risk. Never rank
+by forum/model activity or scenario upside.
 
-The next screener version adds point-in-time, template-aware rules for market
-cap/liquidity, growth, margins, cash conversion, leverage and valuation against
-own history. Banks, biotech and industrial companies must not share one hidden
-P/E formula.
+**Monitor/Journal:** after ingestion, create at most one diff card per affected
+company for changed checks, falsifiers, one-offs, valuation history or new
+reports/ESPI. Falsifier changes need rule evidence or a human reason. The
+append-only journal takes under a minute: decision, size, confidence, reasoning,
+review date and attached thesis version. Positions are read-only context and
+never change scores.
 
-## Research queue contract
+**Brief:** one canonical read: state/rationale, lens/evidence coverage, four
+key numbers, up to four signals, two reasons for, two against and two next
+checks. Full scenarios, statements and AI prose live elsewhere. Current
+multiple-reversion output is labelled valuation sensitivity until RT.4 driver
+scenarios exist.
 
-The queue exposes one state, two signals, one risk/gap, one next action and
-freshness per company. It does not expose scenario upside or rank companies by
-forum/model activity. Maintenance actions remain visually subordinate.
+**Review:** exceptions first—changed checks, red flags, one-offs and next
+checks. Collapse full generated records, metadata and history. Future RT.5/RT.6
+review adds evidence-linked disagreements and judge labels.
 
-Default order (IL.3): thesis-at-risk first — fired falsifiers, then flipped
-checklist rows, then stale evidence, then freshness. Held positions (IL.4)
-sort above watch-only names at equal risk. The stated reason a case needs
-attention is its latest "what changed" diff line, never raw activity volume.
+## Visual and accessibility bar
 
-## Monitor / Journal contract (Stage IL)
+Calm dark reading surface; fewer bordered cards; stable 1240px desktop content;
+15px/1.5 body; Polish financial formatting; restrained semantic colors; 44px
+touch targets; visible focus and AA contrast; horizontal scrolling only inside
+intentional mobile workflow/table regions; no page overflow at 390px.
 
-- The monitor is a diff, not a feed: after a session's ingestion each affected
-  company gets at most one card — flipped checklist verdicts, touched
-  falsifiers (`holding`/`warning`/`fired`), new one-off flags,
-  valuation-vs-own-history move, new report/ESPI titles. Empty diff ⇒ no card.
-- Falsifier status changes by rule (IL.2 diff) or by human toggle with a
-  required one-line reason; the strip is visible on the Brief.
-- The journal form fits one screen and under one minute: decision
-  (buy/hold/sell/pass/trim), size, confidence, reasoning, planned review
-  date; thesis version attaches automatically. Append-only — corrections are
-  new entries. Entry points: Brief header and queue row; never a separate
-  workflow stage to click through.
-- Position rows are read-only context (entry, size, journal link) and flag
-  the ~10 % sizing rule; they never alter scores, verdicts or queue risk
-  computation beyond the held-position sort priority.
+Every component needs loading, empty, stale, error and conflict states, plus a
+visible provenance/status label for model output.
 
-## Company Brief limits
+## First-slice evidence and open items
 
-The default Brief contains exactly one canonical read:
+Verified: Brief reduction from ~2,995px to ~1,430px at 1280px, no desktop or
+390px page overflow, production Next build/type check, and browser checks for
+Discover, Research and company workflow tabs.
 
-- one state and short rationale;
-- the Malik/OBS lens and evidence coverage as secondary metadata;
-- four key numbers and at most four company-selected signals;
-- at most two reasons for, two against and two next checks;
-- one product-level disclosure.
-
-Full scenarios, raw statements and AI prose never repeat on Brief. Current
-multiple-reversion scenarios are explicitly labelled a valuation sensitivity
-inside Scenarios until operating-driver scenarios v2 exist.
-
-## Review contract
-
-Review shows exceptions first: checklist changes, red flags, one-off risk and
-next checks. The full generated record, model metadata and history are collapsed
-by default. The target RT.5/RT.6 version replaces the legacy narrative with
-evidence-linked disagreements, unsupported claims and judge failure labels.
-
-## Visual and responsive rules
-
-- Calm dark reading surface; fewer bordered cards, more whitespace/dividers.
-- Content width 1240 px; body 15 px/1.5; tertiary text `#8797a8` for AA contrast.
-- Green = verified favourable fact, red = verified risk, amber = unresolved
-  evidence, blue = action. Never use green alone for expected upside.
-- Touch targets at least 44 px for workflow navigation and primary actions.
-- Mobile global nav stays one row; company workflow scrolls horizontally.
-- Tables show the latest eight periods by default; full history stays inside its
-  own horizontal scroller behind an explicit control.
-- No document-level horizontal overflow at desktop or 390 px.
-
-## Acceptance evidence from the first slice
-
-- Live SNT Brief reduced from about 2,995 px to 1,430 px at 1280 px desktop.
-- Desktop Discover, Research and all five company workflow tabs have no page
-  overflow after fixing the historical table boundary.
-- At 390 px, Brief and Research have no horizontal overflow; workflow tabs
-  remain reachable by horizontal scrolling.
-- Production Next build and TypeScript check pass; browser interaction verified
-  Discover, Research, Brief and every company workflow tab.
-
-Still open: component-level accessibility audit, automated screenshot baselines,
-scenario comparison matrix, evidence locator drawer, persistent ResearchCase
-state, Monitor/Journal, and the seasoned-investor judge run.
+Open: component accessibility audit, automated screenshot baselines, scenario
+comparison, evidence locator, persistent ResearchCase, Monitor/Journal and the
+seasoned-investor judge run. These are IL.5 and RT4.5–RT6 work.
