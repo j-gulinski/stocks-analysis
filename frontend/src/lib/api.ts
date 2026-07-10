@@ -14,6 +14,7 @@ import type {
   BacktestRun,
   BacktestRunCreate,
   BacktestRunDetail,
+  DecisionJournalEntry,
   Dividend,
   DiscoveryResult,
   Dossier,
@@ -25,8 +26,10 @@ import type {
   ForumTopic,
   IndicatorPoint,
   LoginStatus,
+  MonitorCheckResult,
   PricePoint,
   PreSessionBriefResult,
+  QueueAttemptResult,
   RefreshSummary,
   ScraperHealth,
   WatchlistItem,
@@ -196,6 +199,23 @@ export const listAgentRuns = (params: {
   return request<AgentRun[]>(`/agent-runs${query ? `?${query}` : ""}`);
 };
 
+export const getDecisionJournal = (ticker: string, limit = 20) =>
+  request<DecisionJournalEntry[]>(
+    `/companies/${encodeURIComponent(ticker)}/decision-journal?limit=${limit}`,
+  );
+
+export const createDecisionJournalEntry = (
+  ticker: string,
+  payload: Omit<DecisionJournalEntry, "id" | "ticker" | "thesis_hash" | "created_by" | "created_at">,
+) =>
+  request<DecisionJournalEntry>(
+    `/companies/${encodeURIComponent(ticker)}/decision-journal`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
+
 export const queueAgentRun = (payload: AgentRunCreate) =>
   request<AgentRun>("/agent-runs", {
     method: "POST",
@@ -213,6 +233,15 @@ export const preparePreSessionBrief = (payload: {
     method: "POST",
     body: JSON.stringify(payload),
   });
+
+export const processOneAgentRun = () =>
+  request<QueueAttemptResult>("/agent-runs/process-one", { method: "POST" });
+
+export const checkMonitor = (ticker: string) =>
+  request<MonitorCheckResult>(
+    `/companies/${encodeURIComponent(ticker)}/monitor/check`,
+    { method: "POST" },
+  );
 
 export const listBacktestRuns = (params: { limit?: number; strategy?: string } = {}) => {
   const search = new URLSearchParams();

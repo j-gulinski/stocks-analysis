@@ -27,6 +27,41 @@ class WatchlistItemOut(BaseModel):
     added_at: datetime
 
 
+# -------------------------------------------------------- decision journal
+
+class DecisionJournalEntryOut(BaseModel):
+    """One immutable user decision record attached to a company thesis."""
+
+    id: int
+    ticker: str
+    decision: str
+    confidence: int
+    thesis: str
+    invalidation: str
+    next_check: str
+    review_date: date
+    thesis_snapshot: dict
+    thesis_hash: str | None
+    created_by: str | None
+    created_at: datetime
+
+
+class DecisionJournalEntryCreateIn(BaseModel):
+    """Fields needed to record a decision in under a minute.
+
+    There is intentionally no update DTO or endpoint: correcting a decision
+    means adding a new entry, preserving the point-in-time history.
+    """
+
+    decision: str = Field(min_length=1, max_length=40)
+    confidence: int = Field(ge=0, le=100)
+    thesis: str = Field(min_length=1, max_length=4000)
+    invalidation: str = Field(min_length=1, max_length=2000)
+    next_check: str = Field(min_length=1, max_length=2000)
+    review_date: date
+    thesis_snapshot: dict = Field(default_factory=dict)
+
+
 # --------------------------------------------------------------- discovery
 
 class DiscoveryCandidateOut(BaseModel):
@@ -519,6 +554,31 @@ class PreSessionBriefOut(BaseModel):
     ok: bool
     espi_poll: dict
     agent_run: AgentRunOut | None
+
+
+class QueueAttemptOut(BaseModel):
+    """Result of one supervised queue claim; no model is executed here."""
+
+    ok: bool
+    attempted: bool
+    message: str
+    agent_run: AgentRunOut | None
+
+
+class MonitorChangeOut(BaseModel):
+    id: int
+    from_snapshot_id: int
+    to_snapshot_id: int
+    changes: list[dict]
+    created_at: datetime
+
+
+class MonitorCheckOut(BaseModel):
+    baseline_exists: bool
+    changed: bool
+    snapshot_id: int
+    snapshot_hash: str
+    change: MonitorChangeOut | None
 
 
 class AnalysisRunOut(BaseModel):

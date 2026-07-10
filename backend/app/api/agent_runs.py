@@ -17,9 +17,10 @@ from app.api.schemas import (
     EventReportOut,
     PreSessionBriefIn,
     PreSessionBriefOut,
+    QueueAttemptOut,
 )
 from app.db.base import get_db
-from app.db.models import AgentRun, AnalysisRun, Company, EventReport
+from app.db.models import AgentRun, AnalysisRun, Company, EventReport, utcnow
 from app.scrapers import espi
 
 router = APIRouter(tags=["agent-runs"])
@@ -153,6 +154,42 @@ def prepare_pre_session_brief(
     db.add(agent)
     db.commit()
     return {"ok": True, "espi_poll": poll_result, "agent_run": agent}
+
+
+@router.post(
+    "/agent-runs/process-one",
+    response_model=QueueAttemptOut,
+)
+def process_one_agent_run(db: Session = Depends(get_db)) -> dict:
+    """Claim the oldest queued item and stop at the Codex execution boundary.
+
+    The local UI can request one supervised attempt without creating a hidden
+    worker or making a provider call. Codex owns the claimed run afterwards.
+    """
+    agent = db.scalar(
+        select(AgentRun)
+        .where(AgentRun.status == "queued")
+        .order_by(AgentRun.created_at.asc(), AgentRun.id.asc())
+        .limit(1)
+    )
+    if agent is None:
+        return {
+            "ok": True,
+            "attempted": False,
+            "message": "Brak oczekujących zleceń w kolejce.",
+            "agent_run": None,
+        }
+
+    agent.status = "running"
+    agent.started_at = utcnow()
+    db.commit()
+    db.refresh(agent)
+    return {
+        "ok": True,
+        "attempted": True,
+        "message": "Zlecenie odebrane. Codex może teraz wykonać workflow i zapisać wynik po weryfikacji.",
+        "agent_run": agent,
+    }
 
 
 @router.get("/companies/{ticker}/analysis-runs", response_model=list[AnalysisRunOut])

@@ -245,6 +245,75 @@ class WatchlistItem(Base):
     company: Mapped[Company] = relationship()
 
 
+class DecisionJournalEntry(Base):
+    """Append-only investor decision context for one company.
+
+    This is the user's historical record, not an AI recommendation. The
+    thesis snapshot is copied at entry time so later dossier changes cannot
+    rewrite what the decision was based on.
+    """
+
+    __tablename__ = "decision_journal_entries"
+    __table_args__ = (
+        Index(
+            "ix_decision_journal_company_created",
+            "company_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), index=True
+    )
+    decision: Mapped[str] = mapped_column(String(40))
+    confidence: Mapped[int] = mapped_column(Integer)
+    thesis: Mapped[str] = mapped_column(Text)
+    invalidation: Mapped[str] = mapped_column(Text)
+    next_check: Mapped[str] = mapped_column(Text)
+    review_date: Mapped[date] = mapped_column(Date)
+    thesis_snapshot: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    thesis_hash: Mapped[str | None] = mapped_column(String(64))
+    created_by: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class MonitorSnapshot(Base):
+    """Immutable deterministic state used as the next monitor baseline."""
+
+    __tablename__ = "monitor_snapshots"
+    __table_args__ = (
+        Index("ix_monitor_snapshots_company_captured", "company_id", "captured_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), index=True
+    )
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    snapshot_hash: Mapped[str] = mapped_column(String(64))
+    snapshot: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    source: Mapped[str] = mapped_column(String(40), default="session")
+
+
+class MonitorChange(Base):
+    """One immutable, deterministic change card between two snapshots."""
+
+    __tablename__ = "monitor_changes"
+    __table_args__ = (
+        Index("ix_monitor_changes_company_created", "company_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), index=True
+    )
+    from_snapshot_id: Mapped[int] = mapped_column(Integer)
+    to_snapshot_id: Mapped[int] = mapped_column(Integer)
+    changes: Mapped[list] = mapped_column(JSONVariant, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Forecast(Base):
     """A saved next-quarter forecast scenario (assumptions + computed result)."""
 

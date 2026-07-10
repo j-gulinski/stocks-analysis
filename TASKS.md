@@ -18,8 +18,8 @@ Take the first unchecked item. Each item should be a bounded, verifiable slice.
 
 1. CX.15a — ESPI completeness watermark and pagination.
 2. CX.15b — `workbench start` pre-session hook.
-3. IL.1 — decision journal.
-4. IL.2 + CX.15c — thesis-change diff and ESPI/queue actions.
+3. [x] IL.1 — decision journal.
+4. [x] IL.2 + CX.15c — thesis-change diff and ESPI/queue actions.
 5. IL.3 — falsifiers and thesis-at-risk ordering.
 6. IL.4/IL.4a — read-only positions and myfund API-key/CSV import.
 7. IL.5 — UI alignment and screenshot QA.
@@ -74,8 +74,9 @@ Detailed contracts: `docs/plan-stage-codex-pivot.md`.
     queueing and one queue-processing attempt, idempotently and non-blocking.
     The detached session hook is idempotent, stops at the durable queue claim
     boundary, and is covered by operator tests plus the fresh local runtime gate.
-  - [ ] **CX.15c** Add UI actions for ESPI re-check and one queue-processing
-    attempt with visible progress and failure state.
+  - [x] **CX.15c** Add UI actions for ESPI re-check and one queue-processing
+    attempt with visible progress and failure state. The queue action stops at
+    the durable claim boundary; it does not execute a model.
   - [ ] **CX.15d** Document periodic/hosted polling as an opt-in variant.
 - [ ] **CX.16 Historical cohort replay.** Research-only precursor to RT6.6.
   - [ ] **CX.16a** Freeze a mixed cohort: winners, matched controls, failures,
@@ -97,10 +98,12 @@ Detailed contracts: `docs/plan-stage-codex-pivot.md`.
 Thin, decision-first work that interleaves with RT.2–RT.4. Detail and privacy
 rules: `docs/plan-research-platform.md` §3.0 and §9, plus `AGENTS.md`.
 
-- [ ] **IL.1 Decision journal:** append-only decision, confidence, thesis,
+- [x] **IL.1 Decision journal:** append-only decision, confidence, thesis,
   invalidation and next-check form; under one minute; no overwrite of history.
-- [ ] **IL.2 Change monitor:** compare dossier/evidence versions after a session;
-  no scraping or model call in the diff computation.
+  Migration `0011` stores a hashed thesis snapshot; corrections are new rows.
+- [x] **IL.2 Change monitor:** compare deterministic dossier/event snapshots
+  after a session; no scraping or model call in the diff computation.
+  Migration `0012` stores one immutable change card per changed baseline.
 - [ ] **IL.3 Falsifiers:** `holding`/`warning`/`fired` state and thesis-at-risk
   queue order; never silently infer a fired falsifier.
 - [ ] **IL.4 Position ledger:** read-only ticker, entry, size and sizing-rule

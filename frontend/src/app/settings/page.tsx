@@ -1,7 +1,7 @@
 "use client";
 
 /** Settings — connection status checks only; secrets never leave the backend. */
-import { IconCheck, IconX } from "@tabler/icons-react";
+import { IconCheck, IconPlayerPlay, IconRefresh, IconX } from "@tabler/icons-react";
 import {
   getAiUsage,
   getBrLoginStatus,
@@ -9,9 +9,12 @@ import {
   getHealth,
   getScrapersHealth,
   getWorkflowStatus,
+  preparePreSessionBrief,
+  processOneAgentRun,
 } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
 import { relativeDate } from "@/lib/format";
+import { useState } from "react";
 
 function StatusCard({
   title,
@@ -54,6 +57,45 @@ export default function SettingsPage() {
   const scrapers = useApi(getScrapersHealth, []);
   const aiUsage = useApi(getAiUsage, []);
   const workflows = useApi(getWorkflowStatus, []);
+  const [sessionAction, setSessionAction] = useState<string | null>(null);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [sessionInfo, setSessionInfo] = useState<string | null>(null);
+
+  const recheckEspi = async () => {
+    setSessionAction("espi");
+    setSessionError(null);
+    setSessionInfo(null);
+    try {
+      const result = await preparePreSessionBrief({
+        trigger: "settings-ui",
+        fetch_details: true,
+        queue: true,
+      });
+      if (!result.ok) {
+        setSessionError(`ESPI wymaga uwagi: ${String(result.espi_poll.incomplete_reason ?? "niepełne pobranie")}`);
+      } else {
+        setSessionInfo(result.agent_run ? `ESPI sprawdzone; utworzono zlecenie #${result.agent_run.id}.` : "ESPI sprawdzone; nie utworzono nowego zlecenia.");
+      }
+    } catch (err) {
+      setSessionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSessionAction(null);
+    }
+  };
+
+  const processOne = async () => {
+    setSessionAction("queue");
+    setSessionError(null);
+    setSessionInfo(null);
+    try {
+      const result = await processOneAgentRun();
+      setSessionInfo(result.message);
+    } catch (err) {
+      setSessionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSessionAction(null);
+    }
+  };
 
   return (
     <main>
@@ -88,6 +130,29 @@ export default function SettingsPage() {
           }
           loading={workflows.loading}
         />
+
+        <div className="card session-actions-card">
+          <div>
+            <p style={{ fontWeight: 500, fontSize: 13, margin: 0 }}>Operacje sesyjne</p>
+            <p className="small muted" style={{ margin: "4px 0 12px" }}>
+              Jednorazowe sprawdzenie ESPI i przejęcie najwyżej jednego zlecenia. Dalszy workflow wykonuje Codex.
+            </p>
+          </div>
+          <div className="command-row">
+            <button className="btn" onClick={() => void recheckEspi()} disabled={sessionAction != null}>
+              <IconRefresh size={14} className={sessionAction === "espi" ? "spin" : ""} />
+              {sessionAction === "espi" ? "Sprawdzam ESPI…" : "Sprawdź ESPI"}
+            </button>
+            <button className="btn accent" onClick={() => void processOne()} disabled={sessionAction != null}>
+              <IconPlayerPlay size={14} className={sessionAction === "queue" ? "spin" : ""} />
+              {sessionAction === "queue" ? "Odbieram zlecenie…" : "Wykonaj jedną próbę kolejki"}
+            </button>
+          </div>
+          <div aria-live="polite">
+            {sessionError && <p className="small neg" style={{ margin: "10px 0 0" }}>Błąd: {sessionError}</p>}
+            {sessionInfo && <p className="small pos" style={{ margin: "10px 0 0" }}>{sessionInfo}</p>}
+          </div>
+        </div>
 
         <div className="card">
           <p style={{ fontWeight: 500, fontSize: 13, margin: "0 0 10px" }}>

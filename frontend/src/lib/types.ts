@@ -675,6 +675,21 @@ export interface AgentRun {
   updated_at: string;
 }
 
+export interface DecisionJournalEntry {
+  id: number;
+  ticker: string;
+  decision: string;
+  confidence: number;
+  thesis: string;
+  invalidation: string;
+  next_check: string;
+  review_date: string;
+  thesis_snapshot: Record<string, unknown>;
+  thesis_hash: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
 export interface AgentRunCreate {
   workflow: string;
   ticker?: string;
@@ -689,6 +704,35 @@ export interface PreSessionBriefResult {
   ok: boolean;
   espi_poll: Record<string, unknown>;
   agent_run: AgentRun | null;
+}
+
+export interface QueueAttemptResult {
+  ok: boolean;
+  attempted: boolean;
+  message: string;
+  agent_run: AgentRun | null;
+}
+
+export interface MonitorChange {
+  id: number;
+  from_snapshot_id: number;
+  to_snapshot_id: number;
+  changes: Array<{
+    kind: string;
+    key: string;
+    before?: unknown;
+    after?: unknown;
+    summary: string;
+  }>;
+  created_at: string;
+}
+
+export interface MonitorCheckResult {
+  baseline_exists: boolean;
+  changed: boolean;
+  snapshot_id: number;
+  snapshot_hash: string;
+  change: MonitorChange | null;
 }
 
 export interface BacktestObservation {

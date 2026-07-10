@@ -20,6 +20,8 @@ from app.api import (
     discovery,
     evidence,
     forum,
+    journal,
+    monitor,
     watchlist,
 )
 from app.db.base import get_db
@@ -39,6 +41,8 @@ app.include_router(backtests.router, prefix="/api")
 app.include_router(agent_evaluations.router, prefix="/api")
 app.include_router(evidence.router, prefix="/api")
 app.include_router(discovery.router, prefix="/api")
+app.include_router(journal.router, prefix="/api")
+app.include_router(monitor.router, prefix="/api")
 
 
 @app.get("/api/health")

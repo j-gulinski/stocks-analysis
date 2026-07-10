@@ -1,356 +1,134 @@
-# Stock Analysis Workbench — Project Plan
+# Stock Analysis Workbench — stable architecture
 
-Personal GPW fundamental-research tool that aggregates company data, preserves
-source evidence, presents it in a company-specific analytical workflow and uses
-a versioned strategy skill plus controlled AI runs to challenge the thesis and
-scenarios. The application supports a human decision process; it does not issue
-buy/sell signals.
+This is the compact architecture overview. `TASKS.md` is the only execution
+queue; `docs/plan-research-platform.md` is the binding RT.0–RT.7 target plan.
+Completed stage detail belongs in `docs/archive/`, validation notes and git.
 
-**Guiding principles:** simple first, no overengineering. Every module is a separately buildable, separately testable part with a clear interface. Extension points are documented, not pre-built.
+## Purpose and boundaries
 
-> **Current direction (2026-07-09):** phases 0–5 and stages TH/SC created a
-> substantial first vertical slice, but the next stage is **not deployment**.
-> The top-down audit found missing point-in-time provenance, discarded analysis
-> snapshots, hidden AI calls on dossier reads and generic rather than
-> operating-driver scenarios. `docs/plan-research-platform.md` is the binding
-> target architecture and delivery order (RT.0–RT.7). `TASKS.md` is the current
-> status and execution queue; this file remains the stable architecture
-> reference.
+Build a personal GPW fundamental-research workbench: source evidence and
+point-in-time data feed deterministic metrics, company templates, scenarios and
+versioned strategy skills. Codex may gather, interpret, challenge and verify;
+it never replaces the database, deterministic math or the user’s decision.
 
----
+The app is decision support, not a trading system or buy/sell oracle. Missing
+evidence is explicit (`unknown`, `data_gaps`, `verify_next`, `needs-human`).
+Forum content is opinion/lead context until corroborated.
 
-## 1. Strategy → features mapping
+## Stack and layout
 
-What the source materials describe, and what in the app covers it:
+- `backend/`: Python 3.11+, FastAPI, SQLAlchemy 2, Alembic, PostgreSQL;
+  SQLite is used in tests. `requests` + BeautifulSoup are behind the polite
+  scraper boundary.
+- `frontend/`: Next.js App Router, TypeScript, SCSS and Recharts. Domain
+  labels are Polish; navigation is English. Browser calls use the Next proxy,
+  never the backend directly.
+- `skill/`: investment-analysis skill, rubric and examples.
+- `skills/workbench-research/`: Codex operator workflow.
+- `docs/plan-research-platform.md`: evidence lineage, research cases,
+  orchestration, evaluation and delivery order.
+- Target hosting remains Vercel + Railway, after RT.0–RT.6 local gates.
 
-| Strategy element (source docs) | App feature |
-|---|---|
-| "Nie kupuję spółek bez analizy sprawozdań" — quarterly RZiS as starting point | Financials tab: quarterly/annual income statement, balance sheet, cash flow (Module B + C) |
-| Gross sales margin (marża brutto na sprzedaży) tracked quarterly in Excel charts | Metrics engine + Charts tab replicating his Excel "Wykresy" sheet (Module C) |
-| Next-quarter forecast built by hand in Excel (transcript workflow) | Forecast module: assumption inputs → forecasted net profit, EPS, forward C/Z (Module C) |
-| Forward C/Z compared to the company's **own** historical C/Z | C/Z history from BiznesRadar indicators + forward C/Z from forecast (Modules B + C) |
-| Catalyst identification, investment thesis, one-off vs sustainable improvement | AI analysis with strategy skill (Module D) |
-| Thesis re-verification after each quarterly report | Analysis history per company, re-run and compare (Module D) |
-| Net cash surplus, backlog, dividend as a plus | Net cash computed from balance sheet; dividends scraped; backlog assessed by AI from forum/reports (B, C, D) |
-| Management credibility, corporate governance red flags | AI reads forum discussion (PortalAnaliz threads) (Modules A + D) |
-| Small/mid cap focus (sWIG80, NewConnect) | Market cap shown; small-cap check in scoring (C, D) |
-| Forum as idea source and discussion context | Forum tab: full thread timeline per company (Module A) |
+## Core data model
 
-## 2. Architecture
+Current serving tables include:
 
-```
-┌─────────────────────────────┐
-│  Frontend — Next.js + SCSS  │  watchlist · stock pages · forecast editor · AI verdicts
-└────────────┬────────────────┘
-             │ REST (JSON)
-┌────────────┴────────────────┐
-│  Backend — FastAPI (Python) │
-│  ├─ scrapers/portalanaliz   │  Module A (phpBB login, thread sync)
-│  ├─ scrapers/biznesradar    │  Module B (financials, indicators, dividends)
-│  ├─ scrapers/biznesradar    │  Module B (financials + recent BR price history/profile)
-│  ├─ services/metrics        │  Module C (computed metrics, prescore)
-│  ├─ services/forecast       │  Module C (Excel-workflow forecast engine)
-│  ├─ services/ai             │  explicit, traced analysis jobs (provider adapters)
-│  └─ api/                    │  routers
-└────────────┬────────────────┘
-             │ SQLAlchemy
-┌────────────┴────────────────┐
-│  PostgreSQL (docker)        │  single source of truth; scrape once, read many
-└─────────────────────────────┘
-```
+- `companies`, `watchlist_items`, `prices`, `report_values`,
+  `indicator_values`, `dividends`;
+- `forum_topics`, `forum_posts`, `forum_intelligence`;
+- `forecasts`, legacy `analyses`, provider-neutral `agent_runs`,
+  `analysis_runs`, `model_calls` and usage accounting;
+- immutable evidence: `source_documents`, `document_versions`, `facts`,
+  `events`, `data_conflicts`;
+- session workflow: ESPI poll watermarks, decision journal, monitor snapshots
+  and change cards, backtest/evaluation rows.
 
-Principles:
-- Scrapers only fetch + parse + upsert. No business logic inside scrapers.
-- Metrics/forecast are pure functions over DB data — easy to unit test.
-- Deterministic calculations and source evidence feed both UI and analysis
-  runs. AI input is a frozen, persisted evidence pack; loading a dossier never
-  triggers a model call.
-- Local dev runs everything on localhost (Postgres via docker-compose). Production: frontend on Vercel, backend + Postgres on Railway as a long-running container — scrapers, delays and in-memory sessions work unchanged. Access limited to you and friends via Google sign-in allowlist (see §9a).
+Statements are stored in thousands of PLN; market cap and price are PLN.
+Reported market cap beats price × shares. Every new schema slice uses one
+forward Alembic migration; disposable local databases may be recreated.
 
-### Repo layout (monorepo)
+The target evidence model adds `known_at`, publication time, source version,
+locator, verification state and `as_of` reads. Serving rows remain for the UI
+but must be lineage-linked or rebuildable from immutable facts.
 
-```
-stocks-analyzis/
-├── backend/
-│   ├── app/
-│   │   ├── main.py              # FastAPI app, router registration
-│   │   ├── config.py            # pydantic-settings, reads .env
-│   │   ├── db/                  # engine, session, models.py, alembic/
-│   │   ├── scrapers/
-│   │   │   ├── http.py          # single fetch path: rate limiter + jitter, UA, backoff, fetch_log
-│   │   │   ├── biznesradar.py
-│   │   │   ├── portalanaliz.py
-│   │   │   └── (future source adapters land only after RT.2 evaluation)
-│   │   ├── services/
-│   │   │   ├── metrics.py       # computed metrics + deterministic prescore
-│   │   │   ├── forecast.py      # forecast engine
-│   │   │   └── dossier.py       # aggregates everything for one company
-│   │   ├── analysis/
-│   │   │   ├── claude_client.py
-│   │   │   └── prompts.py       # assembles skill + dossier + forum context
-│   │   └── api/                 # routers: watchlist, companies, forum, analyses
-│   ├── tests/
-│   │   └── fixtures/            # recorded real HTML pages
-│   ├── requirements.txt
-│   └── .env.example
-├── frontend/
-│   ├── src/app/                 # Next.js App Router pages
-│   ├── src/components/
-│   ├── src/lib/api.ts           # typed fetch helpers
-│   └── src/styles/              # SCSS: variables, globals, modules per component
-├── skill/
-│   ├── SKILL.md                 # the codified Malik/OBS strategy (analyst instructions)
-│   ├── rubric.md                # checklist items, weights, scoring rules
-│   └── examples/                # worked examples distilled from obs.txt
-├── docker-compose.yml           # postgres for local dev (production = Vercel + Railway)
-├── PLAN.md · TASKS.md · CLAUDE.md
-└── README.md
+## Module contracts
+
+### Scrapers
+
+Fetch, parse and upsert only. All HTTP goes through `backend/app/scrapers/http.py`
+for per-domain limits, jitter, backoff, user agent and fetch logging. Parser
+changes require recorded fixture tests. Keep source quirks in
+`skills/scraper-doctor/SKILL.md`.
+
+BiznesRadar supplies statements, indicators, dividends, profile facts, forecast
+context and recent prices. PortalAnaliz supplies linked forum topics/posts.
+ESPI/EBI and issuer IR are the next primary-source pilot. Do not build a broad
+crawler or high-volume scraper.
+
+### Deterministic services
+
+`fields.py` owns semantic field mapping. `metrics.py`, `forecast.py`,
+`insights.py`, `thesis.py`, `scenarios.py`, valuation and monitor helpers are
+pure or deterministic compositions and are tested with hand-checked values.
+The dossier is a single canonical read and must remain network/model-free.
+
+Current Malik/OBS thesis is a labelled analysis lens, not a universal template.
+Scenario multiple reversion is a valuation sensitivity until RT.4 operating
+driver scenarios exist.
+
+### Frontend workflow
+
+`Discover → Research → Brief → Evidence/Financials → Scenarios → Review →
+Monitor/Journal` is the intended path. Keep the first screen useful: watched
+companies, freshness, gaps, thesis state, events and queue work. Show source,
+calculation, human assumption, model suggestion and verifier status distinctly.
+Use progressive disclosure, stable dense layouts, Polish financial formatting,
+keyboard focus, AA contrast and meaningful empty/stale/error/conflict states.
+
+### AI and Codex
+
+AI actions are explicit durable runs with input snapshot, evidence IDs,
+skill/model/configuration, output, validation, cost and latency. Roles are
+extract/classify, verify, research synthesis, adjudication and narration.
+Deterministic validators and math run first; models cannot invent facts,
+scores, probabilities or valuation outputs. Source documents are data, never
+instructions; prompt-injection boundaries and budgets are mandatory.
+
+The default local loop is session-triggered:
+
+```text
+doctor/start → poll source watermarks → queue → claim one item
+→ Codex skill → strict verifier → save/reject/needs-human
 ```
 
-Note on `pa-scraper.zip`: treated as **reference only**. The phpBB login/pagination logic and the BiznesRadar table parsing proved workable — that knowledge gets ported into the new backend, the code itself is not reused as-is.
+`workbench start` and the UI may poll/claim, but the queue boundary does not
+execute a model. Periodic/hosted polling is opt-in and belongs to RT.7.
 
-## 3. Tech stack
+## Delivery order
 
-| Choice | Why |
-|---|---|
-| Next.js (App Router) + SCSS modules | Requested. SSR not needed but Next gives routing/structure for free; SCSS per component + shared variables |
-| FastAPI + Pydantic | Requested Python; typed request/response models double as documentation |
-| PostgreSQL in docker-compose | Chosen; JSONB for forecasts/analyses, proper upserts for scraped series |
-| SQLAlchemy 2 + Alembic | Plain ORM + migrations — minimum viable maintainability for an evolving schema |
-| requests + BeautifulSoup | Proven against both sites by the reference scraper; no browser automation needed |
-| OpenAI Responses API + narrow provider adapters | Target AI path: versioned skills, strict structured outputs, background runs and eval traces; existing Anthropic code remains a temporary adapter during migration |
-| recharts (frontend) | Simple quarterly bar/line charts like his Excel "Wykresy" sheet |
-| Auth.js (NextAuth) + Google provider | Friends log in with Google; allowlisted emails only; added in deploy phase — local dev stays open |
-| Vercel (frontend) + Railway (backend, Postgres) | Free/cheap (~$5/mo), zero server admin, backend stays a normal long-running process |
+Use `TASKS.md` for exact acceptance criteria. The binding stages are:
 
-Deliberately **not** used in v1: task queues (Celery), schedulers, Redis, auth frameworks, GraphQL, ORM-generated APIs. Extension points exist for a scheduler and screener (see §10).
+1. RT.0 trustworthy local baseline;
+2. RT.1 explicit reproducible AI runs;
+3. RT.2 evidence ledger and primary disclosures;
+4. Stage IL decision journal, monitor diff, falsifiers, positions and UI;
+5. RT.3 fundamental depth and company templates;
+6. RT.4 operating-driver scenarios and research-case UI;
+7. RT.5 OpenAI/Codex orchestration and stable skills;
+8. RT.6 judge, calibration and honest walk-forward replay;
+9. RT.7 deployment, backups, monitoring and pilot-driven expansion.
 
-## 4. Data model (PostgreSQL)
+Do not deploy or claim backtest performance before point-in-time evidence,
+publication dates, corporate-action-aware prices, delistings, frozen versions,
+mixed outcomes and an untouched holdout exist.
 
-The current v1 schema uses a long/narrow format for scraped series. It is a
-useful serving model, but **not point-in-time research storage**: refreshes may
-replace values and rows lack source-document/publication lineage. RT.1–RT.2 add
-the immutable evidence/run layer specified in
-`docs/plan-research-platform.md` §4.
+## Quality and learning
 
-- `companies` — id, ticker (uq), name, market (GPW/NC), sector, shares_outstanding, updated_at
-- `report_values` — company_id, statement (`income|balance|cashflow`), freq (`Q|Y`), period (e.g. `2025Q3`), field_code, field_label, value (numeric, tys. PLN), scraped_at · **PK** (company_id, statement, freq, period, field_code)
-- `indicator_values` — company_id, indicator (`cz`, `cwk`, `ev_ebitda`, …), period, value — historical C/Z etc.
-- `dividends` — company_id, year, dps, yield_pct
-- `prices` — company_id, date, close, volume (current source: BiznesRadar
-  history/profile; RT.2 evaluates corporate-action-aware long history)
-- `forum_topics` — id, company_id (nullable), url (uq), title, last_post_at, last_synced_at
-- `forum_posts` — id, topic_id, post_no, author, posted_at, content_text, content_html · unique (topic_id, post_no)
-- `watchlist_items` — company_id (uq), note, added_at
-- `forecasts` — id, company_id, label, assumptions JSONB, result JSONB, created_at
-- `analyses` — current Phase-5 rows. Target `analysis_runs` additionally stores
-  purpose/status, frozen input snapshot, evidence ids, skill/provider/model
-  versions, validation, cost/latency and child model calls.
-- `fetch_log` — url, status, fetched_at (politeness/debugging; also powers "data freshness" in UI)
-- Target evidence layer: immutable `source_documents`/versions, typed `facts`
-  with `known_at` and locators, `events`, conflicts, research cases, thesis and
-  assumption/scenario versions, feedback and backtest runs.
+Before and after every substantial slice, read `docs/project-guardrails.md` and
+the relevant binding plan. Update `CHANGELOG.md`, `TASKS.md`,
+`docs/model-usage.md` and a phase learning note when applicable. Run focused
+tests, the full relevant suite, frontend build and the local operator gate.
 
-## 5. Module A — PortalAnaliz scraper
-
-Independent package: `scrapers/portalanaliz.py`. Rewrite informed by the reference implementation.
-
-- phpBB login with credentials from `.env` (session held in memory; never stored in DB).
-- Topic linking: v1 = user pastes thread URL(s) on the stock page ("Powiąż wątek"). A company can have several topics. Auto-discovery via forum search = extension, not v1.
-- Incremental sync: store max post_no per topic, fetch only new pages since; first sync pulls full history.
-- Parse: author, ISO timestamp, text + HTML (structure known from reference: `div.post` → `a.username-coloured`, `time[datetime]`, `div.content`).
-- Politeness: ≥1.5 s between requests, custom UA, exponential backoff on non-200.
-
-API: `POST /api/forum/topics` (link URL to company) · `POST /api/forum/topics/{id}/sync` · `GET /api/companies/{ticker}/forum?page=`
-
-## 6. Module B — BiznesRadar scraper
-
-Independent package: `scrapers/biznesradar.py`. One generic `report-table` parser reused across pages (they share structure):
-
-| Page (URL pattern) | Data |
-|---|---|
-| `raporty-finansowe-rachunek-zyskow-i-strat/{T}` (+`,Y`) | Income statement Q/Y |
-| `raporty-finansowe-bilans/{T}` | Balance sheet |
-| `raporty-finansowe-przeplywy-pieniezne/{T}` | Cash flow |
-| `wskazniki-wartosci-rynkowej/{T}` | Historical C/Z, C/WK, EV/EBITDA… |
-| `wskazniki-rentownosci/{T}` | ROE, ROA, margin history |
-| `dywidenda/{T}` | Dividend history |
-| company profile page | Name, sector, shares outstanding, market cap |
-
-First implementation step: **record real HTML of every page type into `tests/fixtures/`** and verify selectors against them (URL patterns above to be confirmed then — plain fetch returned empty here, but reference scraper confirms requests+bs4 works).
-
-- Number normalization: `12 345` → 12345.0, values in tys. PLN, strip r/r change spans, handle empty cells.
-- Period normalization: `2025/Q3` → `2025Q3`; annual `2024` → freq `Y`.
-- Upsert keyed on (company, statement, freq, period, field) — refresh is idempotent.
-- Cache policy: skip refetch if page scraped < 24 h ago unless `force=true`.
-- Politeness: ~2 s between page fetches, sequential only (watchlist scale: ~7 pages per company).
-- Prices (current chain): BiznesRadar archiwum notowań page 1
-  (robots-allowed, recent sessions only) → already-fetched BR profile quote.
-  This is adequate for freshness/current valuation, **not backtesting**. RT.2
-  evaluates a licensed/official long-history source with corporate actions,
-  delistings and total-return support.
-
-API: `POST /api/companies/{ticker}/refresh?scope=financials|prices|all&force=` · `GET /api/companies/{ticker}/financials?statement=&freq=` · `/indicators` · `/dividends` · `/prices`
-
-## 7. Module C — Aggregation & presentation
-
-### Metrics engine (`services/metrics.py`, pure functions)
-
-Per quarter, computed from `report_values`:
-- revenue r/r dynamics; gross sales margin **(marża brutto na sprzedaży — his key metric)**; sales margin after SG&A; net margin
-- operating leverage flag (profit growing faster than revenue)
-- one-off share: pozostała działalność operacyjna / operating profit (heuristic for one-off distortion)
-- TTM: net profit, EPS; market cap & C/Z TTM from latest price + shares
-- C/Z vs own history: median + quartiles of company's historical C/Z (from indicators), current & forward position vs that range
-- net cash/debt from balance sheet; dividend continuity
-
-### Deterministic prescore
-
-Rule-based pass/fail/unknown per checklist item, each with the numbers as evidence (feeds both UI and the AI prompt): revenue growth, margin trend, operating leverage, profit quality (one-offs), C/Z vs own history, net cash, small-cap, dividend bonus. Cheap, instant, no API cost — AI covers only what rules can't (catalysts, thesis, management credibility, forum insight).
-
-### Forecast engine (`services/forecast.py`)
-
-Replicates the Excel transcript workflow. Inputs (all prefilled with defaults, all overridable):
-
-| Assumption | Default |
-|---|---|
-| Przychody | last quarter (UI shows y/y seasonality hint) |
-| Marża brutto na sprzedaży % | last quarter |
-| Koszty sprzedaży | avg % of revenue, last 4 q |
-| Koszty ogólnego zarządu | last quarter (+ hint: Q4 reserve bump pattern) |
-| Pozostała działalność operacyjna | avg last 4 q |
-| Działalność finansowa | avg last 4 q (manual override for FX-sensitive companies) |
-| Podatek | 19 % |
-| Amortyzacja (dla EBITDA) | last quarter |
-
-Output: forecast P&L line by line → net profit, EPS, EBITDA; forecast quarter vs same quarter y/y; TTM including forecast → **forward C/Z at current price**. Scenarios saved per company.
-
-### Frontend (Next.js + SCSS, UI in Polish)
-
-Approved designs live in `docs/design/` — `mockups.html` (both screens, final dark palette) and `design.md` (SCSS tokens + component rules). Phase 4 implements these, not a new design.
-
-- `/` — watchlist: ticker, kurs, mcap, C/Z TTM, forward C/Z (latest forecast), marża trend, dynamika przychodów r/r, last AI score, data freshness; add/remove ticker
-- `/spolka/[ticker]` — tabs:
-  - **Przegląd** — key numbers, prescore checklist with evidence, price chart
-  - **Finanse** — statement tables Q/Y (BiznesRadar layout familiar to you)
-  - **Wykresy** — the Excel "Wykresy" sheet as interactive charts: przychody, marża brutto, zysk ze sprzedaży, zysk netto — q/q sequence and y/y quarter comparison
-  - **Prognoza** — forecast editor (defaults prefilled, live recompute, save scenario, forward C/Z result)
-  - **Forum** — linked topics, post timeline, author filter
-  - **Analiza AI** — run analysis, verdict history
-- `/ustawienia` — connection status (PA login OK?, Anthropic key present?, DB OK) — status only, values never leave backend
-
-## 8. Module D — Strategy skill & AI analysis
-
-The text below describes the implemented Phase-5 slice. The target is the
-explicit run orchestrator in `docs/plan-research-platform.md` §7: provider
-adapters, no AI on read paths, persisted traces/snapshots, deterministic scores
-and math, low-cost extraction/verification loops, strong-model synthesis and a
-separate seasoned-investor judge/eval loop.
-
-### The skill (`skill/`)
-
-`SKILL.md` distills the four source documents into analyst instructions: philosophy (stock picking, thesis-first), the 14-point OBS checklist, the 7 golden rules, catalyst taxonomy, one-off vs sustainable improvement guidance, red flags (management credibility, related-party transactions), valuation approach (forward C/Z vs own history, margin of safety). `rubric.md` defines per-item weights → alignment score 0–100. `examples/` holds 2–3 worked examples distilled from real OBS reasoning in `obs.txt` (few-shot grounding).
-
-Kept as plain markdown so it's versionable, editable by you, and reusable as a Cowork skill outside the app.
-
-### Forum distillation (before the analysis run)
-
-Forum posts are **unverified opinions** — never fed to the verdict as facts.
-A separate distillation pass (cheap model, batched) classifies each post
-(fact-claim / opinion / question / noise), extracts concrete claims with a
-confidence level and source post ids, and caches results per post — so each
-post is analyzed once, ever. Upvotes (stored per post) weight which posts get
-distilled first within the token budget. Crucially this runs over posts
-already synced into the DB — it triggers **zero** additional forum requests,
-so rate limits are untouched. The verdict prompt then receives distilled
-claims labeled with confidence, not raw posts.
-
-### Analysis run (`analysis/`)
-
-1. Build input: dossier JSON (metrics, prescore, last 8 quarters of key lines, C/Z history stats, dividends) + recent forum posts (newest first, token-capped ~30k; full-thread summarization = extension) 
-2. Call the configured analysis provider — system prompt = versioned skill +
-   rubric; strict structured output
-3. Persist to `analyses`, render in UI
-
-Output schema: `thesis` (or "no thesis found"), `catalysts[]` (type, description, horizon, priced-in?), `checklist[]` (item, verdict, evidence), `red_flags[]`, `one_off_risk`, `forum_insights`, `alignment_score` 0–100, `potential` (upside/downside case), `verify_next[]` (what to check after next report), `summary_pl`.
-
-The current implementation defaults to an Anthropic model and logs token
-counts, but **does not persist the prompt snapshot**. RT.1 fixes this before the
-history is treated as reproducible. Target model configuration is by role
-(extract/analyze/adjudicate/judge), not one global model string.
-
-## 9. Config & secrets
-
-Local: `backend/.env` + `frontend/.env.local` (both gitignored, `.example` files committed). Production: the same variables set in Railway / Vercel dashboards — never in the repo.
-
-- Backend (local `.env` / Railway): source credentials plus provider-neutral AI
-  role configuration (`OPENAI_API_KEY`, extract/analyze/adjudicate/judge model
-  ids; temporary Anthropic adapter settings), `API_TOKEN`, per-role budgets and
-  run limits
-- Frontend (local `.env.local` / Vercel): `BACKEND_URL`, `BACKEND_API_TOKEN` (server-side only), `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `ALLOWED_EMAILS`
-
-Loaded via pydantic-settings (backend); secrets never reach the browser or DB.
-
-## 9a. Production topology & auth
-
-```
-Browser ──► Vercel: Next.js + Auth.js (Google sign-in, ALLOWED_EMAILS allowlist)
-                │  route-handler proxy /api/* → adds Bearer API_TOKEN + X-User-Email
-                ▼
-            Railway: FastAPI container ──► Railway Postgres
-                │  polite source adapters + configured AI provider
-                ▼
-            company/data sources · configured AI provider
-```
-
-- The browser never calls Railway directly: all frontend API calls go through Next.js route handlers (`app/api/[...path]`) that check the Auth.js session, then forward server-to-server with a static bearer token. Backend middleware rejects requests without the token. No CORS, one trust boundary, ~50 lines total.
-- `X-User-Email` is passed through so analyses/forecasts record who ran them.
-- Local dev: no auth (middleware activates only when `API_TOKEN` is set), proxy points at `localhost:8000` — same code path in dev and prod.
-- Current RT.1 guard: atomic UTC-day `AI_DAILY_LIMIT`,
-  `AI_DAILY_CALL_LIMIT` and `AI_DAILY_TOKEN_LIMIT` reservations protect logical
-  runs, actual provider attempts (including retries) and measured tokens.
-  Hidden dossier refiners are removed; forum distillation stays disabled until
-  each child call uses the same executor. Monetary pricing/version and
-  per-role budgets land with `ModelPolicy` before multi-model routing.
-
-## 10. Build order, phases, extension points
-
-The current order and acceptance criteria live in `TASKS.md`. The binding
-target architecture and RT.0–RT.7 definitions live in
-`docs/plan-research-platform.md`. Completed P0–P5, TH and SC work is summarized
-in `TASKS.md`; detailed stage notes remain in the learning and validation docs.
-
-Deferred extensions require a real pilot need and the relevant RT gate:
-company templates, primary-source adapters, corporate-action-aware prices,
-broader backtesting, reusable Codex skills, and optional hosted jobs or
-notifications. Do not add a generic screener, crawler, scheduler, or
-market-wide optimizer ahead of those gates.
-
-## 11. Testing (pragmatic)
-
-- Parsers: pytest against recorded HTML fixtures — the one place regressions are likely (site markup changes).
-- Metrics/forecast: unit tests with hand-checked numbers (e.g. Novita example from the transcript).
-- API: contract and failure-path tests via FastAPI TestClient, including no
-  model calls on GET and run provenance/validation.
-- Frontend: type/build gate plus Playwright smoke coverage for the research-case
-  and scenario workflow before deployment.
-- AI: gold evidence/extraction cases, strict schema/citation checks, trace
-  graders and a judge-model evaluation on training plus untouched holdout cases.
-
-## 12. Risks & etiquette
-
-- **Site markup changes** → parsers isolated per page type + fixtures make fixes quick and verifiable.
-- **Anti-bot blocking** → all scraper traffic goes through one shared fetch helper (`scrapers/http.py`): per-domain rate limit with **randomized jitter** (BR ~2–4 s, PA ~1.5–3 s), realistic browser UA, exponential backoff on 403/429/5xx with a hard stop after repeated failures, sequential fetches only, 24 h cache so pages are never refetched needlessly. Low volume by design (watchlist-scale, ~7 pages per company). Screener postponed partly for this reason.
-- **Datacenter IP** → Railway egress IPs are cloud IPs, which some sites treat less kindly than home connections. Mitigated by the same politeness rules; if BiznesRadar ever blocks, fallback documented in extension backlog (run scrapes from a home machine or tiny VPS that pushes to the same DB).
-- **Terms of use** → personal small-circle tool; data stays in your DB; no public exposure or redistribution (forum content is behind your PA account — keep the circle private). PA scraping only with your own account.
-- **AI cost** → prescore is free; AI runs are manual (button), token-capped, logged, and capped per day (`AI_DAILY_LIMIT`) since friends share your API key.
-- **Not investment advice** → the app supports your process; verdicts are inputs to your judgment, as OBS himself insists ("odradzam naśladownictwo").
-
-## 13. Learning layer
-
-The project doubles as learning material (mid C# dev → Python + frontend). Kept strictly additive — it never changes what gets built:
-
-- `docs/learning/00-stack-for-csharp-devs.md` — mapping of every stack piece to its .NET counterpart (FastAPI ≈ minimal APIs, SQLAlchemy ≈ EF Core, Alembic ≈ EF migrations, …). Read before Phase 0.
-- After each phase: `docs/learning/phase-N.md`, max one page — what was built, the 3–5 web-dev concepts it introduced, C# analogies, what to look at in the code.
-- Code style follows from this: idiomatic and readable over clever; non-obvious choices get a one-line comment saying *why*, not what.
-- During implementation sessions, ask "why" about anything — explanations on demand instead of tutorial bloat in the repo.
+The project is learning material for a mid-level C# developer: prefer readable
+Python/TypeScript, explain why for non-obvious choices, and use C#/.NET
+analogies in `docs/learning/` rather than bloating the architecture docs.

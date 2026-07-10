@@ -154,6 +154,46 @@ def test_agent_run_queue_api_creates_and_filters_by_ticker(client, db):
     assert rejected.status_code == 400
 
 
+def test_process_one_agent_run_claims_oldest_queue_item_and_stops_at_boundary(client, db):
+    from app.db.models import AgentRun, Company
+
+    company = Company(ticker="SNT", name="SYNEKTIK")
+    db.add(company)
+    db.flush()
+    queued = AgentRun(
+        workflow="stock-quick-analysis",
+        trigger="manual",
+        status="queued",
+        company_id=company.id,
+        inputs={"ticker": "SNT"},
+        outputs={},
+    )
+    db.add(queued)
+    db.commit()
+
+    response = client.post("/api/agent-runs/process-one")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["attempted"] is True
+    assert payload["agent_run"]["id"] == queued.id
+    assert payload["agent_run"]["status"] == "running"
+    assert db.get(AgentRun, queued.id).status == "running"
+
+
+def test_process_one_agent_run_reports_empty_queue_without_mutation(client, db):
+    response = client.post("/api/agent-runs/process-one")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "attempted": False,
+        "message": "Brak oczekujących zleceń w kolejce.",
+        "agent_run": None,
+    }
+
+
 def test_pre_session_api_fetches_espi_and_queues_brief(client, db, monkeypatch):
     from app.db.models import AgentRun, Company, EventReport, WatchlistItem
     from app.scrapers import espi

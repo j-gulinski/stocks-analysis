@@ -185,7 +185,7 @@ button, a, input, select {
   }
 }
 
-input, select {
+input, select, textarea {
   background: var(--surface-1);
   border: 0.5px solid var(--border);
   border-radius: var(--radius);
@@ -196,6 +196,103 @@ input, select {
   min-height: 36px;
   &:focus { outline: none; border-color: var(--border-accent); }
   &::placeholder { color: var(--text-muted); }
+}
+
+textarea {
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.journal-panel {
+  margin: 14px 0;
+}
+
+.session-actions-card {
+  .command-row { flex-wrap: wrap; }
+}
+
+.journal-heading {
+  align-items: flex-start;
+  margin-bottom: 12px;
+
+  h2 {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 17px;
+  }
+
+  p { margin: 2px 0 0; }
+}
+
+.journal-form {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.8fr) minmax(180px, 1fr) minmax(150px, 0.8fr);
+  gap: 10px;
+
+  label {
+    display: grid;
+    gap: 5px;
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+
+  input, select, textarea { width: 100%; }
+  input[type="range"] { padding: 8px 0; accent-color: var(--fill-accent); }
+  strong { color: var(--text-primary); }
+  .journal-wide { grid-column: 1 / -1; }
+}
+
+.journal-actions {
+  align-items: center;
+  margin-top: 12px;
+}
+
+.journal-history {
+  display: grid;
+  gap: 7px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--border);
+}
+
+.monitor-result {
+  display: grid;
+  gap: 2px;
+  margin: 10px 0;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  font-size: 12px;
+
+  span { color: var(--text-secondary); }
+  &.changed { background: var(--bg-warning); color: var(--text-warning); }
+  &.unchanged { background: var(--bg-success); color: var(--text-success); }
+}
+
+.journal-entry {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  font-size: 13px;
+
+  p { margin: 0; }
+}
+
+.journal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+@media (max-width: 700px) {
+  .journal-form { grid-template-columns: 1fr; }
+  .journal-form .journal-wide { grid-column: auto; }
+  .journal-actions { align-items: flex-start; flex-direction: column; }
 }
 
 // ------------------------------------------------------ loading & skeletons

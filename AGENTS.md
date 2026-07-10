@@ -121,15 +121,27 @@ UI-visible investment output must pass `verifier_strict`.
 
 | Work tier | Model and reasoning | Suitable work |
 |---|---|---|
-| **Testing / mechanical** | GPT-5.3 · high, only when capable; fallback Luna · medium | Tests, formatting, linting, repository exploration, log reading, small mechanical edits, simple bug fixes, documentation, repetitive refactors, dependency bumps, and simple scripts. |
+| **Testing / mechanical** | GPT-5.3 · high | Tests, formatting, linting, repository exploration, log reading, small mechanical edits, simple bug fixes, documentation, repetitive refactors, dependency bumps, and simple scripts. |
+| **Basic implementation** | Luna · medium | Small bounded UI/API edits, straightforward CRUD, simple wiring and low-risk fixes. |
 | **Default implementation** | Terra · high | Feature implementation, API development, ordinary debugging, tests, medium refactors, code review, architecture comprehension, DB queries, and scoped performance work. |
 | **High-complexity** | Sol · high | System architecture, multi-service changes, financial calculations, data pipelines, concurrency, security, hard debugging, migration planning, and deep synthesis. |
 | **Hardest** (exceptional) | Sol · ultra | Critical production incidents, security-sensitive work, investment-policy changes, or architectural redesign after Sol high has proved insufficient. Never the default. |
 
+Model strength and reasoning level are separate controls. For a bounded task, a
+stronger model may run one reasoning step lower when it is still reliable—for
+example, Sol medium can replace Terra high for a contained implementation or
+Sol high can replace Sol ultra when the exceptional case does not require the
+maximum budget. Do not lower reasoning for financial-policy changes, security,
+look-ahead-sensitive evaluation, or other decision-critical work without
+evidence. Record the selected model/reasoning pair and the reason for the
+trade-off.
+
 When classification is uncertain, choose the lightest plausible tier and
-escalate only on evidence; ordinary implementation remains Terra high,
-testing/mechanical work remains GPT-5.3 high when capable, and high-complexity
-work starts at Sol high. Never start at Hardest. If a named model is unavailable
+escalate only on evidence; basic implementation defaults to Luna medium,
+ordinary implementation defaults to Terra high, testing/mechanical work uses
+GPT-5.3 high, and high-complexity work starts at Sol high. The bounded
+stronger-model/lower-reasoning exception
+above is deliberate, not automatic. Never start at Hardest. If a named model is unavailable
 on the current Codex host, use the closest available model at the same reasoning
 level and record the substitution. This is a host constraint, not a reason to
 change the requested model tier.
