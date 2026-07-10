@@ -114,6 +114,9 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
   const priceAge = staleDays(ttm.price_date);
   const hasData = hasDossierData(dossier);
   const currentAnalysis = findCurrentVerifiedRun(analysisRuns, dossier);
+  const reviewAnalysis = analysisRuns?.find(
+    (run) => run.workflow === "stock-deep-analysis" && run.verification_status === "needs-human",
+  ) ?? null;
   const latestDeepJob = agentRuns?.find((run) => run.workflow === "stock-deep-analysis") ?? null;
 
   if (!hasData) {
@@ -197,7 +200,7 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
         {TABS.map(({ id, label, icon: Icon }, index) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)} role="tab" aria-selected={tab === id}><span className="tab-step">{index + 1}</span><Icon size={13} /> {label}</button>)}
       </div>
 
-      {tab === "Report" && <><CompanyReport dossier={dossier} analysis={currentAnalysis} analysisJob={latestDeepJob} onRequestAnalysis={() => setTab("History")} /><section className="overview-section report-chart"><div className="section-heading"><div><p className="section-label">Trend operacyjny</p><h2>Najważniejsze wykresy wyników</h2></div><p>W raporcie pozostaje tylko trend potrzebny do oceny tezy.</p></div><QuarterlyCharts quarters={dossier.quarters} preferContinuingNet /></section></>}
+      {tab === "Report" && <><CompanyReport dossier={dossier} analysis={currentAnalysis} reviewAnalysis={reviewAnalysis} analysisJob={latestDeepJob} onRequestAnalysis={() => setTab("History")} /><section className="overview-section report-chart"><div className="section-heading"><div><p className="section-label">Trend operacyjny</p><h2>Najważniejsze wykresy wyników</h2></div><p>W raporcie pozostaje tylko trend potrzebny do oceny tezy.</p></div><QuarterlyCharts quarters={dossier.quarters} preferContinuingNet /></section></>}
 
       {tab === "Charts" && <><section className="scenario-warning"><IconAlertTriangle size={17} /><div><strong>Ograniczenie scenariuszy</strong><p>Obecna wersja zmienia głównie mnożnik. Traktuj ją jako wrażliwość wyceny do czasu scenariuszy operacyjnych v2.</p></div></section><section className="overview-section"><div className="section-heading"><div><p className="section-label">Wycena</p><h2>Scenariusze i kurs</h2></div><p>Widoki wspierające raport, bez surowych tabel.</p></div>{dossier.scenarios && <ScenariosPanel scenarios={dossier.scenarios} valuation={dossier.valuation} />}<div className="overview-grid scenario-context"><ForecastPanel ticker={ticker} dossier={dossier} onSaved={reload} /><PriceChart ticker={ticker} /></div></section></>}
 

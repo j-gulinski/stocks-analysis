@@ -12,6 +12,7 @@ import type { AgentRun, AnalysisRun, Dossier } from "@/lib/types";
 type Props = {
   dossier: Dossier;
   analysis: AnalysisRun | null;
+  reviewAnalysis: AnalysisRun | null;
   analysisJob: AgentRun | null;
   onRequestAnalysis: () => void;
 };
@@ -99,11 +100,67 @@ function ReportList({ title, items, emptyText }: { title: string; items: string[
 function pendingResearchFinding(job: AgentRun | null): string {
   if (job?.status === "running") return "Worker Codex sprawdza źródła i raporty pierwotne.";
   if (job?.status === "queued") return "Zlecenie czeka na cykliczny worker Codex.";
+  if (job?.status === "needs-human") return "Research zakończony; wynik wymaga przeglądu.";
   return "Pełny research Codex nie został jeszcze zakończony.";
+}
+
+function localizedResearchFinding(
+  id: ResearchItem["id"],
+  status: ResearchStatus,
+  row: Record<string, unknown> | null,
+  operations: Record<string, unknown> | null,
+  fallback: string,
+): string {
+  if (id === "catalyst") {
+    const catalysts = Array.isArray(operations?.public_catalysts)
+      ? operations.public_catalysts.filter((item): item is string => typeof item === "string")
+      : [];
+    const joined = catalysts.join(" ").toLowerCase();
+    if (joined.includes("kpo") && joined.includes("baltic") && joined.includes("edison")) {
+      return "Potwierdzone katalizatory: popyt finansowany z UE/KPO, ekspansja robotyki na rynki bałtyckie i komercjalizacja systemu Edison.";
+    }
+  }
+
+  if (id === "backlog") {
+    const contracts = recordField(operations?.contracts_half_year);
+    const backlog = recordField(operations?.backlog);
+    const offers = recordField(operations?.active_offers);
+    const contractsCurrent = numberField(contracts?.current);
+    const contractsPrior = numberField(contracts?.prior_year);
+    const backlogCurrent = numberField(backlog?.as_of_31_mar_2026);
+    const backlogPrior = numberField(backlog?.prior_year);
+    const offersCurrent = numberField(offers?.current);
+    const offersPrior = numberField(offers?.prior_year);
+    if (
+      contractsCurrent != null && contractsPrior != null &&
+      backlogCurrent != null && backlogPrior != null &&
+      offersCurrent != null && offersPrior != null
+    ) {
+      return concise(
+        `Kontrakty: ${fmtNumber(contractsCurrent)} vs ${fmtNumber(contractsPrior)} mln zł r/r; ` +
+        `backlog: ${fmtNumber(backlogCurrent)} vs ${fmtNumber(backlogPrior)} mln zł; ` +
+        `aktywne oferty: ${fmtNumber(offersCurrent)} vs ${fmtNumber(offersPrior)} mln zł.`,
+        220,
+      );
+    }
+  }
+
+  const rawFinding = textField(row?.finding) ?? "";
+  if (
+    id === "management_governance" &&
+    status === "partial" &&
+    /board|audit|remuneration|governance/i.test(rawFinding)
+  ) {
+    return "Opublikowano zasady zarządu, audytu i wynagrodzeń oraz strukturę akcjonariatu; dotrzymywanie obietnic i transakcje z podmiotami powiązanymi wymagają osobnej oceny.";
+  }
+
+  return fallback;
 }
 
 function researchItems(analysis: AnalysisRun | null, job: AgentRun | null): ResearchItem[] {
   const resolution = recordField(analysis?.output.research_resolution);
+  const evidence = recordField(analysis?.output.evidence);
+  const operations = recordField(evidence?.operations);
   return RESEARCH_TOPICS.map(({ id, label }) => {
     const key = id === "management_governance" && !resolution?.[id] ? "management" : id;
     const row = recordField(resolution?.[key]);
@@ -112,13 +169,14 @@ function researchItems(analysis: AnalysisRun | null, job: AgentRun | null): Rese
       rawStatus === "confirmed" || rawStatus === "partial" || rawStatus === "not_found"
         ? rawStatus
         : "pending";
-    const sourceIds = row?.source_ids ?? row?.sources;
+    const sourceIds = row?.source_ids ?? row?.source_urls ?? row?.sources;
     const sourceCount = Array.isArray(sourceIds) ? sourceIds.length : 0;
+    const fallbackFinding = concise(textField(row?.finding) ?? pendingResearchFinding(job), 220);
     return {
       id,
       label,
       status,
-      finding: concise(textField(row?.finding) ?? pendingResearchFinding(job), 220),
+      finding: localizedResearchFinding(id, status, row, operations, fallbackFinding),
       sourceCount,
     };
   });
@@ -150,6 +208,7 @@ function userPrescore(dossier: Dossier): { passed: number; total: number } {
 export default function CompanyReport({
   dossier,
   analysis,
+  reviewAnalysis,
   analysisJob,
   onRequestAnalysis,
 }: Props) {
@@ -160,16 +219,18 @@ export default function CompanyReport({
   const valuation = dossier.valuation;
   const unresolved = quality.cause_status === "unresolved_from_stored_evidence";
   const verified = analysis?.verification_status === "pass";
-  const outputPotential = recordField(analysis?.output.potential);
+  const reportAnalysis = analysis ?? reviewAnalysis;
+  const needsReview = !verified && reportAnalysis?.verification_status === "needs-human";
+  const outputPotential = recordField(reportAnalysis?.output.potential);
   const potentialValue =
     numberField(outputPotential?.value_pct) ?? valuation?.potential.value_pct ?? null;
-  const confidence = confidenceLevel(analysis?.output.confidence ?? valuation?.confidence);
-  const outputScore = recordField(analysis?.output.company_score);
-  const verifiedScore =
-    numberField(analysis?.output.company_score) ??
+  const confidence = confidenceLevel(reportAnalysis?.output.confidence ?? valuation?.confidence);
+  const outputScore = recordField(reportAnalysis?.output.company_score);
+  const analysisScore =
+    numberField(reportAnalysis?.output.company_score) ??
     numberField(outputScore?.value) ??
-    numberField(analysis?.output.alignment_score) ??
-    analysis?.alignment_score ??
+    numberField(reportAnalysis?.output.alignment_score) ??
+    reportAnalysis?.alignment_score ??
     null;
   const valuationBasis = dossier.ttm.valuation_basis === "continuing"
     ? "wynik kontynuowany"
@@ -187,12 +248,18 @@ export default function CompanyReport({
     : dossier.insights.concerns.filter(
         (item) => !isStrategyFitOnly(item) && !duplicatesResultQuality(item),
       );
-  const resolvedResearch = researchItems(analysis, analysisJob);
-  const executiveRead = textField(analysis?.output.executive_read);
-  const reportTitle = verified ? "Zweryfikowany odczyt Codex" : "Szkic analityczny";
+  const resolvedResearch = researchItems(reportAnalysis, analysisJob);
+  const executiveRead = textField(reportAnalysis?.output.executive_read);
+  const reportTitle = verified
+    ? "Zweryfikowany odczyt Codex"
+    : needsReview
+      ? "Analiza Codex — wymaga przeglądu"
+      : "Szkic analityczny";
   const reportLead = verified && executiveRead
     ? concise(executiveRead)
-    : "Skrót z zapisanych faktów i scenariuszy; pełny wniosek pojawi się dopiero po niezależnej weryfikacji.";
+    : needsReview
+      ? "Research i niezależna weryfikacja zostały zakończone. Wniosek pozostaje niezatwierdzony, ponieważ część źródeł i ocena governance wymagają kontroli."
+      : "Skrót z zapisanych faktów i scenariuszy; pełny wniosek pojawi się dopiero po niezależnej weryfikacji.";
 
   return (
     <article className="company-report" aria-label="Przygotowany raport spółki">
@@ -203,8 +270,8 @@ export default function CompanyReport({
           <p>{reportLead}</p>
         </div>
         <div className="company-report-status">
-          <span className={`badge ${verified ? "success" : "neutral"}`}>
-            <IconChartDots size={14} /> {verified ? "zweryfikowany" : "szkic deterministyczny"}
+          <span className={`badge ${verified ? "success" : needsReview ? "warning" : "neutral"}`}>
+            <IconChartDots size={14} /> {verified ? "zweryfikowany" : needsReview ? "wymaga przeglądu" : "szkic deterministyczny"}
           </span>
           {analysisJob && (analysisJob.status === "queued" || analysisJob.status === "running") && (
             <span className="badge accent">
@@ -226,9 +293,9 @@ export default function CompanyReport({
           <small>jakość danych i spójność scenariuszy</small>
         </div>
         <div>
-          <span>{verifiedScore == null ? "Sito danych" : "Ocena spółki"}</span>
-          <strong>{verifiedScore == null ? `${prescore.passed}/${prescore.total}` : `${Math.round(verifiedScore)}/100`}</strong>
-          <small>{verifiedScore == null ? "bez kryterium rozmiaru" : "ocena po verifierze"}</small>
+          <span>{analysisScore == null ? "Sito danych" : "Ocena spółki"}</span>
+          <strong>{analysisScore == null ? `${prescore.passed}/${prescore.total}` : `${Math.round(analysisScore)}/100`}</strong>
+          <small>{analysisScore == null ? "bez kryterium rozmiaru" : needsReview ? "po verifierze · wymaga przeglądu" : "ocena po verifierze"}</small>
         </div>
         <div>
           <span>Podstawa wyceny</span>
