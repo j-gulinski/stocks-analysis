@@ -261,6 +261,10 @@ are tool-accessible, and verifier-gated outputs are auditable.
   same user needs. Done when active code/docs pass an `rg
   "Claude|ANTHROPIC|anthropic"` sweep except historical archives and explicit
   migration notes.
+  - Ordering note (2026-07-10): blocked by RT1.3's remaining legacy-path
+    migration (direct-client compatibility + forum distillation behind the
+    orchestrator); run the sweep only after that lands so removal is a delete,
+    not a rewrite.
 - [ ] CX.11 Backtest data-readiness + prediction learning: add historical
   report availability/publication dates or point-in-time snapshots, expand
   historical prices, then run walk-forward multi-asset strategy reviews.
@@ -275,6 +279,10 @@ are tool-accessible, and verifier-gated outputs are auditable.
     drill-down. It fetches `GET /api/backtest-runs/{id}`, exposes the
     financial-availability policy in the run form, and shows verifier state,
     policy warnings, observation checks and outcome windows in the dashboard.
+  - Scope note (2026-07-10 de-duplication): CX.11 now owns **data readiness
+    only** (publication dates/point-in-time snapshots, historical price depth).
+    The "walk-forward strategy reviews" half is owned by CX.16 (pragmatic,
+    research-only) and RT6.6 (strict); do not log replay work here.
 - [x] CX.12 Web-triggered / Codex-scheduled queue execution: keep the web API as
   durable queue creation, but add a Codex worker pickup contract so a manual,
   background or scheduled Codex run can claim queued jobs, execute the relevant
@@ -371,6 +379,10 @@ are tool-accessible, and verifier-gated outputs are auditable.
     user. First refresh has one honest progress surface, watchlist rows use a
     compact decision read, and queued jobs identify the external-worker
     dependency.
+  - Scope note (2026-07-10 de-duplication): remaining dashboard-composition
+    work (primary watchlist surface + operations rail) is owned by RT4.5/RT4.6
+    and `docs/design/research-workspace.md`. This ID stays for history; log
+    new UI work under RT.4.
 - [ ] CX.15 Session-triggered operating model (pull-based ESPI + queue; decided
   2026-07-10): the workbench is a local, at-the-desk tool, so ingestion and
   queue execution are triggered by the user's session, not by an always-on
@@ -399,6 +411,49 @@ are tool-accessible, and verifier-gated outputs are auditable.
     watched-company ESPI/EBI reports published since the previous session
     exactly once, queued triage runs to completion or reports why not, and no
     background process is required for correctness.
+- [ ] CX.16 Retrospective cohort replay (added 2026-07-10): first empirical
+  validation of the deterministic analysis layer against realized 1–3-year GPW
+  outcomes. Answers "would this tool have made the right call?" — the honest
+  version of "test on stocks that performed well".
+  - [ ] CX.16a Cohort selection with anti-bias rules, frozen BEFORE any replay
+    runs and stored as an immutable document: from a declared universe snapshot
+    (BR rating/coverage list), pick N solid winners (top 1–3y total return,
+    filtered to durable businesses — profitable, revenue-backed, no one-event
+    biotech/gaming spikes), N matched controls (similar cap/sector/liquidity at
+    T with mediocre/poor outcome), and ≥3 failures/delistings if reconstructible.
+    Winners-only testing is invalid — it measures sensitivity but not whether
+    the tool also says yes to losers; a scorer that always says "buy" passes it.
+    BR-today sampling omits delisted names: record this survivorship limit on
+    every result.
+  - [ ] CX.16b Point-in-time reconstruction at `as_of=T` per case: deterministic
+    dossier built only from quarters published before T using the existing
+    `estimated_period_lag` research policy (CX.11), price at T from stored
+    history. Record the restatement caveat: current BR tables may show restated,
+    not as-published, values.
+  - [ ] CX.16c Replay + storage: prescore, checklist verdicts, deterministic
+    thesis and scenario range computed at T; persisted as research-only
+    `analysis_runs` (never UI-verified, never watchlist-visible).
+  - [ ] CX.16d Outcome comparison: 1/2/3y total return (include dividends where
+    stored) vs a sWIG80-based benchmark; falsifier hit-timing where
+    reconstructible. Report: prescore separation winners vs controls, veto
+    false-kill rate (vetoed future winners), descriptive checklist-item vs
+    outcome table, and per-case qualitative cards ("what the tool would have
+    said, what it missed") — for a single investor the cards are the primary
+    learning artifact, the statistics are diagnostic only at n≈30.
+  - Hard honesty rules: NO AI-refined thesis or model verdict in scored replay
+    results — models know these companies' actual outcomes from training data,
+    so historical "AI calls" are contaminated by construction; deterministic
+    layer only. Hold out one third of the cohort untouched before any
+    weight/threshold tuning; results never justify strategy changes without
+    the RT.6 verifier gate. Small-n results are diagnostic, not proof.
+  - Relationships: builds on CX.11's `estimated_period_lag` policy + backtest
+    service/Lab and CX.13's replay storage. CX.16 is the pragmatic precursor
+    of RT6.6 — same question, estimated publication lags instead of strict
+    point-in-time data. RT6.6 supersedes these results once real publication
+    timestamps/corporate actions exist; until then everything stays
+    research-only. Winner/control cases become candidate RT6.1 gold cases.
+    Distinct from CX.13, which grades outputs that were actually saved at the
+    time; CX.16 replays hypothetical historical reads.
 
 ### Relationship to the RT roadmap
 
@@ -408,6 +463,16 @@ data-readiness and UI items are retained as historical work IDs, but new work
 must satisfy the stricter evidence-first gates in RT.1, RT.2, RT.5 and RT.6
 below. In particular, existing replay infrastructure is not proof that the
 current data is point-in-time or backtest-ready.
+
+**Execution order of the open items (2026-07-10):** RT stages proceed in
+numeric order as before. The open CX items slot in as follows — CX.15
+(session-triggered ops) is independent and may run now; CX.16 (cohort replay)
+may run now as research-only since its dependencies (estimated-lag policy,
+backtest service) already exist, and it feeds RT6.1 gold cases; CX.10 (legacy
+sunset) waits for RT1.3's remaining legacy migration; CX.11 is data-readiness
+only and naturally lands with RT.2 evidence work; CX.13 continues as verified
+outputs accumulate; CX.14's remaining scope is executed as part of RT4.5/4.6,
+not separately.
 
 ## Stages RT.0–RT.7 — Research-platform roadmap (binding next work)
 
@@ -493,6 +558,10 @@ evaluation. IDs below are stable.
 - [ ] RT2.3 Pilot issuer-IR and official ESPI/EBI ingestion for 3–5 watchlist
   companies: periodic/current reports, guidance, material contracts/backlog,
   buybacks, dilution and management/shareholder events.
+  - De-duplication note (2026-07-10): supersedes CX.6's `event_reports`-level
+    ingestion for evidence purposes — RT2.3 output is ledger-grade (immutable
+    versions, claim-level citations). CX.15a's `last_polled_at` watermark +
+    pagination applies to this ingestion path too; implement once, share it.
 - [ ] RT2.4 Build source-quality/terms/rate notes and parser fixtures; material
   case claims must cite immutable source spans.
 - [ ] RT2.5 Evaluate one corporate-action-aware, long-history market-data source
@@ -616,7 +685,9 @@ evaluation. IDs below are stable.
 - [ ] RT6.6 Add point-in-time walk-forward case replay with 3/6/12/24-month
   total/benchmark-relative return, adverse excursion, thesis-break timing and
   probability calibration. Require publication timestamps, corporate actions,
-  delistings and no future leakage.
+  delistings and no future leakage. First pragmatic slice: CX.16 cohort replay
+  (estimated-lag policy, research-only); RT6.6 re-runs and supersedes it once
+  strict point-in-time data exists.
 - [ ] RT6.7 Consider market-wide factor backtesting/weight tuning only after the
   case replay is credible; keep a final out-of-time holdout.
 

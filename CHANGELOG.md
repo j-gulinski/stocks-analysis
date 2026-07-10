@@ -18,6 +18,30 @@ keep the decisions scannable.
 
 ---
 
+## 2026-07-10 · CX.16 — retrospective cohort replay; task de-duplication and execution order
+
+Added CX.16: the first empirical validation of the deterministic analysis
+layer — replay prescore/checklist/thesis/scenario range at historical `as_of`
+dates for a frozen cohort and compare against realized 1–3-year GPW outcomes.
+Design encodes the anti-bias rules that make the test meaningful: winners AND
+matched controls AND failures (winners-only testing is invalid — a scorer that
+always says "buy" passes it), cohort frozen before any replay runs, BR-today
+survivorship limit recorded on every result, estimated-lag point-in-time
+reconstruction with the restatement caveat, one-third holdout before any
+tuning, and **no AI-refined output in scored results** — models know these
+companies' actual outcomes from training data, so historical "AI calls" are
+contaminated by construction. Deterministic layer only; per-case qualitative
+cards are the primary learning artifact at n≈30.
+
+Task-hygiene audit in the same pass (overlaps found and resolved by ownership
+notes, stable IDs retained): CX.11 narrowed to data readiness (replay owned by
+CX.16 pragmatically, RT6.6 strictly, which supersedes CX.16 results once
+strict point-in-time data exists); CX.14's remaining dashboard scope moved
+under RT4.5/RT4.6; RT2.3 declared the ledger-grade successor of CX.6 and
+shares CX.15a's watermark; CX.10 ordered after RT1.3's legacy migration. Added
+an explicit execution-order note for all open CX items relative to RT stages;
+CX.15 and CX.16 are runnable now, research-only where applicable.
+
 ## 2026-07-10 · CX.15 — session-triggered operating model; periodic/hosted execution reclassified as optional
 
 Decision: the workbench's default running scenario is pull-based and local.
@@ -148,7 +172,9 @@ non-approved deep result remains visibly gated as `needs-human`.
 The report now distinguishes that terminal review state from unfinished work:
 it may show the verifier-owned score, confidence and researched
 catalyst/backlog/governance findings with an explicit `wymaga przeglądu` badge,
-but it still cannot present the row as verified.
+but it still cannot present the row as verified. Structured research evidence
+is compressed into Polish report language (including backlog comparisons)
+instead of leaking the worker's raw English prose.
 
 ## 2026-07-10 · RT.7 exploration — hosted Codex boundary and communication flow
 
