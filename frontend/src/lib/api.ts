@@ -4,6 +4,10 @@
  */
 import type {
   AiUsageHealth,
+  AssumptionItem,
+  AssumptionScenarioKind,
+  AssumptionSet,
+  AssumptionStatus,
   AgentEvaluationRun,
   AgentEvaluationRunCreate,
   AgentEvaluationRunDetail,
@@ -123,6 +127,36 @@ export const updateResearchCase = (
     method: "PATCH",
     body: JSON.stringify(patch),
   });
+
+export const getAssumptionSets = (ticker: string, purpose = "investment-research") =>
+  request<AssumptionSet[]>(
+    `/companies/${encodeURIComponent(ticker)}/research-case/assumptions?purpose=${encodeURIComponent(purpose)}`,
+  );
+
+export const createAssumptionSet = (
+  ticker: string,
+  payload: {
+    scenario_kind: AssumptionScenarioKind;
+    label: string;
+    status?: AssumptionStatus;
+    as_of?: string | null;
+    assumptions: AssumptionItem[];
+  },
+) =>
+  request<AssumptionSet>(`/companies/${encodeURIComponent(ticker)}/research-case/assumptions`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const updateAssumptionSet = (
+  ticker: string,
+  id: number,
+  patch: Partial<Pick<AssumptionSet, "label" | "status" | "as_of" | "assumptions">>,
+) =>
+  request<AssumptionSet>(
+    `/companies/${encodeURIComponent(ticker)}/research-case/assumptions/${id}`,
+    { method: "PATCH", body: JSON.stringify(patch) },
+  );
 
 export const refreshCompany = (ticker: string, force = false) =>
   request<RefreshSummary>(

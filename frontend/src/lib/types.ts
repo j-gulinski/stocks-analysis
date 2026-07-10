@@ -96,6 +96,32 @@ export interface ResearchCase {
   updated_at: string;
 }
 
+export type AssumptionScenarioKind = "negative" | "base" | "positive" | "event";
+export type AssumptionStatus = "draft" | "approved" | "rejected";
+export type AssumptionProvenance = "evidence" | "human_assumption" | "model_suggestion";
+
+export interface AssumptionItem {
+  key: string;
+  value: unknown;
+  unit: string | null;
+  provenance: AssumptionProvenance;
+  source_ref: string | null;
+  rationale: string;
+}
+
+export interface AssumptionSet {
+  id: number;
+  research_case_id: number;
+  scenario_kind: AssumptionScenarioKind;
+  label: string;
+  status: AssumptionStatus;
+  as_of: string | null;
+  assumptions: AssumptionItem[];
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RefreshSummary {
   ticker: string;
   summary: Record<string, string>;

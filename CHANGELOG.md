@@ -61,6 +61,15 @@ research case and records the forwarded editor identity. This is the durable
 input boundary only; the scenario editor, step history and priced operating
 equations remain subsequent slices.
 
+## 2026-07-10 · RT4.2b assumption editor
+
+The Scenarios workspace now reads saved case-linked assumption sets and offers
+a compact editor for scenario kind, label, value, unit, provenance, source
+reference and rationale. New sets are deliberately saved as drafts and shown
+with their provenance; this surface does not calculate target prices or
+silently approve model suggestions. Appendable case-step history remains the
+next workflow slice.
+
 ## 2026-07-10 · Explore ranking rationale and stale-analysis queue
 
 Explore candidates now show their source rank, deterministic tie-break order,

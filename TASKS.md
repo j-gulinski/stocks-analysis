@@ -191,12 +191,15 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
     persistence of assumption sets and step history remains next.
   - [x] RT4.2a: Add durable case-linked assumption sets for negative/base/
     positive/event scenarios with per-input provenance and purpose-scoped
-    read/create/update API; the scenario editor and step history remain next.
-  - [ ] RT4.2b: Add the compact scenario assumption editor and retain an
-    appendable history of case-step changes before priced driver equations.
+    read/create/update API.
+  - [x] RT4.2b: Add the compact scenario assumption editor, including
+    per-input provenance and a visible saved-set list.
+  - [ ] RT4.2c: Retain an appendable history of case-step changes before
+    priced driver equations.
 - [~] RT4.5–RT4.7: report-first UI and manual QA slices exist; scenario rows
-  now expose a qualitative negative/stable/improving company outcome, while
-  persistent case editing, priced driver equations, automated
+  now expose a qualitative negative/stable/improving company outcome and case
+  assumptions have provenance-aware persistence/editor surfaces, while
+  appendable step history, priced driver equations, automated
   screenshots/accessibility and representative industrial/financial/event-
   driven QA remain.
   - [x] RT4.5a: Add company-outcome conditions to C/Z, C/WK and EV/EBITDA
