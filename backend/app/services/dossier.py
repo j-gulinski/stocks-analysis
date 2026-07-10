@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     AssumptionSet,
+    AnalysisRun,
     Company,
     Dividend,
     ForumIntelligence,
@@ -20,6 +21,7 @@ from app.db.models import (
     Price,
     ReportValue,
     ResearchCase,
+    VerificationRun,
 )
 from app.services import (
     fields,
@@ -136,6 +138,30 @@ def load_cashflow_latest(db: Session, company_id: int) -> dict[str, tuple[str, f
         if current is None or row.period > current[0]:
             latest[canonical] = (row.period, float(row.value))
     return latest
+
+
+def load_latest_priced_outcome_verification(db: Session, company_id: int) -> dict | None:
+    """Read only the latest strict verifier result for this company's analyses."""
+    row = db.scalar(
+        select(VerificationRun)
+        .join(AnalysisRun, AnalysisRun.id == VerificationRun.analysis_run_id)
+        .where(
+            AnalysisRun.company_id == company_id,
+            VerificationRun.model_role == "verifier_strict",
+        )
+        .order_by(VerificationRun.created_at.desc(), VerificationRun.id.desc())
+        .limit(1)
+    )
+    if row is None:
+        return None
+    return {
+        "model_role": row.model_role,
+        "verifier_model": row.verifier_model,
+        "verdict": row.verdict,
+        "checks": row.checks or {},
+        "summary": row.summary,
+        "created_at": row.created_at,
+    }
 
 
 def load_approved_assumption_sets(db: Session, company_id: int) -> list[dict]:
@@ -559,23 +585,33 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
     )
     scenario_set = scenarios.build_scenario_set(scenario_inputs, malik.MALIK)
     approved_assumption_sets = load_approved_assumption_sets(db, company.id)
+    operating_bridge = operating_scenarios.build_operating_bridge(
+        scenario_inputs,
+        income,
+        malik.MALIK,
+        approved_assumption_sets,
+        cashflow_latest=cashflow_latest,
+        balance_series=balance_series,
+    )
+    priced_verification = load_latest_priced_outcome_verification(db, company.id)
+    priced_gate = operating_scenarios.evaluate_priced_outcome_gate(
+        operating_bridge, priced_verification
+    )
     scenarios_block = {
         **scenario_set.to_dict(),
         "approved_assumption_sets": approved_assumption_sets,
         "driver_sensitivity": scenarios.build_driver_sensitivity(
             scenario_inputs, malik.MALIK, approved_assumption_sets
         ),
-        "operating_bridge": operating_scenarios.build_operating_bridge(
-            scenario_inputs,
-            income,
-            malik.MALIK,
-            approved_assumption_sets,
-            cashflow_latest=cashflow_latest,
-            balance_series=balance_series,
-        ),
+        "operating_bridge": operating_bridge,
+        "priced_operating_outcomes": priced_gate,
         "engine": "deterministic",
         "ai_notes": None,
     }
+    if priced_gate["status"] == "approved":
+        scenarios_block["scenarios"] = operating_scenarios.attach_priced_company_outcomes(
+            scenarios_block["scenarios"], operating_bridge["fcf_lens"]
+        )
 
     # AI valuation layer (stage SC / WP4): a stock-potential read on TOP of the
     # scenario set — how much potential (anchored to the weighted EV), at what

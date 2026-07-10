@@ -115,3 +115,11 @@ RT4.3e keeps the FCF lens deliberately opt-in. A user must approve capex,
 working-capital change and the FCF multiple before the system can produce a
 price. In C# terms, the valuation method has a required input object and
 returns a validation result instead of silently filling missing properties.
+
+RT4.4a adds a second boundary around the company outcome text. A priced outcome
+is not trusted just because the arithmetic exists: a persisted strict verifier
+must confirm all three representative archetypes, source lineage, math
+reconciliation and no look-ahead. Until that contract is satisfied, the UI
+keeps the qualitative result. This is similar to a C# approval pipeline where
+the calculation service can return a candidate, but a separate validator must
+approve it before the DTO is promoted to a decision-ready state.

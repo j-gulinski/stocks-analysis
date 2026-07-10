@@ -479,6 +479,7 @@ export interface ScenarioCompanyOutcome {
   direction: "negative" | "neutral" | "positive" | "unknown";
   label: string;
   description: string;
+  mode?: "qualitative" | "priced";
 }
 
 export interface Scenario {
@@ -508,6 +509,12 @@ export interface ScenarioSet {
   approved_assumption_sets?: AssumptionSet[];
   driver_sensitivity?: ScenarioDriverSensitivity;
   operating_bridge?: OperatingBridge;
+  priced_operating_outcomes?: {
+    status: "blocked" | "approved";
+    reason: string;
+    required_checks: string[];
+    verification: Record<string, unknown> | null;
+  };
   engine: "deterministic" | "ai";
   ai_notes: AiNotes | null;
 }

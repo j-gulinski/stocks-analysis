@@ -80,6 +80,16 @@ provenance; incomplete, suggested or negative-FCF cases stay `needs-human`.
 The lens reports its price and delta beside the existing multiple valuation and
 never replaces that baseline automatically.
 
+## 2026-07-10 · RT4.4a priced-outcome verifier gate
+
+Priced company outcomes are now attached only when the separate FCF lens is
+applied and the latest persisted `verifier_strict` run passes representative
+industrial, financial and event-driven coverage, no-look-ahead, math
+reconciliation and source-lineage checks. Missing or incomplete verification
+keeps the existing qualitative company outcome and exposes the blocked reason
+in the dossier/UI. No migration was needed; the safer default is to remain
+qualitative until a persisted analysis-linked verification run exists.
+
 ## 2026-07-10 · Refined RT4 next task
 
 The next implementation target is now RT4.1a: establish the durable

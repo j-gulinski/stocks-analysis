@@ -84,6 +84,7 @@ def test_dossier(refreshed, monkeypatch):
     assert any("Kurs sprzed" in note for note in insights["data_notes"])
 
     assert dossier["latest_forecast"] is None
+    assert dossier["scenarios"]["priced_operating_outcomes"]["status"] == "blocked"
     assert dossier["forum"] == {
         "topics": 0,
         "posts": 0,

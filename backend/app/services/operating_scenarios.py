@@ -26,6 +26,12 @@ _DRIVER_KEYS = {
 }
 _REQUIRED_KEYS = {"revenue", "gross_margin_pct"}
 _FCF_KEYS = {"capex", "working_capital_change", "fcf_multiple"}
+_REQUIRED_PRICED_CHECKS = (
+    "representative_archetypes",
+    "no_lookahead",
+    "math_reconciliation",
+    "source_lineage",
+)
 
 
 def _detail(item: dict, *, applied: bool, note: str) -> dict:
@@ -283,6 +289,80 @@ def _build_fcf_lens(rows: list[dict], approved_sets: list[dict], shares: int | N
         "note": "Soczewka FCF jest opcjonalna i nie zmienia bazowej wyceny mnożnikowej.",
         "rows": lens_rows,
     }
+
+
+def _check_pass(value) -> bool:
+    if value is True:
+        return True
+    if not isinstance(value, dict):
+        return False
+    if value.get("passed") is True:
+        return True
+    return value.get("verdict") in {"pass", "passed", "spełnia"}
+
+
+def evaluate_priced_outcome_gate(
+    operating_bridge: dict,
+    verification: dict | None,
+) -> dict:
+    """Allow priced company outcomes only after an independent strict pass."""
+    reasons: list[str] = []
+    if operating_bridge.get("fcf_lens", {}).get("status") != "applied":
+        reasons.append("Soczewka FCF nie ma kompletnego zatwierdzonego wejścia.")
+    if not verification:
+        reasons.append("Brak zapisanego wyniku verifier_strict dla priced outcomes.")
+    else:
+        if verification.get("model_role") != "verifier_strict":
+            reasons.append("Wynik nie pochodzi z roli verifier_strict.")
+        if verification.get("verdict") != "pass":
+            reasons.append("Verifier nie potwierdził priced outcomes.")
+        checks = verification.get("checks") or {}
+        coverage = checks.get("representative_archetypes")
+        covered = coverage.get("archetypes") if isinstance(coverage, dict) else coverage
+        if not isinstance(covered, list) or not {
+            "industrial", "financial", "event-driven"
+        }.issubset(set(covered)):
+            reasons.append("Brak potwierdzenia trzech reprezentatywnych archetypów.")
+        for check_id in ("no_lookahead", "math_reconciliation", "source_lineage"):
+            if not _check_pass(checks.get(check_id)):
+                reasons.append(f"Verifier nie potwierdził: {check_id}.")
+    return {
+        "status": "approved" if not reasons else "blocked",
+        "reason": " ".join(reasons) if reasons else "Priced outcomes mają niezależne potwierdzenie verifier_strict.",
+        "required_checks": list(_REQUIRED_PRICED_CHECKS),
+        "verification": verification,
+    }
+
+
+def attach_priced_company_outcomes(scenario_rows: list[dict], fcf_lens: dict) -> list[dict]:
+    """Replace the qualitative condition only after the gate has passed."""
+    priced_by_kind = {row["scenario_kind"]: row for row in fcf_lens.get("rows", [])}
+    output: list[dict] = []
+    for row in scenario_rows:
+        updated = dict(row)
+        priced = priced_by_kind.get(row.get("kind"))
+        if priced is None or priced.get("fcf_target_price") is None:
+            output.append(updated)
+            continue
+        delta = priced.get("target_price_delta")
+        if delta is None or delta == 0:
+            direction, label = "neutral", "Wynik operacyjny zgodny z bazą FCF"
+        elif delta > 0:
+            direction, label = "positive", "Wynik operacyjny wspiera wycenę FCF"
+        else:
+            direction, label = "negative", "Wynik operacyjny obniża wycenę FCF"
+        updated["company_outcome"] = {
+            "direction": direction,
+            "label": label,
+            "description": (
+                f"Soczewka FCF wyznacza {priced['fcf_target_price']:.2f} zł wobec "
+                f"{priced['baseline_target_price']:.2f} zł w bazowym mnożniku; "
+                "wynik operacyjny jest wyceniony po zatwierdzonych założeniach."
+            ),
+            "mode": "priced",
+        }
+        output.append(updated)
+    return output
 
 
 def build_operating_bridge(

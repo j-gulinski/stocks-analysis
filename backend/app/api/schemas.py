@@ -535,6 +535,7 @@ class ScenarioCompanyOutcomeOut(BaseModel):
     direction: Literal["negative", "neutral", "positive", "unknown"]
     label: str
     description: str
+    mode: Literal["qualitative", "priced"] = "qualitative"
 
 
 class ScenarioOut(BaseModel):
@@ -578,6 +579,13 @@ class ScenarioDriverSensitivityOut(BaseModel):
     status: Literal["none", "applied", "human_review_required"]
     note: str
     rows: list[ScenarioSensitivityRowOut] = Field(default_factory=list)
+
+
+class PricedOutcomeGateOut(BaseModel):
+    status: Literal["blocked", "approved"]
+    reason: str
+    required_checks: list[str] = Field(default_factory=list)
+    verification: dict | None = None
 
 
 class OperatingBridgeRowOut(BaseModel):
@@ -644,6 +652,12 @@ class ScenarioSetOut(BaseModel):
                 "note": "Brak soczewki FCF.",
                 "rows": [],
             },
+        )
+    )
+    priced_operating_outcomes: PricedOutcomeGateOut = Field(
+        default_factory=lambda: PricedOutcomeGateOut(
+            status="blocked",
+            reason="Brak zapisanego wyniku verifier_strict dla priced outcomes.",
         )
     )
     # Provenance: "deterministic" (no key / AI fallback) or "ai" (+ ai_notes).

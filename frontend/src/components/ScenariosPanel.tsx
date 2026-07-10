@@ -108,6 +108,21 @@ export default function ScenariosPanel({
         </div>
       )}
 
+      {scenarios.priced_operating_outcomes && (
+        <div className={`scenario-gate ${scenarios.priced_operating_outcomes.status}`}>
+          <div className="spread" style={{ flexWrap: "wrap", gap: 8 }}>
+            <strong>Priced outcomes</strong>
+            <span className={`badge ${scenarios.priced_operating_outcomes.status === "approved" ? "success" : "warning"}`}>
+              {scenarios.priced_operating_outcomes.status === "approved" ? "zweryfikowane" : "zablokowane"}
+            </span>
+          </div>
+          <p>{scenarios.priced_operating_outcomes.reason}</p>
+          {scenarios.priced_operating_outcomes.status === "blocked" && (
+            <small>Warunki spółki pozostają jakościowe do czasu niezależnego przejścia gate’u.</small>
+          )}
+        </div>
+      )}
+
       <div className="scenario-list">
         {scenarios.scenarios.map((s) => (
           <div className="scenario" key={s.id}>
@@ -123,6 +138,7 @@ export default function ScenariosPanel({
             {s.company_outcome && (
               <div className={`scenario-outcome ${s.company_outcome.direction}`}>
                 <span className="k">Wynik w spółce</span>
+                {s.company_outcome.mode === "priced" && <span className="badge success">priced</span>}
                 <strong>{s.company_outcome.label}</strong>
                 <p>{s.company_outcome.description}</p>
               </div>

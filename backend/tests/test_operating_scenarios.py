@@ -169,3 +169,47 @@ def test_fcf_lens_requires_explicit_cash_inputs_and_prices_separately():
     )
     assert incomplete["fcf_lens"]["status"] == "needs_human"
     assert "fcf_multiple" in incomplete["fcf_lens"]["rows"][0]["missing"]
+
+
+def test_priced_outcome_gate_requires_strict_archetype_and_lookahead_checks():
+    bridge = {
+        "template": {"id": "industrial_consumer_pnl_v1"},
+        "fcf_lens": {
+            "status": "applied",
+            "rows": [{
+                "scenario_kind": "base",
+                "baseline_target_price": 100.0,
+                "fcf_target_price": 120.0,
+                "target_price_delta": 20.0,
+            }],
+        },
+    }
+    blocked = operating_scenarios.evaluate_priced_outcome_gate(bridge, None)
+    assert blocked["status"] == "blocked"
+    assert "verifier_strict" in blocked["reason"]
+
+    verification = {
+        "model_role": "verifier_strict",
+        "verdict": "pass",
+        "checks": {
+            "representative_archetypes": {"archetypes": ["industrial", "financial", "event-driven"]},
+            "no_lookahead": {"verdict": "pass"},
+            "math_reconciliation": {"verdict": "pass"},
+            "source_lineage": {"verdict": "pass"},
+        },
+    }
+    approved = operating_scenarios.evaluate_priced_outcome_gate(bridge, verification)
+    assert approved["status"] == "approved"
+    rows = operating_scenarios.attach_priced_company_outcomes(
+        [{
+            "kind": "base",
+            "company_outcome": {
+                "direction": "neutral",
+                "label": "Stabilny wynik spółki",
+                "description": "fallback",
+            },
+        }],
+        bridge["fcf_lens"],
+    )
+    assert rows[0]["company_outcome"]["mode"] == "priced"
+    assert rows[0]["company_outcome"]["direction"] == "positive"

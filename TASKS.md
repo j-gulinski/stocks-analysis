@@ -212,9 +212,10 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
   - [x] RT4.3e: Add explicit approved capex/WC forecast assumptions and a
     separate FCF valuation lens; it does not replace the current multiple lens
     and remains unavailable until its inputs are complete.
-  - [ ] RT4.4a: Replace qualitative scenario outcomes with priced operating
-    drivers only after representative industrial/financial/event-driven cases
-    pass the strict verifier and no-look-ahead checks.
+  - [x] RT4.4a: Gate priced scenario outcomes behind an approved FCF lens,
+    representative industrial/financial/event-driven coverage, strict verifier
+    pass, source lineage, math reconciliation and no-look-ahead checks; keep
+    qualitative outcomes when any gate condition is missing.
 - [~] RT4.5–RT4.7: report-first UI and manual QA slices exist; scenario rows
   now expose a qualitative negative/stable/improving company outcome and case
   assumptions have provenance-aware persistence/editor surfaces and appendable
