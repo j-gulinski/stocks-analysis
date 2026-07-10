@@ -225,9 +225,10 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
   - [x] RT4.5a: Add company-outcome conditions to C/Z, C/WK and EV/EBITDA
     rows, including fallback/missing-data and AI-event boundaries.
   - [~] RT4.5b: Priced outcomes now use the approved FCF equation only after
-    the RT4.4a gate; the UI exposes every required verifier check. Remaining
-    acceptance is representative persisted verifier evidence for industrial,
-    financial and event-driven cases.
+    the RT4.4a gate; the UI exposes every required verifier check and the
+    verifier must bind to the current bridge fingerprint. Remaining acceptance
+    is representative persisted verifier evidence for industrial, financial
+    and event-driven cases.
 
 ### RT.5 — OpenAI orchestration and Codex workflow
 

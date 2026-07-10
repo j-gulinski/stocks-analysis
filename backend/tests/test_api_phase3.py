@@ -220,6 +220,12 @@ def test_dossier_promotes_priced_outcome_only_after_persisted_strict_verifier(
     )
     assert assumptions.status_code == 201
 
+    before_verification = refreshed.get("/api/companies/DEC").json()
+    input_fingerprint = before_verification["scenarios"]["priced_operating_outcomes"][
+        "input_fingerprint"
+    ]
+    assert input_fingerprint
+
     company = db.query(Company).filter(Company.ticker == "DEC").one()
     analysis = AnalysisRun(
         company_id=company.id,
@@ -246,6 +252,10 @@ def test_dossier_promotes_priced_outcome_only_after_persisted_strict_verifier(
                 "no_lookahead": {"passed": True},
                 "math_reconciliation": {"passed": True},
                 "source_lineage": {"passed": True},
+                "scenario_input_match": {
+                    "passed": True,
+                    "fingerprint": input_fingerprint,
+                },
             },
             summary="Fixture-only approval contract; not production evidence.",
         )

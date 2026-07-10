@@ -187,6 +187,7 @@ def test_priced_outcome_gate_requires_strict_archetype_and_lookahead_checks():
     blocked = operating_scenarios.evaluate_priced_outcome_gate(bridge, None)
     assert blocked["status"] == "blocked"
     assert "verifier_strict" in blocked["reason"]
+    fingerprint = operating_scenarios.operating_bridge_fingerprint(bridge)
 
     verification = {
         "model_role": "verifier_strict",
@@ -196,9 +197,12 @@ def test_priced_outcome_gate_requires_strict_archetype_and_lookahead_checks():
             "no_lookahead": {"verdict": "pass"},
             "math_reconciliation": {"verdict": "pass"},
             "source_lineage": {"verdict": "pass"},
+            "scenario_input_match": {"verdict": "pass", "fingerprint": fingerprint},
         },
     }
-    approved = operating_scenarios.evaluate_priced_outcome_gate(bridge, verification)
+    approved = operating_scenarios.evaluate_priced_outcome_gate(
+        bridge, verification, fingerprint
+    )
     assert approved["status"] == "approved"
     rows = operating_scenarios.attach_priced_company_outcomes(
         [{
@@ -213,3 +217,9 @@ def test_priced_outcome_gate_requires_strict_archetype_and_lookahead_checks():
     )
     assert rows[0]["company_outcome"]["mode"] == "priced"
     assert rows[0]["company_outcome"]["direction"] == "positive"
+
+    mismatched = operating_scenarios.evaluate_priced_outcome_gate(
+        bridge, verification, "different-bridge"
+    )
+    assert mismatched["status"] == "blocked"
+    assert "aktualnym mostem" in mismatched["reason"]

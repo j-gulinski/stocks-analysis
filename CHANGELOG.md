@@ -103,6 +103,10 @@ The RT4.5b API test now covers the full promotion path with fixture-only
 `AnalysisRun`/`VerificationRun` records: complete checks promote the base row
 to `mode: priced`, while production still requires real persisted evidence.
 
+The gate now also hashes the exact deterministic operating bridge and requires
+the strict verifier to return that fingerprint. A valid verifier result for an
+older or otherwise different input bridge therefore remains blocked.
+
 ## 2026-07-10 · Refined RT4 next task
 
 The next implementation target is now RT4.1a: establish the durable

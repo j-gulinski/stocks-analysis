@@ -40,6 +40,7 @@ const pricedCheckLabels: Record<string, string> = {
   no_lookahead: "brak look-ahead",
   math_reconciliation: "zgodność matematyczna",
   source_lineage: "linia źródłowa",
+  scenario_input_match: "zgodność z aktualnym mostem",
 };
 
 function pricedCheckState(gate: PricedOutcomeGate, checkId: string) {

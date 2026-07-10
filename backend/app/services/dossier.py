@@ -593,9 +593,12 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
         cashflow_latest=cashflow_latest,
         balance_series=balance_series,
     )
+    operating_bridge_fingerprint = operating_scenarios.operating_bridge_fingerprint(
+        operating_bridge
+    )
     priced_verification = load_latest_priced_outcome_verification(db, company.id)
     priced_gate = operating_scenarios.evaluate_priced_outcome_gate(
-        operating_bridge, priced_verification
+        operating_bridge, priced_verification, operating_bridge_fingerprint
     )
     scenarios_block = {
         **scenario_set.to_dict(),

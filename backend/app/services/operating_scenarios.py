@@ -8,6 +8,8 @@ stay explicit instead of receiving a generic-looking equation.
 from __future__ import annotations
 
 from dataclasses import replace
+from hashlib import sha256
+import json
 from math import isfinite
 
 from app.services import forecast, metrics, scenarios
@@ -31,6 +33,7 @@ _REQUIRED_PRICED_CHECKS = (
     "no_lookahead",
     "math_reconciliation",
     "source_lineage",
+    "scenario_input_match",
 )
 
 
@@ -301,9 +304,22 @@ def _check_pass(value) -> bool:
     return value.get("verdict") in {"pass", "passed", "spełnia"}
 
 
+def operating_bridge_fingerprint(operating_bridge: dict) -> str:
+    """Create a stable binding for the exact deterministic bridge being checked."""
+    payload = json.dumps(
+        operating_bridge,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return sha256(payload.encode("utf-8")).hexdigest()
+
+
 def evaluate_priced_outcome_gate(
     operating_bridge: dict,
     verification: dict | None,
+    expected_fingerprint: str | None = None,
 ) -> dict:
     """Allow priced company outcomes only after an independent strict pass."""
     reasons: list[str] = []
@@ -326,11 +342,20 @@ def evaluate_priced_outcome_gate(
         for check_id in ("no_lookahead", "math_reconciliation", "source_lineage"):
             if not _check_pass(checks.get(check_id)):
                 reasons.append(f"Verifier nie potwierdził: {check_id}.")
+        input_match = checks.get("scenario_input_match")
+        if (
+            expected_fingerprint is None
+            or not isinstance(input_match, dict)
+            or input_match.get("fingerprint") != expected_fingerprint
+            or not _check_pass(input_match)
+        ):
+            reasons.append("Verifier nie jest związany z aktualnym mostem scenariusza.")
     return {
         "status": "approved" if not reasons else "blocked",
         "reason": " ".join(reasons) if reasons else "Priced outcomes mają niezależne potwierdzenie verifier_strict.",
         "required_checks": list(_REQUIRED_PRICED_CHECKS),
         "verification": verification,
+        "input_fingerprint": expected_fingerprint,
     }
 
 

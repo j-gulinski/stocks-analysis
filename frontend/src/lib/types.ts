@@ -519,6 +519,7 @@ export interface PricedOutcomeGate {
   reason: string;
   required_checks: string[];
   verification: Record<string, unknown> | null;
+  input_fingerprint?: string | null;
 }
 
 // --- AI valuation (stage SC / WP4) — mirrors schemas.ValuationOut -------------

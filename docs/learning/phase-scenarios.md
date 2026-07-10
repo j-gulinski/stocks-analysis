@@ -135,3 +135,9 @@ an analysis run and a strict verification run must all exist before a scenario
 row changes mode. The fixture is deliberately labelled as test-only, which is
 the same separation a C# integration test makes between a seeded database row
 and evidence accepted for a real decision.
+
+The approval contract now includes a deterministic fingerprint of the complete
+operating bridge. The verifier must echo that fingerprint, which prevents a
+previously approved result from silently being reused after inputs change. In
+C# terms, this is an immutable DTO/version key checked before an approval record
+can be joined to the current aggregate.

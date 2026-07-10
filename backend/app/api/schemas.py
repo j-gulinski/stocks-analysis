@@ -586,6 +586,7 @@ class PricedOutcomeGateOut(BaseModel):
     reason: str
     required_checks: list[str] = Field(default_factory=list)
     verification: dict | None = None
+    input_fingerprint: str | None = None
 
 
 class OperatingBridgeRowOut(BaseModel):
