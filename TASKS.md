@@ -66,12 +66,14 @@ Detailed contracts: `docs/plan-stage-codex-pivot.md`.
   RT4.7 and `docs/plan-ui-refactor.md`.
 - [ ] **CX.15 Session-driven operation.** Keep ingestion and queue execution
   pull-based and local; periodic polling is opt-in only.
-  - [~] **CX.15a** Persist `last_polled_at`, paginate GPW ESPI until the
+  - [x] **CX.15a** Persist `last_polled_at`, paginate GPW ESPI until the
     watermark with a hard cap, and gate queue creation on complete ingestion.
-    Current working-tree slice adds migration `0010`, strict parsers and
-    fixture coverage; finish acceptance and verify.
-  - [ ] **CX.15b** Make `workbench start` run health checks, pre-session poll,
+    Migration `0010`, strict parsers, fixture coverage, resumable cursors and
+    incomplete-poll queue suppression are verified by the focused backend suite.
+  - [x] **CX.15b** Make `workbench start` run health checks, pre-session poll,
     queueing and one queue-processing attempt, idempotently and non-blocking.
+    The detached session hook is idempotent, stops at the durable queue claim
+    boundary, and is covered by operator tests plus the fresh local runtime gate.
   - [ ] **CX.15c** Add UI actions for ESPI re-check and one queue-processing
     attempt with visible progress and failure state.
   - [ ] **CX.15d** Document periodic/hosted polling as an opt-in variant.

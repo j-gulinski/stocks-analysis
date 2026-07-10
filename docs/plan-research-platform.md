@@ -332,10 +332,11 @@ Suggested roles:
   model or deterministic templates.
 
 Model routing is cost-aware and evaluated, not “use the strongest everywhere.”
-The binding tiers are GPT-5.3 high–extra-high for testing/mechanical loops,
-GPT-5.6 Luna high for normal implementation, GPT-5.6 Sol high for material
-synthesis/adjudication and strict verification, and GPT-5.6 Sol ultra only for
-exceptional hardest work. Configure by role (`AI_MODEL_CLASSIFY`, `AI_MODEL_EXTRACT`, `AI_MODEL_VERIFY`,
+The binding ladder is GPT-5.3 high only when capable for testing/mechanical
+loops, Luna medium when GPT-5.3 is insufficient there, Terra high for normal
+implementation, Sol high for material synthesis/adjudication and strict
+verification, and Sol ultra only for exceptional hardest work. Configure by
+role (`AI_MODEL_CLASSIFY`, `AI_MODEL_EXTRACT`, `AI_MODEL_VERIFY`,
 `AI_MODEL_ANALYZE`, `AI_MODEL_ADJUDICATE`, `AI_MODEL_JUDGE`) and benchmark
 quality/cost/latency against the repository eval set before changing defaults.
 If a named model is unavailable, record a same-reasoning-level host
@@ -419,6 +420,11 @@ poller. Periodic execution (the ten-minute host-local Codex automation, or a
 future hosted poller) is an **optional variant**: opt-in, default off, and
 never required for the system to be correct (CX.15). A hosted poller remains
 an RT.7 decision, taken only if away-capture becomes a real need.
+
+The local implementation starts this pre-session path as a detached,
+idempotent hook after the workbench health gate. The hook stops after claiming
+one durable queue item; Codex still performs the workflow and persists the
+verifier-gated result.
 
 ### 7.4 Seasoned-investor judge and improvement loop
 

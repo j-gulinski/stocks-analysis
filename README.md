@@ -15,7 +15,7 @@ and first-build history) · `TASKS.md` (task breakdown) · `CHANGELOG.md`
 
 ```bash
 ./workbench doctor       # read-only: dependencies/config/services/stored source health
-./workbench start        # Docker Postgres + migrations + backend + frontend
+./workbench start        # start services + detached pre-session/queue attempt
 ./workbench status
 ./workbench start --open # same, then open the app on macOS
 ./workbench stop         # stops owned app processes; leaves Postgres running
@@ -24,6 +24,11 @@ and first-build history) · `TASKS.md` (task breakdown) · `CHANGELOG.md`
 The command is idempotent and stores only local PID/log state under the
 gitignored `.workbench/` directory. It never prints secret values. On macOS,
 `start` opens Docker Desktop when it is installed but not running.
+After the health gate passes, the first start also launches a detached,
+session-triggered hook. It polls ESPI/EBI, queues a brief only after complete
+ingestion, and claims at most one queue item for Codex; inspect
+`.workbench/session-hook.log` for its result. Re-running `start` while the app
+or hook is already active does not duplicate the attempt.
 
 ### Start from Codex
 

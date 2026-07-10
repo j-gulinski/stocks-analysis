@@ -9,6 +9,67 @@ Every code, schema, plan, or configuration change must add a concise entry.
 
 ---
 
+## 2026-07-10 · Hard documentation compaction
+
+Reviewed the Markdown documentation tree and reduced superseded stage plans,
+the legacy design reference, UI contract, expert review, hosting note and
+valuation replay plan to compact durable contracts and pointers. Preserved
+operational instructions, source-grounded strategy rules, validation evidence,
+the canonical research-platform plan and active skills. Updated the archive
+lifecycle note to make compact pages and git-recoverable historical detail
+explicit.
+
+## 2026-07-10 · Clarified uncertain model classification
+
+Removed the ambiguous instruction to default to the Medium tier when unsure.
+`AGENTS.md` now says to choose the lightest plausible tier, while preserving
+the explicit routing: GPT-5.3 high for capable testing/mechanical work, Terra
+high for ordinary implementation, Sol high for high-complexity work, and Sol
+ultra only after Sol high proves insufficient.
+
+## 2026-07-10 · Corrected model routing ladder
+
+Corrected the active routing policy to the requested escalation ladder:
+GPT-5.3 high only when capable for testing/mechanical work, Luna medium as the
+fallback when GPT-5.3 is insufficient there, Terra high for default
+implementation, Sol high for high-complexity work, and Sol ultra only for
+exceptional hardest work. Updated AGENTS, guardrails, the active
+research-platform plan and the model usage ledger.
+
+## 2026-07-10 · Delegated worker and independent judge policy
+
+Added an AGENTS workflow for splitting meaningful medium/high-complexity work
+into bounded worker loops, integrating through a manager, and judging the
+integrated result in an independent review pass. Trivial or tightly coupled
+work remains single-agent; overlapping writes are prohibited. When separate
+agent tooling is unavailable, the workflow requires sequential worker-style
+and judge passes with the limitation recorded in `docs/model-usage.md`.
+
+Corrected the usage ledger so the documentation-only policy edit is classified
+as testing/mechanical GPT-5.3-tier work; the earlier CX.15 implementation
+remains correctly classified as Medium-tier work.
+
+## 2026-07-10 · CX.15a closeout and CX.15b startup hook
+
+Closed the ESPI completeness slice after verifying migration `0010`, strict
+list/detail fixtures, watermark continuation after the hard page cap, detail
+retry behavior, and the rule that incomplete ingestion never queues a Codex
+brief. Added a detached `workbench start` session hook that runs the
+pre-session poll/queue path and claims at most one durable queue item; startup
+health remains independent of polite source latency or hook failure. Repeated
+starts skip the hook while the application is already ready or while the same
+hook PID is still active. The hook stops at the queue boundary—Codex remains
+responsible for the verifier-gated workflow and final save.
+
+Implementation-phase schema decision: keep this slice in the single `0010`
+migration. Do not preserve or repair already-generated local database state with
+a compatibility migration; recreate disposable local data from the current
+chain when needed.
+
+Added `docs/model-usage.md` and an AGENTS rule requiring per-session model,
+role, tier, substitution/escalation and verification records so routing quality
+and task division can be measured over time.
+
 ## 2026-07-10 · Documentation consolidation and archive lifecycle
 
 Made `AGENTS.md` the single authoritative instruction file and reduced
