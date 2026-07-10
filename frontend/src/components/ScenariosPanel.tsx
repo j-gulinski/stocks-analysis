@@ -265,6 +265,7 @@ export default function ScenariosPanel({
               <div><span className="k">Capex</span><span className="v">{fmtTys(scenarios.operating_bridge.cash_conversion.capex)}</span></div>
               <div><span className="k">Capex / przychód</span><span className="v">{fmtPct(scenarios.operating_bridge.cash_conversion.capex_intensity_pct)}</span></div>
               <div><span className="k">Δ należności + zapasy</span><span className="v">{fmtTys(scenarios.operating_bridge.cash_conversion.working_capital_change)}</span></div>
+              <div><span className="k">Obserwowany FCF</span><span className="v">{fmtTys(scenarios.operating_bridge.cash_conversion.observed_fcf)}</span></div>
             </div>
             {scenarios.operating_bridge.cash_conversion.gaps.length > 0 && (
               <p className="sensitivity-detail muted">Luki: {scenarios.operating_bridge.cash_conversion.gaps.join("; ")}</p>
@@ -282,8 +283,10 @@ export default function ScenariosPanel({
                   <div><span className="k">Marża brutto</span><span className="v">{fmtPct(row.projected_gross_margin_pct)}</span></div>
                   <div><span className="k">Zysk netto</span><span className="v">{fmtTys(row.projected_net_profit)}</span></div>
                   <div><span className="k">Cena z mostu</span><span className={`v ${signClass(row.target_price_delta)}`}>{fmtPln(row.operating_target_price)}</span></div>
+                  <div><span className="k">FCF z mostu</span><span className="v">{fmtTys(row.projected_fcf)}</span></div>
                 </div>
                 {row.missing.length > 0 && <p className="sensitivity-detail muted">Luki: {row.missing.join("; ")}</p>}
+                {row.fcf_gap && <p className="sensitivity-detail muted">FCF: {row.fcf_gap}</p>}
                 {row.ignored.length > 0 && <p className="sensitivity-detail muted">Pominięto: {row.ignored.map((item) => `${item.key} — ${item.note}`).join("; ")}</p>}
               </div>
             ))}

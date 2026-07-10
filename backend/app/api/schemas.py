@@ -592,6 +592,9 @@ class OperatingBridgeRowOut(BaseModel):
     projected_net_profit: float | None
     projected_eps: float | None
     projected_ebitda: float | None
+    projected_depreciation: float | None
+    projected_fcf: float | None
+    fcf_gap: str | None
     applied: list[DriverAssumptionOut] = Field(default_factory=list)
     ignored: list[DriverAssumptionOut] = Field(default_factory=list)
     missing: list[str] = Field(default_factory=list)

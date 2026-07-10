@@ -206,9 +206,12 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
   - [x] RT4.3c: Add the first industrial/consumer P&L template for
     revenue/margin, forecast net profit and C/Z or EV/EBITDA bridge, retaining
     the RT4.3b overlay as an explicit sensitivity rather than a hidden forecast.
-  - [~] RT4.3d: Cash-flow/capex mapping, conversion snapshot and a
-    source-backed receivable/inventory delta are present; wire the resulting
-    cash effect into a tested FCF bridge before closing this task.
+  - [x] RT4.3d: Cash-flow/capex mapping, conversion snapshot,
+    source-backed receivable/inventory delta and a tested P&L-to-FCF bridge
+    are present; historical CF is kept separate to avoid double-counting WC.
+  - [ ] RT4.3e: Add explicit approved capex/WC forecast assumptions and a
+    separate FCF valuation lens; do not replace the current multiple lens
+    until the pilot has source-backed coverage.
 - [~] RT4.5–RT4.7: report-first UI and manual QA slices exist; scenario rows
   now expose a qualitative negative/stable/improving company outcome and case
   assumptions have provenance-aware persistence/editor surfaces and appendable

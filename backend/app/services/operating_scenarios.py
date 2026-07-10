@@ -130,6 +130,11 @@ def build_cash_conversion_snapshot(
         if capex is not None and revenue and revenue > 0
         else None
     )
+    observed_fcf = (
+        round(operating_value + capex[1], 1)
+        if operating_value is not None and capex is not None
+        else None
+    )
     balance_series = balance_series or {}
     working_capital_change = None
     if period and period in balance_series:
@@ -175,6 +180,7 @@ def build_cash_conversion_snapshot(
         "conversion_ratio": conversion_ratio,
         "capex": capex[1] if capex is not None else None,
         "capex_intensity_pct": capex_intensity,
+        "observed_fcf": observed_fcf,
         "working_capital_change": working_capital_change,
         "working_capital_cash_effect": (
             round(-working_capital_change, 1) if working_capital_change is not None else None
@@ -259,6 +265,25 @@ def build_operating_bridge(
         if missing:
             gap = "Brak wymaganych sterowników: " + ", ".join(missing) + "."
             operating_price = None
+        projected_fcf = None
+        fcf_gap = None
+        if cash_conversion["capex"] is None:
+            fcf_gap = "Brak obserwowanego capex do mostu FCF."
+        elif cash_conversion["working_capital_cash_effect"] is None:
+            fcf_gap = "Brak zmiany kapitału obrotowego do mostu FCF."
+        elif projected_assumptions.depreciation is None:
+            fcf_gap = "Brak amortyzacji do mostu FCF."
+        else:
+            # Capex keeps its cash-flow sign (normally negative). Observed
+            # operating CF is not adjusted here because it already includes
+            # working-capital movement; this is a separate P&L-to-FCF bridge.
+            projected_fcf = round(
+                result["pnl"]["net_profit"]
+                + projected_assumptions.depreciation
+                + cash_conversion["working_capital_cash_effect"]
+                + cash_conversion["capex"],
+                1,
+            )
         rows.append(
             {
                 "scenario_kind": kind,
@@ -276,6 +301,9 @@ def build_operating_bridge(
                 "projected_net_profit": result["pnl"]["net_profit"],
                 "projected_eps": result["forward"]["eps"],
                 "projected_ebitda": result["pnl"]["ebitda"],
+                "projected_depreciation": projected_assumptions.depreciation,
+                "projected_fcf": projected_fcf,
+                "fcf_gap": fcf_gap,
                 "applied": applied,
                 "ignored": ignored,
                 "missing": missing or ([gap] if gap else []),

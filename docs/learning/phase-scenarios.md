@@ -103,3 +103,10 @@ The working-capital follow-up uses two comparable balance periods and reports
 the change in receivables plus inventory, including its cash direction. If one
 period or one canonical row is absent, the result stays a gap. This is the
 important distinction between a measured delta and an invented FCF forecast.
+
+The FCF bridge now makes that distinction executable: projected net profit,
+depreciation, the measured working-capital cash effect and capex are combined
+only for an approved operating what-if row. Historical operating CF is shown
+separately because it already contains working-capital movement. This is the
+same separation a C# domain service would use between an observed ledger and
+a projected record.

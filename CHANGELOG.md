@@ -66,6 +66,12 @@ from comparable balance periods, exposing their change and cash effect beside
 CF and capex. It still does not feed a projected FCF price; that final bridge
 remains open and is not inferred from the snapshot.
 
+The final RT4.3d pass adds a separate P&L-to-FCF bridge for approved operating
+scenario rows: projected net profit + depreciation + measured working-capital
+cash effect + capex. Historical FCF remains `operating CF + capex` and is not
+adjusted by working capital a second time. No FCF price lens is introduced;
+that remains a future, separately approved valuation method.
+
 ## 2026-07-10 · Refined RT4 next task
 
 The next implementation target is now RT4.1a: establish the durable

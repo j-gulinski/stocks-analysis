@@ -65,6 +65,14 @@ def test_industrial_bridge_projects_pnl_and_keeps_suggestions_inactive():
             },
             {"scenario_kind": "negative", "status": "draft", "assumptions": []},
         ],
+        cashflow_latest={
+            "operating_cashflow": ("2025Q1", 1_500.0),
+            "capex": ("2025Q1", -400.0),
+        },
+        balance_series={
+            "2024Q4": {"receivables_current": 100.0, "inventory": 200.0},
+            "2025Q1": {"receivables_current": 150.0, "inventory": 250.0},
+        },
     )
 
     assert result["status"] == "applied"
@@ -77,6 +85,10 @@ def test_industrial_bridge_projects_pnl_and_keeps_suggestions_inactive():
     assert {item["key"] for item in row["applied"]} == {"revenue", "gross_margin_pct"}
     assert row["ignored"][0]["key"] == "selling_costs_pct"
     assert row["ignored"][0]["applied"] is False
+    assert row["projected_fcf"] == round(
+        row["projected_net_profit"] + row["projected_depreciation"] - 100.0 - 400.0,
+        1,
+    )
 
 
 def test_bridge_keeps_unsupported_archetype_explicit():
@@ -98,6 +110,7 @@ def test_cash_conversion_snapshot_keeps_working_capital_gap_explicit():
     assert snapshot["status"] == "partial"
     assert snapshot["conversion_ratio"] == 1.5
     assert snapshot["capex_intensity_pct"] == 4.0
+    assert snapshot["observed_fcf"] == 1_100.0
     assert any("należności" in gap for gap in snapshot["gaps"])
 
     complete = operating_scenarios.build_cash_conversion_snapshot(

@@ -170,6 +170,9 @@ export interface OperatingBridgeRow {
   projected_net_profit: number | null;
   projected_eps: number | null;
   projected_ebitda: number | null;
+  projected_depreciation: number | null;
+  projected_fcf: number | null;
+  fcf_gap: string | null;
   applied: DriverAssumption[];
   ignored: DriverAssumption[];
   missing: string[];
@@ -188,6 +191,7 @@ export interface OperatingBridge {
     conversion_ratio: number | null;
     capex: number | null;
     capex_intensity_pct: number | null;
+    observed_fcf: number | null;
     working_capital_change: number | null;
     working_capital_cash_effect: number | null;
     gaps: string[];
