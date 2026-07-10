@@ -13,8 +13,9 @@ buy/sell signals.
 > The top-down audit found missing point-in-time provenance, discarded analysis
 > snapshots, hidden AI calls on dossier reads and generic rather than
 > operating-driver scenarios. `docs/plan-research-platform.md` is the binding
-> target architecture and delivery order (RT.0–RT.7). This file remains the
-> overview and history of the first build.
+> target architecture and delivery order (RT.0–RT.7). `TASKS.md` is the current
+> status and execution queue; this file remains the stable architecture
+> reference.
 
 ---
 
@@ -314,44 +315,16 @@ Browser ──► Vercel: Next.js + Auth.js (Google sign-in, ALLOWED_EMAILS allo
 
 ## 10. Build order, phases, extension points
 
-### Revised next stages (binding)
+The current order and acceptance criteria live in `TASKS.md`. The binding
+target architecture and RT.0–RT.7 definitions live in
+`docs/plan-research-platform.md`. Completed P0–P5, TH and SC work is summarized
+in `TASKS.md`; detailed stage notes remain in the learning and validation docs.
 
-| Stage | Scope | Gate |
-|---|---|---|
-| RT.0 | Restore green backend/frontend baseline and live smoke evidence | no known red suite; reproducible install/build |
-| RT.1 | Pure read paths + persisted, validated AI run provenance | no hidden calls; exact input/skill/model trace |
-| RT.2 | Immutable evidence ledger + issuer/ESPI/EBI pilot | material claims cite source and `known_at` |
-| RT.3 | Fundamental depth + first company templates | cash conversion/working capital/capex/dilution and 2–3 driver models |
-| RT.4 | Operating-driver scenario engine + research-case UI | editable assumptions, deterministic bridge, falsifiers/history |
-| RT.5 | Responses API orchestration + Codex CLI/skill | guarded role routing; Codex can start and facilitate the case |
-| RT.6 | Calibration + seasoned-investor judge loop + walk-forward replay | training/holdout separation; changes promoted only after gates |
-| RT.7 | Deploy/auth/backups/scheduled review queue | pilot workflow proven locally first |
-
-### Completed first-build order (historical)
-
-Phases match your four dividable parts; B before A only because everything downstream feeds on financials. A and B are independent — order can swap.
-
-| Phase | Scope | Done when |
-|---|---|---|
-| 0 | Scaffold: repo layout, docker-compose (postgres), FastAPI skeleton + `/api/health`, Next.js + SCSS skeleton, `.env.example`, README | both apps run, DB migration applies |
-| 1 | **Module B** — BiznesRadar + stooq scrapers | `refresh` fills DB for a real ticker; parsers green against fixtures |
-| 2 | **Module A** — PortalAnaliz scraper | link topic → full sync → incremental sync works on a real thread |
-| 3 | **Module C (backend)** — metrics, prescore, forecast, dossier | dossier endpoint returns correct numbers verified against BiznesRadar by hand |
-| 4 | **Module C (frontend)** — watchlist + stock page tabs | you can do your full manual workflow in the app instead of Excel |
-| 5 | **Module D** — skill + Claude integration + Analiza tab | end-to-end analysis of a watchlist stock produces a structured, sensible verdict |
-| 6 | Deploy & polish — Railway (backend+DB) + Vercel (frontend), Auth.js Google allowlist, proxy + bearer token, backups | app live; you and allowlisted friends sign in with Google; everyone else gets a login wall |
-
-Explicit **extension points** (documented, not built). Each was checked against the current architecture — none requires restructuring:
-
-- **Market-wide screener** over prescore; **forum topic auto-discovery**; **US stocks** via stockanalysis.com.
-- **BiznesRadar premium login** (task P1.9, user has an account): optional `BR_USERNAME/BR_PASSWORD`, session login before page fetches → longer statement/indicator history (better own-history C/Z stats). Fits cleanly: scrapers already accept a shared `requests.Session`; needs one recorded login-page fixture to implement the form flow.
-- **ESPI/EBI feed + e-mail alerts** (espiebi.pap.pl / stockwatch.pl): new `scrapers/espi.py` (fetch+parse+upsert into a new `espi_reports` table keyed by report id), polled for watchlist tickers by the scheduler extension (Railway cron → internal endpoint); a notifier module e-mails you when the distiller flags a report as material for an observed stock. Fits: same polite-fetch path, same long-format storage, analyses layer already consumes per-company events.
-- **Walk-forward research evaluation / backtesting:** this **does require schema
-  and source changes**. Current financial rows are overwritten, analysis input
-  snapshots are not stored, publication dates/corporate actions/delistings are
-  incomplete and the price history is not a survivorship-safe total-return
-  dataset. RT.1–RT.2 establish point-in-time truth; RT.6 begins mixed-outcome
-  case replay before any market-wide score optimization.
+Deferred extensions require a real pilot need and the relevant RT gate:
+company templates, primary-source adapters, corporate-action-aware prices,
+broader backtesting, reusable Codex skills, and optional hosted jobs or
+notifications. Do not add a generic screener, crawler, scheduler, or
+market-wide optimizer ahead of those gates.
 
 ## 11. Testing (pragmatic)
 

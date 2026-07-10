@@ -332,15 +332,14 @@ Suggested roles:
   model or deterministic templates.
 
 Model routing is cost-aware and evaluated, not “use the strongest everywhere.”
-The user explicitly permits GPT-5.3 as a candidate for repeated bounded loops
-when it is available in the configured account. Current mini/nano-class models
-are candidates for simple classification, extraction and rendering; a stronger
-model is reserved for material synthesis/adjudication and the final judge.
-Treat names as configuration candidates, not permanent constants. Configure by
-role (`AI_MODEL_CLASSIFY`, `AI_MODEL_EXTRACT`, `AI_MODEL_VERIFY`,
+The binding tiers are GPT-5.3 high–extra-high for testing/mechanical loops,
+GPT-5.6 Luna high for normal implementation, GPT-5.6 Sol high for material
+synthesis/adjudication and strict verification, and GPT-5.6 Sol ultra only for
+exceptional hardest work. Configure by role (`AI_MODEL_CLASSIFY`, `AI_MODEL_EXTRACT`, `AI_MODEL_VERIFY`,
 `AI_MODEL_ANALYZE`, `AI_MODEL_ADJUDICATE`, `AI_MODEL_JUDGE`) and benchmark
 quality/cost/latency against the repository eval set before changing defaults.
-Do not rely on a limited-preview model for the core path.
+If a named model is unavailable, record a same-reasoning-level host
+substitution; do not silently change the tier.
 
 Each role has a `ModelPolicy`: permitted models in priority order, reasoning
 level, maximum calls/iterations, input/output token ceiling, PLN/USD budget,

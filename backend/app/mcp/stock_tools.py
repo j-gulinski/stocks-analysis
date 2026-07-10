@@ -426,7 +426,17 @@ def prepare_pre_session_brief(arguments: dict[str, Any] | None = None) -> dict[s
             fetch_details=bool(arguments.get("fetch_details", True)),
         )
         if arguments.get("queue", True) is False:
-            return {"ok": True, "espi_poll": poll_result, "agent_run": None}
+            return {
+                "ok": bool(poll_result.get("ok") and poll_result.get("complete")),
+                "espi_poll": poll_result,
+                "agent_run": None,
+            }
+        if not poll_result.get("complete"):
+            return {
+                "ok": False,
+                "espi_poll": poll_result,
+                "agent_run": None,
+            }
 
         inputs = {
             "espi_poll": poll_result,

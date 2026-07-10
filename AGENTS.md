@@ -73,6 +73,101 @@ reference for the completed first vertical slice.
   `docs/project-guardrails.md`; do not mark work complete if it violates the
   evidence, UI, model-discipline, or phase-exit checklist there.
 
+## Documentation lifecycle
+
+- `TASKS.md` is the only live execution/status list. Keep it compact: retain
+  the ordered queue, open acceptance criteria, stable IDs, blockers and the
+  next verification command; do not append session-by-session progress logs.
+- `docs/plan-research-platform.md` is the canonical future architecture and
+  RT.0–RT.7 order. `PLAN.md` is the stable architecture overview, not a second
+  status tracker. Stage plans are detailed working references only while their
+  stage is active.
+- When a phase, stage, or work package closes, record the durable decision and
+  evidence in `CHANGELOG.md`, reduce its completed section to a summary, and
+  move detailed task/plan history to `docs/archive/<topic>-<date>.md` when it
+  is no longer needed for active implementation. Keep stable IDs and a pointer
+  from the live document; never silently delete acceptance evidence.
+- Archive stale reviews, superseded designs and completed stage plans instead
+  of leaving competing “current” instructions in the active document tree.
+- Before starting work, search both live docs and `docs/archive/` for the
+  relevant stable ID. Historical archive text is context, not current status.
+
+## Operating policy: model selection and working style
+
+Mission: build and maintain a high-quality stock-analysis workbench while
+minimizing cost, latency and unnecessary reasoning. Every decision balances
+correctness, maintainability and efficiency. Always pick the **lightest
+model + reasoning level that can reliably finish the task at hand**, and
+escalate only on evidence — never by default.
+
+### Model routing by effort
+
+Pick the lightest suitable model and reasoning level for the task tier below.
+For saved analysis runs, record both `model_role` and the actual `model`; the
+role is metadata and does not override this model-routing policy. All
+UI-visible investment output must pass `verifier_strict`.
+
+| Work tier | Model and reasoning | Suitable work |
+|---|---|---|
+| **Testing / mechanical** | GPT-5.3 · high–extra-high | Tests, formatting, linting, repository exploration, log reading, small mechanical edits, simple bug fixes, documentation, repetitive refactors, dependency bumps, and simple scripts. |
+| **Medium** (default) | GPT-5.6 Luna · high | Feature implementation, API development, ordinary debugging, tests, medium refactors, code review, architecture comprehension, DB queries, and scoped performance work. |
+| **High** | GPT-5.6 Sol · high | System architecture, multi-service changes, trading algorithms, financial calculations, data pipelines, concurrency, security, hard debugging, and migration planning. |
+| **Hardest** (exceptional) | GPT-5.6 Sol · ultra | Critical production incidents, extremely difficult bugs, or architectural redesign after the High tier has proved insufficient. Never the default. |
+
+Default to the Medium tier when unsure; never start at Hardest. If a named
+model is unavailable on the current Codex host, use the closest available model
+at the same reasoning level and record the substitution. This is a host
+constraint, not a reason to change the requested model tier.
+
+### Escalation
+
+Start at the lightest suitable tier. Escalate **one tier** only when confidence
+is low, multiple implementation attempts fail, the task proves more complex
+than expected, or materially deeper reasoning is required. Do not escalate
+automatically; record the reason in the session or `agent_run`.
+
+### Required execution workflow
+
+Follow this sequence for every implementation task:
+
+1. Read `docs/project-guardrails.md` and the relevant plan/work-package
+   section; inspect the current state and existing diff before making changes.
+2. Classify the task using the model-routing table above. Use the matching model
+   and reasoning level; record an escalation or host substitution where the
+   workflow persists an `agent_run`.
+3. Understand the problem, then break it into small independent tasks. Complete
+   one at a time and do not broaden scope without user direction.
+4. Reuse existing patterns. Make the smallest maintainable change that solves
+   the problem; avoid speculative abstractions and unrelated cleanup.
+5. Verify proportionally to risk: run focused tests, lint/build checks, or the
+   relevant runtime check. Diagnose and fix failures before proceeding.
+6. Before completion, re-read the guardrails, update `CHANGELOG.md` and
+   `TASKS.md` when required, record decisions/failures honestly, and confirm
+   that the result advances the investment workflow.
+
+### Code quality
+
+Write readable code, avoid duplication, preserve existing architecture unless a
+redesign is requested, keep commits focused, prefer maintainability over
+cleverness, and run the appropriate tests whenever possible.
+
+### Context management & resume protocol
+
+Assume the project may exceed the context window. `TASKS.md` + `CHANGELOG.md`
+are the durable memory — never chat history; keep them current with completed
+work, remaining tasks, architectural decisions, open issues, assumptions and
+technical debt.
+
+When a conversation nears its token limit, don't wait to be asked — produce a
+resume package containing: (1) **current status** (done / in progress /
+remaining); (2) **important decisions** (architecture, trade-offs, assumptions,
+constraints, key implementation details); (3) **files modified** (path ·
+purpose · summary of changes); (4) an **ordered checklist** of remaining work;
+(5) **known issues** (bugs, TODOs, tech debt, blockers, open questions); and
+(6) a ready-to-paste **next prompt** beginning with "Continue the Stocks
+Analysis project using the resume below…" that carries all context needed to
+continue seamlessly in a fresh conversation.
+
 ## Commands
 
 - Preferred operator path: `./workbench doctor` · `./workbench start` ·

@@ -397,8 +397,12 @@ def test_mcp_contract_and_espi_tools_return_honest_status(db, monkeypatch):
 
     monkeypatch.setattr(
         stock_tools.espi,
-        "fetch_latest_reports",
-        lambda: espi_scraper.parse_report_list(load_fixture("gpw_espi_list.html")),
+        "fetch_report_list_page",
+        lambda **_kwargs: stock_tools.espi.GpwReportListPage(
+            reports=espi_scraper.parse_report_list(load_fixture("gpw_espi_list.html")),
+            next_offset=None,
+            next_limit=None,
+        ),
     )
     monkeypatch.setattr(
         stock_tools.espi,
@@ -430,6 +434,83 @@ def test_mcp_contract_and_espi_tools_return_honest_status(db, monkeypatch):
     )["result"]["structuredContent"]
     assert brief["ok"] is True
     assert brief["agent_run"]["workflow"] == "stock-pre-session-brief"
+
+
+def test_mcp_pre_session_no_details_returns_poll_without_queue(db, monkeypatch):
+    from app.db.models import AgentRun, Company, EventReport, WatchlistItem
+    from app.mcp import stock_tools
+    from app.scrapers import espi as espi_scraper
+
+    company = Company(ticker="KRU", name="KRUK")
+    db.add(company)
+    db.commit()
+    db.add(WatchlistItem(company_id=company.id))
+    db.commit()
+
+    monkeypatch.setattr(
+        stock_tools.espi,
+        "fetch_report_list_page",
+        lambda **_kwargs: stock_tools.espi.GpwReportListPage(
+            reports=espi_scraper.parse_report_list(load_fixture("gpw_espi_list.html")),
+            next_offset=None,
+            next_limit=None,
+        ),
+    )
+
+    def fail_detail(_url):
+        raise AssertionError("no-details must not fetch report detail")
+
+    monkeypatch.setattr(stock_tools.espi, "fetch_report_detail", fail_detail)
+
+    result = stock_tools.prepare_pre_session_brief(
+        {"ticker": "KRU", "fetch_details": False, "queue": True}
+    )
+
+    assert result["ok"] is False
+    assert result["agent_run"] is None
+    assert result["espi_poll"]["complete"] is False
+    assert result["espi_poll"]["metadata_only"] is True
+    assert db.query(AgentRun).count() == 0
+    report = db.query(EventReport).one()
+    assert report.raw_text is None
+
+
+def test_mcp_unknown_ticker_poll_fails_without_fetch(db, monkeypatch):
+    from app.mcp import stock_tools
+
+    def fail_fetch(**_kwargs):
+        raise AssertionError("unknown ticker must not fetch")
+
+    monkeypatch.setattr(stock_tools.espi, "fetch_report_list_page", fail_fetch)
+
+    poll = stock_tools.poll_espi_watchlist({"ticker": "NOPE"})
+    brief = stock_tools.prepare_pre_session_brief({"ticker": "NOPE"})
+
+    assert poll["ok"] is False
+    assert poll["incomplete_reason"] == "unknown_ticker"
+    assert brief["ok"] is False
+    assert brief["agent_run"] is None
+
+
+def test_mcp_empty_watchlist_pre_session_does_not_queue(db, monkeypatch):
+    from app.db.models import AgentRun, Company, ListPollState
+    from app.mcp import stock_tools
+
+    db.add(Company(ticker="KRU", name="KRUK"))
+    db.commit()
+
+    def fail_fetch(**_kwargs):
+        raise AssertionError("empty watchlist must not fetch")
+
+    monkeypatch.setattr(stock_tools.espi, "fetch_report_list_page", fail_fetch)
+
+    result = stock_tools.prepare_pre_session_brief({"queue": True})
+
+    assert result["ok"] is False
+    assert result["agent_run"] is None
+    assert result["espi_poll"]["incomplete_reason"] == "empty_watchlist"
+    assert db.query(AgentRun).count() == 0
+    assert db.query(ListPollState).count() == 0
 
 
 def test_mcp_tool_result_text_is_json(db):

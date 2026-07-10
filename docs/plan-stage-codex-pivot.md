@@ -3,8 +3,11 @@
 **Status:** in progress 2026-07-09. CX.1-CX.8 are complete; CX.9 is a
 compatibility runway; CX.10-CX.14 are active/planned gates. Owner:
 implementation sessions per WP.
-**Read alongside:** `PLAN.md` sections 2, 4, 7, 8 and 10; `TASKS.md` Phase 5
-for the current Claude-shaped implementation to replace; `skill/SKILL.md` and
+**Read alongside:** `AGENTS.md` for project rules, `TASKS.md` for live status,
+`PLAN.md` sections 2, 4, 7, 8 and 10, and
+`docs/plan-research-platform.md` for the canonical RT order. The old
+Claude-shaped implementation is a compatibility path to replace;
+`skill/SKILL.md` and
 `skill/rubric.md` for the existing strategy contract; `docs/strategy-malik.md`
 for the investment method; `docs/plan-stage-scenarios.md` for the current
 deterministic-first scenario and valuation engines.
@@ -52,9 +55,9 @@ Instead, Codex uses tools that read and write the app's local database/API.
 ```mermaid
 flowchart TB
     U[User in Codex chat or automation]
-    C[Codex orchestrator\n5.5 medium/high]
+    C[Codex orchestrator\nGPT-5.6 Luna/Sol]
     W[Worker agents\nrole-selected model]
-    V[Verifier agent\n5.5 high]
+    V[Verifier agent\nGPT-5.6 Sol high]
     S[Repo skills\n.agents/skills]
     M[Local MCP server\nstock-workbench tools]
     CLI[Backend scripts\ncodex_*.py]
@@ -103,22 +106,22 @@ discipline as part of quality:
 
 ## Supervised Agent Policy
 
-Simple work should use the model that is precise enough for the risk of the
-task. In this project that means precision-first model selection: lighter
-models are acceptable for deterministic extraction, formatting, and clearly
-bounded summaries, but analysis that can change an investment view uses a
-stronger model and always gets supervised verification before it becomes
-visible in the app. Treat subscription quota models as Codex workflow capacity,
-not as a backend API budget.
+`AGENTS.md` §Operating policy supplies the binding execution sequence and
+model tiers. In this workflow: testing/mechanical work uses GPT-5.3 at
+high–extra-high reasoning; normal implementation uses GPT-5.6 Luna high;
+deep synthesis and decision-relevant review use GPT-5.6 Sol high; and Sol
+ultra is reserved for exceptional hardest work. Role labels describe the job
+and stored metadata; they do not select a different model. Treat subscription
+quota models as Codex workflow capacity, not as a backend API budget.
 
 ```mermaid
 flowchart TB
-    O[Supervisor/orchestrator\n5.5 medium]
+    O[Supervisor/orchestrator\nGPT-5.6 Luna high]
     Q[Task queue\nagent_runs]
-    F1[Task worker\nsuitable model]
-    F2[Task worker\nsuitable model]
-    D[Deep analyst\n5.5 medium]
-    V[Strict verifier\n5.5 high]
+    F1[Task worker\nGPT-5.3 or GPT-5.6 Luna]
+    F2[Task worker\nGPT-5.3 or GPT-5.6 Luna]
+    D[Deep analyst\nGPT-5.6 Sol high]
+    V[Strict verifier\nGPT-5.6 Sol high]
     DB[(Postgres)]
     UI[Web UI]
 
@@ -151,35 +154,35 @@ Routing rules:
 
 ## Model Roles
 
-Use model role names in workflow specs rather than hard-coding a single model
-everywhere:
+Use model role names for workflow responsibility and stored metadata. Model
+selection follows the binding tiers in `AGENTS.md`:
 
-| Role | Default | Job |
+| Role | Default tier/model | Job |
 |---|---|---|
-| `orchestrator` | `gpt-5.5` medium/high | Plan the run, choose tools, merge worker outputs, decide next step. |
-| `worker_standard` | suitable model by task risk; use `gpt-5.3-codex-spark` for bounded loops and `gpt-5.5` when a summary can change an investment view | ESPI triage, candidate/backtest sweeps, forum claim extraction drafts, routine refresh notes, JSON formatting. |
-| `analyst_deep` | workflow-selected; `stock-deep-analysis` uses `gpt-5.3-codex-spark` for source completion and the draft, with a stronger model only on explicit escalation | Full company thesis draft, scenario read, backtest interpretation, candidate memo. |
-| `verifier_strict` | `gpt-5.5` high | Check source grounding, fabricated numbers, look-ahead bias, schema completeness, and whether output should be visible in UI. |
+| `orchestrator` | Medium: GPT-5.6 Luna high; High: GPT-5.6 Sol high | Plan the run, choose tools, merge worker outputs, decide next step. |
+| `worker_standard` | Testing/mechanical: GPT-5.3 high–extra-high; Medium: GPT-5.6 Luna high | ESPI triage, candidate/backtest sweeps, forum claim extraction drafts, routine refresh notes, JSON formatting. |
+| `analyst_deep` | High: GPT-5.6 Sol high | Full company thesis draft, scenario read, backtest interpretation, candidate memo. |
+| `verifier_strict` | High: GPT-5.6 Sol high | Check source grounding, fabricated numbers, look-ahead bias, schema completeness, and whether output should be visible in UI. |
 
 For `stock-deep-analysis`, the final saved prediction and assessment belong to
 `verifier_strict`, not to the drafting model. The frozen model trace records
-both the 5.3 research/draft pass and the strongest-model verifier pass; a
-detailed 5.3 memo alone is never sufficient for `verified`.
+the selected task-tier model and the GPT-5.6 Sol high verifier pass; a
+testing/mechanical draft alone is never sufficient for `verified`.
 
-If a named model is unavailable in a surface, the skill should ask Codex to use
-the best available model for the role and task risk. The workflow contract is
-more important than the exact model string.
+If a named model is unavailable in a surface, use the closest available model
+at the same reasoning level and record the substitution. This host constraint
+does not change the requested task tier.
 
 ### Delegation Matrix
 
-Use `gpt-5.3-codex-spark` loops for bounded, checkable work:
+Use GPT-5.3 high–extra-high loops for bounded, checkable work:
 
 - doc consistency sweeps across `TASKS.md`, this plan, changelog and skills;
 - candidate scans over stored companies;
 - repeated deterministic backtest runs and anomaly summaries;
 - schema/JSON formatting, fixture summaries and grep-based dead-text checks.
 
-Use 5.5 supervision or stronger analyst/verifier roles for:
+Use GPT-5.6 Sol high analyst/verifier work for:
 
 - changing what legacy code is removed vs retained;
 - interpreting backtest evidence as a strategy-quality conclusion;
@@ -369,11 +372,11 @@ Purpose: the "extraordinary analysis" path for a company you may act on.
 ```mermaid
 sequenceDiagram
     participant User
-    participant Orchestrator as 5.5 medium orchestrator
+    participant Orchestrator as GPT-5.6 Luna high orchestrator
     participant Data as data worker
     participant Thesis as thesis worker
     participant Scenario as scenario/backtest worker
-    participant Verify as 5.5 high verifier
+    participant Verify as GPT-5.6 Sol high verifier
     participant Tools as MCP/scripts
     participant DB as Postgres
     participant UI as Web UI
@@ -433,7 +436,7 @@ flowchart TB
     C --> E[deterministic prescreen]
     D --> E
     E --> F[worker_standard ranks top N]
-    F --> G[5.5 verifier checks reasons]
+    F --> G[GPT-5.6 Sol verifier checks reasons]
     G --> H{Promote?}
     H -->|yes| I[save candidate_run\noptional add_to_watchlist]
     H -->|no| J[save rejected candidate\nreason]
@@ -448,7 +451,7 @@ Initial candidate sourcing is conservative but recall-first:
   `>=5` without requiring Piotroski F-Score; missing F-Score remains a gap.
 - Each immutable source version creates one idempotent aggregate
   `stock-candidate-scout` job containing the complete source shortlist. The
-  5.3 worker rates only a bounded top batch; it does not auto-refresh hundreds
+  GPT-5.3 high–extra-high worker rates only a bounded top batch; it does not auto-refresh hundreds
   of companies or add them to the watchlist.
 - Candidate ranking separates "interesting" from "actionable"; a stronger
   verifier reviews promotions, and detailed dossier refresh remains a later
@@ -456,8 +459,9 @@ Initial candidate sourcing is conservative but recall-first:
 
 Agent routing:
 
-- `worker_standard` ranks and explains many candidates efficiently, using a
-  stronger model when the ranking reason depends on non-trivial judgment.
+- `worker_standard` ranks and explains many candidates with GPT-5.3
+  high–extra-high only when the work is bounded and checkable; use GPT-5.6 Sol
+  high when the ranking reason depends on non-trivial judgment.
 - `verifier_strict` reviews only the top shortlist and rejected promotions.
 - `analyst_deep` is used only for candidates you are close to adding to the
   watchlist or analyzing deeply.
@@ -474,7 +478,7 @@ flowchart LR
     D --> E[save signal]
     E --> F[attach future outcomes\n30/90/180/365d]
     F --> G[compare signal vs outcome]
-    G --> H[5.5 high verifier\nlook-ahead audit]
+    G --> H[GPT-5.6 Sol high verifier\nlook-ahead audit]
     H --> I[store backtest_run]
     I --> J[UI Backtest Lab]
     J --> K[update strategy notes\nnot automatic weights yet]
@@ -805,9 +809,9 @@ Acceptance:
 
 Model routing:
 
-- Use `gpt-5.3-codex-spark` for dead-reference sweeps, test inventory and draft
+- Use GPT-5.3 high–extra-high for dead-reference sweeps, test inventory and draft
   removal plans.
-- Use 5.5 supervision for the actual keep/remove decision and any endpoint
+- Use GPT-5.6 Sol high supervision for the actual keep/remove decision and any endpoint
   contract change.
 
 ### CX.11 - Backtest data readiness + prediction learning
@@ -847,10 +851,10 @@ research warnings, observation checks and future outcome windows inline.
 
 Model routing:
 
-- Use `gpt-5.3-codex-spark` for repeated candidate scans, replay batches,
+- Use GPT-5.3 high–extra-high for repeated candidate scans, replay batches,
   anomaly summaries and table formatting.
-- Use 5.5 `analyst_deep` for interpreting cross-company patterns.
-- Use 5.5 `verifier_strict` for look-ahead, source-grounding and strategy-change
+- Use GPT-5.6 Sol high `analyst_deep` for interpreting cross-company patterns.
+- Use GPT-5.6 Sol high `verifier_strict` for look-ahead, source-grounding and strategy-change
   review.
 
 ### CX.12 - Web-triggered / Codex-scheduled queue execution

@@ -1,6 +1,8 @@
 # Stage plan — Investment-thesis layer (rule-based, pre-Phase-5)
 
-**Status:** planned 2026-07-08. Owner: implementation sessions per WP.
+**Status:** completed 2026-07-08; historical implementation reference. The
+current execution/status record is `TASKS.md`; detailed closeout evidence is
+in `docs/validation-thesis.md` and the learning note.
 **Read alongside:** PLAN §7 (metrics/frontend), §8 (AI layer — the *later*
 consumer, not this stage), §10 (extension points), §13 (learning);
 `services/insights.py` (this stage composes ON TOP of it);
@@ -315,7 +317,8 @@ table, `POST/GET .../analyses` endpoints, **Analiza AI** tab + run history +
 Claude transport + `.env` config + response-cache pattern now exist (WP2b), so
 P5.4 `claude_client.py` **builds on / reuses** the WP2b transport instead of
 starting from scratch, and the dossier already carries the `engine` marker.
-Recorded in TASKS.md Phase 5 intro — the P5 tasks are **not** rewritten.
+Recorded in the completed-work summary in `TASKS.md`; the detailed Phase-5
+history is historical and is not part of the live execution list.
 
 ---
 
@@ -409,7 +412,7 @@ archiwum pagination (must be none); confirm CHANGELOG entry.
 
 ---
 
-## WP5 — Final conformance + memory/changelog
+## WP5 — Final conformance + memory/changelog (historical closeout)
 
 **Scope.** Verify all WP acceptance criteria are met end-to-end; run every
 in-session-runnable test; then compact the memory.
@@ -418,7 +421,8 @@ in-session-runnable test; then compact the memory.
 - `docs/learning/phase-thesis.md` (≤1 page): what was built, 3–5 concepts, C#
   analogies (e.g. thesis engine ≈ a pure mapping/aggregation service over DTOs;
   weighting ≈ a strategy-pattern scorer), where to look in the code.
-- CLAUDE.md on-demand doc index updated to list `docs/strategy-malik.md`.
+- The project documentation index was updated; the current index is in
+  `AGENTS.md` and the compatibility `CLAUDE.md` points to it.
 - Final CHANGELOG entry (date · scope · what + why + decisions) summarising the
   stage; per-WP entries may also exist.
 
@@ -426,12 +430,12 @@ in-session-runnable test; then compact the memory.
 1. `pytest`-in-session subset (pure layers: `test_thesis.py`, and unaffected
    `test_insights.py`/`test_metrics.py`) green; DB/API compile-checks pass;
    deferred checks explicitly listed.
-2. CLAUDE.md doc index references the new spec; learning note present with C#
+2. The `AGENTS.md` index references the new spec; learning note present with C#
    analogies; final CHANGELOG entry present.
 3. A fresh-context reader can, from this file alone, tell for each WP whether
    it passed.
 
-**Verifier checklist.** Run the in-session test subset; open CLAUDE.md and
+**Verifier checklist.** Run the in-session test subset; open `AGENTS.md` and
 confirm the index entry; confirm learning note + final CHANGELOG entry;
 re-read each WP's acceptance and tick it against the delivered artifacts.
 

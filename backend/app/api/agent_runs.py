@@ -6,7 +6,7 @@ draft, verified and rejected work without depending on chat state.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -110,6 +110,7 @@ def queue_agent_run(payload: AgentRunCreateIn, db: Session = Depends(get_db)) ->
 )
 def prepare_pre_session_brief(
     payload: PreSessionBriefIn,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> dict:
     company = _get_company_or_404(db, payload.ticker) if payload.ticker else None
@@ -119,7 +120,15 @@ def prepare_pre_session_brief(
         fetch_details=payload.fetch_details,
     )
     if not payload.queue:
-        return {"ok": True, "espi_poll": poll_result, "agent_run": None}
+        response.status_code = status.HTTP_200_OK
+        return {
+            "ok": bool(poll_result.get("ok") and poll_result.get("complete")),
+            "espi_poll": poll_result,
+            "agent_run": None,
+        }
+    if not poll_result.get("complete"):
+        response.status_code = status.HTTP_200_OK
+        return {"ok": False, "espi_poll": poll_result, "agent_run": None}
 
     agent = AgentRun(
         workflow="stock-pre-session-brief",

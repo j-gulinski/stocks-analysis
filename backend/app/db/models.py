@@ -627,6 +627,24 @@ class EventReport(Base):
     materiality: Mapped[dict] = mapped_column(JSONVariant, default=dict)
 
 
+class ListPollState(Base):
+    """Durable completeness watermark for one list-style source."""
+
+    __tablename__ = "list_poll_states"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_key: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scan_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scan_target_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scan_next_offset: Mapped[int | None] = mapped_column()
+    scan_next_limit: Mapped[int | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class CandidateRun(Base):
     """One saved candidate-screening result for a company."""
 

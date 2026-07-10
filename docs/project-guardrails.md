@@ -31,11 +31,14 @@ It is the quality bar for the Stock Analysis Workbench.
 
 ## Codex/model discipline
 
-- Use the model suitable for the job, with precision/risk first.
-- `gpt-5.3-codex-spark` or other lighter models are fine for bounded loops:
-  drafting skill text, schema formatting, grep-based checks, fixture summaries,
-  and independent consistency passes.
-- Decision-relevant synthesis uses a stronger analyst role.
+- `AGENTS.md` §Operating policy is the binding source for model selection and
+  execution workflow. Use its exact tiers: GPT-5.3 high–extra-high for
+  testing/mechanical work; GPT-5.6 Luna high for the default medium tier;
+  GPT-5.6 Sol high for high-complexity work; and GPT-5.6 Sol ultra only for
+  exceptional hardest work.
+- Select the tier before work begins, escalate one tier only on evidence, and
+  record any escalation or same-reasoning-level host substitution for persisted
+  runs.
 - UI-visible investment output must pass `verifier_strict`.
 - Track in the session what work is delegated, which model role is used, and how
   the result was verified.
@@ -57,6 +60,7 @@ It is the quality bar for the Stock Analysis Workbench.
 Before marking a phase or work package done:
 
 - Re-read this file and the relevant plan section.
+- Follow the required execution workflow in `AGENTS.md` §Operating policy.
 - Update `CHANGELOG.md` with what changed, why, and key decisions.
 - Update `TASKS.md` status.
 - Add or update tests proportional to risk.

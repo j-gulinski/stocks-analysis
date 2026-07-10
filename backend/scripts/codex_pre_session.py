@@ -48,7 +48,7 @@ def main() -> int:
         }
     )
     write_json(result, pretty=args.pretty)
-    return 0
+    return 0 if result.get("ok") else 1
 
 
 if __name__ == "__main__":

@@ -166,8 +166,12 @@ def test_pre_session_api_fetches_espi_and_queues_brief(client, db, monkeypatch):
 
     monkeypatch.setattr(
         espi,
-        "fetch_latest_reports",
-        lambda: espi.parse_report_list(load_fixture("gpw_espi_list.html")),
+        "fetch_report_list_page",
+        lambda **_kwargs: espi.GpwReportListPage(
+            reports=espi.parse_report_list(load_fixture("gpw_espi_list.html")),
+            next_offset=None,
+            next_limit=None,
+        ),
     )
     monkeypatch.setattr(
         espi,
@@ -196,6 +200,105 @@ def test_pre_session_api_fetches_espi_and_queues_brief(client, db, monkeypatch):
     assert db.query(EventReport).count() == 1
     agent = db.get(AgentRun, payload["agent_run"]["id"])
     assert agent.inputs["espi_poll"]["reports"][0]["ticker"] == "KRU"
+
+
+def test_pre_session_api_does_not_queue_after_incomplete_espi_poll(
+    client, db, monkeypatch
+):
+    from app.db.models import AgentRun, Company, WatchlistItem
+    from app.scrapers import espi
+
+    company = Company(ticker="KRU", name="KRUK")
+    db.add(company)
+    db.commit()
+    db.add(WatchlistItem(company_id=company.id, note=None))
+    db.commit()
+
+    def fail_page(**_kwargs):
+        raise espi.GpwReportParseError("malformed first page")
+
+    monkeypatch.setattr(espi, "fetch_report_list_page", fail_page)
+
+    response = client.post(
+        "/api/agent-runs/pre-session",
+        json={"ticker": "KRU", "trigger": "ui-request"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is False
+    assert payload["agent_run"] is None
+    assert payload["espi_poll"]["complete"] is False
+    assert payload["espi_poll"]["incomplete_reason"].startswith("list_page_error:")
+    assert db.query(AgentRun).count() == 0
+
+
+def test_pre_session_api_empty_watchlist_returns_200_without_queue_or_state(
+    client, db, monkeypatch
+):
+    from app.db.models import AgentRun, Company, ListPollState
+    from app.scrapers import espi
+
+    db.add(Company(ticker="KRU", name="KRUK"))
+    db.commit()
+
+    def fail_fetch(**_kwargs):
+        raise AssertionError("empty watchlist must not fetch")
+
+    monkeypatch.setattr(espi, "fetch_report_list_page", fail_fetch)
+
+    response = client.post(
+        "/api/agent-runs/pre-session",
+        json={"trigger": "ui-request"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is False
+    assert payload["agent_run"] is None
+    assert payload["espi_poll"]["incomplete_reason"] == "empty_watchlist"
+    assert db.query(AgentRun).count() == 0
+    assert db.query(ListPollState).count() == 0
+
+
+def test_pre_session_api_no_queue_complete_poll_returns_200_without_run(
+    client, db, monkeypatch
+):
+    from app.db.models import AgentRun, Company, EventReport, WatchlistItem
+    from app.scrapers import espi
+
+    company = Company(ticker="KRU", name="KRUK")
+    db.add(company)
+    db.commit()
+    db.add(WatchlistItem(company_id=company.id, note=None))
+    db.commit()
+    monkeypatch.setattr(
+        espi,
+        "fetch_report_list_page",
+        lambda **_kwargs: espi.GpwReportListPage(
+            reports=espi.parse_report_list(load_fixture("gpw_espi_list.html")),
+            next_offset=None,
+            next_limit=None,
+        ),
+    )
+    monkeypatch.setattr(
+        espi,
+        "fetch_report_detail",
+        lambda _url: espi.parse_report_detail(load_fixture("gpw_espi_detail.html")),
+    )
+
+    response = client.post(
+        "/api/agent-runs/pre-session",
+        json={"ticker": "KRU", "trigger": "ui-request", "queue": False},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["agent_run"] is None
+    assert payload["espi_poll"]["complete"] is True
+    assert db.query(AgentRun).count() == 0
+    assert db.query(EventReport).count() == 1
 
 
 def test_codex_save_analysis_script_round_trips_to_api(client, db, monkeypatch, capsys):
@@ -547,7 +650,15 @@ def test_codex_contract_scripts_return_json(client, db, monkeypatch, capsys):
     assert isinstance(dossier["dossier"], dict)
     assert "prescore" in dossier["dossier"]
 
-    monkeypatch.setattr(codex_poll_espi.espi, "fetch_latest_reports", lambda: [])
+    monkeypatch.setattr(
+        codex_poll_espi.espi,
+        "fetch_report_list_page",
+        lambda **_kwargs: codex_poll_espi.espi.GpwReportListPage(
+            reports=codex_poll_espi.espi.parse_report_list(load_fixture("gpw_espi_list.html")),
+            next_offset=None,
+            next_limit=None,
+        ),
+    )
     monkeypatch.setattr("sys.argv", ["codex_poll_espi.py", "--ticker", "DEC"])
     assert codex_poll_espi.main() == 0
     espi = json.loads(capsys.readouterr().out)
@@ -621,3 +732,76 @@ def test_codex_contract_scripts_return_json(client, db, monkeypatch, capsys):
     completed = json.loads(capsys.readouterr().out)
     assert completed["ok"] is True
     assert completed["status"] == "needs-human"
+
+
+def test_codex_poll_espi_cli_exits_nonzero_for_incomplete_result(
+    db, monkeypatch, capsys
+):
+    from scripts import codex_poll_espi
+
+    monkeypatch.setattr(
+        codex_poll_espi.espi,
+        "poll_watchlist_reports",
+        lambda *_args, **_kwargs: {
+            "ok": False,
+            "complete": False,
+            "cap_reached": True,
+            "incomplete_reason": "hard_page_cap_reached_before_watermark",
+        },
+    )
+    monkeypatch.setattr("sys.argv", ["codex_poll_espi.py"])
+
+    assert codex_poll_espi.main() == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["complete"] is False
+
+
+def test_codex_poll_espi_no_details_is_honest_metadata_only(
+    db, monkeypatch, capsys
+):
+    from scripts import codex_poll_espi
+
+    monkeypatch.setattr(
+        codex_poll_espi.espi,
+        "poll_watchlist_reports",
+        lambda *_args, **_kwargs: {
+            "ok": False,
+            "complete": False,
+            "metadata_only": True,
+            "incomplete_reason": "details_skipped_metadata_only",
+        },
+    )
+    monkeypatch.setattr("sys.argv", ["codex_poll_espi.py", "--no-details"])
+
+    assert codex_poll_espi.main() == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["complete"] is False
+    assert payload["metadata_only"] is True
+
+
+def test_codex_pre_session_cli_exits_nonzero_for_metadata_only(
+    db, monkeypatch, capsys
+):
+    from scripts import codex_pre_session
+
+    monkeypatch.setattr(
+        codex_pre_session.stock_tools,
+        "prepare_pre_session_brief",
+        lambda *_args, **_kwargs: {
+            "ok": False,
+            "espi_poll": {
+                "complete": False,
+                "metadata_only": True,
+                "incomplete_reason": "details_skipped_metadata_only",
+            },
+            "agent_run": None,
+        },
+    )
+    monkeypatch.setattr("sys.argv", ["codex_pre_session.py", "--no-details"])
+
+    assert codex_pre_session.main() == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["agent_run"] is None

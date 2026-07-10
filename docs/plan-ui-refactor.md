@@ -4,7 +4,9 @@ Rewritten 2026-07-09 after the user rejected the v1 visual direction ("too
 tight", wrong colors). This version has two jobs: (1) record what changed in
 the app and why the current UI no longer fits, (2) define the redesign —
 information architecture + fresh visual language — sized for what is coming
-(CX.11–CX.14, Phase 6, extension backlog). Visual reference:
+(RT4.5–RT4.7 and the remaining CX.14 history, plus the extension backlog).
+The delivered report-first slice is historical context; remaining UI work is
+tracked in `TASKS.md` and the RT.4 plan. Visual reference:
 `docs/design/design-v2.md` + `docs/design/mockups-v2.html` (v1 `design.md` /
 `mockups.html` stay as archive). CX.14 in `TASKS.md` tracks execution.
 
@@ -135,7 +137,7 @@ entry per repo rules.
 - Status truthfulness: queued ≠ running wording preserved; verifier state
   visible on every AI-produced result.
 - Screenshot compared against `mockups-v2.html` frame for the touched area.
-- Bounded `gpt-5.3-codex-spark` audit loops are suitable for overflow/copy
+- Bounded GPT-5.3 high–extra-high audit loops are suitable for overflow/copy
   sweeps; investment-facing wording changes still need stronger review.
 
 ## 7. Open questions (decide before slice 3)

@@ -1,6 +1,8 @@
 # Stage plan — Scenario simulation engine (stage SC)
 
-**Status:** planned 2026-07-08. Owner: implementation sessions per WP.
+**Status:** completed 2026-07-08; historical implementation reference. The
+current execution/status record is `TASKS.md`; detailed closeout evidence is
+in `docs/validation-scenarios.md` and the learning note.
 **Read alongside:** `docs/plan-stage-thesis.md` (the stage this builds ON —
 same style, same honesty rules, same model split); `docs/strategy-malik.md`
 (the valuation doctrine the scenarios must stay faithful to — forward/own-history
@@ -113,14 +115,15 @@ Verified during stage TH and unchanged:
 
 ---
 
-## WP1 — Compact context (memory + changelog consolidation)
+## WP1 — Compact context (completed historical closeout)
 
 **Scope.** Re-consolidate project memory so the always-loaded core stays small
 and the detail is on-demand — **before** any scenario code lands (so the new
 work starts from a clean, cheap context). No behaviour change to code.
 
 **Deliverables.**
-- **`CLAUDE.md`** stays the short always-loaded core. Update the "Read on demand"
+- **`AGENTS.md`** is the authoritative always-loaded core. Keep `CLAUDE.md` as
+  a compatibility pointer and update the on-demand index in `AGENTS.md`.
   index to list the new stage docs: `docs/plan-stage-scenarios.md` and (added by
   WP5) `docs/validation-scenarios.md`, `docs/learning/phase-scenarios.md`.
   Trim/merge any line made stale by stage TH; the always-loaded core stays
@@ -142,7 +145,7 @@ work starts from a clean, cheap context). No behaviour change to code.
   touched** in WP1 (its knowledge must survive compaction intact).
 
 **Acceptance (mechanically checkable).**
-1. `CLAUDE.md` "Read on demand" index lists `docs/plan-stage-scenarios.md`;
+1. `AGENTS.md` on-demand index lists `docs/plan-stage-scenarios.md`;
    its always-loaded body is **≤ 70 lines**.
 2. `docs/changelog-archive-thesis-2026-07-08.md` exists and contains the
    archived TH.* entries **verbatim** (a diff of moved text shows byte-identical
@@ -161,7 +164,7 @@ work starts from a clean, cheap context). No behaviour change to code.
 **Verifier checklist.** Confirm the archive is verbatim (grep a distinctive
 sentence from an archived TH entry — it must be in the archive, not the live
 file); `git diff --stat` shows only markdown changed and SKILL.md untouched;
-CLAUDE.md index updated and ≤ 70 lines; TASKS.md SC section present; re-run the
+AGENTS.md index updated and compact `TASKS.md` SC summary present; re-run the
 pure subset green; confirm the WP1 CHANGELOG entry.
 
 ---
@@ -583,7 +586,7 @@ memory + write the learning note.
   compute with an injected transport + a validation guard, like the thesis
   refiner; probability renormalisation ≈ normalising weights before a weighted
   average), where to look in the code.
-- **CLAUDE.md** on-demand index updated to list `docs/plan-stage-scenarios.md`,
+- **AGENTS.md** on-demand index updated to list `docs/plan-stage-scenarios.md`,
   `docs/validation-scenarios.md`, `docs/learning/phase-scenarios.md`.
 - **CHANGELOG.md** final stage-closeout entry (date · scope · what + why ·
   decisions); per-WP entries already exist. **TASKS.md** SC boxes ticked only

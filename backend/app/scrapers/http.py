@@ -13,6 +13,7 @@ from __future__ import annotations
 import random
 import time
 from urllib.parse import urlparse
+from collections.abc import Mapping, Sequence
 
 import requests
 
@@ -71,6 +72,7 @@ def fetch(
     url: str,
     *,
     method: str = "GET",
+    params: Mapping[str, object] | Sequence[tuple[str, object]] | None = None,
     data: dict | None = None,
     session: requests.Session | None = None,
     timeout: int = DEFAULT_TIMEOUT_SECONDS,
@@ -83,11 +85,14 @@ def fetch(
     Pass `session` to reuse cookies (e.g. a logged-in forum/BiznesRadar
     session) — the rate limiter applies regardless of session.
 
-    `method="POST"` with form-encoded `data` submits through the SAME
+    GET callers may pass `params`; requests handles both normal dictionaries
+    and repeated ordered query tuples. `method="POST"` with form-encoded `data`
+    submits through the SAME
     politeness/backoff/UA path as a GET (used by the BiznesRadar premium login,
     which POSTs to /login/). Redirects are followed (requests' default), so the
-    returned response is the final page. GET call sites are unchanged — they
-    still go through `sess.get(url, timeout=...)` exactly as before.
+    returned response is the final page. GET call sites without `params` are
+    unchanged — they still go through `sess.get(url, timeout=...)` exactly as
+    before.
     """
     host = urlparse(url).netloc
     sess = session or requests.Session()
@@ -98,7 +103,10 @@ def fetch(
         _wait_politely(host)
         try:
             if method == "GET":
-                response = sess.get(url, timeout=timeout)
+                if params is None:
+                    response = sess.get(url, timeout=timeout)
+                else:
+                    response = sess.get(url, params=params, timeout=timeout)
             else:
                 # Same throttled path, different verb — `data` is form-encoded.
                 response = sess.request(method, url, data=data, timeout=timeout)
