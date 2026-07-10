@@ -41,6 +41,17 @@ TOOLS: dict[str, ToolSpec] = {
         {"type": "object", "properties": {}, "additionalProperties": False},
         lambda args: stock_tools.get_watchlist(args),
     ),
+    "get_model_policy": ToolSpec(
+        "get_model_policy",
+        "Return provider-free Codex role and verification guidance for a workflow.",
+        {
+            "type": "object",
+            "properties": {"workflow": {"type": "string"}},
+            "required": ["workflow"],
+            "additionalProperties": False,
+        },
+        stock_tools.get_model_policy,
+    ),
     "get_company_dossier": ToolSpec(
         "get_company_dossier",
         "Return the deterministic company dossier used by the UI and Codex skills.",

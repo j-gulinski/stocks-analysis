@@ -30,6 +30,7 @@ from app.services import (
     analysis_contract,
     backtest,
     dossier as dossier_service,
+    model_policy,
 )
 
 
@@ -128,6 +129,11 @@ def get_watchlist(arguments: dict[str, Any] | None = None) -> dict[str, Any]:
         }
     finally:
         db.close()
+
+
+def get_model_policy(arguments: dict[str, Any]) -> dict[str, Any]:
+    workflow = _require_text(arguments, "workflow")
+    return {"ok": True, "policy": model_policy.get_model_policy(workflow)}
 
 
 def get_company_dossier(arguments: dict[str, Any]) -> dict[str, Any]:

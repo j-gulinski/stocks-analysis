@@ -12,6 +12,7 @@ def test_mcp_lists_core_tools():
 
     assert {
         "get_company_dossier",
+        "get_model_policy",
         "get_recent_source_deltas",
         "save_analysis_run",
         "list_queued_agent_runs",
@@ -25,6 +26,48 @@ def test_mcp_lists_core_tools():
         "evaluate_agent_runs",
         "poll_espi_watchlist",
     }.issubset(names)
+
+
+def test_mcp_model_policy_is_provider_free_and_role_explicit():
+    from app.mcp.stock_workbench_server import handle_message
+
+    response = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 101,
+            "method": "tools/call",
+            "params": {
+                "name": "get_model_policy",
+                "arguments": {"workflow": "stock-deep-analysis"},
+            },
+        }
+    )
+    policy = response["result"]["structuredContent"]["policy"]
+    assert policy["status"] == "ready"
+    assert policy["draft_role"] == "analyst_deep"
+    assert policy["required_verifier_role"] == "verifier_strict"
+    assert policy["provider_mode"] == "codex-host"
+    assert policy["api_key_required"] is False
+    assert "not exposed" in policy["concrete_model_source"]
+
+
+def test_mcp_unknown_model_policy_stays_needs_human():
+    from app.mcp.stock_workbench_server import handle_message
+
+    response = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 102,
+            "method": "tools/call",
+            "params": {
+                "name": "get_model_policy",
+                "arguments": {"workflow": "future-workflow"},
+            },
+        }
+    )
+    policy = response["result"]["structuredContent"]["policy"]
+    assert policy["status"] == "needs-human"
+    assert policy["draft_role"] is None
 
 
 def test_mcp_run_backtest_schema_requires_date_boundaries():

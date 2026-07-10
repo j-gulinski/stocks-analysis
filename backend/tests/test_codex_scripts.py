@@ -46,6 +46,33 @@ def test_codex_mark_verification_completes_agent_without_provider_key(db, monkey
     assert db.query(VerificationRun).one().verdict == "needs-human"
 
 
+def test_codex_pick_contract_includes_keyless_model_policy(db, monkeypatch, capsys):
+    from app.db.models import AgentRun
+    from scripts import codex_pick_agent_run
+
+    agent = AgentRun(
+        workflow="stock-deep-analysis",
+        trigger="manual",
+        status="queued",
+        model_role="analyst_deep",
+        inputs={"ticker": "DEC"},
+        outputs={},
+    )
+    db.add(agent)
+    db.commit()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["codex_pick_agent_run.py", "--agent-run-id", str(agent.id), "--pretty"],
+    )
+
+    assert codex_pick_agent_run.main() == 0
+    payload = json.loads(capsys.readouterr().out)
+    policy = payload["execution_contract"]["model_policy"]
+    assert policy["draft_role"] == "analyst_deep"
+    assert policy["api_key_required"] is False
+
+
 def test_codex_save_analysis_applies_scenario_contract_before_database_write(
     db, monkeypatch
 ):

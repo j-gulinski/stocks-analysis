@@ -27,3 +27,9 @@ session. If that transport is unavailable, the JSON scripts are equivalent to
 small C# console commands: one claims the work, one saves the draft, and one
 saves the verifier result. Both paths write the same database rows and neither
 requires an OpenAI API key.
+
+The model policy is guidance, not an SDK selector. It is like a C# strategy
+registry that returns the required role and validation scope; it cannot know
+which concrete model Codex is hosting. That concrete value is recorded only
+when the Codex session exposes it, so the audit trail never mistakes a role
+label for a deployment name.

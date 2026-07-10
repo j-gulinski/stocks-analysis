@@ -240,9 +240,13 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
   approval boundary: deterministic scenario snapshot, current bridge
   fingerprint, priced gate and verifier checks must agree before `pass`; the
   keyless JSON-script fallback now applies the same guard.
-- [ ] RT5.1–RT5.3, RT5.1b, RT5.2: Responses API adapter, model policy,
-  bounded extraction/verification and prompt-injection isolation remain after
-  the stable CLI/MCP contract; no provider call is implied by this boundary.
+- [~] RT5.2: provider-free Codex model-role policy is exposed through MCP and
+  included in claimed execution contracts; it records `codex-host` and keeps
+  the concrete deployment disclosure explicit. Responses API work is not
+  required for this local path.
+- [ ] RT5.1–RT5.3, RT5.1b: bounded extraction/verification and
+  prompt-injection isolation remain as Codex-session improvements; no provider
+  call is implied by this boundary.
 
 ### RT.6 — judge, calibration and honest replay
 

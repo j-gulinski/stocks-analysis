@@ -14,6 +14,9 @@ default_tools_approval_mode = "prompt"
 [mcp_servers.stock_workbench.tools.get_watchlist]
 approval_mode = "auto"
 
+[mcp_servers.stock_workbench.tools.get_model_policy]
+approval_mode = "auto"
+
 [mcp_servers.stock_workbench.tools.get_company_dossier]
 approval_mode = "auto"
 

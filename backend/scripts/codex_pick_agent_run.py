@@ -20,6 +20,7 @@ from sqlalchemy import select
 
 from app.db.base import SessionLocal
 from app.db.models import AgentRun, Company, utcnow
+from app.services.model_policy import get_model_policy
 from scripts.codex_common import ScriptError, add_json_flags, run_main, write_json
 
 
@@ -65,6 +66,7 @@ def _execution_contract(agent: AgentRun) -> dict[str, Any]:
         "orchestrator_model": agent.orchestrator_model,
         "must_save_result": True,
         "verification_required": "stock-verifier before any UI-visible verified result",
+        "model_policy": get_model_policy(agent.workflow),
     }
     if agent.workflow == "stock-quick-analysis":
         return {

@@ -12,6 +12,15 @@ client is unavailable. The project config continues to start only the local
 stdio MCP server; no hosted provider call or OpenAI API key is needed. The
 queue still stops at `running`, and Codex owns research, verification and save.
 
+## 2026-07-11 · RT5.2 provider-free Codex model policy
+
+Added a read-only `get_model_policy` MCP tool and included the same policy in
+each claimed execution contract. Workflows now state the draft role,
+`verifier_strict` requirement, reasoning level and audit scope without
+selecting or inventing a concrete host model. The policy explicitly reports
+`provider_mode=codex-host`, `api_key_required=false` and `sol_ultra_default=false`;
+unknown workflows remain `needs-human`.
+
 ## 2026-07-11 · RT5.6 strict scenario-simulation persistence boundary
 
 The typed MCP save/verify path now permits a `scenario-simulation` run to reach
