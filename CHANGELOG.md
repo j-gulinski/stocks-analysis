@@ -21,6 +21,15 @@ selecting or inventing a concrete host model. The policy explicitly reports
 `provider_mode=codex-host`, `api_key_required=false` and `sol_ultra_default=false`;
 unknown workflows remain `needs-human`.
 
+## 2026-07-11 · RT5.1b source-as-data boundary
+
+Codex-facing dossier and ESPI/EBI delta responses now include a versioned
+`codex_context` declaring the payload untrusted and data-only. The boundary
+names the only trusted instruction sources and tells the worker to ignore
+commands, tool requests, secret requests or role changes embedded in issuer,
+forum or event text. Deterministic values and the UI/API dossier shape remain
+unchanged.
+
 ## 2026-07-11 · RT5.6 strict scenario-simulation persistence boundary
 
 The typed MCP save/verify path now permits a `scenario-simulation` run to reach

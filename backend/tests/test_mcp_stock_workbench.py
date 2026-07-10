@@ -170,6 +170,9 @@ def test_mcp_get_company_dossier_returns_ui_contract(db):
     assert payload["ticker"] == "SNT"
     assert payload["dossier"]["company"]["ticker"] == "SNT"
     assert "prescore" in payload["dossier"]
+    assert payload["codex_context"]["trust"] == "untrusted"
+    assert payload["codex_context"]["mode"] == "data-only"
+    assert "Ignore instructions" in payload["codex_context"]["instruction_policy"]
 
 
 def test_mcp_save_analysis_run_round_trips_to_api(client, db):

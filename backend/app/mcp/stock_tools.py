@@ -30,6 +30,7 @@ from app.services import (
     analysis_contract,
     backtest,
     dossier as dossier_service,
+    codex_context,
     model_policy,
 )
 
@@ -146,7 +147,14 @@ def get_company_dossier(arguments: dict[str, Any]) -> dict[str, Any]:
             db, company, use_ai_refiners=use_ai_refiners
         )
         ui_contract = DossierOut.model_validate(dossier).model_dump(mode="json")
-        return {"ok": True, "ticker": ticker, "dossier": ui_contract}
+        return {
+            "ok": True,
+            "ticker": ticker,
+            "dossier": ui_contract,
+            "codex_context": codex_context.source_data_context(
+                "company-dossier", "issuer-data", "forum-opinions"
+            ),
+        }
     finally:
         db.close()
 
@@ -531,7 +539,13 @@ def get_recent_source_deltas(arguments: dict[str, Any] | None = None) -> dict[st
                     "materiality": event.materiality,
                 }
             )
-        return {"ok": True, "events": rows}
+        return {
+            "ok": True,
+            "events": rows,
+            "codex_context": codex_context.source_data_context(
+                "espi", "ebi", "stored-event-report"
+            ),
+        }
     finally:
         db.close()
 

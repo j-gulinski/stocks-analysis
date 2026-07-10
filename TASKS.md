@@ -245,8 +245,9 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
   the concrete deployment disclosure explicit. Responses API work is not
   required for this local path.
 - [ ] RT5.1–RT5.3, RT5.1b: bounded extraction/verification and
-  prompt-injection isolation remain as Codex-session improvements; no provider
-  call is implied by this boundary.
+  bounded extraction/verification remain as Codex-session improvements; the
+  MCP source payloads now carry an explicit untrusted-data/instruction boundary
+  for prompt-injection isolation. No provider call is implied by this boundary.
 
 ### RT.6 — judge, calibration and honest replay
 

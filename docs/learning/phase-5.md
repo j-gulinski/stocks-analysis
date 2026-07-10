@@ -28,6 +28,12 @@ small C# console commands: one claims the work, one saves the draft, and one
 saves the verifier result. Both paths write the same database rows and neither
 requires an OpenAI API key.
 
+Prompt-injection isolation is also a data-contract concern. The application
+does not try to decide whether a sentence is malicious. It labels source
+payloads as untrusted data and tells the Codex worker which instruction layers
+are authoritative. This is similar to keeping a C# `SourceText` value separate
+from executable commands instead of passing both through one string parser.
+
 The model policy is guidance, not an SDK selector. It is like a C# strategy
 registry that returns the required role and validation scope; it cannot know
 which concrete model Codex is hosting. That concrete value is recorded only
