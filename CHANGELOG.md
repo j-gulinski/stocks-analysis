@@ -70,6 +70,15 @@ with their provenance; this surface does not calculate target prices or
 silently approve model suggestions. Appendable case-step history remains the
 next workflow slice.
 
+## 2026-07-10 · RT4.2c case-step history
+
+Added migration `0018` and an append-only case-step history ledger. State or
+current-step transitions now require a named reason and record the previous and
+next workflow values plus the forwarded editor identity; blocked-reason-only
+edits do not create a false transition. The company editor exposes the latest
+history entries, while pre-existing cases remain history-empty rather than
+receiving fabricated backfill events.
+
 ## 2026-07-10 · Explore ranking rationale and stale-analysis queue
 
 Explore candidates now show their source rank, deterministic tie-break order,

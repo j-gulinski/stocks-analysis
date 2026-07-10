@@ -27,6 +27,7 @@ def test_research_case_lifecycle_is_explicit_and_idempotent(client, db):
             "state": "blocked",
             "current_step": "data_review",
             "blocked_reason": "Brak raportu pierwotnego.",
+            "change_reason": "Raport nie został jeszcze potwierdzony.",
         },
     )
     assert updated.status_code == 200
@@ -38,7 +39,11 @@ def test_research_case_lifecycle_is_explicit_and_idempotent(client, db):
 
     reopened = client.patch(
         "/api/companies/SNT/research-case",
-        json={"state": "thesis", "current_step": "thesis"},
+        json={
+            "state": "thesis",
+            "current_step": "thesis",
+            "change_reason": "Źródła wejściowe są już wystarczające.",
+        },
     )
     assert reopened.status_code == 200
     assert reopened.json()["blocked_reason"] is None

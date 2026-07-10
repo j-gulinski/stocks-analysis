@@ -16,6 +16,7 @@ import {
   createResearchCase,
   getDossier,
   getResearchCase,
+  getResearchCaseHistory,
   listAgentRuns,
   listAnalysisRuns,
   refreshCompany,
@@ -42,7 +43,7 @@ import AssumptionSetsPanel from "@/components/AssumptionSetsPanel";
 import DecisionJournalPanel from "@/components/DecisionJournalPanel";
 import FalsifiersPanel from "@/components/FalsifiersPanel";
 import PositionPanel from "@/components/PositionPanel";
-import type { AgentRun, AnalysisRun, ResearchCase } from "@/lib/types";
+import type { AgentRun, AnalysisRun, ResearchCase, ResearchCaseStepHistory } from "@/lib/types";
 
 const TABS = [
   { id: "Report", label: "Raport", icon: IconFileAnalytics },
@@ -65,6 +66,16 @@ const CASE_STATE_LABELS: Record<ResearchCase["state"], string> = {
   closed: "zamknięty",
 };
 
+const CASE_STEP_LABELS: Record<ResearchCase["current_step"], string> = {
+  ingest: "ingest",
+  data_review: "przegląd danych",
+  business_model: "model biznesowy",
+  thesis: "teza",
+  scenarios: "scenariusze",
+  review: "weryfikacja",
+  monitoring: "monitoring",
+};
+
 export default function StockPage({ params }: { params: Promise<{ ticker: string }> }) {
   const { ticker: rawTicker } = use(params);
   const ticker = rawTicker.toUpperCase();
@@ -79,13 +90,16 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
   const [caseStateDraft, setCaseStateDraft] = useState<ResearchCase["state"]>("new");
   const [caseStepDraft, setCaseStepDraft] = useState<ResearchCase["current_step"]>("ingest");
   const [caseReasonDraft, setCaseReasonDraft] = useState("");
+  const [caseChangeReason, setCaseChangeReason] = useState("");
   const [savingCase, setSavingCase] = useState(false);
   const [caseUpdateError, setCaseUpdateError] = useState<string | null>(null);
+  const [caseHistory, setCaseHistory] = useState<ResearchCaseStepHistory[]>([]);
   const { data: dossier, error, loading, reload } = useApi(() => getDossier(ticker), [ticker]);
 
   useEffect(() => {
     let cancelled = false;
     setResearchCase(null);
+    setCaseHistory([]);
     getResearchCase(ticker)
       .then((caseRow) => {
         if (!cancelled) {
@@ -93,6 +107,9 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
           setCaseStateDraft(caseRow.state);
           setCaseStepDraft(caseRow.current_step);
           setCaseReasonDraft(caseRow.blocked_reason ?? "");
+          getResearchCaseHistory(ticker)
+            .then((history) => { if (!cancelled) setCaseHistory(history); })
+            .catch(() => { if (!cancelled) setCaseHistory([]); });
         }
       })
       .catch((err: unknown) => {
@@ -111,6 +128,7 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
       setCaseStateDraft(created.state);
       setCaseStepDraft(created.current_step);
       setCaseReasonDraft(created.blocked_reason ?? "");
+      setCaseHistory(await getResearchCaseHistory(ticker));
     } catch (err) {
       setCaseUpdateError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -126,9 +144,12 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
         state: caseStateDraft,
         current_step: caseStepDraft,
         blocked_reason: caseStateDraft === "blocked" ? caseReasonDraft : null,
+        change_reason: caseChangeReason.trim() || null,
       });
       setResearchCase(updated);
       setCaseReasonDraft(updated.blocked_reason ?? "");
+      setCaseChangeReason("");
+      setCaseHistory(await getResearchCaseHistory(ticker));
     } catch (err) {
       setCaseUpdateError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -271,8 +292,10 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
           <label>Stan<select value={caseStateDraft} onChange={(event) => setCaseStateDraft(event.target.value as ResearchCase["state"])}><option value="new">Nowy</option><option value="ingesting">Zbieranie danych</option><option value="data_review">Przegląd danych</option><option value="business_model">Model biznesowy</option><option value="thesis">Teza</option><option value="scenarios">Scenariusze</option><option value="review">Weryfikacja</option><option value="monitoring">Monitoring</option><option value="blocked">Zablokowany</option><option value="closed">Zamknięty</option></select></label>
           <label>Etap<select value={caseStepDraft} onChange={(event) => setCaseStepDraft(event.target.value as ResearchCase["current_step"])}><option value="ingest">Ingest</option><option value="data_review">Przegląd danych</option><option value="business_model">Model biznesowy</option><option value="thesis">Teza</option><option value="scenarios">Scenariusze</option><option value="review">Weryfikacja</option><option value="monitoring">Monitoring</option></select></label>
           {caseStateDraft === "blocked" && <label>Powód blokady<input value={caseReasonDraft} onChange={(event) => setCaseReasonDraft(event.target.value)} placeholder="Brakujący dowód lub decyzja" /></label>}
+          <label>Powód zmiany<input value={caseChangeReason} onChange={(event) => setCaseChangeReason(event.target.value)} placeholder="Dlaczego zmieniasz etap lub stan?" /></label>
           <button className="btn accent" onClick={() => void saveCase()} disabled={savingCase}>{savingCase ? "Zapisuję…" : "Zapisz stan"}</button>
           {caseUpdateError && <span className="case-update-error">{caseUpdateError}</span>}
+          {caseHistory.length > 0 && <details className="case-history"><summary>Historia etapów ({caseHistory.length})</summary><ol>{caseHistory.slice(0, 8).map((entry) => <li key={entry.id}><strong>{entry.from_state ? `${CASE_STATE_LABELS[entry.from_state]} / ${CASE_STEP_LABELS[entry.from_step ?? "ingest"]}` : "start"} → {CASE_STATE_LABELS[entry.to_state]} / {CASE_STEP_LABELS[entry.to_step]}</strong><span>{entry.reason}</span><small>{fmtDate(entry.created_at)}{entry.changed_by ? ` · ${entry.changed_by}` : ""}</small></li>)}</ol></details>}
         </section>
       )}
 

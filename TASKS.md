@@ -188,18 +188,21 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
     explicit create action.
   - [x] RT4.1c: Edit case state and current step explicitly, surface blocked
     reasons, and include the selected workflow step in the report brief;
-    persistence of assumption sets and step history remains next.
+    persistence of assumption sets and step history landed in RT4.2a–c.
   - [x] RT4.2a: Add durable case-linked assumption sets for negative/base/
     positive/event scenarios with per-input provenance and purpose-scoped
     read/create/update API.
   - [x] RT4.2b: Add the compact scenario assumption editor, including
     per-input provenance and a visible saved-set list.
-  - [ ] RT4.2c: Retain an appendable history of case-step changes before
-    priced driver equations.
+  - [x] RT4.2c: Retain an appendable history of case-step changes with an
+    explicit transition reason and editor identity; legacy cases remain
+    history-empty until a new transition is recorded.
+  - [ ] RT4.3a: Connect approved case assumptions to scenario inputs and keep
+    sourced, human and model suggestions distinct in the valuation bridge.
 - [~] RT4.5–RT4.7: report-first UI and manual QA slices exist; scenario rows
   now expose a qualitative negative/stable/improving company outcome and case
-  assumptions have provenance-aware persistence/editor surfaces, while
-  appendable step history, priced driver equations, automated
+  assumptions have provenance-aware persistence/editor surfaces and appendable
+  step history, while priced driver equations, automated
   screenshots/accessibility and representative industrial/financial/event-
   driven QA remain.
   - [x] RT4.5a: Add company-outcome conditions to C/Z, C/WK and EV/EBITDA

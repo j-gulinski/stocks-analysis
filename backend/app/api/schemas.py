@@ -55,6 +55,7 @@ class ResearchCaseUpdateIn(BaseModel):
     current_step: CaseStep | None = None
     as_of: datetime | None = None
     blocked_reason: str | None = Field(default=None, max_length=2000)
+    change_reason: str | None = Field(default=None, max_length=2000)
 
 
 class ResearchCaseOut(BaseModel):
@@ -69,6 +70,20 @@ class ResearchCaseOut(BaseModel):
     blocked_reason: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class ResearchCaseStepHistoryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    research_case_id: int
+    from_state: CaseState | None
+    from_step: CaseStep | None
+    to_state: CaseState
+    to_step: CaseStep
+    reason: str
+    changed_by: str | None
+    created_at: datetime
 
 
 AssumptionScenarioKind = Literal["negative", "base", "positive", "event"]

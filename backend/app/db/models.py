@@ -114,6 +114,27 @@ class AssumptionSet(Base):
     )
 
 
+class ResearchCaseStepHistory(Base):
+    """Append-only human-recorded workflow transition for a research case."""
+
+    __tablename__ = "research_case_step_history"
+    __table_args__ = (
+        Index("ix_case_step_history_case_created", "research_case_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    research_case_id: Mapped[int] = mapped_column(
+        ForeignKey("research_cases.id", ondelete="CASCADE"), index=True
+    )
+    from_state: Mapped[str | None] = mapped_column(String(40))
+    from_step: Mapped[str | None] = mapped_column(String(40))
+    to_state: Mapped[str] = mapped_column(String(40))
+    to_step: Mapped[str] = mapped_column(String(40))
+    reason: Mapped[str] = mapped_column(Text)
+    changed_by: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class ReportValue(Base):
     """One cell of a financial statement: (statement, freq, period, field) → value."""
 

@@ -25,6 +25,7 @@ from app.api.schemas import (
     ReportRowOut,
     ResearchCaseCreateIn,
     ResearchCaseOut,
+    ResearchCaseStepHistoryOut,
     ResearchCaseUpdateIn,
 )
 from app.db.base import get_db
@@ -37,6 +38,7 @@ from app.db.models import (
     Price,
     ReportValue,
     ResearchCase,
+    ResearchCaseStepHistory,
     utcnow,
 )
 from app.services import dossier as dossier_service
@@ -201,6 +203,7 @@ def create_research_case(
     ticker: str,
     payload: ResearchCaseCreateIn,
     db: Session = Depends(get_db),
+    user_email: str | None = Depends(get_user_email),
 ) -> ResearchCase:
     company = _get_company_or_404(db, ticker)
     _validate_research_case_payload(payload.state, payload.blocked_reason)
@@ -222,6 +225,18 @@ def create_research_case(
     )
     db.add(case)
     try:
+        db.flush()
+        db.add(
+            ResearchCaseStepHistory(
+                research_case_id=case.id,
+                from_state=None,
+                from_step=None,
+                to_state=case.state,
+                to_step=case.current_step,
+                reason="Utworzono przypadek badawczy.",
+                changed_by=user_email,
+            )
+        )
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -239,6 +254,7 @@ def update_research_case(
     payload: ResearchCaseUpdateIn,
     purpose: str = Query(default="investment-research", min_length=1, max_length=80),
     db: Session = Depends(get_db),
+    user_email: str | None = Depends(get_user_email),
 ) -> ResearchCase:
     company = _get_company_or_404(db, ticker)
     case = db.scalar(
@@ -250,9 +266,18 @@ def update_research_case(
     if case is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Research case not found.")
     values = payload.model_dump(exclude_unset=True)
+    change_reason = values.pop("change_reason", None)
     state = values.get("state", case.state)
     blocked_reason = values.get("blocked_reason", case.blocked_reason)
     _validate_research_case_payload(state, blocked_reason)
+    transition = state != case.state or values.get("current_step", case.current_step) != case.current_step
+    if transition and not (change_reason or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="change_reason is required when state or current_step changes.",
+        )
+    previous_state = case.state
+    previous_step = case.current_step
     for key, value in values.items():
         if key == "blocked_reason" and value is not None:
             value = value.strip() or None
@@ -260,9 +285,41 @@ def update_research_case(
     if state != "blocked" and "blocked_reason" not in values:
         case.blocked_reason = None
     case.updated_at = utcnow()
+    if transition:
+        db.add(
+            ResearchCaseStepHistory(
+                research_case_id=case.id,
+                from_state=previous_state,
+                from_step=previous_step,
+                to_state=case.state,
+                to_step=case.current_step,
+                reason=change_reason.strip(),
+                changed_by=user_email,
+            )
+        )
     db.commit()
     db.refresh(case)
     return case
+
+
+@router.get(
+    "/{ticker}/research-case/history",
+    response_model=list[ResearchCaseStepHistoryOut],
+)
+def list_research_case_history(
+    ticker: str,
+    purpose: str = Query(default="investment-research", min_length=1, max_length=80),
+    db: Session = Depends(get_db),
+) -> list[ResearchCaseStepHistory]:
+    company = _get_company_or_404(db, ticker)
+    case = _get_research_case_for_company(db, company, purpose)
+    return list(
+        db.scalars(
+            select(ResearchCaseStepHistory)
+            .where(ResearchCaseStepHistory.research_case_id == case.id)
+            .order_by(ResearchCaseStepHistory.created_at.desc(), ResearchCaseStepHistory.id.desc())
+        ).all()
+    )
 
 
 def _get_research_case_for_company(db: Session, company: Company, purpose: str) -> ResearchCase:

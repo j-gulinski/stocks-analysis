@@ -96,6 +96,18 @@ export interface ResearchCase {
   updated_at: string;
 }
 
+export interface ResearchCaseStepHistory {
+  id: number;
+  research_case_id: number;
+  from_state: ResearchCaseState | null;
+  from_step: ResearchCaseStep | null;
+  to_state: ResearchCaseState;
+  to_step: ResearchCaseStep;
+  reason: string;
+  changed_by: string | null;
+  created_at: string;
+}
+
 export type AssumptionScenarioKind = "negative" | "base" | "positive" | "event";
 export type AssumptionStatus = "draft" | "approved" | "rejected";
 export type AssumptionProvenance = "evidence" | "human_assumption" | "model_suggestion";

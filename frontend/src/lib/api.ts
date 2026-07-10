@@ -37,6 +37,7 @@ import type {
   PreSessionBriefResult,
   QueueAttemptResult,
   ResearchCase,
+  ResearchCaseStepHistory,
   ResearchCaseState,
   ResearchCaseStep,
   RefreshSummary,
@@ -108,6 +109,11 @@ export const getResearchCase = (ticker: string, purpose = "investment-research")
     `/companies/${encodeURIComponent(ticker)}/research-case?purpose=${encodeURIComponent(purpose)}`,
   );
 
+export const getResearchCaseHistory = (ticker: string, purpose = "investment-research") =>
+  request<ResearchCaseStepHistory[]>(
+    `/companies/${encodeURIComponent(ticker)}/research-case/history?purpose=${encodeURIComponent(purpose)}`,
+  );
+
 export const createResearchCase = (ticker: string, purpose = "investment-research") =>
   request<ResearchCase>(`/companies/${encodeURIComponent(ticker)}/research-case`, {
     method: "POST",
@@ -120,6 +126,7 @@ export const updateResearchCase = (
     state?: ResearchCaseState;
     current_step?: ResearchCaseStep;
     blocked_reason?: string | null;
+    change_reason?: string | null;
     as_of?: string | null;
   },
 ) =>
