@@ -110,3 +110,8 @@ only for an approved operating what-if row. Historical operating CF is shown
 separately because it already contains working-capital movement. This is the
 same separation a C# domain service would use between an observed ledger and
 a projected record.
+
+RT4.3e keeps the FCF lens deliberately opt-in. A user must approve capex,
+working-capital change and the FCF multiple before the system can produce a
+price. In C# terms, the valuation method has a required input object and
+returns a validation result instead of silently filling missing properties.

@@ -606,6 +606,7 @@ class OperatingBridgeOut(BaseModel):
     note: str
     rows: list[OperatingBridgeRowOut] = Field(default_factory=list)
     cash_conversion: dict
+    fcf_lens: dict
 
 
 class ScenarioSetOut(BaseModel):
@@ -637,6 +638,12 @@ class ScenarioSetOut(BaseModel):
             template=None,
             note="Brak projekcji operacyjnej.",
             cash_conversion={"status": "needs_human", "gaps": []},
+            fcf_lens={
+                "status": "none",
+                "method": "FCF/share × jawny mnożnik FCF",
+                "note": "Brak soczewki FCF.",
+                "rows": [],
+            },
         )
     )
     # Provenance: "deterministic" (no key / AI fallback) or "ai" (+ ai_notes).

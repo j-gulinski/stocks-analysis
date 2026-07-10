@@ -124,3 +124,48 @@ def test_cash_conversion_snapshot_keeps_working_capital_gap_explicit():
     assert complete["working_capital_change"] == 100.0
     assert complete["working_capital_cash_effect"] == -100.0
     assert not any("dwóch porównywalnych" in gap for gap in complete["gaps"])
+
+
+def test_fcf_lens_requires_explicit_cash_inputs_and_prices_separately():
+    result = operating_scenarios.build_operating_bridge(
+        cz_inputs(),
+        _income(),
+        malik.MALIK,
+        [
+            {
+                "scenario_kind": "base",
+                "status": "approved",
+                "label": "Bazowy FCF",
+                "assumptions": [
+                    {"key": "revenue", "value": 125_000, "provenance": "human_assumption", "rationale": "Przychód."},
+                    {"key": "gross_margin_pct", "value": 35.0, "provenance": "evidence", "rationale": "Marża."},
+                    {"key": "capex", "value": -400.0, "unit": "tys. PLN", "provenance": "evidence", "rationale": "Capex."},
+                    {"key": "working_capital_change", "value": 100.0, "unit": "tys. PLN", "provenance": "human_assumption", "rationale": "Zmiana WC."},
+                    {"key": "fcf_multiple", "value": 12.0, "unit": "x", "provenance": "human_assumption", "rationale": "Jawny mnożnik."},
+                ],
+            }
+        ],
+        cashflow_latest={"operating_cashflow": ("2025Q1", 1_500.0), "capex": ("2025Q1", -400.0)},
+        balance_series={
+            "2024Q4": {"receivables_current": 100.0, "inventory": 200.0},
+            "2025Q1": {"receivables_current": 150.0, "inventory": 250.0},
+        },
+    )
+    lens = result["fcf_lens"]
+    assert lens["status"] == "applied"
+    row = lens["rows"][0]
+    assert row["projected_fcf"] is not None
+    assert row["fcf_target_price"] == round(row["projected_fcf"] / 10_000_000 * 1_000 * 12.0, 2)
+    assert row["target_price_delta"] is not None
+
+    incomplete = operating_scenarios.build_operating_bridge(
+        cz_inputs(),
+        _income(),
+        malik.MALIK,
+        [{"scenario_kind": "base", "status": "approved", "assumptions": [
+            {"key": "capex", "value": -400.0, "provenance": "evidence", "rationale": "Capex."},
+            {"key": "working_capital_change", "value": 100.0, "provenance": "evidence", "rationale": "WC."},
+        ]}],
+    )
+    assert incomplete["fcf_lens"]["status"] == "needs_human"
+    assert "fcf_multiple" in incomplete["fcf_lens"]["rows"][0]["missing"]

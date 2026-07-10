@@ -209,9 +209,12 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
   - [x] RT4.3d: Cash-flow/capex mapping, conversion snapshot,
     source-backed receivable/inventory delta and a tested P&L-to-FCF bridge
     are present; historical CF is kept separate to avoid double-counting WC.
-  - [ ] RT4.3e: Add explicit approved capex/WC forecast assumptions and a
-    separate FCF valuation lens; do not replace the current multiple lens
-    until the pilot has source-backed coverage.
+  - [x] RT4.3e: Add explicit approved capex/WC forecast assumptions and a
+    separate FCF valuation lens; it does not replace the current multiple lens
+    and remains unavailable until its inputs are complete.
+  - [ ] RT4.4a: Replace qualitative scenario outcomes with priced operating
+    drivers only after representative industrial/financial/event-driven cases
+    pass the strict verifier and no-look-ahead checks.
 - [~] RT4.5–RT4.7: report-first UI and manual QA slices exist; scenario rows
   now expose a qualitative negative/stable/improving company outcome and case
   assumptions have provenance-aware persistence/editor surfaces and appendable

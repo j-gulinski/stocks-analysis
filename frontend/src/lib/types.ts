@@ -196,6 +196,24 @@ export interface OperatingBridge {
     working_capital_cash_effect: number | null;
     gaps: string[];
   };
+  fcf_lens: {
+    status: "none" | "applied" | "needs_human";
+    method: string;
+    note: string;
+    rows: Array<{
+      scenario_kind: AssumptionScenarioKind;
+      label: string;
+      baseline_target_price: number | null;
+      projected_fcf: number | null;
+      fcf_multiple: number | null;
+      fcf_target_price: number | null;
+      target_price_delta: number | null;
+      applied: DriverAssumption[];
+      ignored: DriverAssumption[];
+      missing: string[];
+      gap: string | null;
+    }>;
+  };
 }
 
 export interface RefreshSummary {

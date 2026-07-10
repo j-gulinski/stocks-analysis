@@ -25,6 +25,7 @@ _DRIVER_KEYS = {
     "depreciation": "depreciation",
 }
 _REQUIRED_KEYS = {"revenue", "gross_margin_pct"}
+_FCF_KEYS = {"capex", "working_capital_change", "fcf_multiple"}
 
 
 def _detail(item: dict, *, applied: bool, note: str) -> dict:
@@ -189,6 +190,101 @@ def build_cash_conversion_snapshot(
     }
 
 
+def _apply_fcf_items(items: list[dict]) -> tuple[dict, list[dict], list[dict]]:
+    values: dict = {}
+    applied: list[dict] = []
+    ignored: list[dict] = []
+    for raw in items:
+        item = raw if isinstance(raw, dict) else {}
+        key = item.get("key")
+        value = item.get("value")
+        if item.get("provenance") == "model_suggestion":
+            ignored.append(_detail(item, applied=False, note="Sugestia modelu wymaga jawnego przyjęcia."))
+            continue
+        if key not in _FCF_KEYS:
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
+            ignored.append(_detail(item, applied=False, note="Wartość FCF nie jest liczbą."))
+            continue
+        if key == "fcf_multiple" and value <= 0:
+            ignored.append(_detail(item, applied=False, note="Mnożnik FCF musi być dodatni."))
+            continue
+        if key == "capex" and value > 0:
+            ignored.append(_detail(item, applied=False, note="Capex musi zachować ujemny znak przepływu gotówki."))
+            continue
+        values[key] = float(value)
+        applied.append(_detail(item, applied=True, note="Zastosowano wyłącznie w soczewce FCF."))
+    return values, applied, ignored
+
+
+def _build_fcf_lens(rows: list[dict], approved_sets: list[dict], shares: int | None) -> dict:
+    """Price FCF only with a complete, explicitly approved FCF input trio."""
+    if not rows:
+        return {
+            "status": "none",
+            "method": "FCF/share × jawny mnożnik FCF",
+            "note": "Brak zatwierdzonego scenariusza operacyjnego do soczewki FCF.",
+            "rows": [],
+        }
+    by_kind = {row["scenario_kind"]: row for row in rows}
+    lens_rows: list[dict] = []
+    for assumption_set in approved_sets:
+        kind = assumption_set["scenario_kind"]
+        source_row = by_kind.get(kind)
+        if source_row is None:
+            continue
+        values, applied, ignored = _apply_fcf_items(assumption_set.get("assumptions") or [])
+        missing = sorted(_FCF_KEYS - values.keys())
+        projected_fcf = None
+        target_price = None
+        gap = None
+        if missing:
+            gap = "Brak jawnych wejść FCF: " + ", ".join(missing) + "."
+        elif source_row["projected_net_profit"] is None or source_row["projected_depreciation"] is None:
+            gap = "Brak zysku netto lub amortyzacji z projekcji P&L."
+        elif shares is None or shares <= 0:
+            gap = "Brak liczby akcji do przeliczenia FCF na akcję."
+        else:
+            projected_fcf = round(
+                source_row["projected_net_profit"]
+                + source_row["projected_depreciation"]
+                - values["working_capital_change"]
+                + values["capex"],
+                1,
+            )
+            if projected_fcf <= 0:
+                gap = "Projected FCF jest niedodatni — ceny z soczewki FCF nie wyznaczono."
+            else:
+                target_price = round(
+                    projected_fcf * 1000.0 / shares * values["fcf_multiple"], 2
+                )
+        lens_rows.append(
+            {
+                "scenario_kind": kind,
+                "label": assumption_set.get("label", kind),
+                "baseline_target_price": source_row["baseline_target_price"],
+                "projected_fcf": projected_fcf,
+                "fcf_multiple": values.get("fcf_multiple"),
+                "fcf_target_price": target_price,
+                "target_price_delta": (
+                    round(target_price - source_row["baseline_target_price"], 2)
+                    if target_price is not None and source_row["baseline_target_price"] is not None
+                    else None
+                ),
+                "applied": applied,
+                "ignored": ignored,
+                "missing": missing,
+                "gap": gap,
+            }
+        )
+    return {
+        "status": "applied" if any(row["fcf_target_price"] is not None for row in lens_rows) else "needs_human",
+        "method": "FCF/share × jawny mnożnik FCF",
+        "note": "Soczewka FCF jest opcjonalna i nie zmienia bazowej wyceny mnożnikowej.",
+        "rows": lens_rows,
+    }
+
+
 def build_operating_bridge(
     inputs: scenarios.ScenarioInputs,
     income: forecast.IncomeSeries,
@@ -207,6 +303,12 @@ def build_operating_bridge(
             "note": "Brak zatwierdzonego równania operacyjnego dla tego archetypu spółki.",
             "rows": [],
             "cash_conversion": cash_conversion,
+            "fcf_lens": {
+                "status": "none",
+                "method": "FCF/share × jawny mnożnik FCF",
+                "note": "Brak template operacyjnego dla tej spółki.",
+                "rows": [],
+            },
         }
     approved = [
         row for row in (approved_assumption_sets or [])
@@ -227,6 +329,12 @@ def build_operating_bridge(
             "note": "Brak zatwierdzonych założeń operacyjnych do projekcji.",
             "rows": [],
             "cash_conversion": cash_conversion,
+            "fcf_lens": {
+                "status": "none",
+                "method": "FCF/share × jawny mnożnik FCF",
+                "note": "Brak zatwierdzonego scenariusza operacyjnego do soczewki FCF.",
+                "rows": [],
+            },
         }
     try:
         defaults = forecast.default_assumptions(income)
@@ -237,6 +345,12 @@ def build_operating_bridge(
             "note": str(exc),
             "rows": [],
             "cash_conversion": cash_conversion,
+            "fcf_lens": {
+                "status": "needs_human",
+                "method": "FCF/share × jawny mnożnik FCF",
+                "note": str(exc),
+                "rows": [],
+            },
         }
 
     baseline = scenarios.build_scenario_set(inputs, profile).to_dict()
@@ -315,4 +429,5 @@ def build_operating_bridge(
         "note": "Projekcja używa wyłącznie zatwierdzonych wejść i jawnego równania; bazowa wycena pozostaje osobnym punktem odniesienia.",
         "rows": rows,
         "cash_conversion": cash_conversion,
+        "fcf_lens": _build_fcf_lens(rows, approved, inputs.shares_outstanding),
     }

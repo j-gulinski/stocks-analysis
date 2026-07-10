@@ -1,5 +1,5 @@
 import type { AssumptionItem, Scenario, ScenarioSet, Valuation } from "@/lib/types";
-import { fmtPln, fmtPct, fmtTys, signClass } from "@/lib/format";
+import { fmtNumber, fmtPln, fmtPct, fmtTys, signClass } from "@/lib/format";
 
 /**
  * Scenario simulation ("Scenariusze") — sits below the thesis section on the
@@ -65,6 +65,7 @@ export default function ScenariosPanel({
   const multipleLabel =
     MULTIPLE_LABEL[scenarios.valuation_multiple] ?? scenarios.valuation_multiple;
   const qualityWarnings = scenarios.quality_warnings ?? [];
+  const operatingBridge = scenarios.operating_bridge;
 
   return (
     <div className="card scenarios">
@@ -244,35 +245,35 @@ export default function ScenariosPanel({
         </div>
       )}
 
-      {scenarios.operating_bridge && scenarios.operating_bridge.status !== "none" && (
+      {operatingBridge && operatingBridge.status !== "none" && (
         <div className="thesis-section operating-bridge">
           <div className="spread" style={{ flexWrap: "wrap", gap: 8 }}>
             <p className="thesis-title">Most operacyjny</p>
-            <span className={`badge ${scenarios.operating_bridge.status === "applied" ? "success" : "warning"}`}>
-              {scenarios.operating_bridge.status === "applied" ? "policzony" : "wymaga danych"}
+            <span className={`badge ${operatingBridge.status === "applied" ? "success" : "warning"}`}>
+              {operatingBridge.status === "applied" ? "policzony" : "wymaga danych"}
             </span>
           </div>
-          {scenarios.operating_bridge.template && (
-            <p className="small muted">{scenarios.operating_bridge.template.label}: {scenarios.operating_bridge.template.equation}</p>
+          {operatingBridge.template && (
+            <p className="small muted">{operatingBridge.template.label}: {operatingBridge.template.equation}</p>
           )}
-          <p className="sensitivity-note">{scenarios.operating_bridge.note}</p>
+          <p className="sensitivity-note">{operatingBridge.note}</p>
           <div className="cash-conversion">
             <strong>Cash conversion / capex</strong>
-            <span className="badge muted">{scenarios.operating_bridge.cash_conversion.status}</span>
+            <span className="badge muted">{operatingBridge.cash_conversion.status}</span>
             <div className="scenario-metrics">
-              <div><span className="k">CF operacyjny</span><span className="v">{fmtTys(scenarios.operating_bridge.cash_conversion.operating_cashflow)}</span></div>
-              <div><span className="k">CF / zysk netto</span><span className="v">{fmtPct(scenarios.operating_bridge.cash_conversion.conversion_ratio ? scenarios.operating_bridge.cash_conversion.conversion_ratio * 100 : null)}</span></div>
-              <div><span className="k">Capex</span><span className="v">{fmtTys(scenarios.operating_bridge.cash_conversion.capex)}</span></div>
-              <div><span className="k">Capex / przychód</span><span className="v">{fmtPct(scenarios.operating_bridge.cash_conversion.capex_intensity_pct)}</span></div>
-              <div><span className="k">Δ należności + zapasy</span><span className="v">{fmtTys(scenarios.operating_bridge.cash_conversion.working_capital_change)}</span></div>
-              <div><span className="k">Obserwowany FCF</span><span className="v">{fmtTys(scenarios.operating_bridge.cash_conversion.observed_fcf)}</span></div>
+              <div><span className="k">CF operacyjny</span><span className="v">{fmtTys(operatingBridge.cash_conversion.operating_cashflow)}</span></div>
+              <div><span className="k">CF / zysk netto</span><span className="v">{fmtPct(operatingBridge.cash_conversion.conversion_ratio ? operatingBridge.cash_conversion.conversion_ratio * 100 : null)}</span></div>
+              <div><span className="k">Capex</span><span className="v">{fmtTys(operatingBridge.cash_conversion.capex)}</span></div>
+              <div><span className="k">Capex / przychód</span><span className="v">{fmtPct(operatingBridge.cash_conversion.capex_intensity_pct)}</span></div>
+              <div><span className="k">Δ należności + zapasy</span><span className="v">{fmtTys(operatingBridge.cash_conversion.working_capital_change)}</span></div>
+              <div><span className="k">Obserwowany FCF</span><span className="v">{fmtTys(operatingBridge.cash_conversion.observed_fcf)}</span></div>
             </div>
-            {scenarios.operating_bridge.cash_conversion.gaps.length > 0 && (
-              <p className="sensitivity-detail muted">Luki: {scenarios.operating_bridge.cash_conversion.gaps.join("; ")}</p>
+            {operatingBridge.cash_conversion.gaps.length > 0 && (
+              <p className="sensitivity-detail muted">Luki: {operatingBridge.cash_conversion.gaps.join("; ")}</p>
             )}
           </div>
           <div className="operating-bridge-list">
-            {scenarios.operating_bridge.rows.map((row) => (
+            {operatingBridge.rows.map((row) => (
               <div className="operating-bridge-row" key={row.scenario_kind}>
                 <div className="spread" style={{ flexWrap: "wrap", gap: 6 }}>
                   <strong>{row.label}</strong>
@@ -291,6 +292,34 @@ export default function ScenariosPanel({
               </div>
             ))}
           </div>
+          {operatingBridge.fcf_lens.status !== "none" && (
+            <div className="fcf-lens">
+              <div className="spread" style={{ flexWrap: "wrap", gap: 6 }}>
+                <strong>Soczewka FCF (opcjonalna)</strong>
+                <span className={`badge ${operatingBridge.fcf_lens.status === "applied" ? "success" : "warning"}`}>
+                  {operatingBridge.fcf_lens.status === "applied" ? "zatwierdzona" : "wymaga danych"}
+                </span>
+              </div>
+              <p className="sensitivity-note">{operatingBridge.fcf_lens.note}</p>
+              {operatingBridge.fcf_lens.rows.map((row) => (
+                <div className="fcf-lens-row" key={row.scenario_kind}>
+                  <div className="spread" style={{ flexWrap: "wrap", gap: 6 }}>
+                    <strong>{row.label}</strong>
+                    <span className="small muted">{operatingBridge.fcf_lens.method}</span>
+                  </div>
+                  <div className="scenario-metrics">
+                    <div><span className="k">Projected FCF</span><span className="v">{fmtTys(row.projected_fcf)}</span></div>
+                    <div><span className="k">Mnożnik FCF</span><span className="v">{fmtNumber(row.fcf_multiple, 1)}</span></div>
+                    <div><span className="k">Cena FCF</span><span className={`v ${signClass(row.target_price_delta)}`}>{fmtPln(row.fcf_target_price)}</span></div>
+                    <div><span className="k">Różnica vs baza</span><span className={`v ${signClass(row.target_price_delta)}`}>{row.target_price_delta != null && row.target_price_delta > 0 ? "+" : ""}{fmtPln(row.target_price_delta)}</span></div>
+                  </div>
+                  {row.missing.length > 0 && <p className="sensitivity-detail muted">Brak: {row.missing.join(", ")}</p>}
+                  {row.gap && <p className="sensitivity-detail muted">FCF: {row.gap}</p>}
+                  {row.ignored.length > 0 && <p className="sensitivity-detail muted">Pominięto: {row.ignored.map((item) => `${item.key} — ${item.note}`).join("; ")}</p>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

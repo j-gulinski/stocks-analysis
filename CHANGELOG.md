@@ -72,6 +72,14 @@ cash effect + capex. Historical FCF remains `operating CF + capex` and is not
 adjusted by working capital a second time. No FCF price lens is introduced;
 that remains a future, separately approved valuation method.
 
+## 2026-07-10 · RT4.3e explicit FCF valuation lens
+
+Added an optional FCF/share × explicit FCF-multiple lens. It requires approved
+`capex`, `working_capital_change` and `fcf_multiple` inputs with non-model
+provenance; incomplete, suggested or negative-FCF cases stay `needs-human`.
+The lens reports its price and delta beside the existing multiple valuation and
+never replaces that baseline automatically.
+
 ## 2026-07-10 · Refined RT4 next task
 
 The next implementation target is now RT4.1a: establish the durable
