@@ -261,7 +261,7 @@ def test_parse_gpw_espi_detail_accepts_credible_english_labels():
 
 
 def test_poll_watchlist_reports_upserts_matching_company(db, monkeypatch):
-    from app.db.models import Company, EventReport, WatchlistItem
+    from app.db.models import Company, DocumentVersion, Event, EventReport, WatchlistItem
     from app.scrapers import espi
 
     kruk = Company(ticker="KRU", name="KRUK")
@@ -299,6 +299,12 @@ def test_poll_watchlist_reports_upserts_matching_company(db, monkeypatch):
     assert report.published_at.isoformat().startswith("2026-07-09T14:00:00")
     assert report.materiality["level"] == "unreviewed"
     assert "KRUK S.A. informuje" in report.raw_text
+    evidence_version = db.query(DocumentVersion).one()
+    assert report.parsed["evidence_source_version_id"] == evidence_version.id
+    event = db.query(Event).one()
+    assert event.source_version_id == evidence_version.id
+    assert event.verification_state == "unverified"
+    assert event.claims[1]["locator"] == {"section": "report-data", "field": "subject"}
 
     second = espi.poll_watchlist_reports(db)
     assert second["matched"] == 1
@@ -306,6 +312,7 @@ def test_poll_watchlist_reports_upserts_matching_company(db, monkeypatch):
     assert second["complete"] is True
     assert second["boundary_reached"] is True
     assert db.query(EventReport).count() == 1
+    assert db.query(Event).count() == 1
 
 
 def test_poll_watchlist_reports_can_scope_to_ticker(db, monkeypatch):

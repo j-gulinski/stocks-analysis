@@ -159,8 +159,10 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
 
 - [~] RT2.1–RT2.2: immutable document/version/fact contracts and serving
   lineage exist; legacy rows remain honestly unlinked until refreshed.
-- [ ] RT2.3: pilot issuer IR and official ESPI/EBI ingestion for 3–5 watchlist
-  companies; share CX.15a watermark and add claim-level citations.
+- [~] RT2.3: ESPI/EBI detail ingestion now bridges stored reports into the
+  immutable evidence ledger with source versions and unverified claim locators.
+  Pilot issuer IR coverage for 3–5 watchlist companies and broader claim
+  extraction remain open; the CX.15a watermark is shared by the poller.
 - [ ] RT2.4–RT2.5: source terms/quality notes and corporate-action-aware
   long-history market-data evaluation.
 

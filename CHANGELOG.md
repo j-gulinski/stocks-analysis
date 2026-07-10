@@ -25,6 +25,14 @@ companies or changing the watchlist automatically. The queued run carries the
 source document version and requires `verifier_strict` before any result can be
 approved.
 
+## 2026-07-10 · RT2.3 ESPI evidence bridge
+
+Completed the first RT2.3 slice without a schema change: detail-enabled GPW
+ESPI/EBI polling now records or reuses an immutable `DocumentVersion` and adds
+an `Event` with explicit, unverified claim locators for the report title and
+subject. Metadata-only polling remains incomplete and does not manufacture an
+evidence document. Existing `EventReport` rows remain the serving interface.
+
 ## 2026-07-10 · Explore queued-ticker visibility
 
 The post-refetch Explore notice now lists the exact tickers accepted into the

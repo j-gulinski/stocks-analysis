@@ -17,8 +17,17 @@ from bs4 import BeautifulSoup
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Company, EventReport, ListPollState, WatchlistItem, utcnow
+from app.db.models import (
+    Company,
+    DocumentVersion,
+    Event,
+    EventReport,
+    ListPollState,
+    WatchlistItem,
+    utcnow,
+)
 from app.scrapers import http
+from app.services.evidence import mark_parse_result, record_document_version
 
 GPW_BASE_URL = "https://www.gpw.pl/"
 GPW_REPORTS_URL = urljoin(GPW_BASE_URL, "espi-ebi-reports")
@@ -631,6 +640,7 @@ def _upsert_event_report(
         )
         db.add(report)
         db.flush()
+        _ensure_evidence_event(db, company, summary, report)
         return report, True
 
     existing.company_id = company.id
@@ -640,7 +650,85 @@ def _upsert_event_report(
     if detail is not None and not (existing.raw_text or "").strip():
         existing.raw_text = detail.raw_text
     existing.parsed = parsed
+    _ensure_evidence_event(db, company, summary, existing)
     return existing, False
+
+
+def _ensure_evidence_event(
+    db: Session,
+    company: Company,
+    summary: GpwReportSummary,
+    report: EventReport,
+) -> None:
+    """Link a stored ESPI detail to the immutable evidence/event ledger."""
+    raw_text = (report.raw_text or "").strip()
+    if not raw_text:
+        # Metadata-only polling deliberately does not create a false evidence
+        # document; the next detail-enabled poll will complete the bridge.
+        return
+
+    parsed = dict(report.parsed or {})
+    version_id = parsed.get("evidence_source_version_id")
+    version = db.get(DocumentVersion, version_id) if version_id else None
+    if version is None:
+        recorded = record_document_version(
+            db,
+            company,
+            source_name="GPW",
+            source_type="espi_ebi",
+            scope_key=summary.external_id,
+            requested_url=summary.detail_url,
+            effective_url=summary.detail_url,
+            content=raw_text.encode("utf-8"),
+            text=raw_text,
+            response_status=200,
+            mime_type="text/plain",
+            parser_version="gpw-espi-detail@1",
+        )
+        version = recorded.version
+        mark_parse_result(version, success=True)
+        parsed["evidence_source_version_id"] = version.id
+        report.parsed = parsed
+
+    event = db.scalar(
+        select(Event).where(
+            Event.source_version_id == version.id,
+            Event.event_type == "espi_ebi_report",
+        )
+    )
+    if event is not None:
+        return
+
+    detail = parsed.get("detail") if isinstance(parsed.get("detail"), dict) else {}
+    claims = [
+        {
+            "claim_id": "report_metadata",
+            "text": summary.title,
+            "source_version_id": version.id,
+            "locator": {"section": "report-metadata", "field": "title"},
+            "verification_state": "unverified",
+        },
+        {
+            "claim_id": "report_subject",
+            "text": detail.get("subject") or summary.title,
+            "source_version_id": version.id,
+            "locator": {"section": "report-data", "field": "subject"},
+            "verification_state": "unverified",
+        },
+    ]
+    db.add(
+        Event(
+            company_id=company.id,
+            company_ticker=company.ticker,
+            source_version_id=version.id,
+            event_type="espi_ebi_report",
+            title=summary.title,
+            published_at=summary.published_at,
+            known_at=version.fetched_at,
+            claims=claims,
+            verification_state="unverified",
+        )
+    )
 
 
 def _merged_parsed(
