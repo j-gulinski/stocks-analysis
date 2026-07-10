@@ -52,6 +52,11 @@ parameters, known inputs and data-quality summaries. The mode remains
 research-only and `needs-human`; original filing versions and historical case
 identity are still open.
 
+The local coverage audit found no stored company, price or report rows for DGN,
+OPTEX or SUNTECH; current SNT fixture data is not admitted as the unverified
+historical case. This is an evidence-backed `needs-human` boundary, not a
+failed replay.
+
 ## 2026-07-10 · IL.4 read-only position context
 
 Added migration `0014` for a position ledger containing ticker, entry, size,

@@ -33,5 +33,14 @@ gap rather than an assumed survivor.
   manifest. CX.16b must reconstruct available inputs with an explicit lag
   policy, after which `verifier_strict` must audit look-ahead boundaries.
 
+## Local store coverage check
+
+On 2026-07-10 the local database contained no `Company` row, price history or
+report values for DGN, OPTEX or SUNTECH. It contained SNT company id 1 with 50
+stored prices and 4,530 report values, but those rows are the current SNT
+fixture/company record, not proof of the unverified historical case. They are
+therefore not admitted as cohort inputs. This confirms that CX.16b needs
+source-backed identity and historical availability work before replay.
+
 Next slice: reconstruct each eligible case's historical identity, publication
 availability and price coverage; keep missing fields as `unknown`.
