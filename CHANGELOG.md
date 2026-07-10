@@ -37,6 +37,13 @@ named blocked reason, with purpose-scoped reads/updates and duplicate-safe
 creation. Forecast and scenario persistence remain deliberately separate until
 the case root is exercised by the next RT4 slice.
 
+## 2026-07-10 · RT4.1b case header visibility
+
+The company header now reads the purpose-scoped `ResearchCase` without creating
+one on page load, shows its workflow state when present, and offers an
+explicit `Utwórz przypadek` action when absent. The next slice will add
+state/step editing and use the case in the decision brief.
+
 ## 2026-07-10 · Explore ranking rationale and stale-analysis queue
 
 Explore candidates now show their source rank, deterministic tie-break order,

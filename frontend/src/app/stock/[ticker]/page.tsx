@@ -13,12 +13,15 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import {
+  createResearchCase,
   getDossier,
+  getResearchCase,
   listAgentRuns,
   listAnalysisRuns,
   refreshCompany,
 } from "@/lib/api";
 import { findCurrentVerifiedRun } from "@/lib/analysis";
+import { ApiError } from "@/lib/api";
 import { hasDossierData } from "@/lib/dossier";
 import { useApi } from "@/lib/hooks";
 import { fmtDate, fmtMcap, fmtPln, relativeDate, staleDays } from "@/lib/format";
@@ -37,7 +40,7 @@ import CompanyReport from "@/components/CompanyReport";
 import DecisionJournalPanel from "@/components/DecisionJournalPanel";
 import FalsifiersPanel from "@/components/FalsifiersPanel";
 import PositionPanel from "@/components/PositionPanel";
-import type { AgentRun, AnalysisRun } from "@/lib/types";
+import type { AgentRun, AnalysisRun, ResearchCase } from "@/lib/types";
 
 const TABS = [
   { id: "Report", label: "Raport", icon: IconFileAnalytics },
@@ -46,6 +49,19 @@ const TABS = [
   { id: "History", label: "Codex", icon: IconBrain },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
+
+const CASE_STATE_LABELS: Record<ResearchCase["state"], string> = {
+  new: "nowy",
+  ingesting: "zbieranie danych",
+  data_review: "przegląd danych",
+  business_model: "model biznesowy",
+  thesis: "teza",
+  scenarios: "scenariusze",
+  review: "weryfikacja",
+  monitoring: "monitoring",
+  blocked: "zablokowany",
+  closed: "zamknięty",
+};
 
 export default function StockPage({ params }: { params: Promise<{ ticker: string }> }) {
   const { ticker: rawTicker } = use(params);
@@ -56,7 +72,30 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
   const [refreshSummary, setRefreshSummary] = useState<Record<string, string> | null>(null);
   const [analysisRuns, setAnalysisRuns] = useState<AnalysisRun[] | null>(null);
   const [agentRuns, setAgentRuns] = useState<AgentRun[] | null>(null);
+  const [researchCase, setResearchCase] = useState<ResearchCase | null>(null);
+  const [creatingCase, setCreatingCase] = useState(false);
   const { data: dossier, error, loading, reload } = useApi(() => getDossier(ticker), [ticker]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setResearchCase(null);
+    getResearchCase(ticker)
+      .then((caseRow) => { if (!cancelled) setResearchCase(caseRow); })
+      .catch((err: unknown) => {
+        // A missing case is an honest empty state, not a page failure.
+        if (!cancelled && (!(err instanceof ApiError) || err.status !== 404)) setResearchCase(null);
+      });
+    return () => { cancelled = true; };
+  }, [ticker]);
+
+  const createCase = async () => {
+    setCreatingCase(true);
+    try {
+      setResearchCase(await createResearchCase(ticker));
+    } finally {
+      setCreatingCase(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -178,10 +217,10 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
       <section className="stock-header workspace-header">
         <div className="stock-title">
           <div className="row wrap"><h1>{ticker}</h1>{company.name && <span className="company-title">{company.name}</span>}</div>
-          <div className="meta-row"><span className="badge accent">Researching</span>{company.market && <span>{company.market}</span>}{company.sector && <span>{company.sector}</span>}<span>as of {relativeDate(dossier.freshness.financials_scraped_at)}</span></div>
+          <div className="meta-row"><span className="badge accent">Researching</span>{company.market && <span>{company.market}</span>}{company.sector && <span>{company.sector}</span>}<span>as of {relativeDate(dossier.freshness.financials_scraped_at)}</span>{researchCase && <span className={`badge ${researchCase.state === "blocked" ? "warning" : "muted"}`}>Przypadek: {CASE_STATE_LABELS[researchCase.state]}</span>}</div>
         </div>
         <div className="quote-panel"><span className="quote-price">{fmtPln(ttm.price)}</span><span className="small muted">{ttm.price_date ? fmtDate(ttm.price_date) : "brak kursu"}</span><span className="quote-divider" /><span className="small secondary">mcap {fmtMcap(ttm.market_cap)}</span>{priceAge != null && priceAge > 5 && <span className="badge warning">kurs sprzed {priceAge} dni</span>}</div>
-        <div className="command-row header-actions"><button className="btn" onClick={() => void handleRefresh()} disabled={refreshing}><IconRefresh size={14} className={refreshing ? "spin" : ""} /> {refreshing ? "Odświeżanie…" : "Odśwież"}</button><button className="btn accent" onClick={() => setTab("History")}><IconSparkles size={14} /> Analiza Codex</button></div>
+        <div className="command-row header-actions"><button className="btn" onClick={() => void handleRefresh()} disabled={refreshing}><IconRefresh size={14} className={refreshing ? "spin" : ""} /> {refreshing ? "Odświeżanie…" : "Odśwież"}</button>{!researchCase && <button className="btn" onClick={() => void createCase()} disabled={creatingCase}>{creatingCase ? "Tworzę przypadek…" : "Utwórz przypadek"}</button>}<button className="btn accent" onClick={() => setTab("History")}><IconSparkles size={14} /> Analiza Codex</button></div>
       </section>
 
       {refreshing && (

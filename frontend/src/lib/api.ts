@@ -32,6 +32,7 @@ import type {
   Position,
   PreSessionBriefResult,
   QueueAttemptResult,
+  ResearchCase,
   RefreshSummary,
   ScraperHealth,
   WatchlistItem,
@@ -95,6 +96,17 @@ export const getDiscovery = (
 // ---------------------------------------------------------------- companies
 export const getDossier = (ticker: string) =>
   request<Dossier>(`/companies/${encodeURIComponent(ticker)}`);
+
+export const getResearchCase = (ticker: string, purpose = "investment-research") =>
+  request<ResearchCase>(
+    `/companies/${encodeURIComponent(ticker)}/research-case?purpose=${encodeURIComponent(purpose)}`,
+  );
+
+export const createResearchCase = (ticker: string, purpose = "investment-research") =>
+  request<ResearchCase>(`/companies/${encodeURIComponent(ticker)}/research-case`, {
+    method: "POST",
+    body: JSON.stringify({ purpose }),
+  });
 
 export const refreshCompany = (ticker: string, force = false) =>
   request<RefreshSummary>(

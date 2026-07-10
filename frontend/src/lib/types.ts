@@ -63,6 +63,39 @@ export interface Company {
   updated_at: string;
 }
 
+export type ResearchCaseState =
+  | "new"
+  | "ingesting"
+  | "data_review"
+  | "business_model"
+  | "thesis"
+  | "scenarios"
+  | "review"
+  | "monitoring"
+  | "blocked"
+  | "closed";
+
+export type ResearchCaseStep =
+  | "ingest"
+  | "data_review"
+  | "business_model"
+  | "thesis"
+  | "scenarios"
+  | "review"
+  | "monitoring";
+
+export interface ResearchCase {
+  id: number;
+  company_id: number;
+  purpose: string;
+  state: ResearchCaseState;
+  current_step: ResearchCaseStep;
+  as_of: string | null;
+  blocked_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RefreshSummary {
   ticker: string;
   summary: Record<string, string>;

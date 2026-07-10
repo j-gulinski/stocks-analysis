@@ -184,6 +184,9 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
     read/write API contract and fixture tests. Forecast/scenario persistence
     remains out of scope until this root is extended and verified in the next
     case slice.
+  - [~] RT4.1b: Show the case state in the company header and provide an
+    explicit create action; state editing and step-aware brief composition
+    remain next.
 - [~] RT4.5–RT4.7: report-first UI and manual QA slices exist; scenario rows
   now expose a qualitative negative/stable/improving company outcome, while
   persistent case editing, priced driver equations, automated
