@@ -26,7 +26,7 @@ import tempfile
 import types
 from pathlib import Path
 
-from app.services import scenarios, thesis, thesis_ai, valuation_ai
+from app.services import scenarios, thesis, valuation_ai
 from app.services import insights as I
 from app.services.strategies import cases, malik
 

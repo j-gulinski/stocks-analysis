@@ -2,10 +2,10 @@ import type { Scenario, ScenarioSet, Valuation } from "@/lib/types";
 import { fmtPln, fmtPct, signClass } from "@/lib/format";
 
 /**
- * Scenario simulation ("Scenariusze") — sits directly below ThesisPanel on the
+ * Scenario simulation ("Scenariusze") — sits below the thesis section on the
  * Przegląd tab (thesis = the read; scenarios = the projections off it). The set
  * is composed rule-based by the backend (services/scenarios.py) + an optional
- * model-assisted refiner; this component only lays it out, mirroring ThesisPanel.
+ * model-assisted refiner; this component only lays it out.
  *
  * Numbers: the panel does no client-side number formatting of its own — every
  * display value goes through the project's pl-PL helpers in lib/format.ts

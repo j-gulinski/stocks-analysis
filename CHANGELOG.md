@@ -18,6 +18,42 @@ keep the decisions scannable.
 
 ---
 
+## 2026-07-10 · cleanup — conservative dead-code removal (branch refactor/complexity-reduction)
+
+Complexity-reduction pass; behaviour unchanged (406 backend tests green,
+`tsc --noEmit` clean). Dead code confirmed via vulture (full-tree run, 60%
+confidence), an AST import graph, and per-name grep across app/scripts/tests
+plus doc-referenced entry points before every removal.
+
+Removed — backend: `api/analyses.py` `count_analyses_today` +
+`_start_of_today_utc` (its docstring claimed `diagnostics.py` imports it — it
+doesn't; the daily-cap arithmetic lives in the orchestrator/ledger path),
+`_snapshot_hash`, and `_json_safe` (the live copies are the same-named private
+helpers in `agent_evaluation.py`/`backtest.py`, which is why vulture alone
+missed it); `api/schemas.py` `VerificationRunOut` + `CandidateRunOut` (no
+route or serializer uses them); `services/analysis_contracts.py`
+`ForumDistillation`/`ForumDistillationClaim` (the live distillation contract
+is `forum_distiller.DistilledClaim`); `services/thesis_ai.py` `extract_json`
+alias (`scenarios_ai` uses only `numbers`/`parse_response`); unused imports
+(ruff F401) in `mcp/stock_tools.py`, `api/analyses.py`,
+`services/analysis_contracts.py`, `tests/test_valuation_ai.py`.
+
+Removed — frontend: orphaned `MetricCards.tsx` and `ThesisPanel.tsx`
+(superseded by AnalysisPanel/CompanyReport; zero imports at HEAD and in the
+working tree) plus their now-orphaned scss rules in `globals.scss`
+(`.verdict` block, `.points-empty`, `.principle`, `.thesis-read`,
+`.valuation-basis`); stale ThesisPanel references in the ScenariosPanel
+header comment.
+
+Deliberately NOT removed (decisions): `Event`/`CandidateRun` ORM models are
+code-dead but schema-bound (tables created by migrations 0008/0003) — removal
+needs an explicit drop-table migration decision; `thesis_ai.refine_thesis` is
+a fully-tested WP2b feature awaiting integration, not dead; `pa-scraper/`
+stays as the documented scraper reference (PLAN.md §"reference only");
+`analysis_contract.py` vs `analysis_contracts.py` naming left alone — both
+are live with different roles (codex save-path checker vs verdict pydantic
+contract).
+
 ## 2026-07-10 · RT.7 exploration — hosted Codex boundary and communication flow
 
 Added `docs/hosting-codex-automation.md` after checking the current code and

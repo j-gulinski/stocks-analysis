@@ -6,12 +6,8 @@ them, but they no longer bypass the durable run, quota, and model-call ledger.
 """
 from __future__ import annotations
 
-import hashlib
-import json
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.analysis import orchestrator
@@ -24,6 +20,7 @@ from app.services import claude_client
 
 router = APIRouter(prefix="/companies", tags=["analyses"])
 _MAX_FORUM_CLAIMS_FOR_AI = 12
+
 
 def _fact_rank(item: dict) -> tuple[int, int, int]:
     confidence_rank = {"confirmed": 4, "high": 3, "medium": 2, "low": 1}
@@ -52,28 +49,6 @@ def _get_company_or_404(db: Session, ticker: str) -> Company:
             detail=f"Unknown company '{ticker.upper()}'.",
         )
     return company
-
-
-def _start_of_today_utc() -> datetime:
-    now = datetime.now(timezone.utc)
-    return now.replace(hour=0, minute=0, second=0, microsecond=0)
-
-
-def count_analyses_today(db: Session) -> int:
-    """Analysis rows created today (UTC) — the exact query the daily cap
-    below enforces. Deliberately NOT underscore-prefixed and imported by
-    `app/api/diagnostics.py`'s `/ai-status` rather than re-derived there:
-    unlike `_get_company_or_404` above (duplicated per router on purpose —
-    a trivial lookup where drift is harmless), this number is the actual
-    cost-guard arithmetic, so a diagnostics endpoint computing it a slightly
-    different way would risk silently lying about how much cap is left.
-    """
-    today_count = db.scalar(
-        select(func.count())
-        .select_from(Analysis)
-        .where(Analysis.created_at >= _start_of_today_utc())
-    )
-    return int(today_count or 0)
 
 
 def _unavailable_to_http(
@@ -158,14 +133,6 @@ def _forum_claims_from_intelligence(dossier: dict) -> list[dict]:
     return claims
 
 
-def _snapshot_hash(snapshot: dict) -> str:
-    payload = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, default=str)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def _json_safe(obj):
-    """Round-trip through JSON so DB JSONB never sees date/Decimal objects."""
-    return json.loads(json.dumps(obj, ensure_ascii=False, default=str))
 @router.post("/{ticker}/analyses", response_model=AnalysisOut)
 def run_analysis(
     ticker: str,

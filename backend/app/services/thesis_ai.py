@@ -412,7 +412,6 @@ def _parse_response(raw) -> dict | None:
 # duplicate"); exposing a one-line public name avoids reaching into the private
 # underscore functions. No behaviour change — `thesis_ai`'s own tests still pass.
 numbers = _numbers
-extract_json = _extract_json
 parse_response = _parse_response
 
 

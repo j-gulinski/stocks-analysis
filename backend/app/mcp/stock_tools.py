@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.api.schemas import DossierOut
 from app.db.base import SessionLocal
@@ -31,7 +31,6 @@ from app.services import (
     backtest,
     dossier as dossier_service,
 )
-from scripts.codex_common import json_safe
 
 
 class ToolInputError(ValueError):

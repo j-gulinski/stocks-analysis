@@ -543,20 +543,6 @@ class AnalysisRunOut(BaseModel):
     created_at: datetime
 
 
-class VerificationRunOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    agent_run_id: int | None
-    analysis_run_id: int | None
-    model_role: str
-    verifier_model: str
-    verdict: str
-    checks: dict
-    summary: str | None
-    created_at: datetime
-
-
 class EventReportOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -570,23 +556,6 @@ class EventReportOut(BaseModel):
     title: str | None
     parsed: dict
     materiality: dict
-
-
-class CandidateRunOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    company_id: int | None
-    agent_run_id: int | None
-    workflow: str
-    model_role: str
-    model: str
-    score: int | None
-    status: str
-    verification_status: str
-    reasons: dict
-    missing_data: dict
-    created_at: datetime
 
 
 class BacktestRunOut(BaseModel):
