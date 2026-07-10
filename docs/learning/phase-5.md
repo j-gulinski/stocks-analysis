@@ -18,3 +18,12 @@ The tests cover both sides of the boundary: a complete fixture can move from
 `needs-human` to `pass`, while a changed bridge remains `needs-human`. The
 contract still does not implement a provider call; that is the next RT5.1–RT5.3
 slice.
+
+## Keyless Codex operation
+
+The app and Codex are two cooperating processes. The app exposes a local MCP
+server from `.codex/config.toml`; Codex calls its tools inside the current
+session. If that transport is unavailable, the JSON scripts are equivalent to
+small C# console commands: one claims the work, one saves the draft, and one
+saves the verifier result. Both paths write the same database rows and neither
+requires an OpenAI API key.

@@ -76,6 +76,12 @@ source of truth.
 
 8. If no queued rows exist, report that the queue is empty and stop.
 
+If the local MCP server is unavailable, use the equivalent fallback script:
+`python3 scripts/codex_mark_verification.py --analysis-run-id 123
+--verifier-model codex-host --verdict needs-human --input verifier.json`.
+It applies the same strict scenario-simulation guard and never needs an API
+key.
+
 ## Success Criteria
 
 - The claimed `agent_run` no longer remains stuck in `queued`.

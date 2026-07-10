@@ -238,7 +238,8 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
   commands; extend only as case contracts land.
 - [~] RT5.6: typed MCP save/verify now has a strict `scenario-simulation`
   approval boundary: deterministic scenario snapshot, current bridge
-  fingerprint, priced gate and verifier checks must agree before `pass`.
+  fingerprint, priced gate and verifier checks must agree before `pass`; the
+  keyless JSON-script fallback now applies the same guard.
 - [ ] RT5.1–RT5.3, RT5.1b, RT5.2: Responses API adapter, model policy,
   bounded extraction/verification and prompt-injection isolation remain after
   the stable CLI/MCP contract; no provider call is implied by this boundary.

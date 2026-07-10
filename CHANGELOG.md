@@ -3,6 +3,15 @@
 Durable decisions and completed slices only. `TASKS.md` owns current status;
 implementation detail lives in stage plans, validation notes, archives and git.
 
+## 2026-07-11 · Keyless Codex workflow parity
+
+The local Codex workflow now has a complete no-key fallback: the existing MCP
+path and `codex_save_analysis.py` share the scenario approval contract, while
+new `codex_mark_verification.py` persists strict verifier results when the MCP
+client is unavailable. The project config continues to start only the local
+stdio MCP server; no hosted provider call or OpenAI API key is needed. The
+queue still stops at `running`, and Codex owns research, verification and save.
+
 ## 2026-07-11 · RT5.6 strict scenario-simulation persistence boundary
 
 The typed MCP save/verify path now permits a `scenario-simulation` run to reach

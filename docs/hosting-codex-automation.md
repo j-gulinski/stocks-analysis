@@ -47,6 +47,21 @@ Codex remains the supervised local operator and owns claim, research,
 verification and save. Personal Codex or provider credentials never move to the
 hosted job.
 
+## Keyless local Codex integration
+
+No OpenAI API key is required for the local workflow. Start the app with
+`./workbench start`; `.codex/config.toml` registers the local
+`stock_workbench` stdio MCP server. In a Codex task, read the claimed queue row,
+use `get_company_dossier` and the matching stock skill, then save through
+`save_analysis_run` and `mark_verification_result`. The app remains the system
+of record and the Codex session remains the supervised worker/verifier.
+
+When MCP is unavailable, use the equivalent JSON scripts under
+`backend/scripts/`: `codex_pick_agent_run.py`, `codex_save_analysis.py` and
+`codex_mark_verification.py`. Both paths stop at the same durable claim and
+strict-verification boundaries; neither invokes a hosted model or reads an
+OpenAI key.
+
 ## Notifications
 
 Add Slack/email only after the queue and event contracts are stable. Messages

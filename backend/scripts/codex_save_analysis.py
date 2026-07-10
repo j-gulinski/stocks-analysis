@@ -83,19 +83,26 @@ def main() -> int:
     )
     payload = read_payload(args.input)
     output = require_dict(payload, "output")
-    contract_errors = analysis_contract.verified_analysis_contract_errors(
-        workflow=workflow,
-        verification_status=verification_status,
-        output=output,
-    )
-    if contract_errors:
-        raise ScriptError(" ".join(contract_errors), code=2)
     input_snapshot = payload.get("input_snapshot") or {}
     verification = payload.get("verification") or {}
     if not isinstance(input_snapshot, dict):
         raise ScriptError("Optional JSON field 'input_snapshot' must be an object.", code=2)
     if not isinstance(verification, dict):
         raise ScriptError("Optional JSON field 'verification' must be an object.", code=2)
+    contract_errors = analysis_contract.verified_analysis_contract_errors(
+        workflow=workflow,
+        verification_status=verification_status,
+        output=output,
+    )
+    contract_errors += analysis_contract.verified_scenario_simulation_contract_errors(
+        workflow=workflow,
+        verification_status=verification_status,
+        input_snapshot=input_snapshot,
+        output=output,
+        verification=verification,
+    )
+    if contract_errors:
+        raise ScriptError(" ".join(contract_errors), code=2)
 
     alignment_score = payload.get("alignment_score")
     if alignment_score is None and isinstance(output.get("alignment_score"), int):
