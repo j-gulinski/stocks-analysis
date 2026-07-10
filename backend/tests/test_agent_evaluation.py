@@ -98,6 +98,21 @@ def test_agent_evaluation_marks_missing_prediction_needs_human(client, db):
     assert listed[0]["id"] == payload["id"]
 
 
+def test_agent_evaluation_empty_cohort_needs_human(db):
+    from app.services import agent_evaluation
+
+    result = agent_evaluation.run_agent_evaluation(
+        db,
+        ticker="NO_SAVED_ANALYSES",
+        outcome_windows=[30],
+        persist=False,
+    )
+
+    assert result["summary"]["observation_count"] == 0
+    assert result["verification_status"] == "needs-human"
+    assert "No saved analysis runs matched" in result["summary"]["data_quality"]["warnings"][0]
+
+
 def test_codex_evaluate_agent_runs_script_and_mcp(db, monkeypatch, capsys):
     from app.db.models import AnalysisRun, Company, Price
     from app.mcp.stock_workbench_server import handle_message

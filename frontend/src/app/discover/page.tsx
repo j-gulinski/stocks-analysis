@@ -241,7 +241,7 @@ export default function DiscoverPage() {
                 )}
               </div>
               <div className="candidate-reasons">
-                <span className="candidate-label">Dlaczego na liście</span>
+                <span className="candidate-label">Dlaczego wysoko · #{candidate.rank}</span>
                 <div>
                   {candidate.reasons.slice(0, 2).map((reason) => (
                     <span className="evidence-chip" key={reason}>
@@ -249,6 +249,12 @@ export default function DiscoverPage() {
                     </span>
                   ))}
                 </div>
+                <details className="candidate-rank-details">
+                  <summary>Pełne uzasadnienie rankingu</summary>
+                  <ul>
+                    {candidate.rank_basis.map((reason) => <li key={reason}>{reason}</li>)}
+                  </ul>
+                </details>
               </div>
               <div className="candidate-caveat">
                 <IconAlertTriangle size={15} />
@@ -293,6 +299,15 @@ export default function DiscoverPage() {
               . Szeroki snapshot zachował {result.evaluation_job.candidate_count}
               {" "}pomysłów; pierwsza partia oceny obejmuje maksymalnie{" "}
               {result.evaluation_job.evaluation_budget} spółek.
+            </p>
+          )}
+          {result.scheduled_analysis && (
+            <p>
+              Po odświeżeniu źródła: zaplanowano {result.scheduled_analysis.queued} z {result.scheduled_analysis.considered}
+              {" "}najwyżej sklasyfikowanych analiz. Pominięto: {result.scheduled_analysis.skipped_recent} świeżych,
+              {" "}{result.scheduled_analysis.skipped_pending} już oczekujących i
+              {" "}{result.scheduled_analysis.skipped_not_stored} bez dossier w bazie.
+              Analiza jest uznawana za starą po {result.scheduled_analysis.stale_after_days} dniach.
             </p>
           )}
         </div>

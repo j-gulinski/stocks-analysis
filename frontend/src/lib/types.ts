@@ -20,6 +20,8 @@ export interface DiscoveryCandidate {
   br_rating: string | null;
   br_rating_value: number | null;
   piotroski_f_score: number | null;
+  rank: number;
+  rank_basis: string[];
   reasons: string[];
   caveat: string;
 }
@@ -38,6 +40,15 @@ export interface DiscoveryResult {
     candidate_count: number;
     evaluation_budget: number;
     reused: boolean;
+  } | null;
+  scheduled_analysis: {
+    considered: number;
+    queued: number;
+    skipped_recent: number;
+    skipped_pending: number;
+    skipped_not_stored: number;
+    tickers: string[];
+    stale_after_days: number;
   } | null;
 }
 

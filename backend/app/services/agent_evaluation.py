@@ -104,7 +104,8 @@ def run_agent_evaluation(
     summary = _summarize(observations)
     verification_status = (
         "needs-human"
-        if summary["data_quality"]["unknown_predictions"] > 0
+        if summary["observation_count"] == 0
+        or summary["data_quality"]["unknown_predictions"] > 0
         or summary["data_quality"]["missing_price_windows"] > 0
         else "pending"
     )
@@ -355,6 +356,9 @@ def _summarize(observations: list[dict[str, Any]]) -> dict[str, Any]:
         scored += score["scored_windows"]
         hits += score["hit_windows"]
         missing += score["missing_windows"]
+    warnings = _warnings(unknown, missing)
+    if not observations:
+        warnings.insert(0, "No saved analysis runs matched the evaluation filters; no evidence was scored.")
     return {
         "observation_count": len(observations),
         "prediction_counts": prediction_counts,
@@ -364,7 +368,7 @@ def _summarize(observations: list[dict[str, Any]]) -> dict[str, Any]:
         "data_quality": {
             "unknown_predictions": unknown,
             "missing_price_windows": missing,
-            "warnings": _warnings(unknown, missing),
+            "warnings": warnings,
         },
     }
 

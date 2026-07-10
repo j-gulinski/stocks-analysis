@@ -58,14 +58,18 @@ Detailed contracts: `docs/plan-stage-codex-pivot.md`.
   learned after the observation date or with unknown availability. Financial
   publication/version coverage, point-in-time snapshots and sufficient
   historical depth remain open. Walk-forward review is owned by CX.16/RT6.6.
-- [ ] **CX.13 Agent valuation evaluation.** Continue structured replay of saved
-  `analysis_runs`; prose-only predictions remain `unknown`/`needs-human`.
-  Do not change prompts or strategy rules without separated validation and
-  `verifier_strict` review. Detail: `docs/plan-agent-valuation-backtest.md`.
-- [ ] **CX.14 UI workbench composition.** Finish the primary watchlist surface,
-  compact operations rail, queue truthfulness, provenance/status density and
-  responsive/accessibility checks. Remaining work is coordinated with RT4.5–
-  RT4.7 and `docs/plan-ui-refactor.md`.
+- [~] **CX.13 Agent valuation evaluation.** Structured replay remains limited
+  to saved `analysis_runs`; prose-only predictions remain `unknown`/
+  `needs-human`, and an empty cohort now also returns `needs-human` with an
+  explicit no-evidence warning. Do not change prompts or strategy rules
+  without separated validation and `verifier_strict` review. Detail:
+  `docs/plan-agent-valuation-backtest.md`.
+- [~] **CX.14 UI workbench composition.** Explore now exposes deterministic
+  source-ranking rationale and, after an explicit source refetch, queues up to
+  15 stale quick analyses for stored companies older than seven days. Remaining
+  work is the primary watchlist surface, compact operations rail,
+  queue truthfulness, provenance/status density and responsive/accessibility
+  checks, coordinated with RT4.5–RT4.7 and `docs/plan-ui-refactor.md`.
 - [ ] **CX.15 Session-driven operation.** Keep ingestion and queue execution
   pull-based and local; periodic polling is opt-in only.
   - [x] **CX.15a** Persist `last_polled_at`, paginate GPW ESPI until the

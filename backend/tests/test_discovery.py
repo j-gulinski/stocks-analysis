@@ -1,4 +1,5 @@
 """Market discovery is one cached source pull, not hundreds of company scrapes."""
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 
 from app.db.models import (
@@ -147,3 +148,62 @@ def test_changed_market_snapshot_queues_one_new_scout_job(
     assert second.json()["evaluation_job"]["reused"] is False
     assert db.scalar(select(func.count()).select_from(DocumentVersion)) == 2
     assert db.scalar(select(func.count()).select_from(AgentRun)) == 2
+
+
+def test_forced_discovery_explains_rank_and_queues_stale_stored_top_candidate(
+    client, db, monkeypatch, no_sleep
+):
+    from app.db.models import AnalysisRun, Company
+
+    company = Company(ticker="DEK", name="DEKPOL")
+    db.add(company)
+    db.commit()
+    db.add(
+        AnalysisRun(
+            company_id=company.id,
+            source="codex_skill",
+            workflow="stock-quick-analysis",
+            model_role="analyst_deep",
+            model="terra",
+            status="draft",
+            verification_status="needs-human",
+            input_snapshot={"company": {"ticker": "DEK"}},
+            output={"potential": {"value_pct": 10}},
+            verification={"verdict": "needs-human"},
+            created_at=datetime.now(timezone.utc) - timedelta(days=8),
+        )
+    )
+    db.commit()
+
+    def fake_fetch(url, **_kwargs):
+        response = FakeResponse(load_fixture("br_market_rating.html"))
+        response.url = url
+        return response
+
+    monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
+
+    response = client.get("/api/discovery?force=true")
+    assert response.status_code == 200
+    body = response.json()
+    dek = next(row for row in body["candidates"] if row["ticker"] == "DEK")
+    assert dek["rank"] == 1
+    assert dek["rank_basis"][0] == "Pozycja źródłowa 1/5 w wybranym szerokim sicie."
+    assert "Rating BR AAA (8.6)" in dek["rank_basis"][2]
+
+    scheduled = body["scheduled_analysis"]
+    assert scheduled == {
+        "considered": 5,
+        "queued": 1,
+        "skipped_recent": 0,
+        "skipped_pending": 0,
+        "skipped_not_stored": 4,
+        "tickers": ["DEK"],
+        "stale_after_days": 7,
+    }
+    quick = db.scalar(
+        select(AgentRun).where(AgentRun.workflow == "stock-quick-analysis")
+    )
+    assert quick is not None
+    assert quick.company_id == company.id
+    assert quick.inputs["candidate_rank"] == 1
+    assert quick.inputs["task"]["required_verification"] == "verifier_strict"

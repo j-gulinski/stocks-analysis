@@ -2250,6 +2250,14 @@ textarea {
 
 .candidate-reasons > div { display: flex; flex-wrap: wrap; gap: 6px; }
 
+.candidate-rank-details {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  summary { cursor: pointer; }
+  ul { margin: 6px 0 0 16px; padding: 0; line-height: 1.45; }
+}
+
 .evidence-chip {
   display: inline-flex;
   align-items: center;

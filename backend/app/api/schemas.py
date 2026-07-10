@@ -74,6 +74,8 @@ class DiscoveryCandidateOut(BaseModel):
     br_rating: str | None
     br_rating_value: float | None
     piotroski_f_score: int | None
+    rank: int
+    rank_basis: list[str]
     reasons: list[str]
     caveat: str
 
@@ -86,6 +88,18 @@ class DiscoveryEvaluationJobOut(BaseModel):
     reused: bool
 
 
+class DiscoveryScheduleOut(BaseModel):
+    """Bounded quick-analysis scheduling after an explicit source refetch."""
+
+    considered: int
+    queued: int
+    skipped_recent: int
+    skipped_pending: int
+    skipped_not_stored: int
+    tickers: list[str]
+    stale_after_days: int
+
+
 class DiscoveryOut(BaseModel):
     source: str
     source_url: str
@@ -95,6 +109,7 @@ class DiscoveryOut(BaseModel):
     source_note: str
     candidates: list[DiscoveryCandidateOut]
     evaluation_job: DiscoveryEvaluationJobOut | None = None
+    scheduled_analysis: DiscoveryScheduleOut | None = None
 
 
 # ---------------------------------------------------------------- companies

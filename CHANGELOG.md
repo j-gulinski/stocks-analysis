@@ -13,6 +13,18 @@ The stronger suitable model now runs at its full appropriate reasoning level;
 quality or reasoning is not lowered for an assumed budget limit. The ledger
 records the selected pair and any host substitution or escalation.
 
+## 2026-07-10 · Explore ranking rationale and stale-analysis queue
+
+Explore candidates now show their source rank, deterministic tie-break order,
+BiznesRadar rating and Piotroski contribution in a per-row disclosure. An
+explicit `force=true` source refetch schedules at most 15 top-ranked quick
+analyses when the stored company has no analysis or its latest analysis is more
+than seven days old. Recent, pending and not-stored candidates are counted in
+the response; unknown source candidates are skipped rather than creating
+companies or changing the watchlist automatically. The queued run carries the
+source document version and requires `verifier_strict` before any result can be
+approved.
+
 ## 2026-07-10 · IL.3 explicit falsifiers
 
 Added migration `0013` and company-linked falsifiers with explicit
@@ -76,6 +88,12 @@ Independent `verifier_strict` review of the live SNT probe returned
 `needs-human`: the run has no observations because historical price
 availability is unknown, remains `verification_status=pending`, and is not
 eligible for approval or strategy learning.
+
+## 2026-07-10 · CX.13 empty evaluation guard
+
+An agent-valuation evaluation with no saved `analysis_runs` now returns
+`needs-human` and an explicit no-evidence warning instead of `pending`.
+Structured predictions remain the only scored input; prose is never inferred.
 
 ## 2026-07-10 · IL.4 read-only position context
 
