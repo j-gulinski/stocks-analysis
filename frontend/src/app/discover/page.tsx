@@ -308,6 +308,9 @@ export default function DiscoverPage() {
               {" "}{result.scheduled_analysis.skipped_pending} już oczekujących i
               {" "}{result.scheduled_analysis.skipped_not_stored} bez dossier w bazie.
               Analiza jest uznawana za starą po {result.scheduled_analysis.stale_after_days} dniach.
+              {result.scheduled_analysis.tickers.length > 0 && (
+                <> Zaplanowane tickery: {result.scheduled_analysis.tickers.join(", ")}.</>
+              )}
             </p>
           )}
         </div>

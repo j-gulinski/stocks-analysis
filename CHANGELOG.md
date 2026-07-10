@@ -25,6 +25,13 @@ companies or changing the watchlist automatically. The queued run carries the
 source document version and requires `verifier_strict` before any result can be
 approved.
 
+## 2026-07-10 · Explore queued-ticker visibility
+
+The post-refetch Explore notice now lists the exact tickers accepted into the
+stale-analysis queue, alongside recent, pending and not-stored skip counts.
+This keeps the scheduling action auditable without implying that a model has
+already run.
+
 ## 2026-07-10 · IL.3 explicit falsifiers
 
 Added migration `0013` and company-linked falsifiers with explicit
