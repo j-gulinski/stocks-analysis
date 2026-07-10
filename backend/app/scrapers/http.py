@@ -70,15 +70,24 @@ def _wait_politely(host: str) -> None:
 def fetch(
     url: str,
     *,
+    method: str = "GET",
+    data: dict | None = None,
     session: requests.Session | None = None,
     timeout: int = DEFAULT_TIMEOUT_SECONDS,
 ) -> requests.Response:
-    """GET `url` politely. Returns the response for terminal statuses (200, 404, …).
+    """Fetch `url` politely (GET by default). Returns the response for terminal
+    statuses (200, 404, …).
 
     Retryable statuses (403/429/5xx) and network errors are retried with
     exponential backoff; after MAX_ATTEMPTS the fetch raises FetchBlockedError.
-    Pass `session` to reuse cookies (e.g. the logged-in forum session) — the
-    rate limiter applies regardless of session.
+    Pass `session` to reuse cookies (e.g. a logged-in forum/BiznesRadar
+    session) — the rate limiter applies regardless of session.
+
+    `method="POST"` with form-encoded `data` submits through the SAME
+    politeness/backoff/UA path as a GET (used by the BiznesRadar premium login,
+    which POSTs to /login/). Redirects are followed (requests' default), so the
+    returned response is the final page. GET call sites are unchanged — they
+    still go through `sess.get(url, timeout=...)` exactly as before.
     """
     host = urlparse(url).netloc
     sess = session or requests.Session()
@@ -88,7 +97,11 @@ def fetch(
     for attempt in range(1, MAX_ATTEMPTS + 1):
         _wait_politely(host)
         try:
-            response = sess.get(url, timeout=timeout)
+            if method == "GET":
+                response = sess.get(url, timeout=timeout)
+            else:
+                # Same throttled path, different verb — `data` is form-encoded.
+                response = sess.request(method, url, data=data, timeout=timeout)
         except requests.RequestException as exc:
             last_error = f"network error: {exc}"
         else:

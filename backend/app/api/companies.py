@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_user_email
+from app.config import get_settings
 from app.api.schemas import (
     CompanyOut,
     DividendOut,
@@ -153,7 +154,10 @@ def get_dossier(ticker: str, db: Session = Depends(get_db)) -> dict:
     """Everything about one company in a single response — the data contract
     shared by the stock page (frontend) and the AI analysis (Phase 5)."""
     company = _get_company_or_404(db, ticker)
-    return dossier_service.build_dossier(db, company)
+    settings = get_settings()
+    return dossier_service.build_dossier(
+        db, company, use_ai_refiners=bool(settings.ai_refiners_enabled)
+    )
 
 
 # ---------------------------------------------------------- Phase 3: forecasts

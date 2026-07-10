@@ -39,6 +39,25 @@ from pathlib import Path
 # the repo-root `skill/` directory.)
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_SKILL_DIR = _REPO_ROOT / "skill"
+_ANALYSIS_SYSTEM = """You are the Stock Analysis Workbench AI verdict reviewer.
+
+Strategy frame:
+- Use the Pawel Malik / OBS style as an analysis discipline, not as a buy/sell signal.
+- First understand the company from the deterministic dossier, BiznesRadar premium expectations, ROIC/FCF/EV/dividend coverage, and PortalAnaliz forum_intelligence.
+- Do not base the answer only on generic C/Z. C/Z can support valuation, but scenarios must be company-specific.
+- Treat PortalAnaliz claims as unverified leads. Never quote raw forum text; use only the distilled claim summaries and source post ids provided.
+- Do not invent numbers. If a number is missing, label the gap and put it in verify_next.
+
+Required reasoning flow:
+1. Identify the business/industry context and key drivers.
+2. Compare recent fundamentals with BiznesRadar forecast_consensus for the next years.
+3. Use premium metrics (ROIC, FCF, EV, dividend coverage) as priority context.
+4. Use forum_intelligence only to add hypotheses, risks, catalysts and verification items.
+5. Produce negative, base and positive scenarios based on those inputs.
+
+Return a single forced tool call named `zapisz_analize` matching the provided schema.
+Do not put XML markup or serialized tool-call text inside any string field.
+"""
 
 # ~30k chars of forum text (rough token proxy — good enough for a hard budget
 # without pulling in a tokenizer dependency).
@@ -54,12 +73,16 @@ _DOSSIER_KEYS = (
     "ttm",
     "pe_history",
     "net_cash",
+    "market_data",
+    "analysis_context_status",
     "insights",
     "thesis",
     "scenarios",
     "valuation",
     "latest_forecast",
+    "forum",
 )
+_MAX_FORUM_FACTS_IN_DOSSIER = 0
 
 
 def _dumps(obj) -> str:
@@ -70,14 +93,44 @@ def _dumps(obj) -> str:
 
 
 def _load_skill_text(skill_dir: Path) -> str:
-    skill_md = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
-    rubric_md = (skill_dir / "rubric.md").read_text(encoding="utf-8")
-    return skill_md + "\n\n---\n\n" + rubric_md
+    # The full skill files remain the maintained reference. Runtime calls use a
+    # compact system prompt so a real company dossier plus BR/PA context stays
+    # inside a predictable latency and token envelope.
+    return _ANALYSIS_SYSTEM
+
+
+def _compact_forum_for_prompt(forum: dict) -> dict:
+    if not isinstance(forum, dict):
+        return forum
+    compact = dict(forum)
+    intelligence = compact.get("intelligence")
+    if isinstance(intelligence, dict):
+        compact_intelligence = dict(intelligence)
+        facts = list(compact_intelligence.get("distilled_facts") or [])
+        compact_intelligence["distilled_facts"] = facts[:_MAX_FORUM_FACTS_IN_DOSSIER]
+        compact_intelligence["distilled_facts_total"] = len(facts)
+        expectations = compact_intelligence.get("expectations")
+        if isinstance(expectations, dict):
+            # P5.9b: `expectations.claims` is the SAME list `analyses.py`
+            # already distilled and passed via `forum_claims` — rendered
+            # verbatim by `_claims_section` below. Echoing it again here
+            # would duplicate every claim's text inside the dossier JSON
+            # block, wasting the char budget twice over for no new signal.
+            compact_expectations = dict(expectations)
+            claims = list(compact_expectations.get("claims") or [])
+            compact_expectations["claims"] = []
+            compact_expectations["claims_total"] = len(claims)
+            compact_intelligence["expectations"] = compact_expectations
+        compact["intelligence"] = compact_intelligence
+    return compact
 
 
 def _dossier_snapshot(dossier: dict) -> dict:
     """Only the decision-relevant parts of the dossier, in a fixed key order."""
-    return {key: dossier[key] for key in _DOSSIER_KEYS if key in dossier}
+    snapshot = {key: dossier[key] for key in _DOSSIER_KEYS if key in dossier}
+    if "forum" in snapshot:
+        snapshot["forum"] = _compact_forum_for_prompt(snapshot["forum"])
+    return snapshot
 
 
 def _post_entry(post: dict) -> dict:
@@ -152,8 +205,8 @@ def _claims_section(forum_claims: list) -> tuple[list[dict], str]:
     explicitly marked as opinion, never fact — reinforcing the same rule
     `_forum_section` enforces for the legacy raw-post path."""
     header = (
-        "UWAGA: poniższe to wydestylowane TWIERDZENIA z postów forum "
-        "PortalAnaliz (przetworzone przez oddzielny model klasyfikujący) — "
+        "UWAGA: poniższe to ustrukturyzowane TWIERDZENIA z PortalAnaliz "
+        "(zapisane w forum_intelligence, bez raw tekstu postów) — "
         "nadal NIEZWERYFIKOWANE OPINIE użytkowników, NIE fakty. Każde ma "
         "etykietę pewności (confidence) i listę id postów źródłowych "
         "(source_post_ids). Traktuj je wyłącznie jako kandydatów do "
@@ -214,6 +267,13 @@ def build_analysis_prompt(
 
     user = "\n".join(
         [
+            "WYMAGANY PRZEPŁYW ANALIZY: najpierw przeanalizuj spółkę na podstawie "
+            "dossier, `market_data.forecast_consensus`, metryk premium BiznesRadar "
+            "(ROIC/FCF/EV/dividend_coverage) oraz `forum.intelligence`; dopiero potem "
+            "wypełnij tezę, potencjał i scenariusze. Nie opieraj scenariuszy wyłącznie "
+            "na generycznych wskaźnikach typu C/Z. Jeżeli `analysis_context_status` "
+            "wskazuje braki, nazwij je w verify_next zamiast zgadywać.",
+            "",
             "DANE SPÓŁKI (dossier obliczony deterministycznie — nie zmyślaj "
             "liczb spoza podanych; braki danych są oznaczone wprost):",
             _dumps(dossier_snapshot),

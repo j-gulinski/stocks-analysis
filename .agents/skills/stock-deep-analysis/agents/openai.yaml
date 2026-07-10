@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stock Deep Analysis"
+  short_description: "Build a verified investment memo."
+  default_prompt: "Deep analyze a GPW company in the stock workbench."

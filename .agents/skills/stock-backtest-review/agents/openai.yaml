@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stock Backtest Review"
+  short_description: "Run and audit point-in-time strategy backtests."
+  default_prompt: "Backtest the Malik strategy or a company case."

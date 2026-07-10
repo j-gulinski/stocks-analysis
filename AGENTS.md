@@ -26,6 +26,9 @@ dynamic per-company insights → (Phase 5) Codex-API verdicts. UI designs in
 - `docs/plan-stage-scenarios.md` — scenario-simulation stage (SC): per-WP
   architecture + acceptance. Validation `docs/validation-scenarios.md` +
   learning `docs/learning/phase-scenarios.md` land in WP5 (SC.5).
+- `docs/project-guardrails.md` — product and quality bar; read at the start
+  and end of every phase/work package to keep the app evidence-grounded and
+  avoid low-quality feature drift.
 - `docs/source-materials/` — strategy sources; `skill/SKILL.md` must stay
   faithful to them. `docs/learning/` — phase notes for the user.
 
@@ -58,6 +61,9 @@ dynamic per-company insights → (Phase 5) Codex-API verdicts. UI designs in
 - Learning layer (PLAN §13): user is a mid C# dev learning Python/frontend —
   idiomatic readable code, comment the *why*, `docs/learning/phase-N.md`
   after each phase, C#/.NET analogies when explaining.
+- **Guardrail check:** every phase/work package starts and ends by inspecting
+  `docs/project-guardrails.md`; do not mark work complete if it violates the
+  evidence, UI, model-discipline, or phase-exit checklist there.
 
 ## Commands
 

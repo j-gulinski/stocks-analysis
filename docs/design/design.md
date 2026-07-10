@@ -1,4 +1,8 @@
-# UI design reference
+# UI design reference (v1 — SUPERSEDED)
+
+> **2026-07-09: superseded by `design-v2.md` + `mockups-v2.html`** ("Research
+> studio" light direction, per user decision to discard the dark/dense v1
+> look). Kept as archive; do not base new frontend work on this file.
 
 Open `mockups.html` in a browser — it contains both approved screens (watchlist + stock page) rendered with the final dark palette. Frontend work (Phase 4) must match these. This file defines the tokens and component rules to translate into SCSS.
 

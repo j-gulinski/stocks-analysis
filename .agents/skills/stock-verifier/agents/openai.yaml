@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stock Verifier"
+  short_description: "Verify stock analysis outputs."
+  default_prompt: "Verify a stock analysis result against its inputs."

@@ -6,6 +6,7 @@ import pytest
 from app.scrapers.biznesradar import (
     normalize_period,
     parse_dividends,
+    parse_forecasts,
     parse_number,
     parse_profile,
     parse_report_table,
@@ -242,6 +243,86 @@ def test_dividends():
         (2024, 1.0, 3.2),
         (2023, 0.8, 2.7),
     ]
+
+
+# ------------------------------------------------------------- forecasts
+
+def test_forecasts_columns_and_money_conversion():
+    """Live-verified /prognozy shape (2026-07-09): columns carry a raw label,
+    a kind (raport/raport_ttm/konsensus) and BiznesRadar's own note text; O4K
+    is recognised as the TTM column by label alone, regardless of its note."""
+    table = parse_forecasts(load_fixture("br_forecasts.html"))
+
+    assert [(c.label, c.kind, c.note) for c in table.columns] == [
+        ("2025", "raport", "raport"),
+        ("O4K", "raport_ttm", "raport (mar 26)*"),
+        ("2026", "konsensus", "konsensus"),
+        ("2027", "konsensus", "konsensus"),
+        ("2028", "konsensus", "konsensus"),
+    ]
+
+    revenue = next(r for r in table.rows if r.metric == "revenue")
+    # "267 827.0" mln zł (dot decimal, 2025 column) -> tys. PLN (×1000) — the
+    # DB convention; loudly commented at the conversion site in the parser.
+    assert revenue.values[0] == 267_827_000.0
+    # "275 000,0" mln zł (comma decimal, 2026 consensus column) -> tys. PLN.
+    assert revenue.values[2] == 275_000_000.0
+
+    ebitda = next(r for r in table.rows if r.metric == "ebitda")
+    assert ebitda.values == [
+        32_500_000.0, 33_100_000.0, 34_000_000.0, 35_500_000.0, 37_000_000.0,
+    ]
+
+
+def test_forecasts_percent_and_ratio_rows_are_not_scaled():
+    """Marża/Rentowność (%) and Cena / Zysk (C/Z) rows are plain numbers —
+    only the money rows go through the mln->tys conversion."""
+    table = parse_forecasts(load_fixture("br_forecasts.html"))
+
+    margin = next(r for r in table.rows if r.metric == "ebitda_margin_pct")
+    assert margin.values == [12.14, 12.19, 12.36, 12.68, 12.98]  # "12.14%" / "12,36%"
+
+    pe = next(r for r in table.rows if r.metric == "pe")
+    assert pe.values == [44.08, 41.5, 40.1, 37.8, 36.0]  # "44.08" / "40,10"
+
+
+def test_forecasts_unmapped_label_is_reported_not_dropped():
+    """A row BiznesRadar doesn't actually show (added to the fixture on
+    purpose) must surface in unmapped_labels, same discipline as the
+    indicator-page parser's 'pominięte' reporting — never silently dropped."""
+    table = parse_forecasts(load_fixture("br_forecasts.html"))
+
+    assert "Dług netto / kapitał własny" in table.unmapped_labels
+    unmapped_row = next(r for r in table.rows if r.label == "Dług netto / kapitał własny")
+    assert unmapped_row.metric is None
+    assert unmapped_row.values == [1.2, 1.1, 1.05, 0.95, 0.9]  # kept, just unmapped
+
+
+def test_forecasts_values_by_metric_helper():
+    table = parse_forecasts(load_fixture("br_forecasts.html"))
+    by_metric = table.values_by_metric()
+    assert by_metric["revenue"]["2025"] == 267_827_000.0
+    assert by_metric["revenue"]["O4K"] == 271_500_000.0
+    assert by_metric["revenue"]["2028"] == 285_000_000.0
+    assert "Dług netto / kapitał własny" not in by_metric  # unmapped rows excluded
+
+
+def test_forecasts_empty_consensus_becomes_none():
+    """Production finding: BiznesRadar only counts analyst forecasts younger
+    than 6 months, so consensus columns are frequently entirely empty/'-' —
+    the parser must degrade to None per cell, never raise or drop the row."""
+    table = parse_forecasts(load_fixture("br_forecasts_empty_consensus.html"))
+
+    assert [c.kind for c in table.columns] == [
+        "raport", "raport_ttm", "konsensus", "konsensus", "konsensus",
+    ]
+    for row in table.rows:
+        assert row.values[2:] == [None, None, None]  # both "" and "-" -> None
+        assert row.values[0] is not None and row.values[1] is not None
+
+    revenue = next(r for r in table.rows if r.metric == "revenue")
+    assert revenue.values[0] == 267_800.0  # "267.8" mln zł -> tys. PLN
+    assert revenue.values[1] == 271_500.0  # "271.5" mln zł (O4K) -> tys. PLN
 
 
 def test_indicator_table_and_mapping():

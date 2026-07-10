@@ -3,7 +3,15 @@
  * handler proxies it to FastAPI (never call the backend directly).
  */
 import type {
-  Analysis,
+  AgentEvaluationRun,
+  AgentEvaluationRunCreate,
+  AgentEvaluationRunDetail,
+  AgentRun,
+  AgentRunCreate,
+  AnalysisRun,
+  BacktestRun,
+  BacktestRunCreate,
+  BacktestRunDetail,
   Dividend,
   Dossier,
   Financials,
@@ -15,9 +23,11 @@ import type {
   IndicatorPoint,
   LoginStatus,
   PricePoint,
+  PreSessionBriefResult,
   RefreshSummary,
   ScraperHealth,
   WatchlistItem,
+  WorkflowStatus,
 } from "@/lib/types";
 
 export class ApiError extends Error {
@@ -141,16 +151,79 @@ export const getForumPosts = (
   );
 };
 
-// -------------------------------------------------------------- analyses
-// 429 (daily cap) / 503 (no ANTHROPIC_API_KEY) surface as ApiError with the
-// backend's Polish `detail` — the panel renders that message as-is.
-export const runAnalysis = (ticker: string) =>
-  request<Analysis>(`/companies/${encodeURIComponent(ticker)}/analyses`, {
+export const listAnalysisRuns = (ticker: string) =>
+  request<AnalysisRun[]>(`/companies/${encodeURIComponent(ticker)}/analysis-runs`);
+
+export const listAgentRuns = (params: {
+  status?: string;
+  workflow?: string;
+  ticker?: string;
+  limit?: number;
+} = {}) => {
+  const search = new URLSearchParams();
+  if (params.status) search.set("status", params.status);
+  if (params.workflow) search.set("workflow", params.workflow);
+  if (params.ticker) search.set("ticker", params.ticker);
+  if (params.limit) search.set("limit", String(params.limit));
+  const query = search.toString();
+  return request<AgentRun[]>(`/agent-runs${query ? `?${query}` : ""}`);
+};
+
+export const queueAgentRun = (payload: AgentRunCreate) =>
+  request<AgentRun>("/agent-runs", {
     method: "POST",
+    body: JSON.stringify(payload),
   });
 
-export const listAnalyses = (ticker: string) =>
-  request<Analysis[]>(`/companies/${encodeURIComponent(ticker)}/analyses`);
+export const preparePreSessionBrief = (payload: {
+  ticker?: string;
+  trigger?: string;
+  orchestrator_model?: string;
+  fetch_details?: boolean;
+  queue?: boolean;
+} = {}) =>
+  request<PreSessionBriefResult>("/agent-runs/pre-session", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const listBacktestRuns = (params: { limit?: number; strategy?: string } = {}) => {
+  const search = new URLSearchParams();
+  if (params.limit) search.set("limit", String(params.limit));
+  if (params.strategy) search.set("strategy", params.strategy);
+  const query = search.toString();
+  return request<BacktestRun[]>(`/backtest-runs${query ? `?${query}` : ""}`);
+};
+
+export const getBacktestRun = (id: number) =>
+  request<BacktestRunDetail>(`/backtest-runs/${id}`);
+
+export const runBacktest = (payload: BacktestRunCreate) =>
+  request<BacktestRunDetail>("/backtest-runs", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const listAgentEvaluationRuns = (
+  params: { limit?: number; strategy?: string } = {},
+) => {
+  const search = new URLSearchParams();
+  if (params.limit) search.set("limit", String(params.limit));
+  if (params.strategy) search.set("strategy", params.strategy);
+  const query = search.toString();
+  return request<AgentEvaluationRun[]>(
+    `/agent-evaluation-runs${query ? `?${query}` : ""}`,
+  );
+};
+
+export const getAgentEvaluationRun = (id: number) =>
+  request<AgentEvaluationRunDetail>(`/agent-evaluation-runs/${id}`);
+
+export const runAgentEvaluation = (payload: AgentEvaluationRunCreate) =>
+  request<AgentEvaluationRunDetail>("/agent-evaluation-runs", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 
 // ----------------------------------------------------------------- settings
 export const getHealth = () => request<{ status: string }>("/health");
@@ -158,3 +231,5 @@ export const getForumLoginStatus = () => request<LoginStatus>("/forum/login-stat
 export const getBrLoginStatus = () => request<LoginStatus>("/diagnostics/br-login-status");
 export const getScrapersHealth = () =>
   request<Record<string, ScraperHealth>>("/health/scrapers");
+export const getWorkflowStatus = () =>
+  request<WorkflowStatus>("/diagnostics/workflow-status");

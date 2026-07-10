@@ -110,7 +110,6 @@ class ForumPostOut(BaseModel):
     phpbb_post_id: int
     author: str
     posted_at: datetime | None
-    content_text: str
     upvotes: int | None
 
 
@@ -215,6 +214,7 @@ class ForumStatsOut(BaseModel):
     topics: int
     posts: int
     last_post_at: datetime | None
+    intelligence: dict | None = None
 
 
 class InsightOut(BaseModel):
@@ -248,6 +248,11 @@ class InsightsOut(BaseModel):
     data_notes: list[str]
     coverage: dict | None
     summary: str
+    # Provenance (services/insights_ai.py): "deterministic" (no key / AI
+    # fallback) or "ai" (+ ai_notes). Optional/defaulted for backward
+    # compatibility with any caller still building this dict by hand.
+    engine: str | None = "deterministic"
+    ai_notes: dict | None = None
 
 
 class ThesisFactorOut(BaseModel):
@@ -334,6 +339,7 @@ class ScenarioSetOut(BaseModel):
     weighted_expected_upside_pct: float | None
     framing: str  # fixed "punkt wejścia w analizę, nie sygnał"
     disclaimer: str
+    quality_warnings: list[str] = Field(default_factory=list)
     # Provenance: "deterministic" (no key / AI fallback) or "ai" (+ ai_notes).
     engine: str = "deterministic"
     ai_notes: dict | None = None
@@ -386,8 +392,216 @@ class AnalysisOut(BaseModel):
     alignment_score: int | None
     input_tokens: int | None
     output_tokens: int | None
+    input_hash: str | None = None
     created_by: str | None
     output: dict
+
+
+class AgentRunOut(BaseModel):
+    """One Codex workflow run, regardless of whether it produced analysis."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    workflow: str
+    trigger: str
+    status: str
+    company_id: int | None
+    model_role: str | None
+    model: str | None
+    orchestrator_model: str | None
+    inputs: dict
+    outputs: dict
+    error: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AgentRunCreateIn(BaseModel):
+    """Queue a provider-neutral Codex/GPT workflow for later execution."""
+
+    workflow: str = Field(min_length=1, max_length=80)
+    ticker: str | None = Field(default=None, min_length=1, max_length=12)
+    trigger: str = Field(default="ui-request", min_length=1, max_length=30)
+    model_role: str | None = Field(default=None, max_length=40)
+    model: str | None = Field(default=None, max_length=80)
+    orchestrator_model: str | None = Field(default=None, max_length=80)
+    inputs: dict = Field(default_factory=dict)
+
+
+class PreSessionBriefIn(BaseModel):
+    """HTTP/n8n-friendly trigger for the pre-session Codex workflow."""
+
+    ticker: str | None = Field(default=None, min_length=1, max_length=12)
+    trigger: str = Field(default="ui-request", min_length=1, max_length=30)
+    orchestrator_model: str | None = Field(default=None, max_length=80)
+    fetch_details: bool = True
+    queue: bool = True
+
+
+class PreSessionBriefOut(BaseModel):
+    ok: bool
+    espi_poll: dict
+    agent_run: AgentRunOut | None
+
+
+class AnalysisRunOut(BaseModel):
+    """Provider-neutral analysis result, used by Codex/MCP workflows."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    company_id: int
+    agent_run_id: int | None
+    source: str
+    workflow: str
+    model_role: str
+    model: str
+    status: str
+    verification_status: str
+    input_snapshot: dict
+    output: dict
+    verification: dict
+    alignment_score: int | None
+    created_by: str | None
+    created_at: datetime
+
+
+class VerificationRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    agent_run_id: int | None
+    analysis_run_id: int | None
+    model_role: str
+    verifier_model: str
+    verdict: str
+    checks: dict
+    summary: str | None
+    created_at: datetime
+
+
+class EventReportOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    company_id: int | None
+    source: str
+    external_id: str
+    raw_url: str | None
+    published_at: datetime | None
+    scraped_at: datetime
+    title: str | None
+    parsed: dict
+    materiality: dict
+
+
+class CandidateRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    company_id: int | None
+    agent_run_id: int | None
+    workflow: str
+    model_role: str
+    model: str
+    score: int | None
+    status: str
+    verification_status: str
+    reasons: dict
+    missing_data: dict
+    created_at: datetime
+
+
+class BacktestRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    agent_run_id: int | None
+    strategy: str
+    from_date: date | None
+    to_date: date | None
+    status: str
+    model_role: str | None
+    model: str | None
+    parameters: dict
+    summary: dict
+    verification_status: str
+    created_at: datetime
+
+
+class BacktestObservationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    backtest_run_id: int
+    company_id: int
+    as_of_date: date
+    known_inputs: dict
+    signal: dict
+    outcome: dict
+    created_at: datetime
+
+
+class BacktestRunDetailOut(BacktestRunOut):
+    observations: list[BacktestObservationOut]
+
+
+class BacktestRunCreateIn(BaseModel):
+    strategy: str = Field(default="malik_v1", min_length=1, max_length=80)
+    from_date: date
+    to_date: date
+    ticker: str | None = Field(default=None, min_length=1, max_length=12)
+    outcome_windows: list[int] = Field(default_factory=lambda: [30, 90, 180, 365])
+    financial_availability_policy: str = Field(default="scraped_at")
+    report_lag_days: int = Field(default=120, ge=0, le=730)
+
+
+class AgentEvaluationRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    agent_run_id: int | None
+    strategy: str
+    from_date: date | None
+    to_date: date | None
+    status: str
+    model_role: str | None
+    model: str | None
+    parameters: dict
+    summary: dict
+    verification_status: str
+    created_at: datetime
+
+
+class AgentEvaluationObservationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    evaluation_run_id: int
+    analysis_run_id: int
+    company_id: int
+    as_of_date: date
+    known_inputs: dict
+    prediction: dict
+    outcome: dict
+    score: dict
+    created_at: datetime
+
+
+class AgentEvaluationRunDetailOut(AgentEvaluationRunOut):
+    observations: list[AgentEvaluationObservationOut]
+
+
+class AgentEvaluationRunCreateIn(BaseModel):
+    strategy: str = Field(default="valuation_direction_v1", min_length=1, max_length=80)
+    from_date: date | None = None
+    to_date: date | None = None
+    ticker: str | None = Field(default=None, min_length=1, max_length=12)
+    workflow: str | None = Field(default=None, min_length=1, max_length=80)
+    outcome_windows: list[int] = Field(default_factory=lambda: [30, 90, 180, 365])
 
 
 class DossierOut(BaseModel):
@@ -397,6 +611,8 @@ class DossierOut(BaseModel):
     ttm: TtmOut
     pe_history: PeHistoryOut
     net_cash: NetCashOut
+    market_data: dict
+    analysis_context_status: dict | None = None
     dividends: list[DividendOut]
     prescore: PrescoreOut
     insights: InsightsOut

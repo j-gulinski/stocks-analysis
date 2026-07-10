@@ -1,0 +1,20 @@
+<!--
+  Captured live from the Dialogs.login() modal 2026-07-08 — structure verified,
+  values empty.
+
+  BiznesRadar has NO server-rendered login page (/logowanie and /login both
+  404). The header "Logowanie" link is <a href="javascript:void(0)"
+  onclick="Dialogs.login()"> and the form below is built client-side in a JS
+  modal, so it never appears in static HTML. It POSTs to the fixed endpoint
+  /login/ (trailing slash) with form-encoded email + password (+ optional
+  remember_me=1). No CSRF token, no hidden inputs. This file wraps the EXACT
+  captured <form> so a structural test can assert the field shape; login() does
+  not parse it at runtime.
+-->
+<!DOCTYPE html>
+<html lang="pl">
+<head><title>BiznesRadar.pl — logowanie (modal)</title></head>
+<body>
+<form method="post" action="/login/"><div class="form__row"><label class="form__label">Adres e-mail<input class="form__input" name="email" type="email" required placeholder=""></label></div><div class="form__row"><label class="form__label">Hasło<input class="form__input" name="password" type="password" required placeholder=""></label></div><div class="form__row"><label class="form__label form__label--mini remember-me">Zapamiętaj mnie na tym urządzeniu<input class="form__checkbox" name="remember_me" type="checkbox" value="1"></label></div><div class="form__row form__row--center"><button class="button" type="submit">Zaloguj się</button></div></form>
+</body>
+</html>

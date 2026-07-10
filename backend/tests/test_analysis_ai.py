@@ -50,6 +50,18 @@ def _dossier():
         "scenarios": {"scenarios": [], "engine": "deterministic"},
         "valuation": {"potential": {"value_pct": 12.0}, "engine": "deterministic"},
         "latest_forecast": {"result": {"forward": {"pe": 8.7}}},
+        "market_data": {
+            "industry_type": "Industrial",
+            "forecast_consensus": {"2026": {"revenue": {"value": 123000.0}}},
+            "advanced_metrics": {
+                "roic": {"value": 11.2},
+                "fcf": {"value": 12000.0},
+                "enterprise_value": {"value": 240000000.0},
+            },
+            "dividend_coverage": {"status": "covered"},
+        },
+        "analysis_context_status": {"ready_for_ai": True, "missing": []},
+        "forum": {"topics": 1, "posts": 4, "intelligence": {"distilled_facts": []}},
     }
 
 
@@ -98,18 +110,12 @@ def test_prompt_assembly_is_deterministic():
     assert first["snapshot"] == second["snapshot"]
 
 
-def test_prompt_system_is_skill_plus_rubric():
-    """system == SKILL.md + separator + rubric.md, read from the real repo-root
-    `skill/` dir (verifies the parents[3] path resolution)."""
-    skill_dir = BACKEND_DIR.parent / "skill"
-    skill_md = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
-    rubric_md = (skill_dir / "rubric.md").read_text(encoding="utf-8")
-
+def test_prompt_system_is_compact_runtime_prompt():
+    """Runtime prompt is compact but still carries the strategy/output contract."""
     bundle = prompts_service.build_analysis_prompt(_dossier(), [])
-    assert bundle["system"] == skill_md + "\n\n---\n\n" + rubric_md
-    # sanity: a distinctive phrase from each source doc actually landed
-    assert "Malik" in bundle["system"]
-    assert "alignment_score" in bundle["system"]
+    assert "Stock Analysis Workbench AI verdict reviewer" in bundle["system"]
+    assert "Pawel Malik" in bundle["system"]
+    assert "zapisz_analize" in bundle["system"]
 
 
 def test_prompt_drops_non_decision_dossier_keys_and_keeps_the_rest():
@@ -119,7 +125,8 @@ def test_prompt_drops_non_decision_dossier_keys_and_keeps_the_rest():
     assert "quarters" not in snapshot_dossier
     assert "dividends" not in snapshot_dossier
     for key in (
-        "prescore", "ttm", "pe_history", "net_cash", "insights",
+        "prescore", "ttm", "pe_history", "net_cash", "market_data",
+        "analysis_context_status", "insights",
         "thesis", "scenarios", "valuation", "latest_forecast",
     ):
         assert key in snapshot_dossier
@@ -157,6 +164,44 @@ def test_prompt_caps_forum_posts_to_char_budget():
     assert "obcięto" in bundle["user"]
     assert bundle["snapshot"]["forum_truncated"] is True
     assert len(bundle["snapshot"]["forum_posts"]) < len(posts)
+
+
+def test_prompt_dossier_snapshot_strips_expectations_claims_to_avoid_duplication():
+    """P5.9b: `forum.intelligence.expectations.claims` is the SAME list
+    `analyses.py` already passes via `forum_claims` (rendered by
+    `_claims_section`). The dossier snapshot must not echo it a second time —
+    only a count survives, same treatment `distilled_facts` already gets."""
+    dossier = _dossier()
+    dossier["forum"] = {
+        "topics": 1,
+        "posts": 2,
+        "intelligence": {
+            "distilled_facts": [{"fact": "stary fakt"}],
+            "expectations": {
+                "claims": [{"claim": "Zarząd zapowiedział skup akcji.", "confidence": "high"}],
+                "model": "claude-haiku-4-5",
+                "updated_at": "2026-07-09T00:00:00+00:00",
+                "source_post_count": 2,
+            },
+        },
+    }
+    from app.services.forum_distiller import DistilledClaim
+
+    claims = [
+        DistilledClaim(
+            claim="Zarząd zapowiedział skup akcji.",
+            confidence="high",
+            type="fact-claim",
+            source_post_ids=[501],
+        )
+    ]
+    bundle = prompts_service.build_analysis_prompt(dossier, [], forum_claims=claims)
+
+    snapshot_expectations = bundle["snapshot"]["dossier"]["forum"]["intelligence"]["expectations"]
+    assert snapshot_expectations["claims"] == []
+    assert snapshot_expectations["claims_total"] == 1
+    # the claim text still reaches the model exactly once, via forum_claims
+    assert bundle["user"].count("Zarząd zapowiedział skup akcji.") == 1
 
 
 # ======================================================= pure: claude_client.py
@@ -212,8 +257,37 @@ def _verdict(**overrides) -> dict:
         ],
         "alignment_score": 72,
         "potential": {"upside": "C/Z poniżej mediany", "downside": "ryzyko spowolnienia"},
+        "scenarios": [
+            {
+                "kind": "negative",
+                "title": "Negatywny",
+                "description": "Spółka nie dowozi poprawy marży i rynek obniża mnożnik.",
+                "key_drivers": ["marża", "popyt"],
+                "watch_items": ["wyniki kwartalne", "komentarz zarządu"],
+                "probability": "niższe niż bazowe",
+            },
+            {
+                "kind": "base",
+                "title": "Bazowy",
+                "description": "Wyniki stabilizują się zgodnie z dossier i wycena wraca do mediany.",
+                "key_drivers": ["przychody", "C/Z"],
+                "watch_items": ["prognozy BR", "cash conversion"],
+                "probability": "najbardziej prawdopodobne",
+            },
+            {
+                "kind": "positive",
+                "title": "Pozytywny",
+                "description": "Katalizatory operacyjne wzmacniają FCF i rynek płaci wyższy mnożnik.",
+                "key_drivers": ["FCF", "ROIC"],
+                "watch_items": ["dywidenda", "backlog"],
+                "probability": "wymaga potwierdzenia",
+            },
+        ],
         "verify_next": [{"id": "catalyst", "text": "potwierdź katalizator", "why": "brak w danych"}],
-        "summary_pl": "Ciekawa okazja, wymaga potwierdzenia katalizatora.",
+        "summary_pl": (
+            "Ciekawa okazja, ale wymaga potwierdzenia katalizatora, jakości FCF "
+            "oraz tego, czy scenariusz bazowy faktycznie wynika z danych spółki."
+        ),
     }
     base.update(overrides)
     return base
@@ -288,8 +362,8 @@ def test_no_key_raises_analysis_unavailable_never_fabricates():
     try:
         claude_client.run_analysis(bundle, settings=_settings(anthropic_api_key=None))
         assert False, "expected AnalysisUnavailable"
-    except claude_client.AnalysisUnavailable:
-        pass
+    except claude_client.AnalysisUnavailable as exc:
+        assert exc.reason == "no_key"
 
 
 def test_malformed_response_raises_unavailable_not_fabricated():
@@ -298,8 +372,8 @@ def test_malformed_response_raises_unavailable_not_fabricated():
     try:
         claude_client.run_analysis(bundle, settings=_settings(), transport=stub)
         assert False, "expected AnalysisUnavailable"
-    except claude_client.AnalysisUnavailable:
-        pass
+    except claude_client.AnalysisUnavailable as exc:
+        assert exc.reason == "parse"
 
 
 def test_retry_on_transient_transport_error():
@@ -318,8 +392,9 @@ def test_transport_fails_every_attempt_raises_unavailable():
     try:
         claude_client.run_analysis(bundle, settings=_settings(), transport=stub)
         assert False, "expected AnalysisUnavailable"
-    except claude_client.AnalysisUnavailable:
-        pass
+    except claude_client.AnalysisUnavailable as exc:
+        assert exc.reason == "transport"
+        assert exc.detail is not None and "down" in exc.detail  # secret-free, from last_exc
     assert stub.calls >= 2  # bounded retry actually happened, not a single try
 
 
@@ -403,7 +478,13 @@ def test_run_analysis_endpoint_503_without_key(client, db, monkeypatch):
     db.add(company)
     db.commit()
 
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    # setenv("", "") — NOT delenv. conftest.py already blanks ANTHROPIC_API_KEY
+    # so tests never see a real key, but delenv would remove that blank
+    # entirely and let config.py's (now correctly-anchored) env_file fallback
+    # read backend/.env — if the developer has a real key there, this test
+    # would silently start hitting the real Claude API instead of exercising
+    # the no-key path.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
     from app.config import get_settings
 
     get_settings.cache_clear()
@@ -411,6 +492,34 @@ def test_run_analysis_endpoint_503_without_key(client, db, monkeypatch):
     response = client.post("/api/companies/SNT/analyses")
     assert response.status_code == 503
     assert "ANTHROPIC_API_KEY" in response.json()["detail"]
+    get_settings.cache_clear()
+
+
+def test_run_analysis_endpoint_502_on_transport_failure(client, db, monkeypatch):
+    """P5.6 fix: a key that IS configured but whose transport fails must
+    surface as 502 with the transport detail — not the old catch-all 503
+    that always blamed a missing key."""
+    from app.db.models import Company
+
+    company = Company(ticker="FAIL", name="FAILCO")
+    db.add(company)
+    db.commit()
+
+    stub = StubTransport([RuntimeError("down"), RuntimeError("down"), RuntimeError("down")])
+    monkeypatch.setattr(
+        "app.services.claude_client.default_transport", lambda settings: stub
+    )
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("AI_CACHE_ENABLED", "false")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+
+    response = client.post("/api/companies/FAIL/analyses")
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "błąd wywołania API Claude" in detail
+    assert "down" in detail
     get_settings.cache_clear()
 
 
@@ -440,6 +549,233 @@ def test_run_analysis_endpoint_daily_cap(client, db, monkeypatch):
 def test_run_analysis_endpoint_404_unknown_ticker(client, db):
     response = client.post("/api/companies/NOPE/analyses")
     assert response.status_code == 404
+
+
+# `_unavailable_to_http` (app/api/analyses.py) needs no TestClient/DB at all —
+# it just maps an AnalysisUnavailable to an HTTPException — but importing
+# app.api.analyses still needs fastapi/sqlalchemy like every other test in
+# this section, so each test below accepts (unused) `db` purely so the
+# bare-python __main__ runner's "skip any test with parameters" heuristic
+# skips these too, same as it does the TestClient-based tests above.
+
+
+def test_unavailable_to_http_maps_no_key_to_503(db):
+    from app.api.analyses import _unavailable_to_http
+    from app.services.claude_client import AnalysisUnavailable
+
+    exc = AnalysisUnavailable("no key configured", reason="no_key")
+    http_exc = _unavailable_to_http(exc, "claude-test-model")
+    assert http_exc.status_code == 503
+    assert http_exc.detail == "Analiza AI wymaga skonfigurowania ANTHROPIC_API_KEY."
+
+
+def test_unavailable_to_http_maps_transport_to_502_with_model_and_detail(db):
+    from app.api.analyses import _unavailable_to_http
+    from app.services.claude_client import AnalysisUnavailable
+
+    exc = AnalysisUnavailable(
+        "transport failed", reason="transport", detail="ConnectionError: timed out"
+    )
+    http_exc = _unavailable_to_http(exc, "claude-test-model")
+    assert http_exc.status_code == 502
+    assert "claude-test-model" in http_exc.detail
+    assert "ConnectionError: timed out" in http_exc.detail
+
+
+def test_unavailable_to_http_maps_parse_to_502(db):
+    from app.api.analyses import _unavailable_to_http
+    from app.services.claude_client import AnalysisUnavailable
+
+    exc = AnalysisUnavailable("no usable verdict", reason="parse")
+    http_exc = _unavailable_to_http(exc, "claude-test-model")
+    assert http_exc.status_code == 502
+    assert "niepoprawna odpowiedź modelu" in http_exc.detail
+
+
+def test_unavailable_to_http_unknown_reason_falls_back_to_503(db):
+    """Defensive default: a future reason nobody mapped yet must not crash
+    the endpoint — it degrades to the original catch-all message rather than
+    raising out of the exception handler itself."""
+    from app.api.analyses import _unavailable_to_http
+    from app.services.claude_client import AnalysisUnavailable
+
+    exc = AnalysisUnavailable("mystery failure", reason="something_new")
+    http_exc = _unavailable_to_http(exc, "claude-test-model")
+    assert http_exc.status_code == 503
+
+
+# `_forum_claims_from_intelligence` (app/api/analyses.py, P5.9b): prefers the
+# AI-distilled `expectations.claims` (services/forum_expectations.py) over
+# the keyword-heuristic `distilled_facts` whenever the former is non-empty.
+# No TestClient/DB needed — same `(db)`-only-for-import-gating convention as
+# `_unavailable_to_http` above.
+
+
+def _dossier_with_intelligence(intelligence: dict) -> dict:
+    return {"forum": {"topics": 1, "posts": 1, "intelligence": intelligence}}
+
+
+def test_forum_claims_prefers_ai_expectations_when_present(db):
+    from app.api.analyses import _forum_claims_from_intelligence
+
+    dossier = _dossier_with_intelligence(
+        {
+            "expectations": {
+                "claims": [
+                    {
+                        "claim": "Zarząd zapowiedział skup akcji.",
+                        "confidence": "high",
+                        "type": "fact-claim",
+                        "source_post_ids": [501],
+                    }
+                ]
+            },
+            # Present too, but must be IGNORED while expectations has claims.
+            "distilled_facts": [
+                {
+                    "fact": "Forum wskazuje temat: portfel zamówień",
+                    "confidence": "medium",
+                    "topic": "Portfel zamówień",
+                    "type": "catalyst",
+                    "source_post_ids": [1],
+                }
+            ],
+        }
+    )
+
+    claims = _forum_claims_from_intelligence(dossier)
+
+    assert claims == [
+        {
+            "claim": "Zarząd zapowiedział skup akcji.",
+            "confidence": "high",
+            "type": "fact-claim",
+            "source_post_ids": [501],
+        }
+    ]
+
+
+def test_forum_claims_falls_back_to_distilled_facts_when_expectations_empty(db):
+    from app.api.analyses import _forum_claims_from_intelligence
+
+    dossier = _dossier_with_intelligence(
+        {
+            "expectations": {"claims": []},
+            "distilled_facts": [
+                {
+                    "fact": "Forum wskazuje temat: portfel zamówień",
+                    "confidence": "medium",
+                    "topic": "Portfel zamówień",
+                    "type": "catalyst",
+                    "source_post_ids": [1],
+                }
+            ],
+        }
+    )
+
+    claims = _forum_claims_from_intelligence(dossier)
+
+    assert len(claims) == 1
+    assert claims[0]["claim"] == "Forum wskazuje temat: portfel zamówień"
+
+
+def test_forum_claims_falls_back_when_expectations_key_missing(db):
+    """Companies never refreshed under P5.9b (no `expectations` key at all —
+    e.g. no ANTHROPIC_API_KEY has ever been configured) keep working exactly
+    as before: pre-P5.9b behaviour, unchanged."""
+    from app.api.analyses import _forum_claims_from_intelligence
+
+    dossier = _dossier_with_intelligence(
+        {
+            "distilled_facts": [
+                {
+                    "fact": "stary fakt",
+                    "confidence": "high",
+                    "topic": "Ryzyka",
+                    "type": "risk",
+                    "source_post_ids": [2],
+                }
+            ]
+        }
+    )
+
+    claims = _forum_claims_from_intelligence(dossier)
+    assert claims[0]["claim"] == "stary fakt"
+
+
+def test_forum_claims_caps_ai_expectations_at_limit(db):
+    from app.api.analyses import _forum_claims_from_intelligence, _MAX_FORUM_CLAIMS_FOR_AI
+
+    ai_claims = [
+        {
+            "claim": f"claim-{i}",
+            "confidence": "medium",
+            "type": "opinion",
+            "source_post_ids": [i],
+        }
+        for i in range(_MAX_FORUM_CLAIMS_FOR_AI + 5)
+    ]
+    dossier = _dossier_with_intelligence({"expectations": {"claims": ai_claims}})
+
+    claims = _forum_claims_from_intelligence(dossier)
+
+    assert len(claims) == _MAX_FORUM_CLAIMS_FOR_AI
+    assert [c["claim"] for c in claims] == [
+        f"claim-{i}" for i in range(_MAX_FORUM_CLAIMS_FOR_AI)
+    ]
+
+
+# --------------------------------------------------- client-gated: diagnostics
+
+
+def test_workflow_status_endpoint_reports_queue_and_verified_outputs(client, db):
+    from app.db.models import AgentRun, AnalysisRun, Company
+
+    company = Company(ticker="SNT", name="SYNEKTIK")
+    db.add(company)
+    db.commit()
+    db.add(
+        AgentRun(
+            workflow="stock-quick-analysis",
+            trigger="test",
+            status="completed",
+            company_id=company.id,
+            outputs={"summary": "done"},
+        )
+    )
+    db.add(
+        AnalysisRun(
+            company_id=company.id,
+            workflow="stock-quick-analysis",
+            model_role="verifier_strict",
+            model="gpt-5.5",
+            status="completed",
+            verification_status="pass",
+            input_snapshot={},
+            output={"summary_pl": "verified"},
+            verification={"verdict": "pass"},
+        )
+    )
+    db.commit()
+
+    response = client.get("/api/diagnostics/workflow-status")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["queued"] == 0
+    assert body["running"] == 0
+    assert body["completed_24h"] == 1
+    assert body["verified_24h"] == 1
+    assert body["latest_run_at"] is not None
+
+
+def test_workflow_status_endpoint_reports_empty_queue(client, db):
+    body = client.get("/api/diagnostics/workflow-status").json()
+    assert body["ok"] is True
+    assert body["queued"] == 0
+    assert body["running"] == 0
+    assert body["completed_24h"] == 0
+    assert body["verified_24h"] == 0
 
 
 # ------------------------------------------------------------- in-session runner

@@ -104,6 +104,30 @@ are NON-NEGOTIABLE at every step (see bottom).
   when a guessed code and a live-verified label disagree, the label wins.
   Dropped labels are listed in the refresh summary (`pominięte: …`).
 
+### BiznesRadar — premium login (VERIFIED 2026-07-08, live browser capture)
+- **There is NO server-rendered login page.** `/logowanie` and `/login` (no
+  trailing slash) both return HTTP 404. The header "Logowanie" link is
+  `<a href="javascript:void(0)" onclick="Dialogs.login()">` — the form is built
+  client-side in a JS modal and never appears in static HTML. Do NOT scrape a
+  login form or probe `/logowanie`.
+- **Fixed endpoint:** `POST https://www.biznesradar.pl/login/` (TRAILING SLASH
+  required), form-encoded `email` + `password` (+ optional `remember_me=1`).
+  NO CSRF token, no hidden inputs — nothing to echo back.
+- **Redirect on both success AND failure** (opaqueredirect to a browser
+  fetch): the POST body is not authoritative. Follow the redirect, then
+  re-fetch the homepage and check a marker.
+- **Logged-in marker:** the homepage HTML contains `account-settings`
+  (`Dialogs.accountSettings`); the anonymous page carries `Dialogs.login`
+  instead and lacks `account-settings`. Secondary marker: `GET /user-data/`
+  returns ~194 B anonymous vs ~1686 B logged in (length > 1000 ⇒ logged in).
+- **There is NO logout href** (`/logout`, `/wyloguj` absent — logout is JS
+  too). Never key success off a logout link or off a login form being absent.
+- `BR_USERNAME` is the account **e-mail** (email-shaped, verified). Recipe
+  lives in `BrClient.login()` (warm-up GET → POST /login/ {email, password} →
+  verify marker); `services/refresh.py` threads the session into every BR
+  fetch and a login failure is non-fatal (refresh continues anonymously).
+  Fixture: `tests/fixtures/br_login_live.html` (exact captured modal form).
+
 ### Price chain (reworked 2026-07 after both CSV providers broke)
 - **Incremental (daily top-up): BR archiwum page 1 → Yahoo → BR profile
   quote.** stooq is deliberately SKIPPED — it answers "access denied" to

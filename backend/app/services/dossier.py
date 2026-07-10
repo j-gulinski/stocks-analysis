@@ -4,6 +4,7 @@ all math to the pure functions in metrics.py / forecast.py."""
 from __future__ import annotations
 
 from datetime import date
+from types import SimpleNamespace
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.db.models import (
     Company,
     Dividend,
+    ForumIntelligence,
     Forecast,
     ForumPost,
     ForumTopic,
@@ -21,12 +23,14 @@ from app.db.models import (
 from app.services import (
     fields,
     insights,
+    insights_ai,
     metrics,
     scenarios,
     scenarios_ai,
     thesis,
     thesis_ai,
     valuation_ai,
+    market_data,
 )
 from app.services.strategies import malik
 
@@ -121,7 +125,114 @@ def latest_price(db: Session, company_id: int) -> tuple[float | None, object | N
     return (float(row.close), row.date) if row else (None, None)
 
 
-def build_dossier(db: Session, company: Company) -> dict:
+def _analysis_context_status(market_snapshot: dict, forum_snapshot: dict | None) -> dict:
+    advanced = market_snapshot.get("advanced_metrics") or {}
+    forecast = market_snapshot.get("forecast_consensus") or {}
+    dividend = market_snapshot.get("dividend_coverage") or {}
+    missing: list[str] = []
+    if not forecast:
+        missing.append("BiznesRadar forecast_consensus")
+    for key in ("roic", "fcf"):
+        item = advanced.get(key)
+        if not isinstance(item, dict) or item.get("value") is None:
+            missing.append(key.upper())
+    if not forum_snapshot:
+        missing.append("PortalAnaliz forum_intelligence")
+
+    return {
+        "ready_for_ai": not missing,
+        "missing": missing,
+        "industry_type": market_snapshot.get("industry_type"),
+        "premium": {
+            "forecast_years": sorted(forecast.keys()),
+            "has_roic": isinstance(advanced.get("roic"), dict) and advanced["roic"].get("value") is not None,
+            "has_fcf": isinstance(advanced.get("fcf"), dict) and advanced["fcf"].get("value") is not None,
+            "has_enterprise_value": isinstance(advanced.get("enterprise_value"), dict)
+            and advanced["enterprise_value"].get("value") is not None,
+            "dividend_coverage_status": dividend.get("status"),
+        },
+        "forum": {
+            "has_intelligence": bool(forum_snapshot),
+            "distilled_facts_count": len((forum_snapshot or {}).get("distilled_facts") or []),
+            "last_30d_post_count": (forum_snapshot or {}).get("last_30d_post_count", 0),
+            "last_30d_active_user_count": (forum_snapshot or {}).get("last_30d_active_user_count", 0),
+        },
+    }
+
+
+def _metric_cell_value(metrics_for_year: dict, metric: str) -> float | None:
+    item = metrics_for_year.get(metric)
+    if isinstance(item, dict):
+        item = item.get("value")
+    if isinstance(item, bool) or not isinstance(item, (int, float)):
+        return None
+    return float(item)
+
+
+def _consensus_eps_basis(
+    market_snapshot: dict,
+    *,
+    shares_outstanding: int | None,
+    current_price: float | None,
+) -> dict | None:
+    """Forward EPS from BiznesRadar analyst consensus, when internally usable.
+
+    `forecast_consensus` stores net income in tys. PLN. For C/Z scenarios the
+    driver must be PLN/share, so the conversion is:
+    net_income_tys * 1000 / shares_outstanding.
+
+    If BiznesRadar also provides a consensus C/Z row, use it as a consistency
+    check. A wildly inconsistent C/Z means the page snapshot, share count, or
+    fixture data does not describe the same company; in that case we keep the
+    trailing EPS instead of feeding a nonsense forward driver into scenarios.
+    """
+    if not shares_outstanding:
+        return None
+    forecast = market_snapshot.get("forecast_consensus") or {}
+    if not isinstance(forecast, dict):
+        return None
+
+    for year_key in sorted(forecast, key=lambda item: str(item)):
+        year = str(year_key)
+        if not year.isdigit():
+            continue
+        metrics_for_year = forecast.get(year_key) or {}
+        if not isinstance(metrics_for_year, dict):
+            continue
+        net_income = _metric_cell_value(metrics_for_year, "net_income")
+        if net_income is None or net_income <= 0:
+            continue
+        eps = net_income * 1000.0 / shares_outstanding
+        if eps <= 0:
+            continue
+
+        consensus_pe = _metric_cell_value(metrics_for_year, "pe")
+        if current_price is not None and current_price > 0 and consensus_pe:
+            implied_pe = current_price / eps
+            # Tolerate normal timing/noise differences; reject DEC-fixture-style
+            # contradictions where net income and C/Z plainly cannot both be true.
+            if abs(implied_pe / consensus_pe - 1.0) > 0.35:
+                continue
+
+        net_income_item = metrics_for_year.get("net_income")
+        source = (
+            net_income_item.get("source")
+            if isinstance(net_income_item, dict) and net_income_item.get("source")
+            else "biznesradar_forecasts"
+        )
+        return {
+            "source": "biznesradar_forecasts",
+            "source_field": f"market_data.forecast_consensus.{year}.net_income",
+            "source_detail": source,
+            "year": year,
+            "net_income_tys_pln": net_income,
+            "eps": round(eps, 4),
+        }
+    return None
+
+
+def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = False) -> dict:
+    ai_refiner_settings = None if use_ai_refiners else SimpleNamespace(anthropic_api_key=None)
     income = load_income_series(db, company.id)
     quarters = metrics.compute_quarter_metrics(income)[-12:]
 
@@ -201,6 +312,24 @@ def build_dossier(db: Session, company: Company) -> dict:
         dividend_yield_latest=dividend_yield_latest,
         price_age_days=price_age_days,
     )
+    market_row = market_data.upsert_company_market_data(
+        db, company, sector_group=company_insights.sector_group
+    )
+    db.flush()
+    market_snapshot = {
+        "industry_type": market_row.industry_type,
+        "priority_values": market_row.priority_values,
+        "forecast_consensus": market_row.forecast_consensus,
+        # Caveat for both the AI prompt (market_data flows verbatim into the
+        # prompt, see services/prompts.py) and the frontend — kept as its own
+        # sibling key, NOT inside forecast_consensus itself, because that dict
+        # is keyed purely by year (_analysis_context_status does
+        # `sorted(forecast_consensus.keys())` to build `forecast_years`; a
+        # "note" key there would masquerade as a bogus year).
+        "forecast_consensus_note": market_data.FORECAST_CONSENSUS_NOTE,
+        "advanced_metrics": market_row.advanced_metrics,
+        "dividend_coverage": market_row.dividend_coverage,
+    }
 
     # Investment-thesis layer: synthesise the insights into an entry-point read
     # (weighted pros/cons + "what to check next") for the Malik profile — the
@@ -229,6 +358,7 @@ def build_dossier(db: Session, company: Company) -> dict:
         malik.MALIK,
         company_thesis,
         ticker=company.ticker,
+        settings=ai_refiner_settings,
     )
 
     # Scenario-simulation layer (stage SC / WP3): a coherent negative/base/
@@ -258,23 +388,51 @@ def build_dossier(db: Session, company: Company) -> dict:
         multiple_current = latest_entry[1] if latest_entry else None
     multiple_history = metrics.compute_multiple_history(multiple_series, multiple_current)
 
+    # O4K (trailing-4-quarters) EBITDA from BiznesRadar /prognozy, tys. PLN —
+    # see app.scrapers.biznesradar.parse_forecasts + refresh._upsert_forecasts.
+    # Previously always None (labelled gap): energy names fell back to their
+    # own C/Z history instead of a real EV/EBITDA scenario. Still None (same
+    # fallback) whenever the page had no O4K column or the row was empty.
+    ebitda_ttm_item = (market_snapshot.get("advanced_metrics") or {}).get("ebitda_ttm")
+    ebitda_ttm = (
+        float(ebitda_ttm_item["value"])
+        if isinstance(ebitda_ttm_item, dict) and ebitda_ttm_item.get("value") is not None
+        else None
+    )
+    consensus_eps_basis = _consensus_eps_basis(
+        market_snapshot,
+        shares_outstanding=company.shares_outstanding,
+        current_price=ttm.price,
+    )
+    scenario_eps = (
+        consensus_eps_basis["eps"] if consensus_eps_basis is not None else ttm.eps
+    )
+
     scenario_inputs = scenarios.ScenarioInputs(
         thesis_inputs=thesis_inputs,
         multiple_history=multiple_history.to_dict(),
-        eps=ttm.eps,
+        eps=scenario_eps,
         book_value=balance_latest.get("equity"),  # equity, tys. PLN (C/WK driver)
-        # EBITDA TTM is not computed anywhere yet (labelled gap) → energy names
-        # fall back to their own C/Z history rather than fabricate an EV/EBITDA.
-        ebitda_ttm=None,
+        ebitda_ttm=ebitda_ttm,
         shares_outstanding=company.shares_outstanding,
         current_price=ttm.price,
         net_cash=net_cash_value,
+        market_data=market_snapshot,
+        earnings_basis=consensus_eps_basis or {
+            "source": "ttm",
+            "source_field": "ttm.eps",
+            "eps": ttm.eps,
+        },
     )
     scenario_set = scenarios.build_scenario_set(scenario_inputs, malik.MALIK)
     # No ANTHROPIC_API_KEY (the default) ⇒ transparent pass-through returning the
     # deterministic body + `engine: "deterministic"`; never raises.
     scenarios_block = scenarios_ai.simulate_scenarios(
-        scenario_inputs, malik.MALIK, scenario_set, ticker=company.ticker
+        scenario_inputs,
+        malik.MALIK,
+        scenario_set,
+        ticker=company.ticker,
+        settings=ai_refiner_settings,
     )
 
     # AI valuation layer (stage SC / WP4): a stock-potential read on TOP of the
@@ -283,9 +441,26 @@ def build_dossier(db: Session, company: Company) -> dict:
     # assessment. Same deterministic-first contract: no key ⇒ the deterministic
     # valuation + `engine: "deterministic"`; never raises, so the dossier always
     # has a valuation block.
-    valuation_block = valuation_ai.assess_potential(
-        scenario_inputs, scenarios_block, malik.MALIK, ticker=company.ticker
-    )
+    try:
+        valuation_block = valuation_ai.assess_potential(
+            scenario_inputs,
+            scenarios_block,
+            malik.MALIK,
+            ticker=company.ticker,
+            settings=ai_refiner_settings,
+        )
+    except valuation_ai.ValuationContextError as exc:
+        valuation_block = valuation_ai.assess_potential(
+            scenario_inputs,
+            scenarios_block,
+            malik.MALIK,
+            ticker=company.ticker,
+            settings=SimpleNamespace(anthropic_api_key=None),
+        )
+        valuation_block["ai_notes"] = {
+            "context_error": str(exc),
+            "action": "Uzupełnij company_market_data o ROIC/FCF przed wyceną Anthropic.",
+        }
 
     topics_count = db.scalar(
         select(func.count()).select_from(ForumTopic).where(ForumTopic.company_id == company.id)
@@ -301,6 +476,31 @@ def build_dossier(db: Session, company: Company) -> dict:
         .join(ForumTopic, ForumPost.topic_id == ForumTopic.id)
         .where(ForumTopic.company_id == company.id)
     )
+    forum_intelligence = db.scalar(
+        select(ForumIntelligence).where(
+            ForumIntelligence.company_id == company.id,
+            ForumIntelligence.source == "portal_analiz",
+        )
+    )
+    forum_snapshot = (
+        {
+            "industry_type": forum_intelligence.industry_type,
+            "last_30d_post_count": forum_intelligence.last_30d_post_count,
+            "last_30d_active_user_count": forum_intelligence.last_30d_active_user_count,
+            "activity_spikes": forum_intelligence.activity_spikes,
+            "community_sentiment": forum_intelligence.community_sentiment,
+            "distilled_facts": forum_intelligence.distilled_facts,
+            # AI-distilled investment expectations (services/
+            # forum_expectations.py) — None until a refresh with an
+            # ANTHROPIC_API_KEY has run at least once for this company.
+            # Frontend contract: dossier.forum.intelligence.expectations =
+            # {claims:[{claim, confidence, type, source_post_ids}], model,
+            # updated_at, source_post_count}.
+            "expectations": forum_intelligence.expectations,
+        }
+        if forum_intelligence is not None
+        else None
+    )
 
     financials_scraped_at = db.scalar(
         select(func.max(ReportValue.scraped_at)).where(ReportValue.company_id == company.id)
@@ -309,6 +509,33 @@ def build_dossier(db: Session, company: Company) -> dict:
         select(func.max(ForumTopic.last_synced_at)).where(
             ForumTopic.company_id == company.id
         )
+    )
+
+    # Insights AI refiner: rewrite the summary/per-indicator comments/
+    # strengths/concerns PROSE only (the Fundamenty tab + the Brief tab's
+    # "Najważniejsze sygnały" both render this block) so it reads like an
+    # analyst weighing the whole picture instead of template-composed
+    # sentences. `context` bundles the decision-relevant extras computed
+    # above so the rewrite isn't limited to the indicator list in isolation.
+    # Same deterministic-first contract as the other refiners: no key ⇒ the
+    # deterministic block + `engine: "deterministic"`; never raises.
+    insights_context = {
+        "prescore": prescore.to_dict(),
+        "ttm": ttm_dict,
+        "net_cash": {"value": net_cash_value, "note": net_cash_note},
+        "pe_history": pe_history_dict,
+        "forum_expectations": (
+            (forum_snapshot or {}).get("expectations") or {}
+        ).get("claims", [])[:8],
+        "forecast_consensus": market_snapshot.get("forecast_consensus"),
+        "forecast_consensus_note": market_snapshot.get("forecast_consensus_note"),
+        "entry_quality": (thesis_block or {}).get("entry_quality"),
+    }
+    insights_block = insights_ai.refine_insights(
+        company_insights,
+        ticker=company.ticker,
+        context=insights_context,
+        settings=ai_refiner_settings,
     )
 
     return {
@@ -322,9 +549,11 @@ def build_dossier(db: Session, company: Company) -> dict:
         "ttm": {**ttm_dict, "price_date": price_date},
         "pe_history": pe_history_dict,
         "net_cash": {"value": net_cash_value, "note": net_cash_note},
+        "market_data": market_snapshot,
+        "analysis_context_status": _analysis_context_status(market_snapshot, forum_snapshot),
         "dividends": dividends,
         "prescore": prescore.to_dict(),
-        "insights": company_insights.to_dict(),
+        "insights": insights_block,
         "thesis": thesis_block,
         "scenarios": scenarios_block,
         "valuation": valuation_block,
@@ -343,5 +572,6 @@ def build_dossier(db: Session, company: Company) -> dict:
             "topics": int(topics_count or 0),
             "posts": int(posts_count or 0),
             "last_post_at": last_post_at,
+            "intelligence": forum_snapshot,
         },
     }

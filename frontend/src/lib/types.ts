@@ -182,6 +182,10 @@ export interface Insights {
   data_notes: string[];
   coverage: { available: number; selected: number; note: string } | null;
   summary: string;
+  // Optional on purpose: a parallel backend task is adding an AI-refined path
+  // for insights (mirrors thesis/scenarios `engine`); older/undecorated
+  // dossiers won't have it — render the provenance chip only when present.
+  engine?: "deterministic" | "ai";
 }
 
 export interface EntryQuality {
@@ -267,6 +271,7 @@ export interface ScenarioSet {
   weighted_expected_upside_pct: number | null;
   framing: string; // "punkt wejścia w analizę, nie sygnał"
   disclaimer: string;
+  quality_warnings?: string[];
   engine: "deterministic" | "ai";
   ai_notes: AiNotes | null;
 }
@@ -301,6 +306,17 @@ export interface Valuation {
   ai_notes: AiNotes | null;
 }
 
+// Shared shape for market_data.forecast_consensus / advanced_metrics cells
+// (backend: services/market_data.py, services/refresh.py). `period` shows up
+// on a couple of legacy indicator-sourced entries (roic/fcf) instead of
+// `unit` — keep both optional rather than modelling two variants.
+export interface MarketDataMetric {
+  value: number | null;
+  unit?: string;
+  period?: string;
+  source?: string;
+}
+
 export interface Dossier {
   company: Company;
   freshness: {
@@ -312,6 +328,46 @@ export interface Dossier {
   ttm: Ttm;
   pe_history: PeHistory;
   net_cash: { value: number | null; note: string };
+  market_data: {
+    industry_type: string | null;
+    priority_values: Record<string, unknown>;
+    // Keyed by YEAR (e.g. "2025", "2026" — raw BiznesRadar consensus column
+    // labels), then by metric code (revenue/ebitda/operating_profit/
+    // net_income/capex/depreciation/ebitda_margin_pct/operating_margin_pct/
+    // net_margin_pct/pe) — mirrors services/refresh.py::_upsert_forecasts +
+    // services/market_data.py::merge_premium_market_data. Money metrics
+    // arrive in tys. PLN (unit "tys. PLN"); margins in "%"; pe in "x".
+    forecast_consensus: Record<string, Record<string, MarketDataMetric>>;
+    // Polish trust caveat (services/market_data.py::FORECAST_CONSENSUS_NOTE)
+    // — sibling key, NOT nested inside forecast_consensus (that dict is
+    // keyed purely by year). Optional: absent on dossiers built before this
+    // field existed.
+    forecast_consensus_note?: string;
+    // roic/fcf/enterprise_value plus (new) ebitda_ttm/capex_ttm/
+    // depreciation_ttm from the /prognozy O4K column — all {value, unit,
+    // source} shaped, but some legacy entries carry `period` instead of
+    // `unit`, so keep the value type loose.
+    advanced_metrics: Record<string, MarketDataMetric>;
+    dividend_coverage: Record<string, unknown>;
+  };
+  analysis_context_status?: {
+    ready_for_ai: boolean;
+    missing: string[];
+    industry_type: string | null;
+    premium: {
+      forecast_years: string[];
+      has_roic: boolean;
+      has_fcf: boolean;
+      has_enterprise_value: boolean;
+      dividend_coverage_status: string | null;
+    };
+    forum: {
+      has_intelligence: boolean;
+      distilled_facts_count: number;
+      last_30d_post_count: number;
+      last_30d_active_user_count: number;
+    };
+  } | null;
   dividends: Dividend[];
   prescore: Prescore;
   insights: Insights;
@@ -324,7 +380,54 @@ export interface Dossier {
   // required, older cached dossiers predate it → optional here.
   valuation?: Valuation;
   latest_forecast: Forecast | null;
-  forum: { topics: number; posts: number; last_post_at: string | null };
+  forum: {
+    topics: number;
+    posts: number;
+    last_post_at: string | null;
+    intelligence?: ForumIntelligence | null;
+  };
+}
+
+export interface ForumDistilledFact {
+  topic?: string;
+  type?: string;
+  polarity?: string;
+  fact: string;
+  confidence?: string;
+  source_post_ids?: number[];
+}
+
+// AI-distilled forum investment expectations (services/forum_expectations.py,
+// wraps services/forum_distiller.py::distill_company_posts). `type` mirrors
+// the backend classifier verbatim (currently the post-level "fact-claim" /
+// "opinion" / "question" / "noise" tag — only "fact-claim" posts ever
+// produce claims); the UI groups by a curated set of investment-argument
+// labels when present and falls back to a catch-all bucket otherwise, so a
+// taxonomy change on the backend degrades gracefully instead of breaking.
+export interface ForumExpectationClaim {
+  claim: string;
+  confidence: "low" | "medium" | "high" | string;
+  type: string;
+  source_post_ids: number[];
+}
+
+export interface ForumExpectations {
+  claims: ForumExpectationClaim[];
+  model: string;
+  updated_at: string;
+  source_post_count: number;
+}
+
+export interface ForumIntelligence {
+  industry_type: string | null;
+  last_30d_post_count: number;
+  last_30d_active_user_count: number;
+  activity_spikes: unknown[];
+  community_sentiment: string | null;
+  distilled_facts: ForumDistilledFact[];
+  // Optional: null/absent until a model-assisted forum expectation pass has
+  // run at least once for this company.
+  expectations?: ForumExpectations | null;
 }
 
 export interface ForumTopic {
@@ -339,7 +442,6 @@ export interface ForumPost {
   phpbb_post_id: number;
   author: string;
   posted_at: string | null;
-  content_text: string;
   upvotes: number | null;
 }
 
@@ -367,9 +469,18 @@ export interface LoginStatus {
   detail: string;
 }
 
-// --- AI analysis (Phase 5, P5.6/P5.7) — mirrors schemas.AnalysisOut + the
-// `zapisz_analize` tool input_schema (backend/app/services/claude_client.py,
-// single source of truth for the verdict shape) ---------------------------
+// GET /api/diagnostics/workflow-status — provider-neutral Codex workflow health.
+export interface WorkflowStatus {
+  ok: boolean;
+  queued: number;
+  running: number;
+  completed_24h: number;
+  verified_24h: number;
+  latest_run_at: string | null;
+}
+
+// --- Analysis history: old rows remain readable while provider-neutral
+// `analysis_runs` become the primary CX path. -----------------------------
 
 export interface AnalysisCatalyst {
   type: string;
@@ -395,6 +506,15 @@ export interface AnalysisPotential {
   downside: string;
 }
 
+export interface AnalysisScenario {
+  kind: "negative" | "base" | "positive" | "event";
+  title: string;
+  description: string;
+  key_drivers: string[];
+  watch_items: string[];
+  probability: string;
+}
+
 export interface AnalysisVerdict {
   thesis: string;
   catalysts: AnalysisCatalyst[];
@@ -404,6 +524,7 @@ export interface AnalysisVerdict {
   forum_insights: ForumInsight[];
   alignment_score: number;
   potential: AnalysisPotential;
+  scenarios?: AnalysisScenario[];
   verify_next: VerifyNextItem[]; // reuses the thesis type — identical shape
   summary_pl: string;
 }
@@ -415,6 +536,146 @@ export interface Analysis {
   alignment_score: number | null;
   input_tokens: number | null;
   output_tokens: number | null;
+  input_hash: string | null;
   created_by: string | null;
   output: AnalysisVerdict;
+}
+
+export interface AnalysisRun {
+  id: number;
+  company_id: number;
+  agent_run_id: number | null;
+  source: string;
+  workflow: string;
+  model_role: string;
+  model: string;
+  status: string;
+  verification_status: string;
+  input_snapshot: Record<string, unknown>;
+  output: Record<string, unknown>;
+  verification: Record<string, unknown>;
+  alignment_score: number | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface AgentRun {
+  id: number;
+  workflow: string;
+  trigger: string;
+  status: string;
+  company_id: number | null;
+  model_role: string | null;
+  model: string | null;
+  orchestrator_model: string | null;
+  inputs: Record<string, unknown>;
+  outputs: Record<string, unknown>;
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentRunCreate {
+  workflow: string;
+  ticker?: string;
+  trigger?: string;
+  model_role?: string;
+  model?: string;
+  orchestrator_model?: string;
+  inputs?: Record<string, unknown>;
+}
+
+export interface PreSessionBriefResult {
+  ok: boolean;
+  espi_poll: Record<string, unknown>;
+  agent_run: AgentRun | null;
+}
+
+export interface BacktestObservation {
+  id: number;
+  backtest_run_id: number;
+  company_id: number;
+  as_of_date: string;
+  known_inputs: Record<string, unknown>;
+  signal: Record<string, unknown>;
+  outcome: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface BacktestRun {
+  id: number;
+  agent_run_id: number | null;
+  strategy: string;
+  from_date: string | null;
+  to_date: string | null;
+  status: string;
+  model_role: string | null;
+  model: string | null;
+  parameters: Record<string, unknown>;
+  summary: {
+    observation_count?: number;
+    signal_counts?: Record<string, number>;
+    average_return_pct_by_window?: Record<string, number | null>;
+    known_inputs_policy?: string;
+    [key: string]: unknown;
+  };
+  verification_status: string;
+  created_at: string;
+}
+
+export interface BacktestRunDetail extends BacktestRun {
+  observations: BacktestObservation[];
+}
+
+export interface BacktestRunCreate {
+  strategy?: string;
+  from_date: string;
+  to_date: string;
+  ticker?: string;
+  outcome_windows?: number[];
+  financial_availability_policy?: "scraped_at" | "estimated_period_lag";
+  report_lag_days?: number;
+}
+
+export interface AgentEvaluationObservation {
+  id: number;
+  evaluation_run_id: number;
+  analysis_run_id: number;
+  company_id: number;
+  as_of_date: string;
+  known_inputs: Record<string, unknown>;
+  prediction: Record<string, unknown>;
+  outcome: Record<string, unknown>;
+  score: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AgentEvaluationRun {
+  id: number;
+  agent_run_id: number | null;
+  strategy: string;
+  from_date: string | null;
+  to_date: string | null;
+  status: string;
+  model_role: string | null;
+  model: string | null;
+  parameters: Record<string, unknown>;
+  summary: Record<string, unknown>;
+  verification_status: string;
+  created_at: string;
+}
+
+export interface AgentEvaluationRunDetail extends AgentEvaluationRun {
+  observations: AgentEvaluationObservation[];
+}
+
+export interface AgentEvaluationRunCreate {
+  strategy?: string;
+  from_date?: string | null;
+  to_date?: string | null;
+  ticker?: string;
+  workflow?: string;
+  outcome_windows?: number[];
 }

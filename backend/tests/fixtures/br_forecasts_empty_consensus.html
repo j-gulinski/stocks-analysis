@@ -1,0 +1,45 @@
+<!--
+  RECONSTRUCTED FROM LIVE DOM INSPECTION 2026-07-09, NOT A SAVED PAGE.
+
+  Same verified structure as br_forecasts.html (see that file's header comment
+  and app/scrapers/biznesradar.py `parse_forecasts`), but modelling the common
+  production case noted live: BiznesRadar only counts analyst forecasts less
+  than 6 months old, so smaller/less-covered GPW names show a "raport"/"O4K"
+  column with real numbers and entirely empty consensus columns — mixing both
+  "no data" spellings BiznesRadar uses ("" and "-") across the three
+  konsensus columns. Numbers are synthetic (SYNEKTIK-scale, not real figures).
+-->
+<html>
+<body>
+<div id="profile-forecast">
+<h3>Prognoza podstawowych danych finansowych spółki SYNEKTIK</h3>
+<div class="tools">
+  <button type="button" onclick="return false;">Dynamika r/r</button>
+  <button type="button" onclick="return false;">Zakres prognoz</button>
+</div>
+<table class="qTableFull contentList">
+<tbody>
+<tr>
+  <th></th>
+  <th>dane w mln zł</th>
+  <th><strong>2025</strong> raport</th>
+  <th><strong>O4K</strong> raport (mar 26)*</th>
+  <th><strong>2026</strong> konsensus</th>
+  <th><strong>2027</strong> konsensus</th>
+  <th><strong>2028</strong> konsensus</th>
+</tr>
+<tr><td></td><td class="name">Przychody ze sprzedaży</td><td>267.8</td><td>271.5</td><td>-</td><td></td><td>-</td></tr>
+<tr><td></td><td class="name">EBITDA</td><td>62.4</td><td>64.1</td><td></td><td>-</td><td></td></tr>
+<tr><td></td><td class="name">Zysk z działalności operacyjnej</td><td>50.1</td><td>51.9</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td></td><td class="name">Zysk netto</td><td>41.3</td><td>42.8</td><td></td><td></td><td></td></tr>
+<tr><td></td><td class="name">Marża EBITDA</td><td>23.30%</td><td>23.61%</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td></td><td class="name">Rentowność operacyjna</td><td>18.71%</td><td>19.12%</td><td></td><td></td><td></td></tr>
+<tr><td></td><td class="name">Rentowność netto</td><td>15.42%</td><td>15.76%</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td></td><td class="name">Nakłady inwestycyjne</td><td>12.0</td><td>12.6</td><td></td><td></td><td></td></tr>
+<tr><td></td><td class="name">Amortyzacja</td><td>9.8</td><td>10.1</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td></td><td class="name">Cena / Zysk (C/Z)</td><td>28.60</td><td>27.90</td><td></td><td></td><td></td></tr>
+</tbody>
+</table>
+</div>
+</body>
+</html>

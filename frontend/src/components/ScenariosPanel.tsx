@@ -5,7 +5,7 @@ import { fmtPln, fmtPct, signClass } from "@/lib/format";
  * Scenario simulation ("Scenariusze") — sits directly below ThesisPanel on the
  * Przegląd tab (thesis = the read; scenarios = the projections off it). The set
  * is composed rule-based by the backend (services/scenarios.py) + an optional
- * Claude-API refiner; this component only lays it out, mirroring ThesisPanel.
+ * model-assisted refiner; this component only lays it out, mirroring ThesisPanel.
  *
  * Numbers: the panel does no client-side number formatting of its own — every
  * display value goes through the project's pl-PL helpers in lib/format.ts
@@ -13,13 +13,6 @@ import { fmtPln, fmtPct, signClass } from "@/lib/format";
  * of the app. Horizon months are small integers rendered as-is. These are
  * conditional if-this-then-that projections, never a buy/sell signal.
  */
-const KIND_TONE: Record<Scenario["kind"], string> = {
-  negative: "warning", // amber caution, never red (this layer emits no signal)
-  base: "neutral",
-  positive: "success",
-  event: "muted",
-};
-
 const MULTIPLE_LABEL: Record<string, string> = {
   cz: "C/Z",
   cwk: "C/WK",
@@ -35,6 +28,13 @@ const CONFIDENCE: Record<Valuation["confidence"]["level"], { tone: string; label
   low: { tone: "warning", label: "niska" },
 };
 
+function scenarioTone(scenario: Scenario): string {
+  if (scenario.implied_upside_pct == null) return "muted";
+  if (scenario.implied_upside_pct < 0) return "warning";
+  if (scenario.implied_upside_pct > 0) return "success";
+  return "neutral";
+}
+
 export default function ScenariosPanel({
   scenarios,
   valuation,
@@ -49,6 +49,7 @@ export default function ScenariosPanel({
   const engineLabel = scenarios.engine === "ai" ? "AI" : "deterministyczny";
   const multipleLabel =
     MULTIPLE_LABEL[scenarios.valuation_multiple] ?? scenarios.valuation_multiple;
+  const qualityWarnings = scenarios.quality_warnings ?? [];
 
   return (
     <div className="card scenarios">
@@ -83,11 +84,19 @@ export default function ScenariosPanel({
       {/* The standing framing — an analysis entrance, never a signal. */}
       {scenarios.framing && <p className="framing">Analiza: {scenarios.framing}</p>}
 
+      {qualityWarnings.length > 0 && (
+        <div className="scenario-warnings">
+          {qualityWarnings.map((warning) => (
+            <p key={warning}>{warning}</p>
+          ))}
+        </div>
+      )}
+
       <div className="scenario-list">
         {scenarios.scenarios.map((s) => (
           <div className="scenario" key={s.id}>
             <div className="spread" style={{ flexWrap: "wrap", gap: 6 }}>
-              <span className={`badge ${KIND_TONE[s.kind] ?? "muted"}`}>{s.label}</span>
+              <span className={`badge ${scenarioTone(s)}`}>{s.label}</span>
               <span className="prob">
                 p ≈ {fmtPct(s.probability * 100, { digits: 0 })}
               </span>

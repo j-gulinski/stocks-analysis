@@ -70,6 +70,10 @@ _REFINABLE = ("potential_basis_label", "confidence_rationale", "narrative", "wha
 _DEFAULT_CACHE_DIR = Path(__file__).resolve().parents[2] / ".cache" / "valuation_ai"
 
 
+class ValuationContextError(ValueError):
+    """Raised before an Anthropic valuation call when premium context is missing."""
+
+
 # ------------------------------------------------------------- settings/dep
 
 
@@ -326,8 +330,10 @@ _INSTRUCTIONS = (
 def _serialize_inputs(inputs: scenarios.ScenarioInputs) -> dict:
     ti = inputs.thesis_inputs
     company = ti.insights
+    industry_type = _industry_type(inputs)
     return {
         "company": {
+            "industry_type": industry_type,
             "size_code": company.size_code,
             "size_label": company.size_label,
             "sector_group": company.sector_group,
@@ -335,6 +341,8 @@ def _serialize_inputs(inputs: scenarios.ScenarioInputs) -> dict:
             "sector": company.sector,
             "summary": company.summary,
         },
+        "sectorized_prompting": _sector_guidance(industry_type),
+        "company_market_data": inputs.market_data,
         "open_gaps": [{"id": m.id, "name": m.name, "why": m.why} for m in company.missing],
         "drivers": inputs.to_dict(),
         "ttm": ti.ttm,
@@ -386,6 +394,63 @@ def _build_prompt(serial_inputs, serial_profile, serial_corpus, scenario_set, cu
                                                           "what_would_change", "narrative")},
     }
     return _INSTRUCTIONS + "\n\nDATA:\n" + json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _industry_type(inputs: scenarios.ScenarioInputs) -> str:
+    market_data = inputs.market_data or {}
+    return (
+        market_data.get("industry_type")
+        or (market_data.get("priority_values") or {}).get("industry_type")
+        or inputs.thesis_inputs.insights.sector_group_label
+        or "Pozostałe"
+    )
+
+
+def _sector_guidance(industry_type: str) -> list[str]:
+    lowered = industry_type.lower()
+    if "gaming" in lowered or "gry" in lowered:
+        return [
+            "Evaluate UA (User Acquisition) costs explicitly.",
+            "Check IP amortization schedules and whether profit is one-off or repeatable.",
+            "Treat Steam wishlist / launch signals as catalysts to verify, not facts.",
+        ]
+    if "real estate" in lowered or "developer" in lowered or "nieruchomo" in lowered:
+        return [
+            "Shift attention to pre-sales metrics and backlog conversion.",
+            "Check land bank value separately from current-period earnings.",
+            "Stress dynamic cost inflation parameters before trusting margin expansion.",
+        ]
+    if "saas" in lowered:
+        return [
+            "Evaluate ARR/revenue retention and customer acquisition payback where present.",
+            "Separate recurring subscription margin from implementation or one-off services.",
+            "Treat churn, expansion revenue and cash conversion as key missing-data gaps.",
+        ]
+    return [
+        "Use the supplied industry_type before applying a generic industrial valuation frame.",
+        "Prefer ROIC/FCF/EV context over flat financial-table heuristics.",
+    ]
+
+
+def _metric_has_value(metrics: dict, key: str) -> bool:
+    item = metrics.get(key)
+    if not isinstance(item, dict):
+        return False
+    return item.get("value") is not None
+
+
+def validate_valuation_context(inputs: scenarios.ScenarioInputs) -> None:
+    """Pre-flight assertion for the Anthropic valuation path."""
+    market_data = inputs.market_data or {}
+    metrics = market_data.get("advanced_metrics") or {}
+    missing = [key.upper() for key in ("roic", "fcf") if not _metric_has_value(metrics, key)]
+    if missing:
+        industry_type = _industry_type(inputs)
+        raise ValuationContextError(
+            "ValuationContext missing premium metrics before Anthropic call: "
+            f"{', '.join(missing)} (industry_type={industry_type}). "
+            "Refresh BiznesRadar premium data into company_market_data first."
+        )
 
 
 # -------------------------------------------------------- validate / merge
@@ -564,8 +629,9 @@ def assess_potential(
     api_key = getattr(settings, "anthropic_api_key", None)
     if not api_key:
         return {**det, "engine": "deterministic"}
+    validate_valuation_context(inputs)
 
-    model = getattr(settings, "anthropic_model", None) or "claude-sonnet-5"
+    model = getattr(settings, "anthropic_model", None) or "claude-sonnet-4-6"
     max_iterations = int(getattr(settings, "anthropic_max_iterations", 2) or 2)
     cache_enabled = bool(getattr(settings, "ai_cache_enabled", True))
     if corpus is None:

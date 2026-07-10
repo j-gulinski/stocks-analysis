@@ -20,6 +20,7 @@ import { useApi } from "@/lib/hooks";
 import { fmtMcap, fmtPln, fmtDate, fmtNumber, relativeDate, staleDays } from "@/lib/format";
 import { LoadingMessages, SkeletonCards } from "@/components/Loading";
 import InsightsPanel from "@/components/InsightsPanel";
+import InvestorMemo from "@/components/InvestorMemo";
 import ThesisPanel from "@/components/ThesisPanel";
 import ScenariosPanel from "@/components/ScenariosPanel";
 import MetricCards from "@/components/MetricCards";
@@ -64,6 +65,7 @@ function DecisionCockpit({
   const freshness = dossier.freshness;
   const hasFinancials = dossier.quarters.length > 0;
   const hasPrice = ttm.price != null;
+  const context = dossier.analysis_context_status;
 
   return (
     <section className="decision-cockpit">
@@ -85,8 +87,13 @@ function DecisionCockpit({
             {insights.size_label ?? "rozmiar b/d"}
           </span>
           <span className="badge neutral">{insights.sector_group_label}</span>
+          {context && (
+            <span className={`badge ${context.ready_for_ai ? "success" : "warning"}`}>
+              analysis data {context.ready_for_ai ? "ready" : "gaps"}
+            </span>
+          )}
           <button className="btn compact accent" onClick={onAnalyze}>
-            <IconSparkles size={13} /> Analiza AI
+            <IconSparkles size={13} /> Analiza
           </button>
         </div>
       </div>
@@ -127,6 +134,16 @@ function DecisionCockpit({
             </strong>
             <span>Forum</span>
             <strong className="secondary">{relativeDate(freshness.forum_last_synced_at)}</strong>
+            <span>BR premium</span>
+            <strong className={context?.premium.forecast_years.length ? "secondary" : "warn"}>
+              {context?.premium.forecast_years.length
+                ? context.premium.forecast_years.join(", ")
+                : "brak prognoz"}
+            </strong>
+            <span>PA fakty</span>
+            <strong className={context?.forum.distilled_facts_count ? "secondary" : "warn"}>
+              {context?.forum.distilled_facts_count ?? 0}
+            </strong>
           </div>
         </div>
       </div>
@@ -361,6 +378,7 @@ export default function StockPage({
           ) : (
             <>
               <DecisionCockpit dossier={dossier} onAnalyze={() => setTab("AI")} />
+              <InvestorMemo dossier={dossier} />
 
               <section className="overview-section">
                 <div className="section-heading">
@@ -440,9 +458,9 @@ export default function StockPage({
           <section className="overview-section">
             <div className="section-heading">
               <p className="section-label">Forum PortalAnaliz</p>
-              <p>Powiąż wątki ręcznie; odświeżanie pobiera tylko najnowszy zakres.</p>
+              <p>Odświeżanie szuka wątków spółki i zapisuje tylko metryki oraz wydestylowane fakty.</p>
             </div>
-            <ForumPanel ticker={ticker} />
+            <ForumPanel ticker={ticker} intelligence={dossier.forum.intelligence} />
           </section>
         </>
       )}

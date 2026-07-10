@@ -51,11 +51,11 @@ from app.services.strategies import base
 # coherent. Each row: kind, id, Polish label, probability, own-history quartile
 # key, and the Polish basis phrase naming that quartile.
 _SCENARIO_SPECS: tuple[tuple[str, str, str, float, str, str], ...] = (
-    ("negative", "negative", "Scenariusz negatywny", 0.25, "q1",
+    ("negative", "negative", "Wariant ostrożny (dolny kwartyl)", 0.25, "q1",
      "dolny kwartyl własnej historii"),
-    ("base", "base", "Scenariusz bazowy", 0.50, "median",
+    ("base", "base", "Wariant bazowy (mediana)", 0.50, "median",
      "mediana własnej historii"),
-    ("positive", "positive", "Scenariusz pozytywny", 0.25, "q3",
+    ("positive", "positive", "Wariant górnego kwartylu", 0.25, "q3",
      "górny kwartyl własnej historii"),
 )
 
@@ -70,9 +70,9 @@ _CRITERION_MULTIPLE = {"pe_vs_history": "cz", "cwk": "cwk", "ev_ebitda": "ev_ebi
 
 # How each reversion path narrates the multiple move (digit-free leads).
 _KIND_LEAD = {
-    "negative": "Mnożnik osuwa się w dół",
-    "base": "Mnożnik wraca do środka",
-    "positive": "Mnożnik odbija w górę",
+    "negative": "Powrót mnożnika",
+    "base": "Powrót mnożnika",
+    "positive": "Powrót mnożnika",
 }
 
 # Fixed framing line (plan §WP3a): an analysis entrance, never a signal. Kept
@@ -113,12 +113,14 @@ class ScenarioInputs:
 
     thesis_inputs: thesis.ThesisInputs
     multiple_history: dict = field(default_factory=dict)
-    eps: float | None = None  # PLN per share (from ttm.eps)
+    eps: float | None = None  # PLN per share (TTM EPS or sourced forward EPS)
     book_value: float | None = None  # equity, tys. PLN (latest balance)
     ebitda_ttm: float | None = None  # tys. PLN or None (labelled gap)
     shares_outstanding: int | None = None
     current_price: float | None = None  # PLN (from ttm.price)
     net_cash: float | None = None  # tys. PLN (cash − debt)
+    market_data: dict = field(default_factory=dict)  # AI-priority premium context
+    earnings_basis: dict = field(default_factory=dict)  # provenance for EPS/driver
 
     def to_dict(self) -> dict:
         return {
@@ -129,6 +131,8 @@ class ScenarioInputs:
             "shares_outstanding": self.shares_outstanding,
             "current_price": self.current_price,
             "net_cash": self.net_cash,
+            "market_data": self.market_data,
+            "earnings_basis": self.earnings_basis,
         }
 
 
@@ -171,6 +175,7 @@ class ScenarioSet:
     weighted_expected_upside_pct: float | None
     framing: str
     disclaimer: str
+    quality_warnings: list[str] = field(default_factory=list)
     engine: str = "deterministic"  # scenarios_ai may set "ai"
 
     def to_dict(self) -> dict:
@@ -182,6 +187,7 @@ class ScenarioSet:
             "weighted_expected_upside_pct": self.weighted_expected_upside_pct,
             "framing": self.framing,
             "disclaimer": self.disclaimer,
+            "quality_warnings": list(self.quality_warnings),
             "engine": self.engine,
         }
 
@@ -230,6 +236,8 @@ def input_numbers(inputs: ScenarioInputs) -> set[float]:
         str(ti.latest_forecast),
         str(ti.prescore),
         str(inputs.multiple_history),
+        str(inputs.market_data),
+        str(inputs.earnings_basis),
     ]
     nums: set[float] = set()
     for part in parts:
@@ -423,15 +431,30 @@ def _build_scenario(
     target_price, price_note = _target_price(effective, mult_value, inputs)
     upside = _upside(target_price, inputs.current_price)
 
+    earnings_basis = inputs.earnings_basis or {}
+    if effective == "cz" and earnings_basis.get("source") == "biznesradar_forecasts":
+        year = earnings_basis.get("year")
+        year_suffix = f" {year}" if year else ""
+        result_driver = f"EPS z konsensusu analityków BiznesRadar{year_suffix}"
+        result_assumption = (
+            f"Założenie: EPS oparty na konsensusie analityków BiznesRadar{year_suffix}; "
+            "to oczekiwanie rynku/analityków, nie zrealizowany wynik"
+        )
+    else:
+        result_driver = "Wynik (zysk / EBITDA / wartość księgowa) utrzymany na bieżącym poziomie"
+        result_assumption = (
+            "Założenie: brak zmiany wyniku — projekcja czysto wycenowa (sama rewersja "
+            "mnożnika)"
+        )
+
     drivers = [
         "Rewersja mnożnika wyceny do poziomu z własnej historii spółki",
-        "Wynik (zysk / EBITDA / wartość księgowa) utrzymany na bieżącym poziomie",
+        result_driver,
     ]
     assumptions = [
         f"Założenie: mnożnik {mult_label} wraca do poziomu „{quartile_phrase}” "
         "(porównanie do WŁASNEJ historii, nie do rynku/branży)",
-        "Założenie: brak zmiany wyniku — projekcja czysto wycenowa (sama rewersja "
-        "mnożnika)",
+        result_assumption,
     ]
 
     if target_price is None or mult_value is None:
@@ -518,6 +541,34 @@ def weighted_expected(scenarios: list, current_price: float | None):
     return wprice, wupside
 
 
+def scenario_quality_warnings(scenario_rows: list, weighted_upside: float | None) -> list[str]:
+    """Warnings about how to read the scenario set.
+
+    The internal `positive` kind means "upper quartile reversion path", not
+    guaranteed positive return. When every priced path is still below the
+    current price, surface that explicitly so CBF-like cases cannot be read as a
+    recommendation hidden behind a green label.
+    """
+    upsides = []
+    for row in scenario_rows:
+        value = row.get("implied_upside_pct") if isinstance(row, dict) else row.implied_upside_pct
+        if isinstance(value, (int, float)):
+            upsides.append(float(value))
+
+    warnings: list[str] = []
+    if upsides and max(upsides) <= 0:
+        warnings.append(
+            "Wszystkie policzalne warianty mają ujemny potencjał; wariant "
+            "górnego kwartylu nie oznacza dodatniego scenariusza."
+        )
+    if weighted_upside is not None and weighted_upside < 0:
+        warnings.append(
+            "Wartość oczekiwana scenariuszy jest ujemna; traktuj wynik jako "
+            "ostrzeżenie o punkcie wejścia, nie jako pozytywną tezę."
+        )
+    return warnings
+
+
 def build_scenario_set(
     inputs: ScenarioInputs, profile: base.StrategyProfile
 ) -> ScenarioSet:
@@ -539,6 +590,7 @@ def build_scenario_set(
         for spec in _SCENARIO_SPECS
     ]
     wprice, wupside = weighted_expected(scenarios, inputs.current_price)
+    warnings = scenario_quality_warnings(scenarios, wupside)
 
     return ScenarioSet(
         scenarios=scenarios,
@@ -548,5 +600,6 @@ def build_scenario_set(
         weighted_expected_upside_pct=wupside,
         framing=FRAMING,
         disclaimer=thesis.DISCLAIMER,
+        quality_warnings=warnings,
         engine="deterministic",
     )

@@ -1,46 +1,20 @@
 "use client";
 
-/** Analiza AI tab (Phase 5, P5.7): run a Claude verdict against the dossier +
- * recent forum posts (backend P5.6 endpoints), show the latest verdict, and
- * keep a run history with a lightweight diff vs the previous run. Mirrors
- * ForecastPanel's shape (typed client call → loading/error state → result
- * card) and reuses ThesisPanel's card conventions (verdict headline,
- * `.points`, `.verify-item`, `.disclaimer`) under a new `.analysis` scope. */
+/** Analysis tab: queue Codex workflows and show provider-neutral verified results. */
 import { useEffect, useState } from "react";
-import { IconCheck, IconHelp, IconSparkles, IconX } from "@tabler/icons-react";
-import { ApiError, listAnalyses, runAnalysis } from "@/lib/api";
-import { fmtDate, relativeDate } from "@/lib/format";
+import { IconSparkles } from "@tabler/icons-react";
+import {
+  ApiError,
+  listAgentRuns,
+  listAnalysisRuns,
+  queueAgentRun,
+} from "@/lib/api";
+import { fmtDate, fmtPct, relativeDate, signClass } from "@/lib/format";
 import type {
-  Analysis,
-  AnalysisCatalyst,
-  AnalysisChecklistItem,
+  AgentRun,
+  AnalysisRun,
   Dossier,
-  ForumInsight,
 } from "@/lib/types";
-
-// Same icon-per-verdict convention as PrescoreChecklist — icon + colour so
-// the verdict never relies on colour alone.
-const CHECK_ICONS = {
-  "spełnia": <IconCheck size={15} className="pos" />,
-  "nie spełnia": <IconX size={15} className="neg" />,
-  "nieznane": <IconHelp size={15} className="warn" />,
-} as const;
-
-// "nie" (not yet priced in) reads as open upside → success; "tak" (already
-// priced in) is the least exciting state → muted, not danger (this is not a
-// pass/fail signal, just a framing cue).
-const PRICED_IN_TONE: Record<AnalysisCatalyst["priced_in"], string> = {
-  nie: "success",
-  "częściowo": "warning",
-  tak: "muted",
-  nieznane: "muted",
-};
-
-const CONFIDENCE_TONE: Record<ForumInsight["confidence"], string> = {
-  high: "success",
-  medium: "warning",
-  low: "muted",
-};
 
 function scoreTone(score: number | null): string {
   if (score == null) return "muted";
@@ -49,26 +23,415 @@ function scoreTone(score: number | null): string {
   return "danger";
 }
 
-/** Per-item checklist verdict changes between two runs, matched by the item
- * text (the backend doesn't emit stable item ids). Kept deliberately simple —
- * a name match miss just means no diff line, not a crash. */
-function checklistChanges(
-  current: AnalysisChecklistItem[],
-  previous: AnalysisChecklistItem[],
-): { item: string; from: string; to: string }[] {
-  const prevByItem = new Map(previous.map((c) => [c.item, c.verdict]));
-  const changes: { item: string; from: string; to: string }[] = [];
-  for (const c of current) {
-    const prevVerdict = prevByItem.get(c.item);
-    if (prevVerdict != null && prevVerdict !== c.verdict) {
-      changes.push({ item: c.item, from: prevVerdict, to: c.verdict });
-    }
+function textField(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function numberField(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function recordField(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function rangeField(value: unknown): [number, number] | null {
+  if (!Array.isArray(value) || value.length < 2) return null;
+  const low = numberField(value[0]);
+  const high = numberField(value[1]);
+  return low == null || high == null ? null : [low, high];
+}
+
+function analysisRunSummary(run: AnalysisRun): string {
+  return (
+    textField(run.output.summary_pl) ||
+    textField(run.output.executive_read) ||
+    textField(run.output.thesis) ||
+    "Brak krótkiego opisu w zapisanym wyniku."
+  );
+}
+
+function runStatusTone(status: string): string {
+  if (status === "verified") return "success";
+  if (status === "completed") return "success";
+  if (status === "rejected" || status === "failed") return "danger";
+  if (status === "running") return "accent";
+  if (status === "needs-human" || status === "draft" || status === "pending") {
+    return "warning";
   }
-  return changes;
+  return "neutral";
+}
+
+function verificationTone(status: string): string {
+  if (status === "pass") return "success";
+  if (status === "fail") return "danger";
+  if (status === "needs-human") return "warning";
+  return runStatusTone(status);
+}
+
+function predictionTone(direction: string | null): string {
+  if (direction === "positive") return "success";
+  if (direction === "negative") return "danger";
+  if (direction === "neutral") return "warning";
+  return "muted";
+}
+
+function scenarioValidityTone(validity: string | null): string {
+  if (validity === "valid") return "success";
+  if (validity === "limited") return "warning";
+  if (validity === "invalid") return "danger";
+  return "muted";
+}
+
+function agentModelLine(run: AgentRun): string {
+  const role = run.model_role ?? "role pending";
+  const model = run.model ?? run.orchestrator_model ?? "model chosen by Codex";
+  return `${role} · ${model}`;
+}
+
+function agentRunOutputId(run: AgentRun): string | null {
+  const value = run.outputs?.analysis_run_id;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return textField(value);
+}
+
+function agentRunLifecycleText(run: AgentRun): string {
+  if (run.status === "queued") return "waiting for Codex/MCP worker";
+  if (run.status === "running") return "worker claimed this job";
+  if (run.status === "completed" || run.status === "verified") return "worker closed this job";
+  if (run.status === "needs-human") return "worker needs verifier/human review";
+  if (run.status === "rejected" || run.status === "failed") return run.error ?? "worker failed/rejected this job";
+  return "workflow state recorded";
+}
+
+function textList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (typeof item === "string") return item;
+      if (item && typeof item === "object") {
+        const row = item as Record<string, unknown>;
+        return (
+          textField(row.text) ||
+          textField(row.description) ||
+          textField(row.claim) ||
+          textField(row.reason) ||
+          textField(row.why) ||
+          null
+        );
+      }
+      return null;
+    })
+    .filter((item): item is string => item != null);
+}
+
+function confidenceFields(value: unknown): { label: string | null; rationale: string | null } {
+  const text = textField(value);
+  if (text) return { label: text, rationale: null };
+  const row = recordField(value);
+  if (!row) return { label: null, rationale: null };
+  const score = numberField(row.score);
+  return {
+    label:
+      textField(row.level) ||
+      textField(row.value) ||
+      textField(row.confidence) ||
+      (score == null ? null : String(score)),
+    rationale: textField(row.rationale) || textField(row.reason) || textField(row.why),
+  };
+}
+
+function nestedPotential(output: Record<string, unknown>): Record<string, unknown> | null {
+  return recordField(output.potential) ?? recordField(recordField(output.valuation)?.potential);
+}
+
+function analysisRunSignal(run: AnalysisRun): { direction: string; label: string } | null {
+  const prediction = recordField(run.output.prediction);
+  const potential = nestedPotential(run.output);
+  const direction = textField(prediction?.direction);
+  const potentialValue =
+    numberField(potential?.value_pct) ??
+    numberField(prediction?.potential_pct) ??
+    numberField(run.output.expected_upside_pct) ??
+    numberField(run.output.upside_pct);
+  if (!direction && potentialValue == null) return null;
+  return {
+    direction: direction ?? "unknown",
+    label: `${direction ?? "unknown"}${
+      potentialValue != null ? ` ${fmtPct(potentialValue, { signed: true })}` : ""
+    }`,
+  };
+}
+
+function extractSourceLinks(value: unknown, limit = 8): string[] {
+  const links = new Set<string>();
+  const visit = (item: unknown, depth: number) => {
+    if (links.size >= limit || depth > 4 || item == null) return;
+    if (typeof item === "string") {
+      if (item.startsWith("http://") || item.startsWith("https://")) links.add(item);
+      return;
+    }
+    if (Array.isArray(item)) {
+      for (const child of item) visit(child, depth + 1);
+      return;
+    }
+    if (typeof item === "object") {
+      for (const [key, child] of Object.entries(item as Record<string, unknown>)) {
+        if (
+          typeof child === "string" &&
+          (key === "url" || key.endsWith("_url") || key === "raw_url")
+        ) {
+          links.add(child);
+        } else {
+          visit(child, depth + 1);
+        }
+      }
+    }
+  };
+  visit(value, 0);
+  return [...links].slice(0, limit);
+}
+
+function ProviderNeutralAnalysisCard({ run }: { run: AnalysisRun }) {
+  const output = run.output ?? {};
+  const verification = run.verification ?? {};
+  const prediction = recordField(output.prediction);
+  const potential = nestedPotential(output);
+  const resultQuality = recordField(output.result_quality);
+  const direction = textField(prediction?.direction);
+  const horizonDays = numberField(prediction?.horizon_days);
+  const sourceFields = textList(prediction?.source_fields).slice(0, 10);
+  const missingSourceFields = prediction != null && sourceFields.length === 0;
+  const potentialValue =
+    numberField(potential?.value_pct) ??
+    numberField(prediction?.potential_pct) ??
+    numberField(output.expected_upside_pct) ??
+    numberField(output.upside_pct);
+  const potentialRange = rangeField(potential?.range_pct);
+  const potentialBasis = textField(potential?.basis_label) || textField(potential?.basis);
+  const confidence = confidenceFields(output.confidence ?? prediction?.confidence);
+  const resultCause = textField(resultQuality?.result_cause);
+  const oneOffRisk = textField(resultQuality?.one_off_risk);
+  const scenarioValidity = textField(resultQuality?.scenario_validity);
+  const scenarioWarnings = textList(resultQuality?.scenario_warnings);
+  const missingResultQualityNotes =
+    resultQuality != null &&
+    !resultCause &&
+    !oneOffRisk &&
+    scenarioWarnings.length === 0;
+  const hasContractFields =
+    prediction != null ||
+    potential != null ||
+    resultQuality != null ||
+    confidence.label != null ||
+    confidence.rationale != null;
+  const summary =
+    textField(output.executive_read) ||
+    textField(output.summary_pl) ||
+    textField(output.thesis) ||
+    textField(output.next_action) ||
+    "Codex zapisał wynik bez krótkiego pola podsumowania.";
+  const redFlags = textList(output.red_flags ?? output.risks);
+  const watchItems = textList(output.watch_items ?? output.action_plan);
+  const dataGaps = textList(output.data_gaps ?? output.missing_data);
+  const verifyNext = textList(output.verify_next);
+  const nextAction = textField(output.next_action);
+  const verifierSummary = textField(verification.summary) || textField(verification.verdict);
+  const links = extractSourceLinks(output);
+
+  return (
+    <div className="card analysis">
+      <div className="spread" style={{ flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <p className="analysis-title">{run.workflow}</p>
+          <p className="small muted">
+            {fmtDate(run.created_at)} · {run.model_role} · {run.model}
+          </p>
+        </div>
+        <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+          <span className="badge muted">analysis #{run.id}</span>
+          <span className={`badge ${runStatusTone(run.status)}`}>{run.status}</span>
+          <span className={`badge ${verificationTone(run.verification_status)}`}>
+            verifier: {run.verification_status}
+          </span>
+          <span className="badge muted">{run.source}</span>
+        </div>
+      </div>
+
+      {run.alignment_score != null && (
+        <div className={`score ${scoreTone(run.alignment_score)}`} style={{ marginTop: 12 }}>
+          <span className="score-value">{run.alignment_score}</span>
+          <span className="score-label">alignment score</span>
+        </div>
+      )}
+
+      <p style={{ marginTop: 12, fontWeight: 500, lineHeight: 1.5 }}>{summary}</p>
+
+      {hasContractFields && (
+        <div className="analysis-contract" aria-label="Structured Codex analysis fields">
+          <div className="analysis-contract-grid">
+            <div className="analysis-contract-cell">
+              <span className="contract-label">Prediction</span>
+              <span className="contract-value">
+                <span className={`badge ${predictionTone(direction)}`}>{direction ?? "unknown"}</span>
+                {horizonDays != null && <span>{horizonDays}d</span>}
+              </span>
+            </div>
+            <div className="analysis-contract-cell">
+              <span className="contract-label">Potential</span>
+              <span className={`contract-value ${signClass(potentialValue)}`}>
+                {fmtPct(potentialValue, { signed: true })}
+              </span>
+              {potentialRange && (
+                <span className="contract-note">
+                  {fmtPct(potentialRange[0], { signed: true })} …{" "}
+                  {fmtPct(potentialRange[1], { signed: true })}
+                </span>
+              )}
+            </div>
+            <div className="analysis-contract-cell">
+              <span className="contract-label">Scenario validity</span>
+              <span className="contract-value">
+                <span className={`badge ${scenarioValidityTone(scenarioValidity)}`}>
+                  {scenarioValidity ?? "unknown"}
+                </span>
+              </span>
+            </div>
+            <div className="analysis-contract-cell">
+              <span className="contract-label">Confidence</span>
+              <span className="contract-value">{confidence.label ?? "unknown"}</span>
+            </div>
+          </div>
+
+          {(sourceFields.length > 0 || missingSourceFields || potentialBasis) && (
+            <div className="source-field-row">
+              {missingSourceFields && (
+                <span className="source-field-chip warning">source_fields: missing</span>
+              )}
+              {sourceFields.map((field) => (
+                <span className="source-field-chip" key={field}>{field}</span>
+              ))}
+              {potentialBasis && <span className="source-field-chip">{potentialBasis}</span>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {nextAction && (
+        <div className="analysis-section">
+          <p className="analysis-title">Next action</p>
+          <p className="secondary" style={{ lineHeight: 1.5 }}>{nextAction}</p>
+        </div>
+      )}
+
+      {confidence.rationale && (
+        <div className="analysis-section">
+          <p className="analysis-title">Confidence</p>
+          <p className="secondary" style={{ lineHeight: 1.5 }}>{confidence.rationale}</p>
+        </div>
+      )}
+
+      {(resultCause || oneOffRisk || scenarioWarnings.length > 0 || missingResultQualityNotes) && (
+        <div className="analysis-section">
+          <p className="analysis-title">Result quality</p>
+          <div className="quality-grid">
+            {missingResultQualityNotes && (
+              <p className="quality-note">
+                <span>Result quality</span>
+                structured notes missing
+              </p>
+            )}
+            {resultCause && (
+              <p className="quality-note">
+                <span>Result cause</span>
+                {resultCause}
+              </p>
+            )}
+            {oneOffRisk && (
+              <p className="quality-note">
+                <span>One-off risk</span>
+                {oneOffRisk}
+              </p>
+            )}
+            {scenarioWarnings.length > 0 && (
+              <div className="quality-note">
+                <span>Scenario warnings</span>
+                {scenarioWarnings.map((warning, index) => (
+                  <p key={`${warning}-${index}`}>{warning}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {watchItems.length > 0 && (
+        <div className="analysis-section">
+          <p className="analysis-title">Watch items</p>
+          {watchItems.map((item, index) => (
+            <p className="verify-item" key={`${item}-${index}`}>{item}</p>
+          ))}
+        </div>
+      )}
+
+      {redFlags.length > 0 && (
+        <div className="analysis-section">
+          <p className="analysis-title">Risks / red flags</p>
+          <ul className="points bad">
+            {redFlags.map((flag, index) => (
+              <li key={`${flag}-${index}`}>{flag}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {dataGaps.length > 0 && (
+        <div className="analysis-section">
+          <p className="analysis-title">Data gaps</p>
+          {dataGaps.map((gap, index) => (
+            <p className="verify-item" key={`${gap}-${index}`}>{gap}</p>
+          ))}
+        </div>
+      )}
+
+      {verifyNext.length > 0 && (
+        <div className="analysis-section">
+          <p className="analysis-title">Verify next</p>
+          {verifyNext.map((item, index) => (
+            <p className="verify-item" key={`${item}-${index}`}>{item}</p>
+          ))}
+        </div>
+      )}
+
+      {links.length > 0 && (
+        <div className="analysis-section">
+          <p className="analysis-title">Source links</p>
+          <div className="source-link-list">
+            {links.map((link) => (
+              <a href={link} target="_blank" rel="noreferrer" key={link}>
+                {link}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {verifierSummary && (
+        <div className="analysis-section">
+          <p className="analysis-title">Verifier notes</p>
+          <p className="secondary" style={{ lineHeight: 1.5 }}>{verifierSummary}</p>
+        </div>
+      )}
+
+      <p className="disclaimer">Provider-neutral Codex analysis, not investment advice.</p>
+    </div>
+  );
 }
 
 export default function AnalysisPanel({
   ticker,
+  dossier,
 }: {
   ticker: string;
   // Accepted for call-site parity with the other tab panels (ForecastPanel
@@ -78,20 +441,29 @@ export default function AnalysisPanel({
   // the moment a caller wants to show dossier-derived context here.
   dossier: Dossier;
 }) {
-  const [history, setHistory] = useState<Analysis[] | null>(null);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [agentHistory, setAgentHistory] = useState<AnalysisRun[] | null>(null);
+  const [agentWorkflowRows, setAgentWorkflowRows] = useState<AgentRun[] | null>(null);
+  const [selectedAgentRunId, setSelectedAgentRunId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [running, setRunning] = useState(false);
+  const [queueing, setQueueing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    listAnalyses(ticker)
-      .then((rows) => {
+    const loadWorkflowRows = async () => {
+      const workflowRows = await listAgentRuns({ ticker, limit: 6 });
+      if (!cancelled) setAgentWorkflowRows(workflowRows);
+    };
+    Promise.all([
+      listAnalysisRuns(ticker),
+      listAgentRuns({ ticker, limit: 6 }),
+    ])
+      .then(([agentRows, workflowRows]) => {
         if (cancelled) return;
-        setHistory(rows);
-        setSelectedId(rows[0]?.id ?? null);
+        setAgentHistory(agentRows);
+        setAgentWorkflowRows(workflowRows);
+        setSelectedAgentRunId(agentRows[0]?.id ?? null);
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -99,242 +471,162 @@ export default function AnalysisPanel({
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+    const pollId = window.setInterval(() => {
+      loadWorkflowRows().catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      });
+    }, 30_000);
     return () => {
       cancelled = true;
+      window.clearInterval(pollId);
     };
   }, [ticker]);
 
-  const handleRun = async () => {
-    setRunning(true);
+  const handleQueueCodex = async () => {
+    setQueueing(true);
     setError(null);
     try {
-      const result = await runAnalysis(ticker);
-      setHistory((current) => [result, ...(current ?? [])]);
-      setSelectedId(result.id);
+      const run = await queueAgentRun({
+        workflow: "stock-quick-analysis",
+        ticker,
+        trigger: "ui-request",
+        model_role: "worker_standard",
+        orchestrator_model: "gpt-5.5",
+        inputs: {
+          objective: "Create a compact verifier-gated company analysis.",
+          required_verification: "stock-verifier before UI-visible result",
+        },
+      });
+      setAgentWorkflowRows((current) => [run, ...(current ?? [])]);
     } catch (err) {
-      // 429 (daily cap) / 503 (no API key) both arrive as ApiError with a
-      // ready-made Polish `detail` — show it as-is, not as a crash.
       setError(
         err instanceof ApiError || err instanceof Error ? err.message : String(err),
       );
     } finally {
-      setRunning(false);
+      setQueueing(false);
     }
   };
 
   if (loading) return <p className="empty-state">Ładowanie historii analiz…</p>;
 
-  const rows = history ?? [];
-  const selectedIndex = rows.findIndex((r) => r.id === selectedId);
-  const selected = selectedIndex >= 0 ? rows[selectedIndex] : null;
-  const previous = selectedIndex >= 0 ? rows[selectedIndex + 1] : undefined;
-  const verdict = selected?.output;
-
-  const scoreDelta =
-    selected?.alignment_score != null && previous?.alignment_score != null
-      ? selected.alignment_score - previous.alignment_score
-      : null;
-  const changes =
-    verdict && previous ? checklistChanges(verdict.checklist, previous.output.checklist) : [];
+  const agentRows = agentHistory ?? [];
+  const workflowRows = agentWorkflowRows ?? [];
+  const selectedAgentRun =
+    selectedAgentRunId == null
+      ? null
+      : agentRows.find((run) => run.id === selectedAgentRunId) ?? null;
+  const context = dossier.analysis_context_status;
 
   return (
     <div>
-      <div className="row" style={{ marginBottom: 14 }}>
-        <button className="btn accent" onClick={handleRun} disabled={running}>
-          <IconSparkles size={14} className={running ? "spin" : ""} /> Analizuj
+      <div className="row wrap" style={{ marginBottom: 14 }}>
+        <button className="btn accent" onClick={handleQueueCodex} disabled={queueing}>
+          <IconSparkles size={14} className={queueing ? "spin" : ""} /> Queue Codex
         </button>
-        {rows.length > 0 && (
+        {context && (
+          <span className={`badge ${context.ready_for_ai ? "success" : "warning"}`}>
+            dane analizy: {context.ready_for_ai ? "gotowe" : `braki: ${context.missing.join(", ")}`}
+          </span>
+        )}
+        {agentRows.length > 0 && (
           <span className="small muted">
-            {rows.length} {rows.length === 1 ? "analiza" : "analiz"} w historii
+            {agentRows.length} {agentRows.length === 1 ? "analiza" : "analiz"} w historii
           </span>
         )}
       </div>
 
       {error && <div className="error-box">{error}</div>}
 
-      {!selected && !error && (
-        <p className="empty-state">Brak analiz — uruchom pierwszą.</p>
-      )}
-
-      {selected && verdict && (
-        <div className="card analysis">
+      {workflowRows.length > 0 && (
+        <div className="card analysis" style={{ marginBottom: 14 }}>
           <div className="spread" style={{ flexWrap: "wrap", gap: 8 }}>
-            <div className={`score ${scoreTone(selected.alignment_score)}`}>
-              <span className="score-value">
-                {selected.alignment_score != null ? selected.alignment_score : "brak"}
-              </span>
-              <span className="score-label">zgodność ze strategią</span>
+            <div>
+              <p className="analysis-title">Codex workflow state</p>
+              <p className="small muted">Queued means waiting for a Codex/MCP worker, not running.</p>
             </div>
-            <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
-              <span className="badge muted">model: {selected.model}</span>
-              <span className="badge muted">{fmtDate(selected.created_at)}</span>
-              {scoreDelta != null && (
-                <span
-                  className={`badge ${scoreDelta > 0 ? "success" : scoreDelta < 0 ? "danger" : "neutral"}`}
-                >
-                  {scoreDelta > 0 ? `+${scoreDelta}` : scoreDelta} vs poprzednia
-                </span>
-              )}
-            </div>
+            <span className="badge neutral">{workflowRows.length} recent runs</span>
           </div>
-
-          <p style={{ marginTop: 12, fontWeight: 500, lineHeight: 1.5 }}>{verdict.thesis}</p>
-
-          {changes.length > 0 && (
-            <div className="analysis-section">
-              <p className="analysis-title">Zmiany checklisty vs poprzednia analiza</p>
-              {changes.map((c) => (
-                <p className="verify-item" key={c.item}>
-                  {c.item}: {c.from} → {c.to}
-                </p>
-              ))}
-            </div>
-          )}
-
-          {verdict.catalysts.length > 0 && (
-            <div className="analysis-section">
-              <p className="analysis-title">Katalizatory</p>
-              {verdict.catalysts.map((cat, i) => (
-                <div className="catalyst-row" key={i}>
-                  <span className="type">{cat.type}</span>
-                  <span className="desc">{cat.description}</span>
-                  <span className="small muted">{cat.horizon}</span>
-                  <span className={`badge ${PRICED_IN_TONE[cat.priced_in] ?? "muted"}`}>
-                    w cenie: {cat.priced_in}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {verdict.checklist.length > 0 && (
-            <div className="analysis-section">
-              <p className="analysis-title">Checklista strategii</p>
-              <div className="checklist">
-                {verdict.checklist.map((c, i) => (
-                  <div className="check" key={i}>
-                    {CHECK_ICONS[c.verdict] ?? <IconHelp size={15} className="warn" />}
-                    <span>
-                      {c.item} <span className="evidence">{c.evidence}</span>
+          <div className="analysis-section" style={{ marginTop: 10 }}>
+            {workflowRows.map((run) => {
+              const outputId = agentRunOutputId(run);
+              return (
+                <div className="verify-item" key={run.id}>
+                  <div className="spread" style={{ flexWrap: "wrap", gap: 8 }}>
+                    <strong>{run.workflow}</strong>
+                    <span className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                      {outputId && <span className="badge success">analysis #{outputId}</span>}
+                      <span className={`badge ${runStatusTone(run.status)}`}>
+                        {run.status}
+                      </span>
                     </span>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {verdict.red_flags.length > 0 && (
-            <div className="analysis-section">
-              <p className="analysis-title">Czerwone flagi</p>
-              <ul className="points bad">
-                {verdict.red_flags.map((flag, i) => (
-                  <li key={i}>{flag}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {verdict.one_off_risk && (
-            <div className="analysis-section">
-              <p className="analysis-title">Ryzyko zdarzeń jednorazowych</p>
-              <p className="secondary" style={{ lineHeight: 1.5 }}>{verdict.one_off_risk}</p>
-            </div>
-          )}
-
-          <div className="analysis-section">
-            <p className="analysis-title">Potencjał</p>
-            <div className="grid-2">
-              <p className="secondary" style={{ lineHeight: 1.5 }}>
-                <span className="muted">wzrost: </span>
-                {verdict.potential.upside}
-              </p>
-              <p className="secondary" style={{ lineHeight: 1.5 }}>
-                <span className="muted">spadek: </span>
-                {verdict.potential.downside}
-              </p>
-            </div>
+                  <p className="small muted">
+                    #{run.id} · {relativeDate(run.updated_at)} · {agentRunLifecycleText(run)} ·{" "}
+                    {agentModelLine(run)}
+                  </p>
+                </div>
+              );
+            })}
           </div>
-
-          {verdict.forum_insights.length > 0 && (
-            <div className="analysis-section">
-              <p className="analysis-title">
-                Wnioski z forum <span className="small muted">(opinie, nie fakty)</span>
-              </p>
-              {verdict.forum_insights.map((f, i) => (
-                <p className="verify-item" key={i}>
-                  {f.claim}{" "}
-                  <span className={`badge ${CONFIDENCE_TONE[f.confidence] ?? "muted"}`}>
-                    {f.confidence}
-                  </span>
-                  {f.post_ids.length > 0 && (
-                    <span className="why"> · posty: {f.post_ids.join(", ")}</span>
-                  )}
-                </p>
-              ))}
-            </div>
-          )}
-
-          {verdict.verify_next.length > 0 && (
-            <div className="analysis-section">
-              <p className="analysis-title">Co sprawdzić dalej</p>
-              {verdict.verify_next.map((v) => (
-                <p className="verify-item" key={v.id}>
-                  {v.text}
-                  {v.why && (
-                    <>
-                      {" — "}
-                      <span className="why">{v.why}</span>
-                    </>
-                  )}
-                </p>
-              ))}
-            </div>
-          )}
-
-          <div className="analysis-section">
-            <p className="secondary" style={{ lineHeight: 1.55, margin: 0 }}>
-              {verdict.summary_pl}
-            </p>
-          </div>
-
-          <p className="disclaimer">Analiza, nie rekomendacja inwestycyjna.</p>
         </div>
       )}
 
-      {rows.length > 0 && (
-        <>
-          <p className="section-label">Historia analiz</p>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Data</th>
-                <th>Model</th>
-                <th>Wynik</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr
-                  key={r.id}
-                  className="clickable"
-                  onClick={() => setSelectedId(r.id)}
-                  style={
-                    r.id === selectedId ? { background: "var(--surface-1)" } : undefined
-                  }
+      {agentRows.length > 0 && (
+        <div className="card analysis" style={{ marginBottom: 14 }}>
+          <div className="spread" style={{ flexWrap: "wrap", gap: 8 }}>
+            <div>
+              <p className="analysis-title">Codex analysis runs</p>
+              <p className="small muted">
+                {agentRows.length} zapisanych wyników z agentów / MCP
+              </p>
+            </div>
+            <span className="badge success">provider-neutral</span>
+          </div>
+          <div className="analysis-section" style={{ marginTop: 10 }}>
+            {agentRows.slice(0, 5).map((run) => {
+              const signal = analysisRunSignal(run);
+              return (
+                <button
+                  className={`verify-item analysis-run-select${
+                    selectedAgentRunId === run.id ? " selected" : ""
+                  }`}
+                  aria-pressed={selectedAgentRunId === run.id}
+                  key={run.id}
+                  onClick={() => {
+                    setSelectedAgentRunId(run.id);
+                  }}
                 >
-                  <td className="secondary">{relativeDate(r.created_at)}</td>
-                  <td>{r.model}</td>
-                  <td>
-                    <span className={`badge ${scoreTone(r.alignment_score)}`}>
-                      {r.alignment_score ?? "brak"}
+                  <div className="spread" style={{ flexWrap: "wrap", gap: 8 }}>
+                    <strong>{run.workflow}</strong>
+                    <span className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                      {signal && (
+                        <span className={`badge ${predictionTone(signal.direction)}`}>
+                          {signal.label}
+                        </span>
+                      )}
+                      <span className={`badge ${verificationTone(run.verification_status)}`}>
+                        {run.status} / {run.verification_status}
+                      </span>
                     </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
+                  </div>
+                  <p className="secondary" style={{ lineHeight: 1.5, marginTop: 6 }}>
+                    {analysisRunSummary(run)}
+                  </p>
+                  <p className="small muted">
+                    #{run.id} · {fmtDate(run.created_at)} · {run.model_role} · {run.model}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
+
+      {!selectedAgentRun && !error && (
+        <p className="empty-state">Brak analiz — zakolejkuj pierwszą pracę Codex.</p>
+      )}
+
+      {selectedAgentRun && <ProviderNeutralAnalysisCard run={selectedAgentRun} />}
     </div>
   );
 }

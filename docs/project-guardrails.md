@@ -1,0 +1,66 @@
+# Project guardrails
+
+Read this file at the start and end of every phase or substantial work package.
+It is the quality bar for the Stock Analysis Workbench.
+
+## Product purpose
+
+- Build a personal GPW analysis workbench for evidence-based investing, not a
+  generic dashboard and not a trading-signal toy.
+- The app must make it easier to gather facts, compare scenarios, verify theses,
+  learn from past/future examples, and decide what to inspect next.
+- Codex is the analyst/operator. Postgres plus source snapshots are the system
+  of record. Chat memory is never the source of truth.
+
+## Non-negotiable quality rules
+
+- Every claim that can influence an investment view needs a source, input field,
+  or explicit "unknown/gap" label.
+- No fabricated numbers. If a value is absent, say it is absent and route it to
+  `verify_next`, `data_gaps`, or `needs_human`.
+- No direct buy/sell advice. Produce decision support: thesis, catalysts, risks,
+  invalidation points, scenario ranges, and next checks.
+- Deterministic math belongs in Python services and tests. Model reasoning may
+  interpret, summarize, challenge, and verify, but it must not invent computed
+  outputs.
+- Scrapers remain polite and isolated: all HTTP through `scrapers/http.py`;
+  parser changes require fixture tests.
+- Keep implementation simple until the next extension point is truly needed.
+  Do not build broad crawlers, autonomous trading, or generalized agent
+  machinery before the local workflow proves value.
+
+## Codex/model discipline
+
+- Use the model suitable for the job, with precision/risk first.
+- `gpt-5.3-codex-spark` or other lighter models are fine for bounded loops:
+  drafting skill text, schema formatting, grep-based checks, fixture summaries,
+  and independent consistency passes.
+- Decision-relevant synthesis uses a stronger analyst role.
+- UI-visible investment output must pass `verifier_strict`.
+- Track in the session what work is delegated, which model role is used, and how
+  the result was verified.
+
+## UI standard
+
+- The UI is an analyst workspace, not a marketing page.
+- First screen should show useful work: watched companies, freshness, thesis
+  state, scenarios, events, tasks, or queues.
+- Use dense but readable layouts, stable dimensions, restrained styling, and
+  clear source/provenance badges.
+- Prefer Polish domain labels and English navigation where that convention
+  already exists.
+- Any Codex output visible in the UI must show status: draft, verified,
+  rejected, or needs-human.
+
+## Phase exit checklist
+
+Before marking a phase or work package done:
+
+- Re-read this file and the relevant plan section.
+- Update `CHANGELOG.md` with what changed, why, and key decisions.
+- Update `TASKS.md` status.
+- Add or update tests proportional to risk.
+- Run focused verification commands and record failures honestly.
+- Confirm no secrets, local tokens, or private credentials were added.
+- Confirm the result advances the investing workflow instead of adding
+  impressive but unused machinery.

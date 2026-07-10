@@ -23,9 +23,12 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("ticker", sa.String(12), nullable=False),
         sa.Column("name", sa.String(200)),
+        sa.Column("br_slug", sa.String(80)),
         sa.Column("market", sa.String(20)),
         sa.Column("sector", sa.String(100)),
         sa.Column("shares_outstanding", sa.BigInteger()),
+        sa.Column("market_cap", sa.Numeric(20, 0)),
+        sa.Column("enterprise_value", sa.Numeric(20, 0)),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_index("ix_companies_ticker", "companies", ["ticker"], unique=True)
@@ -128,11 +131,50 @@ def upgrade() -> None:
         sa.Column("phpbb_post_id", sa.Integer(), nullable=False),
         sa.Column("author", sa.String(100), nullable=False),
         sa.Column("posted_at", sa.DateTime(timezone=True)),
-        sa.Column("content_text", sa.Text(), nullable=False),
-        sa.Column("content_html", sa.Text()),
+        sa.Column("upvotes", sa.Integer()),
         sa.UniqueConstraint("topic_id", "phpbb_post_id", name="uq_forum_post"),
     )
     op.create_index("ix_forum_posts_topic_time", "forum_posts", ["topic_id", "posted_at"])
+
+    op.create_table(
+        "company_market_data",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column(
+            "company_id",
+            sa.Integer(),
+            sa.ForeignKey("companies.id", ondelete="CASCADE"),
+            nullable=False,
+            unique=True,
+        ),
+        sa.Column("industry_type", sa.String(80)),
+        sa.Column("priority_values", JSONVariant, nullable=False),
+        sa.Column("forecast_consensus", JSONVariant, nullable=False),
+        sa.Column("advanced_metrics", JSONVariant, nullable=False),
+        sa.Column("dividend_coverage", JSONVariant, nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    )
+
+    op.create_table(
+        "forum_intelligence",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column(
+            "company_id",
+            sa.Integer(),
+            sa.ForeignKey("companies.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("source", sa.String(60), nullable=False),
+        sa.Column("industry_type", sa.String(80)),
+        sa.Column("last_30d_post_count", sa.Integer(), nullable=False),
+        sa.Column("last_30d_active_user_count", sa.Integer(), nullable=False),
+        sa.Column("activity_spikes", JSONVariant, nullable=False),
+        sa.Column("community_sentiment", sa.String(30)),
+        sa.Column("distilled_facts", JSONVariant, nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.UniqueConstraint(
+            "company_id", "source", name="uq_forum_intelligence_source"
+        ),
+    )
 
     op.create_table(
         "watchlist_items",
@@ -175,6 +217,8 @@ def upgrade() -> None:
         ),
         sa.Column("model", sa.String(60), nullable=False),
         sa.Column("prescore", JSONVariant),
+        sa.Column("input_snapshot", JSONVariant),
+        sa.Column("input_hash", sa.String(64)),
         sa.Column("output", JSONVariant),
         sa.Column("alignment_score", sa.Integer()),
         sa.Column("input_tokens", sa.Integer()),
@@ -199,6 +243,8 @@ def downgrade() -> None:
         "analyses",
         "forecasts",
         "watchlist_items",
+        "forum_intelligence",
+        "company_market_data",
         "forum_posts",
         "forum_topics",
         "prices",

@@ -620,7 +620,7 @@ def refine_thesis(
     if not api_key:
         return {**det, "engine": "deterministic"}
 
-    model = getattr(settings, "anthropic_model", None) or "claude-sonnet-5"
+    model = getattr(settings, "anthropic_model", None) or "claude-sonnet-4-6"
     max_iterations = int(getattr(settings, "anthropic_max_iterations", 2) or 2)
     cache_enabled = bool(getattr(settings, "ai_cache_enabled", True))
     if corpus is None:

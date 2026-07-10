@@ -8,11 +8,18 @@ import os
 from pathlib import Path
 
 os.environ["DATABASE_URL"] = "sqlite://"
-# Neutralize any developer .env so tests never attempt a real forum/BR login.
+# Neutralize any developer .env so tests never attempt a real forum/BR login,
+# nor a real Claude API call using a developer's real key/model picked up
+# from backend/.env. Blanking (not deleting) matters: pydantic-settings only
+# falls through to the .env file when the environment variable is ABSENT —
+# an env var present-but-empty still wins over (and hides) a real value in
+# the dotenv file, which is what we want here.
 os.environ["PA_USERNAME"] = ""
 os.environ["PA_PASSWORD"] = ""
 os.environ["BR_USERNAME"] = ""
 os.environ["BR_PASSWORD"] = ""
+os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["ANTHROPIC_MODEL"] = ""
 
 import pytest
 from fastapi.testclient import TestClient

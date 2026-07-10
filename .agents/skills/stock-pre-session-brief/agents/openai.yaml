@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stock Pre-Session Brief"
+  short_description: "Prepare a verified agenda for watched GPW companies."
+  default_prompt: "Prepare my stock analysis session."

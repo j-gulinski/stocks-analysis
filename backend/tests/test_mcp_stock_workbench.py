@@ -1,0 +1,447 @@
+"""CX.5 local MCP tool contract tests."""
+import json
+
+from tests.conftest import load_fixture
+
+
+def test_mcp_lists_core_tools():
+    from app.mcp.stock_workbench_server import handle_message
+
+    response = handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    names = {tool["name"] for tool in response["result"]["tools"]}
+
+    assert {
+        "get_company_dossier",
+        "get_recent_source_deltas",
+        "save_analysis_run",
+        "list_queued_agent_runs",
+        "queue_agent_run",
+        "claim_agent_run",
+        "mark_verification_result",
+        "complete_agent_run",
+        "prepare_pre_session_brief",
+        "rank_candidates",
+        "run_backtest",
+        "evaluate_agent_runs",
+        "poll_espi_watchlist",
+    }.issubset(names)
+
+
+def test_mcp_run_backtest_schema_requires_date_boundaries():
+    from app.mcp.stock_workbench_server import handle_message
+
+    response = handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    tools = {tool["name"]: tool for tool in response["result"]["tools"]}
+
+    assert tools["run_backtest"]["inputSchema"]["required"] == [
+        "strategy",
+        "from_date",
+        "to_date",
+    ]
+    properties = tools["run_backtest"]["inputSchema"]["properties"]
+    assert properties["financial_availability_policy"]["enum"] == [
+        "scraped_at",
+        "estimated_period_lag",
+    ]
+    assert properties["report_lag_days"]["default"] == 120
+
+
+def test_mcp_queue_claim_and_list_agent_run(db):
+    from app.db.models import Company
+    from app.mcp.stock_workbench_server import handle_message
+
+    db.add(Company(ticker="SNT", name="SYNEKTIK"))
+    db.commit()
+
+    queued = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "queue_agent_run",
+                "arguments": {
+                    "workflow": "stock-quick-analysis",
+                    "ticker": "SNT",
+                    "model_role": "worker_standard",
+                    "inputs": {"requested_by": "test"},
+                },
+            },
+        }
+    )
+    queued_payload = queued["result"]["structuredContent"]
+    assert queued_payload["ok"] is True
+    assert queued_payload["agent_run"]["status"] == "queued"
+
+    listed = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": "list_queued_agent_runs", "arguments": {}},
+        }
+    )
+    listed_payload = listed["result"]["structuredContent"]
+    assert listed_payload["agent_runs"][0]["id"] == queued_payload["agent_run"]["id"]
+
+    claimed = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {
+                "name": "claim_agent_run",
+                "arguments": {
+                    "agent_run_id": queued_payload["agent_run"]["id"],
+                    "model": "gpt-5.3-codex-spark",
+                },
+            },
+        }
+    )
+    claimed_payload = claimed["result"]["structuredContent"]
+    assert claimed_payload["agent_run"]["status"] == "running"
+    assert claimed_payload["agent_run"]["model"] == "gpt-5.3-codex-spark"
+
+
+def test_mcp_get_company_dossier_returns_ui_contract(db):
+    from app.db.models import Company
+    from app.mcp.stock_workbench_server import handle_message
+
+    db.add(Company(ticker="SNT", name="SYNEKTIK"))
+    db.commit()
+
+    response = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 12,
+            "method": "tools/call",
+            "params": {
+                "name": "get_company_dossier",
+                "arguments": {"ticker": "SNT"},
+            },
+        }
+    )
+    payload = response["result"]["structuredContent"]
+
+    assert payload["ok"] is True
+    assert payload["ticker"] == "SNT"
+    assert payload["dossier"]["company"]["ticker"] == "SNT"
+    assert "prescore" in payload["dossier"]
+
+
+def test_mcp_save_analysis_run_round_trips_to_api(client, db):
+    from app.db.models import AnalysisRun, Company
+    from app.mcp.stock_workbench_server import handle_message
+
+    db.add(Company(ticker="DEC", name="DECORA"))
+    db.commit()
+
+    response = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {
+                "name": "save_analysis_run",
+                "arguments": {
+                    "ticker": "DEC",
+                    "workflow": "stock-quick-analysis",
+                    "model_role": "worker_standard",
+                    "model": "gpt-5.5",
+                    "verification_status": "pass",
+                    "input_snapshot": {"company": {"ticker": "DEC"}},
+                    "output": {
+                        "summary_pl": "Zweryfikowana analiza z MCP.",
+                        "alignment_score": 77,
+                        "prediction": {
+                            "direction": "negative",
+                            "horizon_days": 365,
+                            "source_fields": ["valuation.potential.value_pct"],
+                        },
+                        "potential": {
+                            "value_pct": -12.0,
+                            "range_pct": [-25.0, -4.0],
+                            "source": "dossier.valuation.potential.value_pct",
+                        },
+                        "result_quality": {
+                            "result_cause": "Wynik wymaga potwierdzenia w kolejnych raportach.",
+                            "one_off_risk": "niski według dostępnego one_off_share_pct",
+                            "scenario_validity": "limited",
+                            "scenario_warnings": [
+                                "Scenariusze mają ujemną wartość oczekiwaną."
+                            ],
+                        },
+                    },
+                    "verification": {"verdict": "pass"},
+                },
+            },
+        }
+    )
+    payload = response["result"]["structuredContent"]
+    assert payload["ok"] is True
+
+    analysis = db.get(AnalysisRun, payload["analysis_run_id"])
+    assert analysis.status == "verified"
+    assert analysis.source == "codex_mcp"
+    assert analysis.alignment_score == 77
+
+    rows = client.get("/api/companies/DEC/analysis-runs").json()
+    assert rows[0]["id"] == analysis.id
+    assert rows[0]["verification_status"] == "pass"
+
+
+def test_mcp_save_analysis_run_rejects_pass_without_prediction(db):
+    from app.db.models import Company
+    from app.mcp.stock_workbench_server import handle_message
+
+    db.add(Company(ticker="DEC", name="DECORA"))
+    db.commit()
+
+    response = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 50,
+            "method": "tools/call",
+            "params": {
+                "name": "save_analysis_run",
+                "arguments": {
+                    "ticker": "DEC",
+                    "workflow": "stock-quick-analysis",
+                    "model_role": "worker_standard",
+                    "model": "gpt-5.3-codex-spark",
+                    "verification_status": "pass",
+                    "input_snapshot": {"company": {"ticker": "DEC"}},
+                    "output": {"summary_pl": "Brak predykcji."},
+                    "verification": {"verdict": "pass"},
+                },
+            },
+        }
+    )
+    payload = response["result"]["structuredContent"]
+    assert payload["ok"] is False
+    assert "output.prediction is required" in payload["error"]
+
+
+def test_mcp_save_analysis_run_closes_existing_agent_run(db):
+    from app.db.models import AgentRun, Company
+    from app.mcp.stock_workbench_server import handle_message
+
+    company = Company(ticker="DEC", name="DECORA")
+    db.add(company)
+    db.commit()
+    agent = AgentRun(
+        workflow="stock-quick-analysis",
+        trigger="ui-request",
+        status="running",
+        company_id=company.id,
+        model_role="worker_standard",
+        model="gpt-5.3-codex-spark",
+        inputs={"ticker": "DEC"},
+        outputs={},
+    )
+    db.add(agent)
+    db.commit()
+
+    response = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 15,
+            "method": "tools/call",
+            "params": {
+                "name": "save_analysis_run",
+                "arguments": {
+                    "ticker": "DEC",
+                    "workflow": "stock-quick-analysis",
+                    "model_role": "worker_standard",
+                    "model": "gpt-5.3-codex-spark",
+                    "verification_status": "needs-human",
+                    "agent_run_id": agent.id,
+                    "input_snapshot": {"company": {"ticker": "DEC"}},
+                    "output": {
+                        "summary_pl": "MCP wynik wymaga kontroli.",
+                        "alignment_score": 52,
+                    },
+                    "verification": {"verdict": "needs-human"},
+                },
+            },
+        }
+    )
+    payload = response["result"]["structuredContent"]
+    assert payload["ok"] is True
+
+    db.refresh(agent)
+    assert agent.status == "needs-human"
+    assert agent.finished_at is not None
+    assert agent.outputs["analysis_run_id"] == payload["analysis_run_id"]
+    assert agent.outputs["verification_status"] == "needs-human"
+
+
+def test_mcp_complete_agent_run_closes_watchlist_level_job(db):
+    from app.db.models import AgentRun
+    from app.mcp.stock_workbench_server import handle_message
+
+    agent = AgentRun(
+        workflow="stock-candidate-scout",
+        trigger="ui-request",
+        status="running",
+        model_role="worker_standard",
+        model="gpt-5.3-codex-spark",
+        inputs={"objective": "rank stored companies"},
+        outputs={},
+    )
+    db.add(agent)
+    db.commit()
+
+    response = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 17,
+            "method": "tools/call",
+            "params": {
+                "name": "complete_agent_run",
+                "arguments": {
+                    "agent_run_id": agent.id,
+                    "verification_status": "needs-human",
+                    "output": {
+                        "workflow": "stock-candidate-scout",
+                        "candidates": [],
+                    },
+                    "verification": {"verdict": "needs-human"},
+                },
+            },
+        }
+    )
+    payload = response["result"]["structuredContent"]
+    assert payload["ok"] is True
+
+    db.refresh(agent)
+    assert agent.status == "needs-human"
+    assert agent.finished_at is not None
+    assert agent.outputs["output"]["workflow"] == "stock-candidate-scout"
+    assert agent.outputs["verification_status"] == "needs-human"
+
+
+def test_mcp_rejects_bad_tool_input(db):
+    from app.mcp.stock_workbench_server import handle_message
+
+    response = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {
+                "name": "save_analysis_run",
+                "arguments": {
+                    "ticker": "SNT",
+                    "workflow": "stock-quick-analysis",
+                },
+            },
+        }
+    )
+
+    assert response["result"]["isError"] is True
+    assert response["result"]["structuredContent"]["ok"] is False
+
+
+def test_mcp_stdio_entrypoint_speaks_json_rpc():
+    from app.mcp.stock_workbench_server import handle_message
+
+    response = handle_message(
+        {"jsonrpc": "2.0", "id": 7, "method": "initialize", "params": {}}
+    )
+
+    assert response["result"]["serverInfo"]["name"] == "stock-analysis-workbench"
+    assert "tools" in response["result"]["capabilities"]
+    assert handle_message(
+        {"jsonrpc": "2.0", "method": "notifications/initialized"}
+    ) is None
+
+
+def test_mcp_contract_and_espi_tools_return_honest_status(db, monkeypatch):
+    from app.db.models import Company
+    from app.mcp import stock_tools
+    from app.mcp.stock_workbench_server import handle_message
+    from app.scrapers import espi as espi_scraper
+
+    db.add(Company(ticker="DGN", name="DIGITAL NETWORK"))
+    db.commit()
+
+    backtest = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 8,
+            "method": "tools/call",
+            "params": {
+                "name": "run_backtest",
+                "arguments": {
+                    "strategy": "malik_v1",
+                    "from_date": "2024-01-01",
+                    "to_date": "2025-01-01",
+                },
+            },
+        }
+    )["result"]["structuredContent"]
+    assert backtest["status"] == "completed"
+    assert backtest["summary"]["observation_count"] == 0
+
+    candidates = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "tools/call",
+            "params": {"name": "rank_candidates", "arguments": {"ticker": "DGN"}},
+        }
+    )["result"]["structuredContent"]
+    assert candidates["workflow"] == "stock-candidate-scout"
+    assert candidates["candidates"][0]["ticker"] == "DGN"
+
+    monkeypatch.setattr(
+        stock_tools.espi,
+        "fetch_latest_reports",
+        lambda: espi_scraper.parse_report_list(load_fixture("gpw_espi_list.html")),
+    )
+    monkeypatch.setattr(
+        stock_tools.espi,
+        "fetch_report_detail",
+        lambda _url: espi_scraper.parse_report_detail(load_fixture("gpw_espi_detail.html")),
+    )
+
+    espi = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 10,
+            "method": "tools/call",
+            "params": {"name": "poll_espi_watchlist", "arguments": {"ticker": "DGN"}},
+        }
+    )["result"]["structuredContent"]
+    assert espi["capability"] == "live-ingestion"
+    assert espi["matched"] == 0
+
+    brief = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 12,
+            "method": "tools/call",
+            "params": {
+                "name": "prepare_pre_session_brief",
+                "arguments": {"ticker": "DGN", "orchestrator_model": "gpt-5.5"},
+            },
+        }
+    )["result"]["structuredContent"]
+    assert brief["ok"] is True
+    assert brief["agent_run"]["workflow"] == "stock-pre-session-brief"
+
+
+def test_mcp_tool_result_text_is_json(db):
+    from app.mcp.stock_workbench_server import handle_message
+
+    response = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 11,
+            "method": "tools/call",
+            "params": {"name": "list_queued_agent_runs", "arguments": {}},
+        }
+    )
+    text = response["result"]["content"][0]["text"]
+    assert json.loads(text)["ok"] is True

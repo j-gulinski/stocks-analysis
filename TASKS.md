@@ -32,7 +32,13 @@ Every completed phase additionally gets a one-page learning note `docs/learning/
 - [x] P1.6 `stooq.py`: daily CSV → `prices` (initial load + incremental by date)
 - [x] P1.7 Refresh orchestration: `POST /api/companies/{ticker}/refresh?scope=&force=` — sequential fetch, ~2 s delay, 24 h cache via `fetch_log`, per-page error isolation (one failed page ≠ failed refresh)
 - [x] P1.8 Read endpoints: `/financials`, `/indicators`, `/dividends`, `/prices` + watchlist CRUD (`/api/watchlist`)
-- [~] P1.9 BiznesRadar premium session (user has an account): optional `BR_USERNAME/BR_PASSWORD`, login before fetches, longer histories; summary gains a `br_login` entry. **Scaffolded (config + `BrClient` + session threading + diagnostics + synthetic-fixture test); login-form parser UNVERIFIED — record a real BR login page + one live login on the user machine to finish.**
+- [~] P1.9 BiznesRadar premium session (user has an account): optional
+  `BR_USERNAME/BR_PASSWORD`, login before fetches, longer histories; summary
+  gains a `br_login` entry. Login recipe is verified as fixed `POST /login/`
+  with `email/password` and an `account-settings` marker. Remaining gap:
+  browser-cookie handoff is not implemented; if a browser-only session shows
+  richer data than backend credentials, capture/import needs a separate tool.
+  `/prognozy` empty consensus columns are now reported explicitly.
 
 ## Phase 2 — Module A: PortalAnaliz forum
 
@@ -177,6 +183,134 @@ distinct from TH.2b's thesis-block refinement. Tasks below are not rewritten.
 - [x] P5.7 **Analiza AI** tab: run button, verdict card (score, thesis, catalysts, red flags, verify-next), history list with diff vs previous run — `AnalysisPanel`, tsc green
 - [ ] P5.8 Calibration pass: run on 3–4 stocks you know well; tune SKILL/rubric until verdicts match your judgment of obvious cases
 - [x] P5.9 Forum distiller (PLAN §8): batched cheap-model pass over already-synced posts → per-post cached claims {type, claim, confidence, source post ids}; upvote-weighted ordering within token budget; zero extra forum requests; verdict prompt consumes claims, never raw posts as facts — file cache, 15 pure tests
+
+## Stage CX — Codex-centered analyst operating system
+
+**Goal:** pivot from the Claude API as the app's analysis backend to Codex as
+the supervised analyst/operator. The app remains the durable data store and
+readable UI; Codex uses repo skills, local scripts and MCP tools to gather,
+analyze, verify and save structured results. Model choice is precision/risk
+first: bounded routine tasks use an appropriate worker model, deeper synthesis
+and all UI-visible verification use stronger supervised roles. Full spec:
+`docs/plan-stage-codex-pivot.md`.
+**Done when:** Claude/Anthropic app dependencies are removed or archived,
+provider-neutral analysis/agent runs are stored in Postgres, Codex skills can
+save verified analyses visible in the UI, ESPI/EBI and candidate/backtest flows
+are tool-accessible, and verifier-gated outputs are auditable.
+
+- [x] CX.1 Plan and contracts: `docs/plan-stage-codex-pivot.md` with diagrams
+  for scheduled, manual-chat, UI-requested, candidate and backtest flows;
+  supervised-agent policy; model-role routing; durable DB outputs; project
+  guardrails; changelog entry. No code/schema changes.
+- [x] CX.2 Provider-neutral storage: add analysis/agent/verification/event/
+  candidate/backtest run storage with `workflow`, `model_role`, `model`,
+  `agent_run_id`, `verification_status`, and `input_snapshot`; keep old
+  `analyses` readable until UI migration.
+- [x] CX.3 Local script contract: JSON scripts for dossier read, analysis save,
+  ESPI polling, candidate scan and backtest replay; mutating scripts require
+  verification metadata and never expose secrets.
+- [x] CX.4 Repo skills: `.agents/skills/stock-*` workflows for pre-session
+  brief, quick analysis, deep analysis, candidate scout, backtest review and
+  strict verification; subtasks route by precision/risk to `worker_standard`;
+  future sessions inspect `docs/project-guardrails.md` before and after each
+  phase/work package.
+- [x] CX.5 MCP server: expose stable app tools (`get_company_dossier`,
+  `save_analysis_run`, `list_queued_agent_runs`, etc.) to Codex with structured
+  JSON and explicit approval policy for mutating tools.
+- [x] CX.6 ESPI/EBI ingestion: fixture-tested event scraper(s), watchlist poller,
+  materiality storage and pre-session brief integration; all HTTP through
+  `scrapers/http.py`; scheduled pre-session entrypoint queues GPT/Codex brief
+  work after fetching watched-company reports.
+- [x] CX.7 UI queue and results: web app can queue Codex workflows, show
+  queued/running/completed/rejected states, and render verified Codex analysis
+  with source links and verifier badges.
+- [x] CX.8 Backtest and learning loop: point-in-time snapshots, deterministic
+  replay, future outcome attachment, look-ahead tests, UI Backtest Lab.
+- [ ] CX.9 Codex-first UI + compatibility runway: active user-facing analysis
+  path uses provider-neutral `agent_runs`/`analysis_runs`, workflow status and
+  MCP/scripts; legacy Phase-5 endpoints/modules may remain only as explicit
+  compatibility until sunset.
+  - 2026-07-09 progress: user-facing frontend path retired. Analysis tab now
+    queues Codex and renders provider-neutral `analysis_runs`; Settings uses
+    `/diagnostics/workflow-status` instead of provider-key status. Backend
+    compatibility routes/modules remain for the next removal/archive slice.
+  - 2026-07-09 progress: added the result-quality verifier loop for quick/deep
+    company analysis and a save-time contract guard. Verified outputs now need
+    structured `prediction`, deterministic `potential`, and `result_quality`
+    fields; downside/limited scenarios and one-off gaps must be surfaced before
+    the UI can show an analysis as verified.
+- [ ] CX.10 Legacy model-provider sunset/archive: remove or archive
+  Anthropic/Claude config, clients, direct analysis endpoint behavior and
+  compatibility tests after provider-neutral saved-analysis flows cover the
+  same user needs. Done when active code/docs pass an `rg
+  "Claude|ANTHROPIC|anthropic"` sweep except historical archives and explicit
+  migration notes.
+- [ ] CX.11 Backtest data-readiness + prediction learning: add historical
+  report availability/publication dates or point-in-time snapshots, expand
+  historical prices, then run walk-forward multi-asset strategy reviews.
+  `gpt-5.3-codex-spark` can run candidate/backtest loops and anomaly
+  summaries; 5.5/verifier is required before changing strategy weights or
+  saving prediction-quality conclusions.
+  - 2026-07-09 progress: added opt-in `estimated_period_lag` research policy
+    for deterministic backtests. Default remains strict `scraped_at`; estimated
+    runs are marked research-only / `needs-human` and cannot justify strategy
+    changes without verifier review and better source dating.
+  - 2026-07-09 progress: Backtest Lab now supports inline stored-run
+    drill-down. It fetches `GET /api/backtest-runs/{id}`, exposes the
+    financial-availability policy in the run form, and shows verifier state,
+    policy warnings, observation checks and outcome windows in the dashboard.
+- [ ] CX.12 Web-triggered / Codex-scheduled queue execution: keep the web API as
+  durable queue creation, but add a Codex worker pickup contract so a manual,
+  background or scheduled Codex run can claim queued jobs, execute the relevant
+  skill/MCP/script workflow and close the `agent_run` lifecycle when output is
+  saved.
+  - 2026-07-09 progress: added `codex_pick_agent_run.py`, a reusable
+    `.codex/tasks/stock-queue-worker.md` prompt, and lifecycle closure in
+    `save_analysis_run`/`codex_save_analysis.py` so saved output updates the
+    original queue row instead of leaving it stuck.
+  - 2026-07-09 progress: added `complete_agent_run` plus
+    `codex_complete_agent_run.py` for watchlist-level jobs such as
+    `stock-candidate-scout` that do not produce a single company analysis row.
+    A supervised `gpt-5.3-codex-spark` worker attempted a candidate-scout claim
+    and correctly stopped because the queue was empty.
+- [ ] CX.13 Agent valuation backtests: evaluate saved `analysis_runs` and
+  valuation memos against future price/source outcomes. See
+  `docs/plan-agent-valuation-backtest.md`. First slice is schema + Python replay
+  for saved agent outputs only; verifier review is required before any prompt or
+  strategy rule changes.
+  - 2026-07-09 progress: implemented the first deterministic replay slice for
+    structured saved `analysis_runs`: DB models/migration, service, API,
+    Codex script, MCP tool, frontend contracts and tests. Prose-only outputs are
+    not inferred; they are marked `unknown` / `needs-human`.
+  - 2026-07-09 progress: added the dashboard Agent Evaluation panel so saved
+    agent-output replays can be created and inspected in the UI with verifier
+    state, model role, structured prediction source, outcome windows and
+    missing-data warnings.
+  - 2026-07-09 progress: saved a CBF `stock-quick-analysis` output with the
+    required structured prediction/potential/result-quality fields. Agent
+    evaluation parses it correctly as a negative prediction with `-10.1%`
+    potential, but the replay remains `needs-human` until future 30/90/180/365d
+    price windows are present.
+  - 2026-07-09 progress: Analysis tab now surfaces those structured fields in
+    the selected saved run: direction/potential manifest chip, prediction
+    horizon, deterministic potential range, scenario validity, confidence,
+    source fields and `result_quality` notes.
+  - Next: run evaluations only after new verified outputs contain the required
+    structured prediction fields; use `gpt-5.3-codex-spark` for repeated replay
+    sweeps/anomaly summaries and `verifier_strict`/5.5 high before changing
+    prompts, thresholds or strategy notes.
+- [ ] CX.14 UI workbench refactor: restructure the dashboard into primary
+  watchlist surface plus compact operations rail, make queue execution state
+  explicit, and improve provenance/status density. See `docs/plan-ui-refactor.md`.
+  - 2026-07-09 progress: first Analysis-tab density slice completed. Saved runs
+    now behave more like a compact manifest plus selected detail panel with
+    verifier/model/source badges always visible. Next UI slice should move to
+    dashboard composition: primary watchlist surface plus operations rail.
+  - 2026-07-09 progress: queue truthfulness slice completed. Dashboard and stock
+    Analysis tab now show recent `agent_runs` across statuses, explicitly frame
+    `queued` as waiting for Codex/MCP execution, and surface
+    `outputs.analysis_run_id` when a worker saved an analysis. A 5.3 audit pass
+    then added 30s silent polling and mobile wrapping for the Analysis toolbar.
 
 ## Phase 6 — Deploy & polish (Vercel + Railway, Google allowlist)
 

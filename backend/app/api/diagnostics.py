@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.base import get_db
-from app.db.models import Company, FetchLog, IndicatorValue, ReportValue
+from app.db.models import AgentRun, AnalysisRun, Company, FetchLog, IndicatorValue, ReportValue
 from app.services import fields
 from app.services import refresh as refresh_service
 
@@ -79,12 +79,54 @@ def br_login_status() -> dict:
     are matched in registration order in app/main.py, and companies.router
     is registered before diagnostics.router) — this path avoids the clash.
 
-    ASSUMPTION CAVEAT: BiznesRadar's real login markup is unverified in this
-    codebase (see app/scrapers/biznesradar.py BrClient docstring). A `false`
-    result on believed-correct credentials may mean the parser needs fixing
-    against a real recorded login page, not that the credentials are wrong.
+    The login recipe is verified live (POST /login/ + 'account-settings'
+    marker — see app/scrapers/biznesradar.py BrClient), so a `false` result on
+    believed-correct credentials points at the credentials themselves
+    (BR_USERNAME is the account e-mail) or a site change.
     """
     return refresh_service.check_br_login()
+
+
+@router.get("/diagnostics/workflow-status")
+def workflow_status(db: Session = Depends(get_db)) -> dict:
+    """Codex workflow status for Settings.
+
+    CX.9 retires the old provider-key check from the UI. The useful local
+    health question is now whether Codex-facing durable queues and verified
+    analysis rows are visible to the app.
+    """
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    queued = db.scalar(
+        select(func.count()).select_from(AgentRun).where(AgentRun.status == "queued")
+    )
+    running = db.scalar(
+        select(func.count()).select_from(AgentRun).where(AgentRun.status == "running")
+    )
+    completed_24h = db.scalar(
+        select(func.count())
+        .select_from(AgentRun)
+        .where(
+            AgentRun.status.in_(("completed", "verified")),
+            AgentRun.updated_at >= since,
+        )
+    )
+    verified_24h = db.scalar(
+        select(func.count())
+        .select_from(AnalysisRun)
+        .where(
+            AnalysisRun.verification_status == "pass",
+            AnalysisRun.created_at >= since,
+        )
+    )
+    latest = db.scalar(select(func.max(AgentRun.updated_at)).select_from(AgentRun))
+    return {
+        "ok": True,
+        "queued": int(queued or 0),
+        "running": int(running or 0),
+        "completed_24h": int(completed_24h or 0),
+        "verified_24h": int(verified_24h or 0),
+        "latest_run_at": latest,
+    }
 
 
 @router.get("/companies/{ticker}/mapping-report")

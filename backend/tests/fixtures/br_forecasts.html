@@ -1,0 +1,63 @@
+<!--
+  RECONSTRUCTED FROM LIVE DOM INSPECTION 2026-07-09, NOT A SAVED PAGE.
+
+  A real browser captured the live structure of https://www.biznesradar.pl/prognozy/{SLUG}
+  (the scraper sandbox cannot reach biznesradar.pl directly) — container
+  div#profile-forecast > h3 + div.tools (JS-only toggles) +
+  table.qTableFull.contentList with a single tbody, header cells
+  [blank]["dane w mln zł"][<strong>LABEL</strong> note]..., data cells
+  [blank][td.name METRIC][value]... — see skills/scraper-doctor/SKILL.md and
+  app/scrapers/biznesradar.py `parse_forecasts` docstring banner for the full
+  quirks writeup.
+
+  Numbers below are ORLEN-shaped but SYNTHETIC (order-of-magnitude plausible,
+  not the real reported figures) — built to exercise both decimal separators
+  BiznesRadar mixes on this page (2025/O4K columns use the dot form seen live,
+  e.g. "267 827.0"; the 2026-2028 consensus columns use the comma form, e.g.
+  "275 000,0"), the mln zł -> tys. PLN conversion, percent rows, the C/Z ratio
+  row, and one extra "Dług netto / kapitał własny" row that BiznesRadar does
+  NOT show on the real page — added here only so the parser's unmapped-label
+  reporting path has something to catch (must show up in
+  ForecastTable.unmapped_labels, never silently dropped). Deliberately NOT
+  named with an "EBITDA"/"zysk netto"/"przychod" substring: the existing
+  generic `parse_premium_market_data` (also run against this page, see
+  refresh._refresh_forecasts) matches consensus metrics by loose substring,
+  so a label like "Dług netto / EBITDA" would false-positive there — a
+  latent pre-existing quirk this fixture avoids poking, since it is
+  unrelated to what this file tests.
+-->
+<html>
+<body>
+<div id="profile-forecast">
+<h3>Prognoza podstawowych danych finansowych spółki ORLEN</h3>
+<div class="tools">
+  <button type="button" onclick="return false;">Dynamika r/r</button>
+  <button type="button" onclick="return false;">Zakres prognoz</button>
+</div>
+<table class="qTableFull contentList">
+<tbody>
+<tr>
+  <th></th>
+  <th>dane w mln zł</th>
+  <th><strong>2025</strong> raport</th>
+  <th><strong>O4K</strong> raport (mar 26)*</th>
+  <th><strong>2026</strong> konsensus</th>
+  <th><strong>2027</strong> konsensus</th>
+  <th><strong>2028</strong> konsensus</th>
+</tr>
+<tr><td></td><td class="name">Przychody ze sprzedaży</td><td>267 827.0</td><td>271 500.0</td><td>275 000,0</td><td>280 000,0</td><td>285 000,0</td></tr>
+<tr><td></td><td class="name">EBITDA</td><td>32 500.0</td><td>33 100.0</td><td>34 000,0</td><td>35 500,0</td><td>37 000,0</td></tr>
+<tr><td></td><td class="name">Zysk z działalności operacyjnej</td><td>15 200.0</td><td>15 800.0</td><td>16 500,0</td><td>17 200,0</td><td>18 000,0</td></tr>
+<tr><td></td><td class="name">Zysk netto</td><td>8 400.0</td><td>8 900.0</td><td>9 200,0</td><td>9 800,0</td><td>10 200,0</td></tr>
+<tr><td></td><td class="name">Marża EBITDA</td><td>12.14%</td><td>12.19%</td><td>12,36%</td><td>12,68%</td><td>12,98%</td></tr>
+<tr><td></td><td class="name">Rentowność operacyjna</td><td>5.67%</td><td>5.82%</td><td>6,00%</td><td>6,14%</td><td>6,32%</td></tr>
+<tr><td></td><td class="name">Rentowność netto</td><td>3.14%</td><td>3.28%</td><td>3,35%</td><td>3,50%</td><td>3,58%</td></tr>
+<tr><td></td><td class="name">Nakłady inwestycyjne</td><td>18 500.0</td><td>19 000.0</td><td>19 500,0</td><td>20 000,0</td><td>20 500,0</td></tr>
+<tr><td></td><td class="name">Amortyzacja</td><td>17 300.0</td><td>17 450.0</td><td>17 500,0</td><td>18 300,0</td><td>19 000,0</td></tr>
+<tr><td></td><td class="name">Cena / Zysk (C/Z)</td><td>44.08</td><td>41.50</td><td>40,10</td><td>37,80</td><td>36,00</td></tr>
+<tr><td></td><td class="name">Dług netto / kapitał własny</td><td>1.20</td><td>1.10</td><td>1,05</td><td>0,95</td><td>0,90</td></tr>
+</tbody>
+</table>
+</div>
+</body>
+</html>

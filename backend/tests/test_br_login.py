@@ -1,28 +1,49 @@
-"""P1.9 tests: BiznesRadar premium-session plumbing.
+"""P1.9 tests: BiznesRadar premium-session login.
 
-IMPORTANT — tests/fixtures/br_login.html is a SYNTHETIC fixture (see its own
-header comment): nobody has ever recorded BiznesRadar's real login page in
-this codebase (sandboxed egress to biznesradar.pl was blocked while this was
-written). These tests prove the plumbing — parsing hidden fields, building
-the login payload, treating login failure as non-fatal — works against a
-plausible login form. They do NOT prove the parser matches the real site.
-Once a real login page is recorded (scripts/record_fixtures.py or a manual
-capture), replace the fixture and re-verify extract_login_fields()/
-BrClient against it, then do one real login by hand.
+Login mechanics were captured live from the Dialogs.login() modal on
+2026-07-08 (see skills/scraper-doctor/SKILL.md "BiznesRadar — premium login"):
+there is NO server-rendered login page — the form is built client-side and
+POSTs to the fixed endpoint /login/ with {email, password}. Success is
+confirmed by the 'account-settings' marker on the re-fetched homepage, with the
+/user-data/ payload size as a fallback. These tests drive that flow with a
+monkeypatched fetcher — no real network, no politeness sleep.
 """
 import pytest
 
-from app.scrapers.biznesradar import BrClient, BrLoginError, extract_login_fields
+import app.scrapers.biznesradar as br
+from app.scrapers.biznesradar import (
+    BASE_URL,
+    BrClient,
+    BrLoginError,
+    _looks_logged_in,
+    extract_login_fields,
+)
 from tests.conftest import FakeResponse, load_fixture
 
-import app.scrapers.biznesradar as br
+# Logged-in homepage carries the 'account-settings' marker; the anonymous page
+# carries 'Dialogs.login'/'Logowanie' and lacks it (both verified live).
+LOGGED_IN_HOMEPAGE = (
+    "<html><body><script>Dialogs.accountSettings()</script>"
+    "<a class='account-settings' href='#'>Ustawienia konta</a></body></html>"
+)
+ANON_HOMEPAGE = (
+    "<html><body><a href='javascript:void(0)' onclick='Dialogs.login()'>"
+    "Logowanie</a></body></html>"
+)
+UNKNOWN_HOMEPAGE = "<html><body>zupełnie inna strona</body></html>"
+USER_DATA_ANON = "var brUser={loggedIn:false};"  # ~28 B, well under 1000
+USER_DATA_LOGGED_IN = "var brUser={loggedIn:true," + "x" * 1700 + "};"  # > 1000 B
 
 
 # ----------------------------------------------------------------- parsing
 
-def test_extract_login_fields_fixture():
-    fields = extract_login_fields(load_fixture("br_login.html"))
-    assert fields == {"csrf_token": "synthetic-token-abc123", "redirect": "/"}
+def test_extract_login_fields_live_fixture():
+    """The captured modal form carries exactly email/password/remember_me."""
+    assert extract_login_fields(load_fixture("br_login_live.html")) == {
+        "email": "email",
+        "password": "password",
+        "remember_me": "checkbox",
+    }
 
 
 def test_extract_login_fields_missing_form_raises():
@@ -30,84 +51,80 @@ def test_extract_login_fields_missing_form_raises():
         extract_login_fields("<html><body>nothing here</body></html>")
 
 
+def test_looks_logged_in_marker_presence():
+    assert _looks_logged_in(LOGGED_IN_HOMEPAGE) is True
+    assert _looks_logged_in(ANON_HOMEPAGE) is False
+
+
 # ------------------------------------------------------------------ client
 
-class _FakePostResponse:
-    """Minimal stand-in for requests.Response used only by these tests."""
+def _install_fake_fetch(monkeypatch, *, homepage, user_data=USER_DATA_ANON):
+    """Replace polite_http.fetch with a scripted, network-free fake.
 
-    def __init__(self, text: str, status_code: int = 200):
-        self.text = text
-        self.status_code = status_code
+    Records every call as (method, url, data). GET of the homepage returns
+    `homepage`; GET of /user-data/ returns `user_data`; POST /login/ returns an
+    empty 200 (BiznesRadar redirects — the body is not authoritative)."""
+    calls: list[tuple[str, str, dict | None]] = []
+
+    def fake_fetch(url, *, method="GET", data=None, session=None, timeout=30):
+        calls.append((method, url, data))
+        if method == "POST":
+            return FakeResponse("", 200)
+        if url.endswith("/user-data/"):
+            return FakeResponse(user_data, 200)
+        return FakeResponse(homepage, 200)  # homepage (warm-up + verify)
+
+    monkeypatch.setattr(br.polite_http, "fetch", fake_fetch)
+    return calls
 
 
-def _stub_login_page_fetch(monkeypatch, html: str) -> None:
-    """Replace polite_http.fetch (the GET of the login page) with a canned
-    response — no real network, no politeness sleep."""
-    monkeypatch.setattr(
-        br.polite_http,
-        "fetch",
-        lambda url, session=None, timeout=30: FakeResponse(html, 200),
-    )
-
-
-def test_br_client_login_posts_expected_payload(monkeypatch):
-    login_html = load_fixture("br_login.html")
-    _stub_login_page_fetch(monkeypatch, login_html)
+def test_login_success_posts_email_password_and_confirms_marker(monkeypatch):
+    calls = _install_fake_fetch(monkeypatch, homepage=LOGGED_IN_HOMEPAGE)
 
     client = BrClient()
-    captured: dict = {}
-
-    def fake_post(url, data=None, timeout=None):
-        captured["url"] = url
-        captured["data"] = data
-        return _FakePostResponse(
-            "<html><body>Zalogowano. <a href='/logout'>Wyloguj</a></body></html>", 200
-        )
-
-    monkeypatch.setattr(client.session, "post", fake_post)
-
-    client.login("testuser", "testpass")
+    client.login("me@example.com", "secret")
 
     assert client.logged_in is True
-    assert captured["url"].endswith("/logowanie")
-    # Hidden fields echoed back unchanged + credentials added — same shape as
-    # portalanaliz.ForumClient.login's payload.
-    assert captured["data"] == {
-        "csrf_token": "synthetic-token-abc123",
-        "redirect": "/",
-        "login": "testuser",
-        "password": "testpass",
-    }
+    posts = [c for c in calls if c[0] == "POST"]
+    assert len(posts) == 1
+    _method, url, data = posts[0]
+    # Trailing slash is required — /login and /logowanie both 404.
+    assert url == BASE_URL + "/login/"
+    assert data == {"email": "me@example.com", "password": "secret"}
 
 
-def test_br_client_login_raises_on_failure_response(monkeypatch):
-    login_html = load_fixture("br_login.html")
-    _stub_login_page_fetch(monkeypatch, login_html)
+def test_login_wrong_credentials_raises(monkeypatch):
+    # BR re-serves the anonymous homepage + a short /user-data/ payload.
+    _install_fake_fetch(monkeypatch, homepage=ANON_HOMEPAGE, user_data=USER_DATA_ANON)
 
     client = BrClient()
-
-    def fake_post(url, data=None, timeout=None):
-        # BiznesRadar re-serves the login form (still has a password field)
-        # on bad credentials — no logout link appears anywhere.
-        return _FakePostResponse(login_html, 200)
-
-    monkeypatch.setattr(client.session, "post", fake_post)
-
     with pytest.raises(BrLoginError, match="BR_USERNAME"):
-        client.login("testuser", "wrongpass")
+        client.login("me@example.com", "wrongpass")
     assert client.logged_in is False
 
 
-def test_br_client_login_page_http_error_raises(monkeypatch):
-    _stub_login_page_fetch(monkeypatch, "")
-    monkeypatch.setattr(
-        br.polite_http,
-        "fetch",
-        lambda url, session=None, timeout=30: FakeResponse("", 503),
+def test_login_user_data_fallback_confirms(monkeypatch):
+    # Homepage lacks the marker (e.g. stale anon CDN cache) but /user-data/
+    # proves the session is logged in.
+    _install_fake_fetch(
+        monkeypatch, homepage=ANON_HOMEPAGE, user_data=USER_DATA_LOGGED_IN
     )
+
     client = BrClient()
-    with pytest.raises(BrLoginError):
-        client.login("testuser", "testpass")
+    client.login("me@example.com", "secret")
+    assert client.logged_in is True
+
+
+def test_login_unrecognized_page_raises(monkeypatch):
+    # Neither marker present — recipe drift, distinct message from wrong-creds.
+    _install_fake_fetch(
+        monkeypatch, homepage=UNKNOWN_HOMEPAGE, user_data=USER_DATA_ANON
+    )
+
+    client = BrClient()
+    with pytest.raises(BrLoginError, match="nierozpoznan"):
+        client.login("me@example.com", "secret")
+    assert client.logged_in is False
 
 
 # ------------------------------------------------------------- diagnostics

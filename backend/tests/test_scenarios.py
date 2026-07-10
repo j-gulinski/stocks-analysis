@@ -22,7 +22,7 @@ def _company(sector_group, *, size_code="small", size_label="Mała spółka"):
 
 def _inputs(sector_group, *, multiple_history, eps=None, book_value=None,
             ebitda_ttm=None, shares=10_000_000, current_price=None, net_cash=None,
-            pe_history=None, ttm=None):
+            pe_history=None, ttm=None, earnings_basis=None):
     ti = thesis.ThesisInputs(
         insights=_company(sector_group),
         ttm=ttm or {},
@@ -32,7 +32,8 @@ def _inputs(sector_group, *, multiple_history, eps=None, book_value=None,
     return scenarios.ScenarioInputs(
         thesis_inputs=ti, multiple_history=multiple_history, eps=eps,
         book_value=book_value, ebitda_ttm=ebitda_ttm, shares_outstanding=shares,
-        current_price=current_price, net_cash=net_cash)
+        current_price=current_price, net_cash=net_cash,
+        earnings_basis=earnings_basis or {})
 
 
 # Own-history stat dicts (shape == metrics.MultipleHistoryStats.to_dict()).
@@ -163,6 +164,52 @@ def test_weighted_expected_value_matches_hand_check():
     assert cwk["weighted_expected_upside_pct"] == 5.0
 
 
+def test_downside_only_set_warns_and_avoids_positive_label():
+    """CBF-style case: even the upper-quartile own-history path is below the
+    current price. The internal `positive` id remains for compatibility, but the
+    user-facing copy must not imply a positive return scenario."""
+    inputs = _inputs(
+        "tech",
+        multiple_history=_hist(27.07, 23.66, 31.53, current=39.8, n=31),
+        eps=4.7438,
+        current_price=188.8,
+        pe_history=_hist(27.07, 23.66, 31.53, current=39.8, n=31),
+    )
+    ss = scenarios.build_scenario_set(inputs, malik.MALIK).to_dict()
+    by = _by_kind(ss)
+
+    assert by["positive"]["implied_upside_pct"] < 0
+    assert "pozytywn" not in by["positive"]["label"].lower()
+    assert ss["quality_warnings"]
+    assert "ujemny potencjał" in ss["quality_warnings"][0]
+
+
+def test_cz_scenario_labels_biznesradar_consensus_eps_driver():
+    inputs = _inputs(
+        "industrial",
+        multiple_history=_hist(14.0, 11.0, 17.0, current=9.5, n=8),
+        eps=3.0,
+        current_price=30.0,
+        pe_history=_hist(14.0, 11.0, 17.0, current=9.5, n=8),
+        earnings_basis={
+            "source": "biznesradar_forecasts",
+            "source_field": "market_data.forecast_consensus.2026.net_income",
+            "year": "2026",
+            "net_income_tys_pln": 30_000.0,
+            "eps": 3.0,
+        },
+    )
+
+    ss = scenarios.build_scenario_set(inputs, malik.MALIK).to_dict()
+    by = _by_kind(ss)
+
+    assert by["base"]["target_price"] == 42.0
+    assert any("konsensusie analityków BiznesRadar 2026" in a for a in by["base"]["assumptions"])
+    assert any("EPS z konsensusu analityków BiznesRadar 2026" in d for d in by["base"]["drivers"])
+    allowed = scenarios.input_numbers(inputs) | scenarios.computed_numbers(ss)
+    assert not (scenarios.prose_numbers(ss) - allowed)
+
+
 def test_negative_base_positive_ordering():
     """Upside is monotone: negative ≤ base ≤ positive (Q1 ≤ median ≤ Q3)."""
     for factory in (cz_inputs, cwk_inputs, ev_ebitda_inputs):
@@ -256,7 +303,7 @@ def test_scenario_set_shape_and_engine():
     ss = scenarios.build_scenario_set(cz_inputs(), malik.MALIK).to_dict()
     assert set(ss) == {"scenarios", "valuation_multiple", "current_price",
                        "weighted_expected_price", "weighted_expected_upside_pct",
-                       "framing", "disclaimer", "engine"}
+                       "framing", "disclaimer", "quality_warnings", "engine"}
     sc = ss["scenarios"][0]
     assert set(sc) == {"id", "kind", "label", "probability", "narrative",
                        "target_multiple", "target_price", "implied_upside_pct",

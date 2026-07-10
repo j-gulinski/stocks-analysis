@@ -47,7 +47,7 @@ export default function ThesisPanel({ thesis }: { thesis?: Thesis }) {
   };
   const VerdictIcon = eq.Icon;
   // WP2b provenance: the deterministic engine (default / no-key fallback) vs the
-  // optional Claude-API refiner. Degraded states are identical for both.
+  // optional model-assisted refiner. Degraded states are identical for both.
   const engineLabel = thesis.engine === "ai" ? "AI" : "deterministyczny";
 
   return (

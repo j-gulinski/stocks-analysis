@@ -18,6 +18,594 @@ keep the decisions scannable.
 
 ---
 
+## 2026-07-09 · Expert review doc — roadmap vs automation/learning expectations
+
+Added `docs/expert-review-2026-07-09.md`: consolidated session feedback in one
+place — the UI-drift analysis behind the v2 redesign (pointing to
+`design-v2.md`/`mockups-v2.html`/`plan-ui-refactor.md`), and the roadmap
+review against the user's target ("automatic analysis; backtesting refines
+the tactic and teaches the Codex skill"). Grep-verified gaps recorded: no
+scheduler/auto-enqueue rules (pickup contract only), insufficient historical
+data (4 tickers, prices since 2026-04-28, no publication dates → all outcome
+windows missing), and no loop closure into the skill (no skill/rubric version
+stamped on runs, 4-case WorkedCase corpus, learning notes only). Proposed WPs:
+CX.11 split into price backfill / ESPI-archive publication dates / universe
+expansion, plus CX.15 autopilot policies, CX.16 skill versioning, CX.17 case
+harvester, CX.18 champion/challenger skill replay over frozen
+`input_snapshot`s — all under an auto-propose / verifier-approve rule per
+project guardrails. Also flagged: `plan-research-platform.md` and
+`research-workspace.md` from an earlier session are not in the repo and need
+to be saved into `docs/` before coverage can be checked. No TASKS.md changes
+yet — proposals await user acceptance.
+
+## 2026-07-09 · CX.14 redesign proposal — "Research studio" design v2 + IA
+
+Analyzed the UI drift after the CX pivot and produced the full redesign
+proposal for CX.14. The app accreted three product identities (data
+presentation → decision workspace → Codex-operated analyst OS) and the UI
+still stacks all of them: an 11-section dashboard with the watchlist at the
+bottom, three overlapping verdict surfaces on the stock Brief tab, per-panel
+improvised status/verifier/provenance markup, ingested `event_reports` with
+no UI home, and a 2-item nav that no longer matches the app. Design docs v1
+had also drifted from code (tabs, tokens).
+
+Decisions (user-driven): the v1 visual direction (dark `#0e1217`, 13 px,
+flat, dense) is **discarded, not iterated** — user rejected it as too tight
+with wrong colors. New direction chosen from three options: light "Research
+studio" (warm paper, white cards + soft shadows, serif display type, mono
+tickers, indigo accent, 15 px base, 8 pt grid, ink sidebar). Scope chosen:
+full app UI; deliverable: proposal + mockup, no code changes yet.
+
+Deliverables: `docs/design/design-v2.md` (token/type/layout/component spec;
+shared primitives StatusChip/VerifierBadge/ProvenanceChip/RunRow/
+OutcomeWindows/MetricTile/EmptyState so CX.11–13 surfaces stop improvising),
+`docs/design/mockups-v2.html` (4 frames: watchlist workbench with "Dziś"
+strip + operations rail, stock page with single verdict band + context rail +
+new "Zdarzenia" tab, Research page, component sheet + palette alternates —
+populated with the real 2026-07-09 app state: ASB/CBF/DCR/SNT, CBF −10,1%
+weighted EV, backtest run #7 `estimated_period_lag·120d`, evaluation
+needs-human with missing outcome windows). Rewrote `docs/plan-ui-refactor.md`
+as v2: change analysis, new IA (Watchlist / Candidates / Research /
+Operations / Settings + stock verdict band), six ordered migration slices
+(tokens+primitives → shell → dashboard split → stock page → primitive
+adoption → mobile), per-slice verification, open questions. Marked v1
+`design.md` superseded (kept as archive). No backend changes required by the
+plan; the new Zdarzenia tab reuses the existing
+`GET /api/companies/{ticker}/event-reports` endpoint.
+
+## 2026-07-09 · CX.9/SC correction - verifier loop + consensus-backed scenarios
+
+Tightened the Codex analysis quality gate after the CBF review showed scenarios
+could be read as recommendations even when the underlying potential was weak.
+Added `.agents/skills/stock-result-verifier` and wired quick/deep analysis
+skills plus the strict verifier around a feedback loop: draft analysis must
+state structured `prediction`, `potential`, and `result_quality`; the verifier
+compares those fields against the dossier, result causes, one-off risk,
+scenario warnings and deterministic valuation before a run may be saved as
+verified. `save_analysis_run` now rejects `pass` outputs for quick/deep company
+analysis when those structured fields are missing.
+
+Fixed deterministic scenario framing. The UI no longer colors/labels the
+internal `positive` path as bullish unless its actual upside is positive, and
+scenario sets now emit `quality_warnings` when the weighted expected value or
+all priced paths are negative. C/Z scenarios now prefer BiznesRadar
+`/prognozy` analyst-consensus net income as forward EPS when available and
+internally sane; the driver is disclosed in each scenario assumption. CBF now
+uses the stored 2026 BiznesRadar consensus EPS, moving the upper-quartile path
+to a small positive upside while keeping the weighted expected value negative,
+which is a more honest read than the previous trailing-EPS-only downside set.
+
+Live source check: `https://www.biznesradar.pl/prognozy/PZU` parses with
+`2026/2027/2028 konsensus` columns, but the anonymous scraper response returned
+empty consensus values for revenue, EBITDA, net income and C/Z at verification
+time. The app will use those fields when they contain numbers; if the logged-in
+browser shows extra values, the next work item is session/credential handoff,
+not a parser change.
+
+Follow-up in the browser confirmed the same PZU table shape with empty
+2026-2028 consensus cells in the in-app browser context. The refresh summary
+now distinguishes this state as `kolumny konsensusu bez wartości` instead of
+collapsing it into a vague "brak konsensusu", with a fixture-backed regression
+covering empty consensus columns.
+
+Saved a new CBF `stock-quick-analysis` run using the corrected scenario set
+(`analysis_run_id=2`, `agent_run_id=3`, `verification_status=pass`). The saved
+output includes structured `prediction.direction=negative`, deterministic
+`potential.value_pct=-10.1`, `range_pct=[-22.18, 3.7]`, and `result_quality`
+notes that keep scenario validity limited until cash-flow and net-level quality
+checks are done. Agent-evaluation replay now parses the structured fields
+correctly, but remains `needs-human` because all 30/90/180/365-day future price
+windows are still missing from stored history.
+
+Exposed the same structured contract in the Analysis tab. Saved Codex runs now
+show a compact manifest chip for direction/potential, selected-run badges for
+analysis id/status/verifier/source/model, a structured strip for prediction,
+potential range, scenario validity and confidence, plus labelled
+`result_quality` notes. This makes CBF's `negative -10.1%` / limited-scenario
+read visible in the UI instead of buried in JSON. A follow-up
+`gpt-5.3-codex-spark` audit loop checked the strip for null/zero handling,
+object confidence, source fields, result-quality rendering and mobile wrapping;
+the resulting patch made missing `source_fields` and blank `result_quality`
+notes explicit for partial or malformed outputs.
+
+Session model tracking: bounded audit/design work was delegated to
+`gpt-5.3-codex-spark` style worker loops, while scenario policy, verifier
+contracts and code changes were supervised in the stronger orchestrator role.
+The Analysis-tab UI slice was deterministic frontend work kept in the stronger
+orchestrator role; future copy/style sweeps and DOM-overflow audits are good
+`gpt-5.3-codex-spark` loop candidates, but investment-facing interpretation
+still requires verifier/5.5 review.
+
+Verification so far: focused scenario/API regression passed earlier, full
+backend regression passed earlier in the CX slice, `cd frontend && npm run
+build` passes, and browser checks on `http://localhost:3001/stock/CBF`
+confirmed the Analysis tab renders the CBF structured fields on desktop and at
+390px mobile width with no horizontal overflow. The same 5.3 audit identified
+queue truthfulness (`queued/running/completed/rejected` plus completed output
+ids) as the next UI refactor slice, not part of this completed contract strip.
+
+Implemented that queue-truthfulness slice next. Dashboard and stock Analysis
+tab now fetch recent `agent_runs` without filtering to only `queued`, label
+queued rows as waiting for a Codex/MCP worker rather than running, show claimed,
+closed, failed/rejected and needs-human lifecycle text, and expose
+`outputs.analysis_run_id` as `analysis #...` when a worker saved output. This
+keeps web-triggered jobs honest: the web app creates durable work rows; Codex,
+scheduled automation or MCP workers must still pick up and complete them.
+A second `gpt-5.3-codex-spark` audit loop found no TypeScript issues, confirmed
+the queue-truthfulness plan match, and flagged two polish risks. Both were
+fixed: dashboard and stock Analysis workflow rows now silently poll every 30s,
+and the stock Analysis toolbar uses wrapping layout to avoid mobile overflow.
+
+## 2026-07-09 · CX.12/CX.13 continuation - queue completion + agent-evaluation UI
+
+Closed another queue lifecycle gap for Codex-operated work. Added
+`complete_agent_run` to the MCP toolset and
+`backend/scripts/codex_complete_agent_run.py` so watchlist-level jobs such as
+`stock-candidate-scout` can close their original `agent_run` even when they do
+not produce a single company `analysis_run`. The queue-worker prompt and
+`codex_pick_agent_run.py` execution contracts now point candidate/pre-session
+workers to that completion path.
+
+Added the dashboard "Agent Evaluation" panel inside the Backtest Lab area. The
+UI can create evaluation runs through `POST /api/agent-evaluation-runs`, list
+recent saved runs, expand observations, and show verifier state, model role,
+structured prediction source, hit/miss/missing outcome windows and data-quality
+warnings. Persisted evaluation observations now include ticker metadata in
+`known_inputs` so expanded UI rows remain auditable without relying on hidden
+company ids.
+
+Session model tracking: a supervised `gpt-5.3-codex-spark` worker attempted the
+candidate-scout queue contract and correctly reported an empty queue without
+running an unsourced scan. Stronger supervision kept the agent-valuation replay
+policy strict: prose-only predictions are still not inferred, and strategy or
+prompt changes remain blocked on verifier-reviewed evidence.
+
+Verification: focused backend tests for agent evaluation, agent runs and MCP
+tools passed; full backend regression passed (`323 passed, 6 skipped`),
+frontend production build passed, `git diff --check` passed, Alembic is at
+`0004 (head)`, and browser checks confirmed the Agent Evaluation panel renders
+on desktop/mobile with no detected mobile overflow.
+
+## 2026-07-09 · CX.13 start - agent valuation replay
+
+Implemented the first deterministic agent-output evaluation slice. Added
+`agent_evaluation_runs` and `agent_evaluation_observations` storage, the
+`services/agent_evaluation.py` replay engine, `POST/GET
+/api/agent-evaluation-runs`, `backend/scripts/codex_evaluate_agent_runs.py`,
+MCP `evaluate_agent_runs`, and frontend API/types for the future UI panel.
+
+The evaluator replays saved `analysis_runs` as point-in-time prediction
+objects. It parses only structured fields such as `prediction.direction`,
+`potential.value_pct`, `valuation.potential.value_pct`, `expected_upside_pct`,
+or `upside_pct`, then attaches later price windows under `outcome` and scores
+directional hit/miss. It deliberately does not infer direction from prose;
+missing structured prediction becomes `unknown` and the run is marked
+`needs-human`.
+
+This gives Codex a path to test whether agent valuation/memo outputs were
+useful over time without changing prompts or strategy weights automatically.
+Any learning conclusion still requires separated validation periods and
+`verifier_strict`.
+
+Local smoke run after migrating to `0004`: a background
+`gpt-5.3-codex-spark` worker consumed queued SNT `stock-quick-analysis`
+(`agent_run_id=2`) and saved `analysis_run_id=1` as `needs-human`. The first
+agent-evaluation replay found one saved SNT analysis, no structured prediction
+direction/potential in that output, and missing future 30-day price outcome, so
+the evaluation correctly stayed `needs-human`.
+
+## 2026-07-09 · CX.12 start - web-triggered Codex worker bridge
+
+Clarified and implemented the first honest queue-execution bridge. The web/API
+queue remains durable task creation; it does not embed a Codex runtime. Added
+`backend/scripts/codex_pick_agent_run.py` so a manual, background or scheduled
+Codex run can list/claim queued `agent_runs` and receive a workflow-specific
+execution contract. Added `.codex/tasks/stock-queue-worker.md` as the reusable
+prompt for a Codex queue worker.
+
+Closed a queue lifecycle gap: `save_analysis_run` in MCP and
+`codex_save_analysis.py` now update the original `agent_run` when an
+`agent_run_id` is supplied, including status, output metadata,
+`verification_status`, and `finished_at`. This prevents web-created jobs from
+appearing stuck after Codex saves a result.
+
+Added `docs/plan-agent-valuation-backtest.md` for replaying saved agent
+valuation/analysis outputs against future outcomes, and
+`docs/plan-ui-refactor.md` for the modern workbench layout direction. Added
+CX.12-CX.14 to `TASKS.md` and the CX pivot plan.
+
+## 2026-07-09 · CX.11 slice - Backtest Lab drill-down
+
+Wired the frontend Backtest Lab to the stored backtest detail endpoint. Saved
+runs now expand inline from the dashboard, fetch and cache
+`GET /api/backtest-runs/{id}`, and show the policy note, verifier status,
+research-only warnings, per-observation strategy checks and outcome windows.
+The run form also exposes the financial availability policy selector, keeping
+strict `scraped_at` as the default while making `estimated_period_lag` an
+explicit research-mode choice.
+
+Verified the UI against the local app: the dashboard loaded five saved runs,
+expanded run `#7`, displayed `verifier: needs-human`,
+`estimated_period_lag · 120d`, four observations, and the missing exact report
+timestamp warning. This keeps exploratory backtest results visible without
+presenting them as verified prediction evidence.
+
+## 2026-07-09 · CX.11 slice — research-only estimated report availability
+
+Added an explicit financial-availability policy to deterministic backtests.
+The default remains strict `scraped_at`, preserving the original point-in-time
+guard. New opt-in `estimated_period_lag` treats quarterly financial rows as
+available a configurable number of days after quarter end and records the
+policy in run parameters, observation `known_inputs.availability`, and summary
+data-quality warnings. Estimated-lag runs are marked research-only and persisted
+with `verification_status="needs-human"` because they are a proxy, not real
+publication timestamps.
+
+Wired the policy through all Codex-facing surfaces: Python service, direct JSON
+script (`--financial-availability-policy`, `--report-lag-days`), FastAPI
+`POST /api/backtest-runs`, MCP `run_backtest`, and frontend request types.
+Updated the backtest skill so future sessions use strict mode by default and
+treat estimated-lag runs as exploratory until verifier review.
+
+This unblocks exploratory multi-asset replay on the current local data. A sample
+run over `ASB`, `CBF`, `DCR`, and `SNT` for 2026-06-30 with 120-day lag produced
+non-empty candidate signals and one-day outcomes, but it remains unsuitable for
+verified strategy learning until exact source availability dates and longer
+price history are added.
+
+## 2026-07-09 · CX docs compacted + backtest readiness gate
+
+Compacted the CX documentation so each file has one job: `TASKS.md` is the
+status board, `docs/plan-stage-codex-pivot.md` is the architecture/path, and
+this changelog is the decision digest. The current state is now explicit:
+CX.9 is a compatibility runway, not full removal. The active user path is
+provider-neutral (`agent_runs`, `analysis_runs`, workflow status, MCP/scripts);
+legacy `analyses`/Claude modules remain only until a later sunset/archive gate.
+
+Checked multi-asset backtest feasibility with 5.3 Spark sidecar audits and
+local commands. The engine can replay multiple stored tickers today, but the
+current local data is not yet suitable for a meaningful historical fundamental
+signal: the DB has four companies (`ASB`, `CBF`, `DCR`, `SNT`) and prices from
+2026-04-28 to 2026-07-08, while all financial report rows were scraped on
+2026-07-09. The point-in-time guard correctly turns pre-scrape observations
+into `insufficient_data`; short outcome windows can be measured, but prediction
+quality cannot be learned from them yet.
+
+Recorded the next path: add report availability/publication dates or historical
+snapshots, expand price history, then run walk-forward backtests and verifier
+reviews before changing strategy weights. `gpt-5.3-codex-spark` is suitable for
+bounded loops such as candidate scans, repeated backtest runs, doc consistency
+passes, and anomaly summaries. Stronger 5.5 supervision remains required for
+strategy changes, prediction-quality conclusions, and anything saved as
+verified UI-visible investment analysis.
+
+Fixed the Codex JSON script command contract so direct documented commands like
+`cd backend && python3 scripts/codex_run_backtest.py ...` work without manually
+setting `PYTHONPATH`. Verification: direct candidate scan and direct multi-asset
+backtest commands pass; script py-compile passes.
+
+## 2026-07-09 · CX.9 cleanup slice — retire user-facing Claude path
+
+Started CX.9 by removing the active user-facing legacy model-call path while
+leaving backend compatibility endpoints in place. The stock Analysis tab now
+queues `stock-quick-analysis` through provider-neutral `agent_runs` and renders
+only `analysis_runs`; Settings uses `GET /api/diagnostics/workflow-status`
+instead of a provider-key status card. Frontend API helpers for the old direct
+run/history/status path were removed.
+
+Backtest audit follow-up: `gpt-5.3-codex-spark` verified the CX.8 engine and
+flagged one contract issue. MCP `run_backtest` now requires `from_date` and
+`to_date`, with a regression assertion in `tests/test_mcp_stock_workbench.py`.
+Verification at the time of the slice: full backend `pytest` passed (`313
+passed, 6 skipped`), frontend `npm run build` passed, and `git diff --check`
+was clean.
+
+## 2026-07-09 · CX.8 complete — deterministic backtest replay + Backtest Lab
+
+Added the first real deterministic backtest engine in `services/backtest.py`.
+The engine replays stored companies on a quarterly cadence using only
+`ReportValue` rows whose `scraped_at` is on or before each `as_of_date`.
+Future prices are attached only under `outcome` windows, never under
+`known_inputs` or `signal`. Current mutable company scalar fields such as
+`market_cap` are deliberately excluded from historical signal inputs until the
+app has a historical source for them.
+
+Updated the Codex-facing contracts: `scripts/codex_run_backtest.py` and MCP
+`run_backtest` now call the same deterministic service and persist
+`backtest_runs` plus `backtest_observations` instead of returning
+`engine-not-implemented`. The MCP schema now accepts ticker scopes and outcome
+windows. Added `GET/POST /api/backtest-runs` and `GET /api/backtest-runs/{id}`
+so the UI and automations can create and inspect saved replays.
+
+Added a compact dashboard Backtest Lab. It lets the user run `malik_v1` over a
+date range and optional ticker, then shows recent run status, observation
+counts, and average returns by outcome window. The UI keeps this framed as
+deterministic replay output; Codex interpretation and verifier-gated learning
+notes remain separate workflow steps.
+
+Verification: `gpt-5.3-codex-spark` explored the existing CX.8 contract and
+flagged the exact implementation risks used here: no official publication
+timestamps, current-company scalar drift, and tests pinned to the old stub.
+Added `tests/test_backtest.py`, including a look-ahead regression where a
+future-scraped 2024Q1 financial row is excluded from a 2024-03-31 observation
+while future price return is attached only as outcome. Focused regression
+`cd backend && pytest tests/test_backtest.py tests/test_agent_runs.py
+tests/test_mcp_stock_workbench.py` passes (`17 passed`, one existing
+Starlette/httpx deprecation warning); `cd frontend && npm run build` passes;
+Python compile check for the backtest service/API/MCP/script passes.
+
+## 2026-07-09 · CX.7 complete — UI workflow queue + Codex result visibility
+
+Added the first UI surface for GPT/Codex-operated workflows. The dashboard now
+loads recent `agent_runs`, can queue a `stock-candidate-scout` run, and can
+trigger the pre-session flow through `POST /api/agent-runs/pre-session`. That
+pre-session endpoint fetches GPW ESPI/EBI reports for the watchlist/ticker and
+then queues `stock-pre-session-brief`, making the same path usable from the UI,
+n8n, cron, or Codex automation. Generic `POST /api/agent-runs` validates
+repo-known workflows and stores model role/orchestrator hints without executing
+Codex inside FastAPI.
+
+Updated the stock Analysis tab so provider-neutral Codex `analysis_runs` were
+first-class visible results, not only compact audit rows. The tab added a
+separate `Queue Codex` action for `stock-quick-analysis`; the temporary legacy
+button from this slice was later removed in CX.9. It renders queued/running
+`agent_runs`, and shows Codex-saved analysis details with workflow/model role,
+verification badge, summary fields, watch items, red flags, data gaps,
+verify-next items, verifier notes, and source links when present.
+
+Added a hosted/n8n automation lane to the CX plan: hosted systems should enqueue
+durable work through HTTP/API, while Codex consumes the queue through stdio MCP
+today and a future bearer-token Streamable HTTP MCP transport after deployment.
+This preserves the rule that the backend does not try to use a ChatGPT/Codex
+subscription as if it were an API key.
+
+Verification: `gpt-5.3-codex-spark` sidecar verifier reviewed the CX.7 slice
+and found the provider-neutral detail/status/doc gaps fixed in this entry.
+Focused regression `cd backend && pytest tests/test_agent_runs.py
+tests/test_gpw_espi.py tests/test_mcp_stock_workbench.py` passes (`20 passed`,
+one existing Starlette/httpx deprecation warning); `cd backend && python3 -m
+py_compile app/api/agent_runs.py app/api/schemas.py app/scrapers/espi.py
+app/mcp/stock_tools.py app/mcp/stock_workbench_server.py
+scripts/codex_pre_session.py scripts/codex_poll_espi.py` passes; `cd frontend
+&& npm run build` passes. Local visual verification exposed that the developer
+Postgres had not yet applied migration `0003`; running `cd backend && alembic
+upgrade head` fixed the missing `agent_runs` table, after which the dashboard
+queue panel rendered and a test `Candidate scout` run queued successfully.
+
+## 2026-07-09 · CX.6 complete — GPW ESPI/EBI ingestion + scheduled Codex brief queue
+
+Added the first live ESPI/EBI ingestion slice for GPW. New
+`app/scrapers/espi.py` parses GPW's server-rendered `espi-ebi-reports` page,
+matches reports to watched companies by normalized issuer/company name, fetches
+detail pages only for matching companies, and upserts `event_reports` by stable
+external id (`source`, `gpw:{geru_id}`). Stored reports keep raw text, parsed
+metadata, source URL, published timestamp, and `materiality.level=unreviewed`;
+the scraper deliberately does not decide investment meaning.
+
+Updated `codex_poll_espi.py` and MCP `poll_espi_watchlist` from contract-only
+status to live GPW ingestion. Added MCP `get_recent_source_deltas` so Codex can
+read durable new event rows when preparing a brief. Added
+`codex_pre_session.py` plus MCP `prepare_pre_session_brief`: this is the
+scheduling-friendly GPT/Codex surface the user requested. It fetches ESPI/EBI
+for the watchlist, then queues a `stock-pre-session-brief` `agent_run` with the
+event-poll result in `inputs` so a scheduled or manual Codex run can triage,
+verify, and save the actual agenda. `.codex/config.toml` keeps these mutating
+fetch/queue tools prompt-approved.
+
+Updated the pre-session skill to prefer MCP/scheduled entrypoints and use
+script fallbacks only when MCP is unavailable. This keeps GPT feature
+exploration open across scheduled runs, manual chat runs, and later UI-triggered
+queues, while preserving the rule that source data lives in the database.
+
+Verification: fixture parser tests cover list and detail pages; ingestion tests
+cover watchlist matching, idempotent upsert, ticker-scoped polling, recent
+deltas, and the scheduled pre-session queue. Focused regression
+`cd backend && pytest tests/test_gpw_espi.py tests/test_mcp_stock_workbench.py
+tests/test_agent_runs.py` passes (`18 passed`, one existing Starlette/httpx
+deprecation warning).
+
+## 2026-07-09 · CX.5 complete — local Stock Workbench MCP server
+
+Added a dependency-free stdio MCP server for Codex under `backend/app/mcp/`.
+The server exposes the first stable Stock Workbench tools: `get_watchlist`,
+`get_company_dossier`, `list_queued_agent_runs`, `queue_agent_run`,
+`claim_agent_run`, `save_analysis_run`, `mark_verification_result`,
+`rank_candidates`, `run_backtest`, and `poll_espi_watchlist`. It speaks
+newline-delimited JSON-RPC over stdin/stdout and returns structured JSON, while
+keeping ESPI and backtest as honest contract-only tools until CX.6/CX.8.
+
+Added `backend/scripts/stock_workbench_mcp.py` as the entrypoint and
+`.codex/config.toml` as the project-scoped Codex config. Read tools are
+auto-approved in the config; mutating tools (`queue_agent_run`,
+`claim_agent_run`, `save_analysis_run`, `mark_verification_result`) keep prompt
+approval. This follows the current Codex manual guidance that trusted
+project-scoped `.codex/config.toml` files can define MCP stdio servers and
+per-tool approval policy.
+
+Updated all six repo skills to prefer MCP tools first and fall back to the
+CX.3 scripts when MCP is unavailable. Regression tests cover tool discovery,
+stdio initialize/list behavior, queue/claim flow, `get_company_dossier` through
+the same `DossierOut` UI contract as the FastAPI endpoint, `save_analysis_run`
+round-tripping into the API, bad-input rejection, and contract-only candidate,
+ESPI and backtest tools. The dossier test caught an important bug in the first
+pass: raw ORM `Company` objects degraded to strings under generic JSON
+serialization, so MCP now serializes through the UI DTO instead.
+
+Verification: `cd backend && pytest tests/test_api_phase1.py
+tests/test_api_phase3.py tests/test_mcp_stock_workbench.py
+tests/test_agent_runs.py tests/test_migrations.py` passes (`31 passed`, one
+existing Starlette/httpx deprecation warning); direct MCP stdio initialize +
+`tools/list` returns the expected server info and tools; all six skills pass
+the Codex skill validator; `cd frontend && npm run build` passes; `git diff
+--check` is clean.
+
+## 2026-07-09 · CX.4 complete — repo-local Codex workflow skills
+
+Added six repo-local Codex skills under `.agents/skills/`: pre-session brief,
+quick analysis, deep analysis, candidate scout, backtest review, and strict
+verification. The skills encode the Stage-CX operating model directly in the
+repo: use app scripts/MCP tools for data access, route bounded work to
+`worker_standard`, reserve deeper synthesis for `analyst_deep`, require
+`verifier_strict` before UI-approved results, and label gaps instead of
+inventing facts.
+
+The skills call the JSON contracts from CX.3 (`codex_get_dossier.py`,
+`codex_save_analysis.py`, `codex_poll_espi.py`, `codex_candidate_scan.py`, and
+`codex_run_backtest.py`) rather than scraping directly from prompts. Each skill
+also has minimal `agents/openai.yaml` metadata so Codex can present the workflow
+cleanly. Verification: all six folders pass the Codex skill validator, and
+`git diff --check` is clean.
+
+## 2026-07-09 · Project guardrails — explicit anti-slop quality bar
+
+Added `docs/project-guardrails.md` as the durable project-quality contract to
+inspect at the start and end of every phase/work package. It records the user's
+main requirements for the pivot: evidence-grounded GPW analysis, Codex as the
+analyst/operator rather than chat-memory source of truth, precision/risk-first
+model routing, verifier-gated UI output, dense analyst-workspace UI, no
+fabricated numbers, and no generic feature drift.
+
+Updated `AGENTS.md` so future Codex sessions must read the guardrails, and
+updated the CX tasks to make guardrail inspection part of the repo-skill and
+phase-exit workflow. This is intentionally short and stable so it can be
+re-read often without becoming another large plan document.
+
+## 2026-07-09 · CX.3 complete — Codex JSON script contract
+
+Added the local script layer that Codex skills and the later MCP server will
+use before any richer integration exists. New shared helper `scripts/codex_common.py`
+keeps the contract consistent: JSON in/out, JSON-safe serialization, DB company
+lookup, and non-zero JSON errors for script-level failures.
+
+Implemented five scripts:
+
+- `scripts/codex_get_dossier.py <TICKER>` — reads the deterministic app dossier
+  as JSON (`--use-ai-refiners` remains explicit, default is deterministic-only).
+- `scripts/codex_save_analysis.py <TICKER> ...` — persists a Codex analysis into
+  `analysis_runs`, creating an `agent_runs` row when no `--agent-run-id` is
+  supplied. It requires `--workflow`, `--model-role`, `--model`, and
+  `--verification-status`, matching the CX role-discipline rule.
+- `scripts/codex_poll_espi.py` — stable JSON contract for pre-session ESPI/EBI
+  polling; currently reports stored event counts and `source-not-implemented`
+  until CX.6 adds the real scraper.
+- `scripts/codex_candidate_scan.py` — conservative DB-only candidate scan over
+  already-stored companies; no broad crawler, no new HTTP.
+- `scripts/codex_run_backtest.py` — validates the backtest request shape and
+  returns `engine-not-implemented` until CX.8 builds point-in-time replay.
+
+Tests cover the important path: `codex_save_analysis.py` writes both
+`agent_runs` and `analysis_runs`, then the `/analysis-runs` API returns the
+saved result; the other contract scripts return structured JSON. Verification:
+`cd backend && pytest tests/test_agent_runs.py tests/test_migrations.py` passes
+(`5 passed`, one existing Starlette/httpx deprecation warning);
+`cd backend && python3 -m py_compile scripts/codex_common.py
+scripts/codex_get_dossier.py scripts/codex_save_analysis.py
+scripts/codex_poll_espi.py scripts/codex_candidate_scan.py
+scripts/codex_run_backtest.py app/db/models.py app/api/agent_runs.py
+app/api/schemas.py app/main.py` passes.
+
+## 2026-07-09 · CX.2 complete — provider-neutral Codex run storage + UI read path
+
+Implemented the first executable slice of the Codex pivot: durable storage for
+Codex-operated workflows and verified outputs, independent of the old Claude
+API route. Added ORM models and Alembic migration `0003_codex_agent_runs.py`
+for `agent_runs`, `analysis_runs`, `verification_runs`, `event_reports`,
+`candidate_runs`, `backtest_runs`, and `backtest_observations`. The schema
+records `workflow`, `model_role`, `model`, `agent_run_id`,
+`verification_status`, and `input_snapshot` so future Codex skills/MCP tools can
+prove which model role produced a result and whether stronger verification
+approved it before the UI shows it.
+
+Added `app/api/agent_runs.py` with read endpoints for the new path:
+`GET /api/agent-runs`, `GET /api/companies/{ticker}/analysis-runs`, and
+`GET /api/companies/{ticker}/event-reports`. Added Pydantic DTOs and registered
+the router in `app/main.py`. The frontend API/types now understand
+`AnalysisRun`, and `AnalysisPanel` renders a small provider-neutral "Codex
+analysis runs" history when rows exist. This is the new UI-visible target for
+Codex-saved analysis; the old Claude route remains only as a later removal task
+(`CX.9`), not as the direction of travel.
+
+Tests/verification: `cd backend && pytest tests/test_agent_runs.py
+tests/test_migrations.py` passes (`3 passed`, one existing Starlette/httpx
+deprecation warning); `cd backend && python3 -m py_compile app/db/models.py
+app/api/agent_runs.py app/api/schemas.py app/main.py` passes; `cd frontend &&
+npm run build` passes.
+
+## 2026-07-09 · Stage CX planned — Codex as supervised analyst/operator
+
+Planned the committed architecture pivot from a Claude-API analysis backend to a
+Codex-centered operating model. Added `docs/plan-stage-codex-pivot.md` with
+Mermaid diagrams for the complete flows the user wants to run with Codex as the
+brain and facilitator: pre-session brief, quick company analysis, deep company
+analysis, candidate scouting, backtest/learning loop, and UI-requested Codex
+runs. The core decision is now explicit: the web app and Postgres remain the
+durable system of record; Codex uses skills, scripts and MCP tools to read data,
+run supervised worker agents, verify their work, and save structured results
+that the UI renders.
+
+Model-routing decision: precision beats cost. Routine/simple work uses
+`worker_standard` with a model chosen by task risk; lighter models are only for
+bounded extraction/formatting or low-risk summaries, while analysis-affecting
+work uses a stronger model. Deeper synthesis uses `analyst_deep` and all
+UI-visible investment output must pass `verifier_strict` (`gpt-5.5` high by
+role). The plan requires every persisted Codex-created row to record
+`workflow`, `model_role`, `model`, `agent_run_id`, and `verification_status`,
+so the app can audit whether the chosen model was appropriate and whether
+stronger supervision happened before a result became visible.
+
+`TASKS.md` gained the initial Stage CX (`CX.1`-`CX.9`) plan. Later entries extend
+that sequence with the provider sunset and backtest data-readiness gates. No
+code, schema, config, or scraper behavior changed in this entry.
+
+## 2026-07-09 · Investor workflow pivot — decision memo on the stock Brief tab
+
+Started the product pivot from "analysis presentation" toward "investor
+decision support" with a frontend-only first slice. The stock Brief tab now
+includes an **Investor Memo** composed from the existing dossier, thesis,
+scenario, valuation, forum-intelligence, and AI-readiness blocks. It derives a
+working status (`Kandydat do decyzji` / `Obserwuj aktywnie` / `Odrzuć lub
+czekaj` / `Research niepełny`), a research-readiness score, downside-first
+scenario read, top decision blockers, catalyst verification hints, and
+source/provenance trust tiles. The watchlist also gains a **Scaling radar** that
+ranks loaded companies by the pattern from successful scaling-business
+investments: revenue acceleration, gross-margin quality, clean earnings,
+valuation room, smaller/less-saturated size, forum context, and AI data
+readiness. A **BiznesRadar discovery** checklist now sits under the radar with
+the exact manual filters to use before adding a ticker: revenue scale, margin
+quality, clean result, still-reasonable valuation, and size sweet spot.
+
+Decision: keep this first pivot slice read-only and schema-free. No scraper,
+database, prompt, or API contract changed; the memo is a UX composition layer
+over already computed data so it can ship safely before deeper workflow storage
+(persistent checklist statuses, position sizing, thesis invalidation events)
+lands. The memo keeps the not-a-recommendation framing: it chooses the next
+research step, not a buy/sell signal. Decision: keep the first BiznesRadar
+discovery step manual in the UI instead of adding an untested broad crawler;
+the next backend/source step is a fixture-tested BR screener using explicit
+filters for scaling businesses, with all HTTP still routed through
+`scrapers/http.py` and results flowing into the same scaling-score model before
+any company is promoted to the watchlist.
+
 ## 2026-07-08 · Analyst workspace overhaul — load-on-add, source cleanup, useful summaries
 
 Turned the app toward a decision-first analyst workflow instead of a raw data
@@ -559,7 +1147,7 @@ not a signal*.
     corpus_numbers ∪ engine_valuation_numbers` (the last = this valuation's own
     computed coverage counts + potential value/range, mirroring WP3b's
     `engine_scenario_numbers`). A stray figure rejects the round → last-valid /
-    deterministic fallback. Model literal stays `'claude-sonnet-5'`.
+    deterministic fallback. Model literal stays `'claude-sonnet-4-6'`.
 - **`services/thesis.py`** — new public `count_computable_key_indicators(inputs,
   profile)` delegating to the existing `_collect_signals` (the single source of
   the `computable` count), so the confidence heuristic reads coverage from the
@@ -683,7 +1271,7 @@ number traceable, framed as *an analysis entry point, not a signal*.
   by us** (renormalise every round). **Widened fabrication allowed-set**:
   `input_numbers ∪ corpus_numbers ∪ engine_scenario_numbers` (sourced inputs ∪
   cited corpus ∪ deterministic-computed) — a stray prose figure rejects the
-  round. Model literal stays `'claude-sonnet-5'`.
+  round. Model literal stays `'claude-sonnet-4-6'`.
 - **`services/thesis_ai.py`** — three single-line **public aliases**
   (`numbers`/`extract_json`/`parse_response`) so the refiner reuses the helpers
   without reaching into privates. No behaviour change (`test_thesis_ai.py` still

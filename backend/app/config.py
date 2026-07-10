@@ -5,16 +5,25 @@ pydantic-settings — the Python equivalent of a typed IOptions<Settings> bound
 to appsettings + user-secrets in ASP.NET.
 """
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # Anchored to an absolute path: a relative "env_file=\".env\"" resolves
+    # against the PROCESS cwd, not this file's location, so it silently
+    # loaded nothing whenever uvicorn was started from the repo root instead
+    # of backend/ (the reported "ANTHROPIC_API_KEY missing" bug even though
+    # it WAS set in backend/.env). config.py lives at backend/app/config.py,
+    # so parents[1] is backend/ — same directory .env lives in.
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_file=str(Path(__file__).resolve().parents[1] / ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
     )
 
-    database_url: str = "postgresql+psycopg://stocks:stocks@localhost:5432/stocks"
+    database_url: str = "postgresql+psycopg://stocks:stocks@localhost:5433/stocks"
 
     # PortalAnaliz forum credentials (optional until forum features are used).
     pa_username: str | None = None
@@ -23,14 +32,15 @@ class Settings(BaseSettings):
 
     # BiznesRadar premium session (P1.9, optional — enhancement, not a hard
     # dependency). No creds => refresh runs fully anonymous, unchanged from
-    # before this task. See app/scrapers/biznesradar.py BrClient: the real
-    # login markup is unverified pending a recorded login-page fixture.
+    # before this task. br_username is the account e-mail. Login recipe verified
+    # live 2026-07-08 (POST /login/, 'account-settings' marker) — see
+    # app/scrapers/biznesradar.py BrClient.
     br_username: str | None = None
     br_password: str | None = None
 
     # Claude API (Phase 5 verdict product; also the WP2b thesis refiner).
     anthropic_api_key: str | None = None
-    anthropic_model: str = "claude-sonnet-5"
+    anthropic_model: str = "claude-sonnet-4-6"
     ai_daily_limit: int = 20
 
     # WP2b iterative thesis refiner (services/thesis_ai.py). No key ⇒ the refiner
@@ -38,6 +48,12 @@ class Settings(BaseSettings):
     # the AI path. max_iterations is deliberately small (cost/latency guard).
     anthropic_max_iterations: int = 2
     ai_cache_enabled: bool = True
+
+    # When true (and a key is configured) the dossier build runs the AI
+    # refiners (thesis_ai / scenarios_ai / valuation_ai / insights_ai) with the
+    # real settings instead of forcing the deterministic no-key path. File
+    # caches keyed on input-hash+model keep repeat GETs cheap.
+    ai_refiners_enabled: bool = True
 
     # P5.9 forum distiller (services/forum_distiller.py): a cheap model is
     # enough for per-post classification/claim-extraction, so it defaults

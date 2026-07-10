@@ -16,7 +16,7 @@ docker compose up -d postgres
 
 # 2. Backend (Python 3.11+)
 cd backend
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 alembic upgrade head
 uvicorn app.main:app --reload --port 8000
@@ -26,7 +26,7 @@ Create `backend/.env` (gitignored) with exactly what you need — no copying
 templates around:
 
 ```ini
-DATABASE_URL=postgresql+psycopg://stocks:stocks@localhost:5432/stocks
+DATABASE_URL=postgresql+psycopg://stocks:stocks@localhost:5433/stocks
 
 # PortalAnaliz (optional — public threads work without login)
 # Values with special characters (# $ " spaces) must be double-quoted!

@@ -35,6 +35,7 @@ PAGE_PATHS: dict[str, str] = {
     "indicators_value": "/wskazniki-wartosci-rynkowej/{ticker}",
     "indicators_profitability": "/wskazniki-rentownosci/{ticker}",
     "dividends": "/dywidenda/{ticker}",
+    "forecasts": "/prognozy/{ticker}",
     # Archiwum notowań — price-history source on a domain we already fetch
     # politely. robots.txt ALLOWS this first page and DISALLOWS the paginated
     # views (`Disallow: /notowania-historyczne/*,*`) — so the app only ever
@@ -94,6 +95,22 @@ class DividendEntry:
     year: int
     dps: float | None
     yield_pct: float | None
+
+
+@dataclass
+class PremiumMarketData:
+    """Advanced/premium nodes exposed by authenticated BiznesRadar pages."""
+
+    forecast_consensus: dict = field(default_factory=dict)
+    advanced_metrics: dict = field(default_factory=dict)
+    dividend_coverage: dict = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return {
+            "forecast_consensus": self.forecast_consensus,
+            "advanced_metrics": self.advanced_metrics,
+            "dividend_coverage": self.dividend_coverage,
+        }
 
 
 # --------------------------------------------------------------- primitives
@@ -163,6 +180,311 @@ def _slugify(label: str) -> str:
     """Stable ascii code for rows without a data-field attribute."""
     folded = label.lower().translate(str.maketrans("ąćęłńóśźż", "acelnoszz"))
     return re.sub(r"[^a-z0-9]+", "_", folded).strip("_")[:80]
+
+
+def _norm_label(label: str) -> str:
+    folded = label.lower().translate(str.maketrans("ąćęłńóśźż", "acelnoszz"))
+    folded = re.sub(r"\s*/\s*", "/", folded)
+    return re.sub(r"\s+", " ", folded).strip()
+
+
+def _year_from_header(raw: str) -> str | None:
+    match = re.search(r"\b(20\d{2}|19\d{2})\b", raw)
+    return match.group(1) if match else None
+
+
+def _metric_from_consensus_label(label: str) -> str | None:
+    normalized = _norm_label(label)
+    if "marz" in normalized or "rentownosc" in normalized:
+        return None
+    if "ebitda" in normalized:
+        return "ebitda"
+    if "zysk netto" in normalized or "net income" in normalized:
+        return "net_income"
+    if "przychod" in normalized or "revenue" in normalized:
+        return "revenue"
+    return None
+
+
+def _advanced_metric_from_label(label: str) -> str | None:
+    normalized = _norm_label(label)
+    if "roic" in normalized or "zainwestowanego kapitalu" in normalized:
+        return "roic"
+    if normalized in {"fcf", "free cash flow"} or "wolne przeplywy" in normalized:
+        return "fcf"
+    if normalized == "ev" or "enterprise value" in normalized:
+        return "enterprise_value"
+    return None
+
+
+def parse_premium_market_data(html: str) -> PremiumMarketData:
+    """Extract premium/advanced nodes from any fetched BR page."""
+    soup = BeautifulSoup(html, "html.parser")
+    result = PremiumMarketData()
+
+    for table in soup.find_all("table"):
+        rows = table.find_all("tr")
+        if not rows:
+            continue
+        table_text = _norm_label(table.get_text(" ", strip=True))
+        header_cells = rows[0].find_all(["th", "td"])
+        header_meta: dict[int, tuple[str | None, bool]] = {}
+        scale = 1000.0 if "mln zl" in table_text else 1.0
+        for idx, cell in enumerate(header_cells):
+            header = cell.get_text(" ", strip=True)
+            normalized_header = _norm_label(header)
+            header_meta[idx] = (
+                _year_from_header(header),
+                "konsensus" in normalized_header or "forecast" in normalized_header,
+            )
+        has_consensus_year_flags = any(year and flag for year, flag in header_meta.values())
+        looks_consensus = any(word in table_text for word in ("konsensus", "prognoz", "forecast"))
+
+        for tr in rows[1:]:
+            cells = tr.find_all(["td", "th"])
+            if len(cells) < 2:
+                continue
+            label_idx = 0
+            if not cells[0].get_text(" ", strip=True) and len(cells) > 1:
+                label_idx = 1
+            elif len(cells) > 1 and "name" in (cells[1].get("class") or []):
+                label_idx = 1
+            label = cells[label_idx].get_text(" ", strip=True)
+            metric = _metric_from_consensus_label(label) if looks_consensus else None
+            if metric:
+                for idx, cell in enumerate(cells):
+                    if idx <= label_idx:
+                        continue
+                    year, is_consensus = header_meta.get(idx, (None, False))
+                    if year is None or (has_consensus_year_flags and not is_consensus):
+                        continue
+                    value = parse_number(cell.get_text(" ", strip=True))
+                    if value is None:
+                        continue
+                    result.forecast_consensus.setdefault(year, {})[metric] = {
+                        "value": value * scale,
+                        "unit": "tys. PLN",
+                        "source": "biznesradar_premium_consensus",
+                    }
+
+            advanced = _advanced_metric_from_label(label)
+            if advanced:
+                raw = cells[1].get_text(" ", strip=True)
+                value = _parse_money(raw) if advanced == "enterprise_value" else parse_number(raw)
+                if value is not None:
+                    result.advanced_metrics[advanced] = {
+                        "value": value,
+                        "unit": "PLN" if advanced == "enterprise_value" else None,
+                        "source": "biznesradar_premium",
+                    }
+
+            normalized = _norm_label(label)
+            if "pokry" in normalized and "dywid" in normalized and "fcf" in normalized:
+                value = parse_number(cells[1].get_text(" ", strip=True))
+                if value is not None:
+                    result.dividend_coverage = {
+                        "fcf_coverage_ratio": value,
+                        "status": "covered" if value >= 1 else "not_covered",
+                        "source": "biznesradar_premium",
+                    }
+
+    return result
+
+
+# -------------------------------------------------------------- forecasts
+#
+# /prognozy/{slug} — VERIFIED live-DOM 2026-07-09 (real browser capture; the
+# scraper sandbox cannot reach biznesradar.pl, so this shape is trusted, not
+# re-derived). The page is PUBLIC (no premium session needed) — it was
+# previously wrongly gated behind a premium BR session in refresh.py.
+#
+# Structure: <div id="profile-forecast"> containing an <h3>, a div.tools
+# (JS-only view toggles, ignored) and a single
+# <table class="qTableFull contentList"> with one <tbody>:
+#   header tr (th): [blank][ "dane w mln zł" ][ <strong>LABEL</strong> note ]...
+#     columns observed: 2025 "raport", O4K "raport (mar 26)*" (TTM aggregate
+#     of the last 4 quarters), 2026/2027/2028 "konsensus"
+#   data tr (td): [blank][td.name METRIC][value]...[value]
+#     metric rows observed: Przychody ze sprzedaży, EBITDA, Zysk z
+#     działalności operacyjnej, Zysk netto, Marża EBITDA, Rentowność
+#     operacyjna, Rentowność netto, Nakłady inwestycyjne, Amortyzacja,
+#     Cena / Zysk (C/Z).
+# Consensus columns are frequently empty/"-" (BR only counts analyst
+# forecasts younger than 6 months) — every cell here is optional.
+
+@dataclass
+class ForecastColumn:
+    label: str  # raw column header, e.g. "2025", "O4K", "2026"
+    kind: str  # "raport" | "raport_ttm" (O4K) | "konsensus"
+    note: str | None = None  # e.g. "raport", "raport (mar 26)*", "konsensus"
+
+
+@dataclass
+class ForecastRow:
+    metric: str | None  # canonical code (see _FORECAST_METRIC_LABELS), None = unmapped
+    label: str  # raw BR row label, always kept (mirrors the indicator parser)
+    values: list[float | None]  # aligned with ForecastTable.columns
+
+
+@dataclass
+class ForecastTable:
+    columns: list[ForecastColumn] = field(default_factory=list)
+    rows: list[ForecastRow] = field(default_factory=list)
+    # Rows whose label didn't match _FORECAST_METRIC_LABELS — surfaced instead
+    # of silently dropped, same discipline as _upsert_indicators' `unmapped`.
+    unmapped_labels: list[str] = field(default_factory=list)
+
+    def values_by_metric(self) -> dict[str, dict[str, float | None]]:
+        """metric code -> {column label -> value}; unmapped rows excluded."""
+        return {
+            row.metric: {
+                column.label: value for column, value in zip(self.columns, row.values)
+            }
+            for row in self.rows
+            if row.metric is not None
+        }
+
+
+# Local label -> canonical metric code map, same pattern as
+# _metric_from_consensus_label/_advanced_metric_from_label above: this page's
+# rows are not income-statement lines routed through services/fields.py, they
+# are a page-specific mix of money/percent/ratio rows, so the mapping lives
+# here (markup-adjacent), not in fields.py.
+_FORECAST_METRIC_LABELS: dict[str, str] = {
+    "przychody ze sprzedazy": "revenue",
+    "ebitda": "ebitda",
+    "zysk z dzialalnosci operacyjnej": "operating_profit",
+    "zysk netto": "net_income",
+    "marza ebitda": "ebitda_margin_pct",
+    "rentownosc operacyjna": "operating_margin_pct",
+    "rentownosc netto": "net_margin_pct",
+    "naklady inwestycyjne": "capex",
+    "amortyzacja": "depreciation",
+    "cena/zysk (c/z)": "pe",
+}
+
+# Rows carrying money values on this page (BiznesRadar states them in mln zł —
+# see the ×1000 conversion in parse_forecasts). Percent (*_pct) and pe rows
+# are plain numbers, no scale conversion.
+_FORECAST_MONEY_METRICS = {
+    "revenue", "ebitda", "operating_profit", "net_income", "capex", "depreciation",
+}
+
+
+def _forecast_metric_from_label(label: str) -> str | None:
+    return _FORECAST_METRIC_LABELS.get(_norm_label(label))
+
+
+def _forecast_column_kind(label: str, note: str) -> str:
+    if label.strip().upper() == "O4K":
+        return "raport_ttm"
+    if "konsensus" in note.lower():
+        return "konsensus"
+    return "raport"
+
+
+def _cell_label_and_note(cell) -> tuple[str, str]:
+    """Split a header cell into its `<strong>` label and the remaining text.
+
+    Walks direct children instead of slicing `full_text[len(label):]` — more
+    robust to nbsp/whitespace variance between the label and its note than a
+    prefix cut would be.
+    """
+    strong = cell.find("strong")
+    if strong is None:
+        return cell.get_text(" ", strip=True), ""
+    label = strong.get_text(" ", strip=True)
+    remainder_parts = []
+    for content in cell.contents:
+        if content is strong:
+            continue
+        text = content.get_text(" ", strip=True) if hasattr(content, "get_text") else str(content).strip()
+        if text:
+            remainder_parts.append(text)
+    return label, " ".join(remainder_parts).strip()
+
+
+def _forecast_label_cell_index(cells) -> int:
+    """Row-label cell index — the layout leads with a blank `<td>`, then
+    `<td class="name">`, same defensive shape as parse_premium_market_data."""
+    if not cells[0].get_text(" ", strip=True) and len(cells) > 1:
+        return 1
+    if len(cells) > 1 and "name" in (cells[1].get("class") or []):
+        return 1
+    return 0
+
+
+def parse_forecasts(html: str) -> ForecastTable:
+    """Parse the /prognozy/{slug} analyst-forecast table (public page)."""
+    soup = BeautifulSoup(html, "html.parser")
+    container = soup.find("div", id="profile-forecast")
+    table = None
+    if container is not None:
+        table = container.find(
+            "table", class_=lambda c: c and "qTableFull" in c.split()
+        )
+    if table is None:
+        # Fallback: any qTableFull table on the page, else the largest table —
+        # survives the container id being renamed (mirrors parse_report_table).
+        table = soup.find("table", class_=lambda c: c and "qTableFull" in c.split())
+    if table is None:
+        tables = soup.find_all("table")
+        table = max(tables, key=lambda t: len(t.find_all("tr")), default=None)
+    if table is None:
+        raise ParseError("No forecast table found on page.")
+
+    rows_container = table.find("tbody") or table
+    all_rows = rows_container.find_all("tr", recursive=False) or table.find_all("tr")
+    if not all_rows:
+        raise ParseError("Forecast table has no rows.")
+
+    header_cells = all_rows[0].find_all(["th", "td"])
+    if len(header_cells) < 3:
+        raise ParseError("Forecast header row too short.")
+
+    columns: list[ForecastColumn] = []
+    for cell in header_cells[2:]:  # skip [blank][ "dane w mln zł" ]
+        label, note = _cell_label_and_note(cell)
+        if not label:
+            continue
+        columns.append(ForecastColumn(label=label, kind=_forecast_column_kind(label, note), note=note or None))
+
+    rows: list[ForecastRow] = []
+    unmapped_labels: list[str] = []
+    for tr in all_rows[1:]:
+        cells = tr.find_all(["td", "th"])
+        if len(cells) < 2:
+            continue
+        label_idx = _forecast_label_cell_index(cells)
+        label = cells[label_idx].get_text(" ", strip=True)
+        if not label:
+            continue
+        metric = _forecast_metric_from_label(label)
+        value_cells = cells[label_idx + 1 :]
+        values: list[float | None] = []
+        for column_index in range(len(columns)):
+            if column_index >= len(value_cells):
+                values.append(None)
+                continue
+            raw = value_cells[column_index].get_text(" ", strip=True)
+            value = parse_number(raw)
+            if value is not None and metric in _FORECAST_MONEY_METRICS:
+                # BiznesRadar states this page's money rows in mln zł; the DB
+                # convention (services/fields.py, ReportValue) is tys. PLN —
+                # ×1000 here converts once, at the parser boundary, so every
+                # downstream consumer sees the same unit as the statement
+                # tables (LOUD on purpose: this is a real unit change, not a
+                # formatting tweak). round(): mln zł source has at most ~1-2
+                # decimal digits, so the extra precision is pure IEEE754 noise
+                # (e.g. 64.1 * 1000 == 64099.99999999999) — round it away
+                # instead of writing it to the DB.
+                value = round(value * 1000.0, 3)
+            values.append(value)
+        rows.append(ForecastRow(metric=metric, label=label, values=values))
+        if metric is None:
+            unmapped_labels.append(label)
+
+    return ForecastTable(columns=columns, rows=rows, unmapped_labels=unmapped_labels)
 
 
 # ------------------------------------------------------------ report tables
@@ -496,35 +818,45 @@ def parse_price_history(html: str) -> list[PriceBar]:
 # ------------------------------------------------------------ premium login
 #
 # P1.9 (BiznesRadar premium session): a logged-in session unlocks longer
-# report/price history than the anonymous pages parsed above. This section
-# mirrors app/scrapers/portalanaliz.py's ForumClient/extract_login_fields
-# shape 1:1 (LoginError -> BrLoginError, ForumClient -> BrClient).
+# report/price history than the anonymous pages parsed above.
 #
-# UNVERIFIED ASSUMPTION: unlike the phpBB login form (verified against a real
-# PortalAnaliz page), BiznesRadar's real login page markup has never been
-# fetched in this environment (egress to biznesradar.pl is proxy-blocked in
-# the sandbox this was written in). Everything below — the login path, field
-# names, and "did it work" check — is a best-effort guess based on common PHP
-# login-form conventions, backed only by the SYNTHETIC fixture in
-# tests/fixtures/br_login.html. Before trusting this in production:
-#   1. run `python scripts/record_fixtures.py --login` (or equivalent) on a
-#      machine that can reach biznesradar.pl while logged out, to capture the
-#      real login page HTML;
-#   2. replace tests/fixtures/br_login.html with the real recording (or add
-#      it alongside) and fix extract_login_fields()/BrClient.LOGIN_PATH/the
-#      payload field names/the success check below to match reality;
-#   3. do one real login by hand (BR_USERNAME/BR_PASSWORD in backend/.env)
-#      and confirm BrClient.login() succeeds and a premium page actually
-#      differs from the anonymous one.
-# This module only implements the plumbing; it does NOT claim the parser is
-# correct against the real site yet.
+# LOGIN MECHANICS — VERIFIED 2026-07-08 via live browser capture (see
+# skills/scraper-doctor/SKILL.md "BiznesRadar — premium login"):
+#   * There is NO server-rendered login page. `/logowanie` and `/login` (no
+#     trailing slash) both 404. The header "Logowanie" link is
+#     `<a href="javascript:void(0)" onclick="Dialogs.login()">` — the form is
+#     built client-side in a JS modal, so it never appears in static HTML.
+#   * The real endpoint is a fixed, documented POST to `{BASE}/login/`
+#     (TRAILING SLASH), form-encoded: `email` + `password` (+ optional
+#     `remember_me=1`). No CSRF token, no hidden inputs — nothing to scrape.
+#   * POST /login/ answers with a redirect on BOTH success and failure, so its
+#     body is not authoritative. Success is confirmed by re-fetching the
+#     homepage and finding the logged-in-only marker `account-settings`
+#     (Dialogs.accountSettings); the anonymous page carries `Dialogs.login`
+#     instead. Secondary marker: GET /user-data/ returns a ~194 B script
+#     anonymous vs ~1686 B logged in. There is NO logout href (logout is JS
+#     too) — never key off logout links or password-field absence.
+# BR_USERNAME is the account e-mail (email-shaped, verified).
 
 
 class BrLoginError(Exception):
     pass
 
 
+# Logged-in-only marker in the homepage HTML (verified 2026-07-08).
+_LOGGED_IN_MARKER = "account-settings"
+# Anonymous-only marker — present when BiznesRadar re-serves the logged-out
+# homepage (i.e. the credentials were rejected), absent once logged in.
+_ANON_MARKER = "Dialogs.login"
+
+
 def _find_login_form(html: str):
+    """Locate the BiznesRadar `<form action="/login/">` in a captured fragment.
+
+    Used ONLY to validate the recorded fixture's shape (see
+    extract_login_fields). login() never parses a form at runtime — the live
+    site builds it client-side in a JS modal and POSTs to a fixed endpoint.
+    """
     soup = BeautifulSoup(html, "html.parser")
     form = soup.find("form", action=re.compile(r"log(?:owanie|in)", re.IGNORECASE))
     if form is None:
@@ -533,79 +865,54 @@ def _find_login_form(html: str):
                 form = candidate
                 break
     if form is None:
-        raise BrLoginError("Login form not found on BiznesRadar login page.")
+        raise BrLoginError("No BiznesRadar login form in the given HTML.")
     return form
 
 
 def extract_login_fields(html: str) -> dict[str, str]:
-    """Hidden inputs of the BiznesRadar login form.
+    """Input `name -> type` map of the captured BiznesRadar login form.
 
-    ASSUMPTION (see module banner above, UNVERIFIED against a real page):
-    looks for a `<form>` whose `action` mentions "login"/"logowanie"; falls
-    back to the first form containing a password input (works even if the
-    action attribute is relative/absent). Collects every hidden input as a
-    name -> value pair, exactly like portalanaliz.extract_login_fields does
-    for phpBB's creation_time/form_token/sid triplet — BiznesRadar likely has
-    an analogous CSRF-style token that must be echoed back unchanged.
+    login() does NOT call this — the live login form is never in static HTML
+    (JS modal) and the POST target is the fixed /login/ endpoint with a known
+    {email, password} payload. This helper survives only so a test can assert
+    the recorded fixture (tests/fixtures/br_login_live.html) still has the
+    documented shape ({email, password, remember_me}); if BiznesRadar ever
+    renames those inputs, re-record the fixture and the structural test flags
+    the drift.
     """
     form = _find_login_form(html)
     fields_out: dict[str, str] = {}
-    for hidden in form.find_all("input", attrs={"type": "hidden"}):
-        name = hidden.get("name")
+    for input_tag in form.find_all("input"):
+        name = input_tag.get("name")
         if name:
-            fields_out[name] = hidden.get("value", "")
+            fields_out[name] = input_tag.get("type", "text")
     return fields_out
 
 
-def _login_payload_and_action(
-    html: str, username: str, password: str
-) -> tuple[dict[str, str], str | None]:
-    """Build a payload from the real form names instead of hard-coding them."""
-    form = _find_login_form(html)
-    payload = extract_login_fields(html)
-
-    user_input = form.find(
-        "input",
-        attrs={"type": re.compile(r"^(text|email)$", re.IGNORECASE)},
-    )
-    if user_input is None:
-        user_input = form.find(
-            "input",
-            attrs={"name": re.compile(r"(login|user|email)", re.IGNORECASE)},
-        )
-    password_input = form.find("input", attrs={"type": "password"})
-
-    user_name = user_input.get("name") if user_input else None
-    password_name = password_input.get("name") if password_input else None
-    payload[user_name or "login"] = username
-    payload[password_name or "password"] = password
-    return payload, form.get("action")
-
-
 def _looks_logged_in(html: str) -> bool:
-    """Best-effort post-login success check — ASSUMPTION, see module banner.
+    """Post-login success check (VERIFIED 2026-07-08).
 
-    Real markup unknown, so this checks for either signal: a logout
-    link/control, or simply the login form no longer being present.
+    The logged-in BiznesRadar homepage embeds an `account-settings` control
+    (Dialogs.accountSettings); the anonymous page does not. This single string
+    is the authoritative marker — do NOT rely on logout links (logout is JS,
+    no href) or on a login form being absent (there is no server-rendered form
+    on either page).
     """
-    soup = BeautifulSoup(html, "html.parser")
-    if soup.find("a", href=re.compile(r"(logout|wyloguj|logoff)", re.IGNORECASE)):
-        return True
-    if soup.find(string=re.compile(r"(wyloguj|logout)", re.IGNORECASE)):
-        return True
-    return soup.find("input", attrs={"type": "password"}) is None
+    return _LOGGED_IN_MARKER in html
 
 
 class BrClient:
     """Thin session wrapper for a logged-in (premium) BiznesRadar session.
 
-    Mirrors portalanaliz.ForumClient's shape. All HTTP goes through
-    app.scrapers.http.fetch so the same per-domain politeness/backoff policy
-    applies to the login page as to every other BiznesRadar request.
+    All HTTP goes through app.scrapers.http.fetch so the same per-domain
+    politeness/backoff policy applies to the login round-trip as to every other
+    BiznesRadar request. The login recipe is fixed and documented (see the
+    section banner above) — there is no login page to scrape.
     """
 
-    # Try the Polish path first (current app expectation), then common fallbacks.
-    LOGIN_PATHS = ("logowanie", "login")
+    # Fixed POST endpoint. The TRAILING SLASH is required — `/login` and
+    # `/logowanie` both 404 (verified 2026-07-08).
+    LOGIN_PATH = "login/"
 
     def __init__(self, base_url: str = BASE_URL):
         self.base_url = base_url if base_url.endswith("/") else base_url + "/"
@@ -614,52 +921,84 @@ class BrClient:
         self.logged_in = False
 
     def login(self, username: str, password: str) -> None:
-        response = None
-        login_url = ""
-        failures: list[str] = []
-        for path in self.LOGIN_PATHS:
-            candidate = urljoin(self.base_url, path)
-            candidate_response = polite_http.fetch(candidate, session=self.session)
-            if candidate_response.status_code != 200:
-                failures.append(f"{path}: HTTP {candidate_response.status_code}")
-                continue
-            try:
-                _find_login_form(candidate_response.text)
-            except BrLoginError as exc:
-                failures.append(f"{path}: {exc}")
-                continue
-            response = candidate_response
-            login_url = candidate
-            break
-        if response is None:
+        """Log in to BiznesRadar; raise BrLoginError on failure.
+
+        `username` is the account e-mail. Flow: warm-up GET → POST credentials
+        to /login/ (redirects followed) → re-fetch the homepage and confirm the
+        `account-settings` marker, with GET /user-data/ payload size as a
+        fallback check. Every hop goes through the polite fetcher.
+        """
+        # 1. Warm-up: load the homepage first (as a browser would before
+        #    opening the login modal) so the session holds whatever anonymous
+        #    cookies BiznesRadar hands out.
+        try:
+            polite_http.fetch(self.base_url, session=self.session)
+        except polite_http.FetchError as exc:
             raise BrLoginError(
-                "Could not load BiznesRadar login page (" + "; ".join(failures) + ")."
-            )
+                f"Nie udało się otworzyć strony BiznesRadar przed logowaniem: {exc}"
+            ) from exc
 
+        # 2. POST the credentials to the fixed /login/ endpoint. BiznesRadar
+        #    redirects on both success and failure; requests follows the
+        #    redirect and this body is NOT authoritative (step 3 verifies).
+        login_url = urljoin(self.base_url, self.LOGIN_PATH)
         try:
-            payload, form_action = _login_payload_and_action(response.text, username, password)
-        except BrLoginError:
-            # No hidden fields found is not necessarily fatal — some login
-            # forms carry none. Try the bare credentials before giving up.
-            payload, form_action = {"login": username, "password": password}, None
-        post_url = urljoin(login_url, form_action) if form_action else login_url
-
-        try:
-            post_response = self.session.post(
-                post_url, data=payload, timeout=polite_http.DEFAULT_TIMEOUT_SECONDS
+            polite_http.fetch(
+                login_url,
+                method="POST",
+                data={"email": username, "password": password},
+                session=self.session,
             )
-        except requests.RequestException as exc:
-            raise BrLoginError(f"Login request failed (network): {exc}") from exc
+        except polite_http.FetchError as exc:
+            raise BrLoginError(
+                f"Żądanie logowania do BiznesRadar nie powiodło się (sieć): {exc}"
+            ) from exc
 
-        if post_response.status_code == 200 and _looks_logged_in(post_response.text):
+        # 3. Verify against the logged-in-only homepage marker.
+        try:
+            verify = polite_http.fetch(self.base_url, session=self.session)
+        except polite_http.FetchError as exc:
+            raise BrLoginError(
+                f"Nie udało się zweryfikować logowania do BiznesRadar: {exc}"
+            ) from exc
+        if _looks_logged_in(verify.text):
             self.logged_in = True
             return
 
-        raise BrLoginError(
-            f"Login failed (HTTP {post_response.status_code}) — check BR_USERNAME/"
-            "BR_PASSWORD in backend/.env. Note: BiznesRadar's real login markup "
-            "has not been verified in this codebase yet (see BrClient's module "
-            "docstring) — if the credentials are correct, extract_login_fields/"
-            "LOGIN_PATH/the success check likely need updating against a real "
-            "recorded login page."
+        # Fallback marker: /user-data/ grows from ~194 B (anon) to ~1686 B
+        # (logged in). Guards against a stale anonymous homepage from the CDN.
+        if self._user_data_confirms_login():
+            self.logged_in = True
+            return
+
+        raise BrLoginError(self._login_failure_message(verify.text))
+
+    def _user_data_confirms_login(self) -> bool:
+        """Secondary logged-in check: GET /user-data/ payload > ~1 kB."""
+        try:
+            response = polite_http.fetch(
+                urljoin(self.base_url, "user-data/"), session=self.session
+            )
+        except polite_http.FetchError:
+            return False
+        return len(response.text) > 1000
+
+    @staticmethod
+    def _login_failure_message(verify_html: str) -> str:
+        """Turn a failed verification into a useful Polish diagnosis."""
+        if _ANON_MARKER in verify_html or "Logowanie" in verify_html:
+            # BiznesRadar re-served the anonymous homepage — creds rejected.
+            return (
+                "Logowanie do BiznesRadar nie powiodło się — po wysłaniu danych "
+                "strona nadal jest anonimowa. Najczęstsza przyczyna: błędny "
+                "BR_USERNAME (adres e-mail konta) lub BR_PASSWORD w backend/.env."
+            )
+        # Neither the logged-in nor the anonymous marker is present — the page
+        # shape changed and the recipe needs re-verifying against the live site.
+        return (
+            "Logowanie do BiznesRadar zwróciło nierozpoznaną stronę — brak "
+            "markera zalogowania ('account-settings') oraz markera strony "
+            "anonimowej ('Dialogs.login'). Układ strony mógł się zmienić; "
+            "zweryfikuj przepis (POST /login/, pola email/password, marker "
+            "'account-settings') na żywej stronie."
         )

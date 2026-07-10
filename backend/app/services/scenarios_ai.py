@@ -328,12 +328,14 @@ def _validate_and_merge(parsed: dict, det: dict) -> dict | None:
 
     _renormalize(merged)
     wprice, wupside = scenarios.weighted_expected(merged, det.get("current_price"))
+    quality_warnings = scenarios.scenario_quality_warnings(merged, wupside)
 
     return {
         **det,
         "scenarios": merged,
         "weighted_expected_price": wprice,
         "weighted_expected_upside_pct": wupside,
+        "quality_warnings": quality_warnings,
         "framing": scenarios.FRAMING,
         "disclaimer": thesis.DISCLAIMER,
     }
@@ -432,7 +434,7 @@ def simulate_scenarios(
     if not api_key:
         return {**det, "engine": "deterministic"}
 
-    model = getattr(settings, "anthropic_model", None) or "claude-sonnet-5"
+    model = getattr(settings, "anthropic_model", None) or "claude-sonnet-4-6"
     max_iterations = int(getattr(settings, "anthropic_max_iterations", 2) or 2)
     cache_enabled = bool(getattr(settings, "ai_cache_enabled", True))
     if corpus is None:

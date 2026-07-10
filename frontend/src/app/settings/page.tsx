@@ -7,6 +7,7 @@ import {
   getForumLoginStatus,
   getHealth,
   getScrapersHealth,
+  getWorkflowStatus,
 } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
 import { relativeDate } from "@/lib/format";
@@ -16,11 +17,15 @@ function StatusCard({
   ok,
   detail,
   loading,
+  okLabel = "OK",
+  errorLabel = "błąd",
 }: {
   title: string;
   ok: boolean | null;
   detail: string;
   loading: boolean;
+  okLabel?: string;
+  errorLabel?: string;
 }) {
   return (
     <div className="card spread">
@@ -32,7 +37,7 @@ function StatusCard({
       </div>
       {!loading && ok != null && (
         <span className={`badge ${ok ? "success" : "danger"}`}>
-          {ok ? <IconCheck size={13} /> : <IconX size={13} />} {ok ? "OK" : "błąd"}
+          {ok ? <IconCheck size={13} /> : <IconX size={13} />} {ok ? okLabel : errorLabel}
         </span>
       )}
     </div>
@@ -44,6 +49,7 @@ export default function SettingsPage() {
   const forum = useApi(getForumLoginStatus, []);
   const biznesradar = useApi(getBrLoginStatus, []);
   const scrapers = useApi(getScrapersHealth, []);
+  const workflows = useApi(getWorkflowStatus, []);
 
   return (
     <main>
@@ -66,6 +72,20 @@ export default function SettingsPage() {
           ok={forum.data?.ok ?? (forum.error ? false : null)}
           detail={forum.data?.detail ?? forum.error ?? ""}
           loading={forum.loading}
+        />
+        <StatusCard
+          title="Codex workflow queue"
+          ok={workflows.data ? workflows.data.ok : workflows.error ? false : null}
+          detail={
+            workflows.error
+              ? workflows.error
+              : workflows.data
+                ? `${workflows.data.queued} queued · ${workflows.data.running} running · ${workflows.data.verified_24h} verified / 24 h`
+                : ""
+          }
+          loading={workflows.loading}
+          okLabel="gotowe"
+          errorLabel="błąd"
         />
 
         <div className="card">
@@ -104,7 +124,7 @@ export default function SettingsPage() {
           <p style={{ fontWeight: 500, fontSize: 13, margin: 0 }}>Konfiguracja</p>
           <p className="small muted" style={{ margin: "6px 0 0", lineHeight: 1.6 }}>
             Sekrety trzymane są wyłącznie w <code>backend/.env</code> (PA_USERNAME,
-            PA_PASSWORD, BR_USERNAME, BR_PASSWORD, ANTHROPIC_API_KEY) oraz{" "}
+            PA_PASSWORD, BR_USERNAME, BR_PASSWORD) oraz{" "}
             <code>frontend/.env.local</code> (BACKEND_URL).
           </p>
         </div>

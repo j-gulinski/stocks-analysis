@@ -6,6 +6,7 @@ DTO) is consistent.
 """
 import pytest
 
+from app.services import dossier as dossier_service
 from tests.test_api_phase1 import fake_fetch
 
 
@@ -22,7 +23,7 @@ def test_dossier(refreshed):
 
     assert dossier["company"]["name"] == "DECORA"
     assert dossier["freshness"]["financials_scraped_at"] is not None
-    assert dossier["freshness"]["last_price_date"] == "2025-07-01"
+    assert dossier["freshness"]["last_price_date"] == "2026-07-03"
 
     quarters = dossier["quarters"]
     assert quarters[-1]["period"] == "2025Q1"
@@ -31,8 +32,8 @@ def test_dossier(refreshed):
 
     assert dossier["ttm"]["net_profit"] == 26892.0
     assert dossier["ttm"]["eps"] == 2.545
-    assert dossier["ttm"]["pe"] == 9.63
-    assert dossier["ttm"]["price"] == 24.50
+    assert dossier["ttm"]["pe"] == 9.74
+    assert dossier["ttm"]["price"] == 24.80
 
     assert dossier["pe_history"]["median"] == 11.35
     assert dossier["pe_history"]["percentile"] == 0.0
@@ -55,11 +56,66 @@ def test_dossier(refreshed):
                for i in insights["key_indicators"])
     assert insights["summary"]  # non-empty, honest Polish summary
     assert insights["coverage"]["available"] >= 5
-    # stale fixture price (2025-07-01) must be flagged, not glossed over
-    assert any("Kurs sprzed" in note for note in insights["data_notes"])
+    assert not any("Kurs sprzed" in note for note in insights["data_notes"])
 
     assert dossier["latest_forecast"] is None
-    assert dossier["forum"] == {"topics": 0, "posts": 0, "last_post_at": None}
+    assert dossier["forum"] == {
+        "topics": 0,
+        "posts": 0,
+        "last_post_at": None,
+        "intelligence": None,
+    }
+    assert dossier["analysis_context_status"]["premium"]["has_enterprise_value"] is True
+
+
+def test_consensus_eps_basis_uses_sane_biznesradar_net_income():
+    market_snapshot = {
+        "forecast_consensus": {
+            "2026": {
+                "net_income": {
+                    "value": 10_000.0,
+                    "unit": "tys. PLN",
+                    "source": "biznesradar_forecasts",
+                },
+                "pe": {"value": 10.0, "unit": "x", "source": "biznesradar_forecasts"},
+            }
+        }
+    }
+
+    basis = dossier_service._consensus_eps_basis(
+        market_snapshot,
+        shares_outstanding=1_000_000,
+        current_price=100.0,
+    )
+
+    assert basis == {
+        "source": "biznesradar_forecasts",
+        "source_field": "market_data.forecast_consensus.2026.net_income",
+        "source_detail": "biznesradar_forecasts",
+        "year": "2026",
+        "net_income_tys_pln": 10_000.0,
+        "eps": 10.0,
+    }
+
+
+def test_consensus_eps_basis_rejects_inconsistent_consensus_pe():
+    market_snapshot = {
+        "forecast_consensus": {
+            "2026": {
+                "net_income": {"value": 9_200_000.0, "unit": "tys. PLN"},
+                "pe": {"value": 40.1, "unit": "x"},
+            }
+        }
+    }
+
+    assert (
+        dossier_service._consensus_eps_basis(
+            market_snapshot,
+            shares_outstanding=10_566_435,
+            current_price=24.8,
+        )
+        is None
+    )
 
 
 def test_income_series_prefers_parent_net_profit(refreshed, db):
@@ -115,7 +171,7 @@ def test_forecast_preview_compute_save_and_dossier_pickup(refreshed):
     ).json()
     assert preview["id"] is None
     assert preview["result"]["pnl"]["net_profit"] == 7904.8
-    assert preview["result"]["forward"]["pe"] == 9.02
+    assert preview["result"]["forward"]["pe"] == 9.13
     assert refreshed.get("/api/companies/DEC/forecasts").json() == []
 
     # save: persisted with attribution from the proxy header
@@ -130,9 +186,9 @@ def test_forecast_preview_compute_save_and_dossier_pickup(refreshed):
     forecasts = refreshed.get("/api/companies/DEC/forecasts").json()
     assert len(forecasts) == 1
 
-    # the dossier now uses forward P/E (9.02) for the valuation check
+    # the dossier now uses forward P/E (9.13) for the valuation check
     dossier = refreshed.get("/api/companies/DEC").json()
-    assert dossier["latest_forecast"]["result"]["forward"]["pe"] == 9.02
+    assert dossier["latest_forecast"]["result"]["forward"]["pe"] == 9.13
     pe_check = next(
         c for c in dossier["prescore"]["checks"] if c["id"] == "pe_vs_history"
     )

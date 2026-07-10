@@ -1,7 +1,7 @@
 "use client";
 
 /** Engaging async states: a spinner with rotating, context-aware messages
- * (the Claude-style "visible thinking"), or skeleton placeholders. */
+ * or skeleton placeholders. */
 import { useEffect, useState } from "react";
 
 const DEFAULT_MESSAGES = [

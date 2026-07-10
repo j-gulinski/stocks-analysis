@@ -32,7 +32,7 @@ from app.db.models import (
 )
 from app.scrapers import biznesradar
 from app.scrapers import http as polite_http
-from app.services import fields
+from app.services import fields, market_data
 
 # report pages: kind -> (statement, freq)
 REPORT_PAGES: dict[str, tuple[str, str]] = {
@@ -60,10 +60,11 @@ def _build_br_session(summary: dict[str, str]) -> requests.Session | None:
     failure is recorded in the summary and the refresh continues anonymously
     (identical to pre-P1.9 behaviour) rather than aborting.
 
-    ASSUMPTION CAVEAT: BiznesRadar's real login markup is unverified in this
-    codebase (see app/scrapers/biznesradar.py BrClient docstring) — an
-    "error" here may mean the parser needs correcting against a real
-    recorded login page, not that BR_USERNAME/BR_PASSWORD are wrong.
+    The login recipe (POST /login/ with {email, password}, confirmed by the
+    'account-settings' homepage marker) is verified live — see
+    app/scrapers/biznesradar.py BrClient. A recorded "error" here therefore
+    points at the credentials (BR_USERNAME is the account e-mail / BR_PASSWORD)
+    or a site change, not at unverified plumbing.
     """
     settings = get_settings()
     if not (settings.br_username and settings.br_password):
@@ -87,9 +88,9 @@ def _build_br_session(summary: dict[str, str]) -> requests.Session | None:
 def check_br_login() -> dict:
     """Diagnostics endpoint: verifies BR_USERNAME/BR_PASSWORD actually work.
 
-    Mirrors app.services.forum_sync.check_login(). Must NEVER raise. See the
-    ASSUMPTION CAVEAT on _build_br_session/BrClient — a real recorded login
-    page has not been verified in this environment.
+    Mirrors app.services.forum_sync.check_login(). Must NEVER raise. Performs a
+    real login round-trip (POST /login/ + 'account-settings' marker check)
+    using the verified recipe in app/scrapers/biznesradar.py BrClient.
     """
     settings = get_settings()
     if not (settings.br_username and settings.br_password):
@@ -154,6 +155,12 @@ def _get_page(
         raise LookupError(f"404 for {url}")
     response.raise_for_status()  # non-retryable, non-404 errors are real errors
     return response.text
+
+
+def _merge_premium_nodes(db: Session, company: Company, html: str) -> None:
+    parsed = biznesradar.parse_premium_market_data(html).to_dict()
+    if any(parsed.get(key) for key in ("forecast_consensus", "advanced_metrics", "dividend_coverage")):
+        market_data.merge_premium_market_data(db, company, parsed)
 
 
 # ------------------------------------------------------------------ upserts
@@ -322,7 +329,7 @@ def refresh_company(
         every_page_failed = all(
             status.startswith(("error", "none"))
             for key, status in summary.items()
-            if key != "br_login"
+            if key not in ("br_login", "forecasts")
         )
         if every_page_failed and company.name is None and not _has_any_data(db, company):
             db.commit()  # keep fetch_log entries for debugging
@@ -330,6 +337,9 @@ def refresh_company(
                 f"Ticker '{company.ticker}' not found on BiznesRadar "
                 f"(all pages failed: {summary})."
             )
+        _refresh_forecasts(db, company, force, summary, session=br_session)
+        market_data.upsert_company_market_data(db, company)
+        summary["company_market_data"] = "ok (priority AI context refreshed)"
 
     if scope in ("prices", "all"):
         if scope == "prices":
@@ -351,6 +361,7 @@ def refresh_company(
 
     if scope == "all":
         summary["forum"] = _sync_linked_forum_topics(db, company, force=force)
+        summary["forum_expectations"] = _refresh_forum_expectations(db, company)
 
     # Fetch-volume transparency: exactly how many HTTP requests this refresh
     # made (0 when everything came from the 24 h cache).
@@ -407,11 +418,143 @@ def _refresh_profile(
     # Reported market cap/EV (PLN) — authoritative for size classification.
     company.market_cap = profile.market_cap or company.market_cap
     company.enterprise_value = profile.enterprise_value or company.enterprise_value
+    _merge_premium_nodes(db, company, html)
     detail = "ok" if company.br_slug else "ok (no slug — using ticker)"
     if profile.market_cap is not None:
         detail += f" (mcap {profile.market_cap / 1e6:,.0f} mln zł)".replace(",", " ")
     summary["profile"] = detail
     return profile.price
+
+
+# Forecast rows whose value is money (mln zł on the page, already converted
+# to tys. PLN by parse_forecasts) vs a plain percent/ratio — decides which
+# unit tag lands in CompanyMarketData.forecast_consensus / advanced_metrics.
+_FORECAST_MONEY_UNITS = {
+    "revenue": "tys. PLN",
+    "ebitda": "tys. PLN",
+    "operating_profit": "tys. PLN",
+    "net_income": "tys. PLN",
+    "capex": "tys. PLN",
+    "depreciation": "tys. PLN",
+    "ebitda_margin_pct": "%",
+    "operating_margin_pct": "%",
+    "net_margin_pct": "%",
+    "pe": "x",
+}
+# O4K (TTM) rows worth keeping as their own advanced_metrics entry — feeds
+# scenarios.ScenarioInputs.ebitda_ttm (EV/EBITDA scenarios for energy names)
+# plus two adjacent TTM facts the AI prompt can use as-is.
+_FORECAST_TTM_METRICS = ("ebitda", "capex", "depreciation")
+
+
+def _upsert_forecasts(
+    db: Session, company: Company, table: biznesradar.ForecastTable
+) -> tuple[list[str], list[str]]:
+    """Merge a parsed /prognozy table into CompanyMarketData.
+
+    Reuses market_data.merge_premium_market_data (same merge semantics as the
+    premium-session path) so both sources stay compatible: konsensus columns
+    -> forecast_consensus[year][metric], the O4K column's
+    ebitda/capex/depreciation -> advanced_metrics as *_ttm facts. Returns
+    (consensus years written, ttm metric keys written) for the summary line.
+    """
+    forecast_consensus: dict[str, dict[str, dict]] = {}
+    ttm_metrics: dict[str, dict] = {}
+    ttm_column_index = next(
+        (i for i, c in enumerate(table.columns) if c.kind == "raport_ttm"), None
+    )
+
+    for row in table.rows:
+        if row.metric is None:
+            continue
+        for column, value in zip(table.columns, row.values):
+            if value is None or column.kind != "konsensus":
+                continue
+            forecast_consensus.setdefault(column.label, {})[row.metric] = {
+                "value": value,
+                "unit": _FORECAST_MONEY_UNITS.get(row.metric, ""),
+                "source": "biznesradar_forecasts",
+            }
+        if (
+            ttm_column_index is not None
+            and row.metric in _FORECAST_TTM_METRICS
+            and ttm_column_index < len(row.values)
+            and row.values[ttm_column_index] is not None
+        ):
+            ttm_metrics[f"{row.metric}_ttm"] = {
+                "value": row.values[ttm_column_index],
+                "unit": "tys. PLN",
+                "source": "biznesradar_forecasts_o4k",
+            }
+
+    premium_shaped = {"forecast_consensus": forecast_consensus, "advanced_metrics": ttm_metrics}
+    if forecast_consensus or ttm_metrics:
+        market_data.merge_premium_market_data(db, company, premium_shaped)
+    return sorted(forecast_consensus.keys()), sorted(ttm_metrics.keys())
+
+
+def _refresh_forecasts(
+    db: Session,
+    company: Company,
+    force: bool,
+    summary: dict[str, str],
+    session: requests.Session | None = None,
+) -> None:
+    """Analyst forecasts (/prognozy/{slug}).
+
+    VERIFIED live 2026-07-09: this page is PUBLIC (anonymous OK) — it was
+    previously wrongly gated behind a premium BR session in
+    `_refresh_premium_forecasts` (renamed here), which meant every refresh
+    without BR_USERNAME/BR_PASSWORD configured silently skipped it even
+    though no login is needed at all. Fetched anonymously through the same
+    slug/redirect discipline as every other report page (`_report_slug`),
+    with `session` still threaded through so an active premium session (if
+    any) reuses its cookies rather than a second anonymous round-trip.
+
+    `_merge_premium_nodes` runs first (same as every other fetched BR page)
+    so any ROIC/FCF/EV/dividend-coverage node BiznesRadar happens to render
+    on this page is still picked up — this IS "the premium path as a
+    secondary merge" for this page now; there is no separate paid variant of
+    /prognozy to fetch, the anonymous and logged-in HTML are the same table.
+    """
+    url = biznesradar.page_url("forecasts", _report_slug(company))
+    try:
+        html = _get_page(db, url, force, session=session)
+    except (LookupError, polite_http.FetchError, requests.RequestException) as exc:
+        logger.warning("forecasts refresh failed for %s: %s", company.ticker, exc)
+        summary["forecasts"] = f"error: {exc}"
+        return
+    if html is None:
+        summary["forecasts"] = "cached"
+        return
+
+    _merge_premium_nodes(db, company, html)
+    try:
+        table = biznesradar.parse_forecasts(html)
+    except biznesradar.ParseError as exc:
+        logger.warning("forecasts parse failed for %s: %s", company.ticker, exc)
+        summary["forecasts"] = f"error: {exc}"
+        return
+
+    consensus_years, ttm_keys = _upsert_forecasts(db, company, table)
+    consensus_columns = [c.label for c in table.columns if c.kind == "konsensus"]
+    if consensus_years:
+        detail = f"ok ({', '.join(consensus_years)} consensus)"
+    elif consensus_columns:
+        detail = (
+            "ok (kolumny konsensusu bez wartości: "
+            f"{', '.join(consensus_columns)})"
+        )
+    else:
+        detail = "ok (brak kolumn konsensusu)"
+    if ttm_keys:
+        detail += f"; O4K: {', '.join(ttm_keys)}"
+    if table.unmapped_labels:
+        shown = ", ".join(sorted(set(table.unmapped_labels))[:4])
+        more_count = len(set(table.unmapped_labels)) - 4
+        more = f" +{more_count}" if more_count > 0 else ""
+        detail += f"; pominięte: {shown}{more}"
+    summary["forecasts"] = detail
 
 
 def _table_detail(table: biznesradar.ReportTable) -> str:
@@ -449,6 +592,7 @@ def _refresh_reports(
             if html is None:
                 summary[kind] = "cached"
                 continue
+            _merge_premium_nodes(db, company, html)
             table = biznesradar.parse_report_table(html, freq)
             count = _upsert_report_values(db, company, statement, table, replace=force)
             summary[kind] = f"ok ({count} values{_table_detail(table)}){_grid_warning(table)}"
@@ -476,6 +620,7 @@ def _refresh_indicators(
             if html is None:
                 summary[kind] = "cached"
                 continue
+            _merge_premium_nodes(db, company, html)
             table = biznesradar.parse_report_table(html, freq="Q")
             count, unmapped = _upsert_indicators(db, company, table)
             note = ""
@@ -507,6 +652,7 @@ def _refresh_dividends(
         if html is None:
             summary["dividends"] = "cached"
             return
+        _merge_premium_nodes(db, company, html)
         entries = biznesradar.parse_dividends(html)
         count = _upsert_dividends(db, company, entries)
         summary["dividends"] = f"ok ({count} years)"
@@ -659,12 +805,68 @@ def _forum_sync_is_fresh(synced_at: datetime | None) -> bool:
     return synced_at >= threshold
 
 
-def _sync_linked_forum_topics(db: Session, company: Company, force: bool = False) -> str:
-    """Incrementally reload already-linked PortalAnaliz topics after refresh.
+def _discover_forum_topics(
+    db: Session, company: Company, force: bool
+) -> tuple[str, int]:
+    """Discover + auto-link this company's PA threads via the forum search.
 
-    Topic discovery/search remains manual to avoid broad crawling. Linked
-    threads are user-approved sources, so a single polite incremental sync per
-    topic fits the normal refresh workflow.
+    Gated by the same 24 h FetchLog freshness the BR pages use, keyed on the
+    ticker search URL, so the forum search is hit at most once/24 h per company.
+    Newly linked topics get an immediate bounded recent-sync (max_pages=2) — the
+    recent window, NOT a deep historical crawl. Returns (note, new_posts) and
+    NEVER raises: any forum/search failure degrades to a readable note, exactly
+    like _build_br_session, so the whole refresh is never aborted.
+    """
+    from app.scrapers import portalanaliz
+    from app.services import forum_sync
+
+    settings = get_settings()
+    if not (settings.pa_username and settings.pa_password):
+        return "wyszukiwarka pominięta (brak logowania PA)", 0
+
+    marker = portalanaliz.search_url(company.ticker, settings.pa_base_url)
+    if not force and _is_fresh(db, marker):
+        return "wyszukiwarka pominięta (cache)", 0
+
+    new_posts = 0
+    try:
+        client = forum_sync._make_client()  # logs in when creds are configured
+        result = forum_sync.discover_and_link_topics(db, client, company, max_new=3)
+        for topic in result.linked:
+            try:
+                added, _total = forum_sync.sync_topic_recent(db, topic, max_pages=2)
+                new_posts += added
+            except (portalanaliz.ForumError, polite_http.FetchError, requests.RequestException) as exc:
+                db.rollback()
+                logger.warning("discover recent-sync failed for %s: %s", company.ticker, exc)
+        # Mark the search fetched so the 24 h gate holds even when 0 new topics.
+        _log_fetch(db, marker, 200)
+        db.commit()
+        note = (
+            f"wyszukiwarka: +{len(result.linked)} wątki"
+            if result.linked
+            else "wyszukiwarka: brak nowych wątków"
+        )
+        return note, new_posts
+    except portalanaliz.NeedsLoginError:
+        # Blocked even after the retry — cache the marker so we don't re-hit a
+        # search we cannot use for another 24 h.
+        _log_fetch(db, marker, 200)
+        db.commit()
+        return "wyszukiwarka: wymaga logowania PA", new_posts
+    except (portalanaliz.ForumError, polite_http.FetchError, requests.RequestException) as exc:
+        db.rollback()
+        logger.warning("forum discovery failed for %s: %s", company.ticker, exc)
+        return f"wyszukiwarka: błąd ({str(exc)[:80]})", new_posts
+
+
+def _sync_linked_forum_topics(db: Session, company: Company, force: bool = False) -> str:
+    """Reload linked PortalAnaliz topics, then discover new ones via search.
+
+    Two bounded steps: (1) incremental recent-sync of already-linked (user- or
+    auto-approved) threads; (2) a search-driven discovery pass, gated to once/
+    24 h, that auto-links freshly found company threads. Both degrade to a
+    summary note on failure — one bad forum request never fails the refresh.
     """
     from app.db.models import ForumPost, ForumTopic
     from app.scrapers import portalanaliz
@@ -673,27 +875,13 @@ def _sync_linked_forum_topics(db: Session, company: Company, force: bool = False
     topics = db.scalars(
         select(ForumTopic).where(ForumTopic.company_id == company.id)
     ).all()
-    if not topics:
-        return "pominięto (brak powiązanych wątków)"
-
-    due_topics = [
-        topic for topic in topics if force or not _forum_sync_is_fresh(topic.last_synced_at)
-    ]
-    if not due_topics:
-        total_posts = int(
-            db.scalar(
-                select(func.count())
-                .select_from(ForumPost)
-                .join(ForumTopic, ForumPost.topic_id == ForumTopic.id)
-                .where(ForumTopic.company_id == company.id)
-            )
-            or 0
-        )
-        return f"cached ({len(topics)} wątków; łącznie {total_posts})"
 
     synced = 0
     new_posts = 0
     errors: list[str] = []
+    due_topics = [
+        topic for topic in topics if force or not _forum_sync_is_fresh(topic.last_synced_at)
+    ]
     for topic in due_topics:
         topic_id = topic.id
         try:
@@ -704,6 +892,11 @@ def _sync_linked_forum_topics(db: Session, company: Company, force: bool = False
             db.rollback()
             errors.append(f"{topic_id}: {exc}")
 
+    # Discovery runs regardless of whether any topic was linked yet — this is
+    # how a company gets its first thread without a manual paste.
+    discovery_note, discovered_posts = _discover_forum_topics(db, company, force)
+    new_posts += discovered_posts
+
     total_posts = int(
         db.scalar(
             select(func.count())
@@ -713,9 +906,40 @@ def _sync_linked_forum_topics(db: Session, company: Company, force: bool = False
         )
         or 0
     )
+    topic_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(ForumTopic)
+            .where(ForumTopic.company_id == company.id)
+        )
+        or 0
+    )
+
     if errors:
-        return (
-            f"częściowo ({synced}/{len(due_topics)} wątków; {new_posts} nowych; "
+        base = (
+            f"częściowo ({synced}/{len(due_topics)} wątków; +{new_posts} postów; "
             f"łącznie {total_posts}; błędy: {' | '.join(errors)[:160]})"
         )
-    return f"ok ({synced} odświeżonych z {len(topics)}; {new_posts} nowych; łącznie {total_posts})"
+    else:
+        base = f"ok (+{new_posts} postów; {topic_count} wątków; łącznie {total_posts})"
+    return f"{base}; {discovery_note}"
+
+
+def _refresh_forum_expectations(db: Session, company: Company) -> str:
+    """P5.9b: distil this refresh's synced forum posts (content now stored,
+    see `forum_sync._store_posts`) into investment-expectation claims
+    (services/forum_expectations.py) — the AI verdict prefers these over the
+    keyword-heuristic `distilled_facts` (see api/analyses.py). Runs right
+    after forum sync so it sees any posts/backfilled content this refresh
+    just wrote. Never fails the refresh: `refresh_expectations` degrades to
+    status="error"/"skipped" internally rather than raising, same contract as
+    `_discover_forum_topics` above.
+    """
+    from app.services import forum_expectations
+
+    result = forum_expectations.refresh_expectations(db, company)
+    if result.status == "ok":
+        return f"ok ({result.claim_count} twierdzeń)"
+    if result.status == "skipped":
+        return "pominięto (brak klucza API)"
+    return f"błąd: {result.detail}"

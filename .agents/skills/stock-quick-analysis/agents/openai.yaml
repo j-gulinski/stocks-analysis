@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stock Quick Analysis"
+  short_description: "Create a verified compact company read."
+  default_prompt: "Quick analyze a ticker from my stock workbench."

@@ -133,6 +133,30 @@ class Price(Base):
     volume: Mapped[int | None] = mapped_column(BigInteger)
 
 
+class CompanyMarketData(Base):
+    """Priority market/premium facts for the AI prompt pipeline.
+
+    This compact row keeps the context Claude needs close at hand: industry
+    type, premium consensus, ROIC/FCF/EV, and FCF dividend coverage. The normal
+    statement/indicator tables remain the source of truth for raw numerics.
+    """
+
+    __tablename__ = "company_market_data"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), unique=True
+    )
+    industry_type: Mapped[str | None] = mapped_column(String(80))
+    priority_values: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    forecast_consensus: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    advanced_metrics: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    dividend_coverage: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class ForumTopic(Base):
     __tablename__ = "forum_topics"
 
@@ -163,11 +187,45 @@ class ForumPost(Base):
     phpbb_post_id: Mapped[int] = mapped_column(Integer)  # stable id from div#p{id}
     author: Mapped[str] = mapped_column(String(100))
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    content_text: Mapped[str] = mapped_column(Text)
-    content_html: Mapped[str | None] = mapped_column(Text)
     upvotes: Mapped[int | None] = mapped_column(Integer)  # forum likes/thanks, if shown
+    # Raw post body (plain text, HTML stripped) — the parser has always
+    # produced this (ParsedPost.content_text) but syncs used to discard it,
+    # so nothing fed the AI distiller. Nullable: rows written before this
+    # column existed have NULL until a resync backfills them (see
+    # forum_sync._store_posts). Truncated at storage time — see
+    # forum_sync._CONTENT_CHAR_LIMIT for why.
+    content_text: Mapped[str | None] = mapped_column(Text)
 
     topic: Mapped[ForumTopic] = relationship(back_populates="posts")
+
+
+class ForumIntelligence(Base):
+    """Structured PortalAnaliz intelligence, without raw forum message bodies."""
+
+    __tablename__ = "forum_intelligence"
+    __table_args__ = (
+        UniqueConstraint("company_id", "source", name="uq_forum_intelligence_source"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    source: Mapped[str] = mapped_column(String(60), default="portal_analiz")
+    industry_type: Mapped[str | None] = mapped_column(String(80))
+    last_30d_post_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_30d_active_user_count: Mapped[int] = mapped_column(Integer, default=0)
+    activity_spikes: Mapped[list] = mapped_column(JSONVariant, default=list)
+    community_sentiment: Mapped[str | None] = mapped_column(String(30))
+    distilled_facts: Mapped[list] = mapped_column(JSONVariant, default=list)
+    # AI-distilled investment expectations (services/forum_expectations.py,
+    # P5.9b): {"claims": [DistilledClaim dicts], "model", "updated_at",
+    # "source_post_count"}. Separate from `distilled_facts` (the cheap
+    # keyword-heuristic pass above) — this is the Claude-classified read the
+    # verdict prompt prefers when present (see api/analyses.py). Nullable:
+    # no ANTHROPIC_API_KEY configured means this column simply stays empty.
+    expectations: Mapped[dict | None] = mapped_column(JSONVariant)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
 
 
 class WatchlistItem(Base):
@@ -206,11 +264,249 @@ class Analysis(Base):
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
     model: Mapped[str] = mapped_column(String(60))
     prescore: Mapped[dict | None] = mapped_column(JSONVariant)
+    input_snapshot: Mapped[dict | None] = mapped_column(JSONVariant)
+    input_hash: Mapped[str | None] = mapped_column(String(64))
     output: Mapped[dict | None] = mapped_column(JSONVariant)
     alignment_score: Mapped[int | None] = mapped_column(Integer)
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     created_by: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AgentRun(Base):
+    """One Codex-operated workflow run.
+
+    This is the durable audit trail for CX workflows: what was requested, which
+    role/model handled it, and what changed. UI-visible analysis lives in
+    `analysis_runs`; this row tracks the broader orchestration.
+    """
+
+    __tablename__ = "agent_runs"
+    __table_args__ = (
+        Index("ix_agent_runs_status_created", "status", "created_at"),
+        Index("ix_agent_runs_workflow_created", "workflow", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workflow: Mapped[str] = mapped_column(String(80))
+    trigger: Mapped[str] = mapped_column(String(30), default="manual")
+    status: Mapped[str] = mapped_column(String(30), default="queued")
+    company_id: Mapped[int | None] = mapped_column(
+        ForeignKey("companies.id", ondelete="SET NULL")
+    )
+    model_role: Mapped[str | None] = mapped_column(String(40))
+    model: Mapped[str | None] = mapped_column(String(80))
+    orchestrator_model: Mapped[str | None] = mapped_column(String(80))
+    inputs: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    outputs: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class AnalysisRun(Base):
+    """Provider-neutral analysis visible to the app after Codex/API workflows."""
+
+    __tablename__ = "analysis_runs"
+    __table_args__ = (
+        Index("ix_analysis_runs_company_created", "company_id", "created_at"),
+        Index("ix_analysis_runs_status_created", "status", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    agent_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL")
+    )
+    source: Mapped[str] = mapped_column(String(40), default="codex_skill")
+    workflow: Mapped[str] = mapped_column(String(80))
+    model_role: Mapped[str] = mapped_column(String(40))
+    model: Mapped[str] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(30), default="draft")
+    verification_status: Mapped[str] = mapped_column(String(30), default="pending")
+    input_snapshot: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    output: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    verification: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    alignment_score: Mapped[int | None] = mapped_column(Integer)
+    created_by: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class VerificationRun(Base):
+    """Strict verifier result for an agent/analysis run."""
+
+    __tablename__ = "verification_runs"
+    __table_args__ = (
+        Index("ix_verification_runs_agent_created", "agent_run_id", "created_at"),
+        Index("ix_verification_runs_analysis_created", "analysis_run_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    agent_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE")
+    )
+    analysis_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="SET NULL")
+    )
+    model_role: Mapped[str] = mapped_column(String(40), default="verifier_strict")
+    verifier_model: Mapped[str] = mapped_column(String(80))
+    verdict: Mapped[str] = mapped_column(String(30))
+    checks: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    summary: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class EventReport(Base):
+    """ESPI/EBI or other source event tied to a company."""
+
+    __tablename__ = "event_reports"
+    __table_args__ = (
+        UniqueConstraint("source", "external_id", name="uq_event_report_source_id"),
+        Index("ix_event_reports_company_published", "company_id", "published_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int | None] = mapped_column(
+        ForeignKey("companies.id", ondelete="SET NULL")
+    )
+    source: Mapped[str] = mapped_column(String(40))
+    external_id: Mapped[str] = mapped_column(String(120))
+    raw_url: Mapped[str | None] = mapped_column(String(500))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scraped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    title: Mapped[str | None] = mapped_column(String(500))
+    raw_text: Mapped[str | None] = mapped_column(Text)
+    parsed: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    materiality: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+
+
+class CandidateRun(Base):
+    """One saved candidate-screening result for a company."""
+
+    __tablename__ = "candidate_runs"
+    __table_args__ = (
+        Index("ix_candidate_runs_company_created", "company_id", "created_at"),
+        Index("ix_candidate_runs_score_created", "score", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int | None] = mapped_column(
+        ForeignKey("companies.id", ondelete="SET NULL")
+    )
+    agent_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL")
+    )
+    workflow: Mapped[str] = mapped_column(String(80), default="stock-candidate-scout")
+    model_role: Mapped[str] = mapped_column(String(40))
+    model: Mapped[str] = mapped_column(String(80))
+    score: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(30), default="draft")
+    verification_status: Mapped[str] = mapped_column(String(30), default="pending")
+    reasons: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    missing_data: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class BacktestRun(Base):
+    """A deterministic replay run, optionally interpreted by Codex."""
+
+    __tablename__ = "backtest_runs"
+    __table_args__ = (Index("ix_backtest_runs_strategy_created", "strategy", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    agent_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL")
+    )
+    strategy: Mapped[str] = mapped_column(String(80))
+    from_date: Mapped[date | None] = mapped_column(Date)
+    to_date: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(30), default="draft")
+    model_role: Mapped[str | None] = mapped_column(String(40))
+    model: Mapped[str | None] = mapped_column(String(80))
+    parameters: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    summary: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    verification_status: Mapped[str] = mapped_column(String(30), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class BacktestObservation(Base):
+    """One point-in-time company observation inside a backtest run."""
+
+    __tablename__ = "backtest_observations"
+    __table_args__ = (
+        Index("ix_backtest_observations_run_date", "backtest_run_id", "as_of_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    backtest_run_id: Mapped[int] = mapped_column(
+        ForeignKey("backtest_runs.id", ondelete="CASCADE")
+    )
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    as_of_date: Mapped[date] = mapped_column(Date)
+    known_inputs: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    signal: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    outcome: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AgentEvaluationRun(Base):
+    """Replay saved agent outputs against future outcomes."""
+
+    __tablename__ = "agent_evaluation_runs"
+    __table_args__ = (
+        Index(
+            "ix_agent_evaluation_runs_strategy_created",
+            "strategy",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    agent_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL")
+    )
+    strategy: Mapped[str] = mapped_column(String(80))
+    from_date: Mapped[date | None] = mapped_column(Date)
+    to_date: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(30), default="draft")
+    model_role: Mapped[str | None] = mapped_column(String(40))
+    model: Mapped[str | None] = mapped_column(String(80))
+    parameters: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    summary: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    verification_status: Mapped[str] = mapped_column(String(30), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AgentEvaluationObservation(Base):
+    """One saved agent prediction with future outcomes attached."""
+
+    __tablename__ = "agent_evaluation_observations"
+    __table_args__ = (
+        Index(
+            "ix_agent_evaluation_observations_run_created",
+            "evaluation_run_id",
+            "as_of_date",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    evaluation_run_id: Mapped[int] = mapped_column(
+        ForeignKey("agent_evaluation_runs.id", ondelete="CASCADE")
+    )
+    analysis_run_id: Mapped[int] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE")
+    )
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    as_of_date: Mapped[date] = mapped_column(Date)
+    known_inputs: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    prediction: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    outcome: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    score: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

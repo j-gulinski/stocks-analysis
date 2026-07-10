@@ -18,6 +18,9 @@ URL_TO_FIXTURE = {
     "/wskazniki-wartosci-rynkowej/DEC": "br_indicators_value.html",
     "/wskazniki-rentownosci/DEC": "br_indicators_profitability.html",
     "/dywidenda/DEC": "br_dividend.html",
+    # /prognozy is a PUBLIC page (verified live 2026-07-09) — no premium
+    # session needed; see app/services/refresh.py `_refresh_forecasts`.
+    "/prognozy/DEC": "br_forecasts.html",
 }
 
 
@@ -82,10 +85,17 @@ def test_refresh_and_read_endpoints(client, stub_fetch):
     assert summary["indicators_profitability"].startswith("ok (20 values")
     assert "Marża zysku brutto" in summary["indicators_profitability"]
     assert summary["dividends"] == "ok (3 years)"
+    # public /prognozy page (no premium session needed) — consensus years,
+    # the O4K TTM facts, and the synthetic unmapped row all round-trip
+    assert summary["forecasts"] == (
+        "ok (2026, 2027, 2028 consensus); "
+        "O4K: capex_ttm, depreciation_ttm, ebitda_ttm; "
+        "pominięte: Dług netto / kapitał własny"
+    )
     assert summary["prices"].startswith("ok (6 new days")
     assert "BR archiwum" in summary["prices"]
-    # 8 BR financial pages + 1 BR price-history page
-    assert summary["requests"] == "ok (9 HTTP)"
+    # 8 BR financial/statement pages + forecasts + 1 BR price-history page
+    assert summary["requests"] == "ok (10 HTTP)"
 
     info = client.get("/api/companies/DEC/info").json()
     assert info["name"] == "DECORA"
@@ -119,6 +129,22 @@ def test_refresh_and_read_endpoints(client, stub_fetch):
     assert prices[-1]["close"] == 24.80  # chronological, newest from BR archive
 
 
+def test_refresh_reports_empty_forecast_consensus_columns(client, monkeypatch):
+    def fetch_with_empty_forecasts(url, *, session=None, timeout=None):
+        if url == "https://www.biznesradar.pl/prognozy/DEC":
+            return FakeResponse(load_fixture("br_forecasts_empty_consensus.html"), 200)
+        return fake_fetch(url, session=session, timeout=timeout)
+
+    monkeypatch.setattr("app.scrapers.http.fetch", fetch_with_empty_forecasts)
+
+    summary = client.post("/api/companies/DEC/refresh").json()["summary"]
+
+    assert summary["forecasts"].startswith(
+        "ok (kolumny konsensusu bez wartości: 2026, 2027, 2028)"
+    )
+    assert "O4K: capex_ttm, depreciation_ttm, ebitda_ttm" in summary["forecasts"]
+
+
 def test_second_refresh_uses_cache(client, stub_fetch):
     assert client.post("/api/companies/DEC/refresh").status_code == 200
     summary = client.post("/api/companies/DEC/refresh").json()["summary"]
@@ -133,7 +159,7 @@ def test_second_refresh_uses_cache(client, stub_fetch):
 
 URL_TO_FIXTURE_PAGES = [
     "profile", "income_q", "income_y", "balance_q", "cashflow_q",
-    "indicators_value", "indicators_profitability", "dividends",
+    "indicators_value", "indicators_profitability", "dividends", "forecasts",
 ]
 
 

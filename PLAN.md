@@ -103,7 +103,7 @@ Note on `pa-scraper.zip`: treated as **reference only**. The phpBB login/paginat
 | PostgreSQL in docker-compose | Chosen; JSONB for forecasts/analyses, proper upserts for scraped series |
 | SQLAlchemy 2 + Alembic | Plain ORM + migrations — minimum viable maintainability for an evolving schema |
 | requests + BeautifulSoup | Proven against both sites by the reference scraper; no browser automation needed |
-| anthropic Python SDK | Module D; model set via config (default `claude-sonnet-5`) |
+| anthropic Python SDK | Module D; model set via config (default `claude-sonnet-4-6`) |
 | recharts (frontend) | Simple quarterly bar/line charts like his Excel "Wykresy" sheet |
 | Auth.js (NextAuth) + Google provider | Friends log in with Google; allowlisted emails only; added in deploy phase — local dev stays open |
 | Vercel (frontend) + Railway (backend, Postgres) | Free/cheap (~$5/mo), zero server admin, backend stays a normal long-running process |
@@ -241,7 +241,7 @@ claims labeled with confidence, not raw posts.
 
 Output schema: `thesis` (or "no thesis found"), `catalysts[]` (type, description, horizon, priced-in?), `checklist[]` (item, verdict, evidence), `red_flags[]`, `one_off_risk`, `forum_insights`, `alignment_score` 0–100, `potential` (upside/downside case), `verify_next[]` (what to check after next report), `summary_pl`.
 
-Model default `claude-sonnet-5`, configurable (`ANTHROPIC_MODEL`). Token counts logged per run. Each analysis stores its input snapshot → re-run after next quarterly report and diff verdicts = the "thesis verification" loop from the strategy.
+Model default `claude-sonnet-4-6`, configurable (`ANTHROPIC_MODEL`). Token counts logged per run. Each analysis stores its input snapshot → re-run after next quarterly report and diff verdicts = the "thesis verification" loop from the strategy.
 
 ## 9. Config & secrets
 

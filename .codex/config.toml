@@ -1,0 +1,49 @@
+# Project-scoped Codex config for the Stock Analysis Workbench.
+# Codex loads this only after the project is trusted.
+
+[mcp_servers.stock_workbench]
+command = "python3"
+args = ["backend/scripts/stock_workbench_mcp.py"]
+# Project config paths are resolved relative to this `.codex/` folder; `..`
+# starts the MCP server from the repository root.
+cwd = ".."
+startup_timeout_sec = 10
+tool_timeout_sec = 60
+default_tools_approval_mode = "prompt"
+
+[mcp_servers.stock_workbench.tools.get_watchlist]
+approval_mode = "auto"
+
+[mcp_servers.stock_workbench.tools.get_company_dossier]
+approval_mode = "auto"
+
+[mcp_servers.stock_workbench.tools.list_queued_agent_runs]
+approval_mode = "auto"
+
+[mcp_servers.stock_workbench.tools.get_recent_source_deltas]
+approval_mode = "auto"
+
+[mcp_servers.stock_workbench.tools.rank_candidates]
+approval_mode = "auto"
+
+[mcp_servers.stock_workbench.tools.run_backtest]
+approval_mode = "auto"
+
+[mcp_servers.stock_workbench.tools.poll_espi_watchlist]
+approval_mode = "prompt"
+
+[mcp_servers.stock_workbench.tools.prepare_pre_session_brief]
+approval_mode = "prompt"
+
+# Mutating tools intentionally keep prompt approval.
+[mcp_servers.stock_workbench.tools.queue_agent_run]
+approval_mode = "prompt"
+
+[mcp_servers.stock_workbench.tools.claim_agent_run]
+approval_mode = "prompt"
+
+[mcp_servers.stock_workbench.tools.save_analysis_run]
+approval_mode = "prompt"
+
+[mcp_servers.stock_workbench.tools.mark_verification_result]
+approval_mode = "prompt"

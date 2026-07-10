@@ -72,8 +72,23 @@ def _inputs(n_indicators=3, n_hist=8):
         pe_history=_hist(n_hist),
         net_cash={"value": 12000.0, "note": ""})
     return scenarios.ScenarioInputs(
-        thesis_inputs=ti, multiple_history=_hist(n_hist),
-        eps=2.5, shares_outstanding=10_000_000, current_price=25.0, net_cash=12000.0)
+        thesis_inputs=ti,
+        multiple_history=_hist(n_hist),
+        eps=2.5,
+        shares_outstanding=10_000_000,
+        current_price=25.0,
+        net_cash=12000.0,
+        market_data={
+            "industry_type": "Industrial",
+            "advanced_metrics": {
+                "roic": {"value": 12.0, "period": "2025Q1"},
+                "fcf": {"value": 11000.0, "period": "2025Q1"},
+                "enterprise_value": {"value": 238000000.0, "unit": "PLN"},
+            },
+            "forecast_consensus": {"2026": {"net_income": {"value": 5200.0}}},
+            "dividend_coverage": {"status": "covered", "fcf_coverage_ratio": 1.4},
+        },
+    )
 
 
 def _scenario_set(inputs=None):
@@ -166,6 +181,21 @@ def test_no_key_fallback_is_deterministic():
     assert out == {**det, "engine": "deterministic"}
     assert "ai_notes" not in out
     assert out["potential"]["value_pct"] == ss["weighted_expected_upside_pct"] == 40.0
+
+
+def test_anthropic_path_requires_premium_context():
+    inputs = _inputs()
+    inputs.market_data = {}
+    ss = _scenario_set(inputs)
+    try:
+        valuation_ai.assess_potential(
+            inputs, ss, malik.MALIK, transport=StubTransport([]), settings=_settings()
+        )
+    except valuation_ai.ValuationContextError as exc:
+        assert "ROIC" in str(exc)
+        assert "FCF" in str(exc)
+    else:
+        raise AssertionError("expected ValuationContextError")
 
 
 def test_confidence_low_below_min_key_indicators():

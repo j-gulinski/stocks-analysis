@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stock Candidate Scout"
+  short_description: "Find verified watchlist candidates."
+  default_prompt: "Find new stock candidates to review."

@@ -14,8 +14,9 @@ Those modules are *deterministic-first refiners*: no key ⇒ silent pass-through
 of a deterministic read, never raising. This module is different — the
 Phase-5 "Analiza AI" run has **no deterministic fallback** to fall back to (a
 verdict IS the product). So the no-key path here raises `AnalysisUnavailable`
-instead of fabricating a verdict; the API layer (`app/api/analyses.py`) turns
-that into a 503 with a Polish message.
+instead of fabricating a verdict; the API layer (`app/api/analyses.py`) maps
+its `.reason` ("no_key" / "transport" / "parse") to a distinct HTTP status +
+Polish message rather than a single catch-all 503.
 
 The transport also differs from `thesis_ai.default_transport`: the verdict
 must come back as **forced tool use** (a single tool call, not free text), so
@@ -45,7 +46,7 @@ from pathlib import Path
 # exercised in-session — no egress in the sandbox). No secret literal here.
 _API_URL = "https://api.anthropic.com/v1/messages"
 _ANTHROPIC_VERSION = "2023-06-01"
-_MAX_TOKENS = 4000
+_MAX_TOKENS = 8000
 
 # Bounded retry: a transient transport error gets a couple of extra tries
 # before we give up and tell the caller the run failed (never fabricate).
@@ -127,6 +128,47 @@ _VERDICT_SCHEMA = {
             },
             "required": ["upside", "downside"],
         },
+        "scenarios": {
+            "type": "array",
+            "minItems": 3,
+            "description": (
+                "Qualitative AI review of the prepared deterministic scenario set, "
+                "not a replacement for the calculator."
+            ),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": ["negative", "base", "positive", "event"],
+                    },
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "key_drivers": {
+                        "type": "array",
+                        "minItems": 2,
+                        "items": {"type": "string"},
+                    },
+                    "watch_items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "items": {"type": "string"},
+                    },
+                    "probability": {
+                        "type": "string",
+                        "description": "Qualitative probability, not an invented numeric percentage.",
+                    },
+                },
+                "required": [
+                    "kind",
+                    "title",
+                    "description",
+                    "key_drivers",
+                    "watch_items",
+                    "probability",
+                ],
+            },
+        },
         "verify_next": {
             "type": "array",
             "items": {
@@ -139,7 +181,7 @@ _VERDICT_SCHEMA = {
                 "required": ["id", "text", "why"],
             },
         },
-        "summary_pl": {"type": "string"},
+        "summary_pl": {"type": "string", "minLength": 80},
     },
     "required": [
         "thesis",
@@ -150,6 +192,7 @@ _VERDICT_SCHEMA = {
         "forum_insights",
         "alignment_score",
         "potential",
+        "scenarios",
         "verify_next",
         "summary_pl",
     ],
@@ -171,14 +214,29 @@ _TOOL_CHOICE = {"type": "tool", "name": _TOOL_NAME}
 # (not imported) so this module stays free of the thesis/strategies import
 # chain — it only ever needs to parse a fallback text blob.
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
+_TOOL_LEAK_MARKERS = ("<parameter", "</parameter", "</thesis>", "<tool_use", "</tool_use>")
 
 
 class AnalysisUnavailable(Exception):
     """Raised when no verdict could be produced — no API key configured, every
     transport attempt failed, or the response carried no usable tool_use/JSON.
 
-    Never caught to fabricate a verdict: the caller (app/api/analyses.py) turns
-    this into a 503 with a Polish message."""
+    `reason` distinguishes the three causes so the caller (app/api/analyses.py)
+    can map each to its own HTTP status + Polish message instead of a single
+    catch-all 503 that blamed a missing key even when the key was present and
+    something else failed:
+      * "no_key"    — ANTHROPIC_API_KEY not configured.
+      * "transport" — every transport attempt raised.
+      * "parse"     — the response carried no usable tool_use/JSON.
+
+    `detail` is an optional short, secret-free diagnostic string (e.g. the
+    last transport exception's text, truncated) the API layer may surface to
+    the caller. Never caught to fabricate a verdict."""
+
+    def __init__(self, message: str, *, reason: str, detail: str | None = None):
+        super().__init__(message)
+        self.reason = reason
+        self.detail = detail
 
 
 @dataclass
@@ -288,7 +346,9 @@ def default_transport(settings):
             },
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=90) as response:  # noqa: S310
+        from app.services.anthropic_http import urlopen_with_certifi
+
+        with urlopen_with_certifi(request, timeout=90) as response:
             return json.loads(response.read().decode("utf-8"))
 
     return _call
@@ -346,6 +406,57 @@ def _extract_usage(raw) -> tuple[int | None, int | None]:
     if not isinstance(usage, dict):
         return None, None
     return usage.get("input_tokens"), usage.get("output_tokens")
+
+
+def _verdict_validation_errors(verdict: dict) -> list[str]:
+    """Guard against formally-valid but decision-useless tool payloads."""
+    errors: list[str] = []
+    if not str(verdict.get("summary_pl") or "").strip():
+        errors.append("summary_pl is empty")
+    for field in ("thesis", "one_off_risk", "summary_pl"):
+        text = str(verdict.get(field) or "").lower()
+        if any(marker in text for marker in _TOOL_LEAK_MARKERS):
+            errors.append(f"{field} contains tool/XML markup")
+
+    scenarios = verdict.get("scenarios")
+    if not isinstance(scenarios, list) or len(scenarios) < 3:
+        errors.append("scenarios must contain at least negative/base/positive cases")
+    else:
+        kinds = {s.get("kind") for s in scenarios if isinstance(s, dict)}
+        missing = {"negative", "base", "positive"} - kinds
+        if missing:
+            errors.append(f"scenarios missing kinds: {', '.join(sorted(missing))}")
+        for idx, scenario in enumerate(scenarios):
+            if not isinstance(scenario, dict):
+                errors.append(f"scenario {idx} is not an object")
+                continue
+            if not str(scenario.get("description") or "").strip():
+                errors.append(f"scenario {idx} has empty description")
+            if len(scenario.get("key_drivers") or []) < 2:
+                errors.append(f"scenario {idx} needs at least two key_drivers")
+            if len(scenario.get("watch_items") or []) < 2:
+                errors.append(f"scenario {idx} needs at least two watch_items")
+    return errors
+
+
+def _repair_messages(messages: list[dict], errors: list[str]) -> list[dict]:
+    correction = (
+        "\n\nKOREKTA TECHNICZNA: poprzednia odpowiedź naruszyła kontrakt JSON: "
+        + "; ".join(errors)
+        + ". Zwróć ponownie wyłącznie tool_use `zapisz_analize`. "
+        "Pole `scenarios` musi zawierać co najmniej scenariusz negative, base "
+        "i positive z opisem bazującym na dossier, BiznesRadar expectations "
+        "oraz forum_intelligence. `summary_pl` nie może być puste. "
+        "Nie wolno umieszczać znaczników XML ani tekstu serializacji "
+        "tool-call w polach tekstowych."
+    )
+    repaired: list[dict] = []
+    for message in messages:
+        if message.get("role") == "user":
+            repaired.append({**message, "content": str(message.get("content") or "") + correction})
+        else:
+            repaired.append(dict(message))
+    return repaired
 
 
 # --------------------------------------------------------------------- cache
@@ -418,16 +529,23 @@ def run_analysis(
 
     api_key = getattr(settings, "anthropic_api_key", None)
     if not api_key:
-        raise AnalysisUnavailable("ANTHROPIC_API_KEY is not configured.")
+        raise AnalysisUnavailable(
+            "ANTHROPIC_API_KEY is not configured.", reason="no_key"
+        )
 
-    model = getattr(settings, "anthropic_model", None) or "claude-sonnet-5"
+    model = getattr(settings, "anthropic_model", None) or "claude-sonnet-4-6"
     cache_enabled = bool(getattr(settings, "ai_cache_enabled", True))
 
     cache_file = _cache_path(settings, ticker, prompt_bundle, model)
     if cache_enabled:
         cached = _cache_read(cache_file)
         if cached is not None:
-            return AnalysisResult(**cached)
+            try:
+                cached_result = AnalysisResult(**cached)
+            except TypeError:
+                cached_result = None
+            if cached_result is not None and not _verdict_validation_errors(cached_result.verdict):
+                return cached_result
 
     transport = transport or default_transport(settings)
     messages = [
@@ -435,35 +553,59 @@ def run_analysis(
         {"role": "user", "content": prompt_bundle.get("user", "")},
     ]
 
-    raw = None
     last_exc: Exception | None = None
+    validation_errors: list[str] = []
     for _ in range(_MAX_ATTEMPTS):
         try:
-            raw = transport(messages, model, _TOOLS, _TOOL_CHOICE)
-            break
+            raw = transport(
+                _repair_messages(messages, validation_errors) if validation_errors else messages,
+                model,
+                _TOOLS,
+                _TOOL_CHOICE,
+            )
         except Exception as exc:  # noqa: BLE001 — bounded retry, then give up
             last_exc = exc
-            raw = None
+            continue
 
-    if raw is None:
-        raise AnalysisUnavailable(
-            f"Claude API transport failed after {_MAX_ATTEMPTS} attempts: {last_exc}"
+        verdict = _extract_verdict(raw)
+        if verdict is None:
+            last_exc = AnalysisUnavailable(
+                "Claude API response carried no usable verdict.", reason="parse"
+            )
+            validation_errors = ["missing tool_use/input verdict"]
+            continue
+
+        validation_errors = _verdict_validation_errors(verdict)
+        if validation_errors:
+            last_exc = AnalysisUnavailable(
+                "Claude API verdict failed validation: " + "; ".join(validation_errors),
+                reason="parse",
+            )
+            continue
+
+        input_tokens, output_tokens = _extract_usage(raw)
+        result = AnalysisResult(
+            verdict=verdict,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            model=model,
+            engine="ai",
         )
 
-    verdict = _extract_verdict(raw)
-    if verdict is None:
-        raise AnalysisUnavailable("Claude API response carried no usable verdict.")
+        if cache_enabled:
+            _cache_write(cache_file, asdict(result))
 
-    input_tokens, output_tokens = _extract_usage(raw)
-    result = AnalysisResult(
-        verdict=verdict,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        model=model,
-        engine="ai",
+        return result
+
+    if validation_errors:
+        raise AnalysisUnavailable(
+            f"Claude API response failed validation after {_MAX_ATTEMPTS} attempts: {last_exc}",
+            reason="parse",
+            detail="; ".join(validation_errors)[:200],
+        )
+    detail = str(last_exc)[:200] if last_exc is not None else None
+    raise AnalysisUnavailable(
+        f"Claude API transport failed after {_MAX_ATTEMPTS} attempts: {last_exc}",
+        reason="transport",
+        detail=detail,
     )
-
-    if cache_enabled:
-        _cache_write(cache_file, asdict(result))
-
-    return result
