@@ -264,6 +264,7 @@ export default function ScenariosPanel({
               <div><span className="k">CF / zysk netto</span><span className="v">{fmtPct(scenarios.operating_bridge.cash_conversion.conversion_ratio ? scenarios.operating_bridge.cash_conversion.conversion_ratio * 100 : null)}</span></div>
               <div><span className="k">Capex</span><span className="v">{fmtTys(scenarios.operating_bridge.cash_conversion.capex)}</span></div>
               <div><span className="k">Capex / przychód</span><span className="v">{fmtPct(scenarios.operating_bridge.cash_conversion.capex_intensity_pct)}</span></div>
+              <div><span className="k">Δ należności + zapasy</span><span className="v">{fmtTys(scenarios.operating_bridge.cash_conversion.working_capital_change)}</span></div>
             </div>
             {scenarios.operating_bridge.cash_conversion.gaps.length > 0 && (
               <p className="sensitivity-detail muted">Luki: {scenarios.operating_bridge.cash_conversion.gaps.join("; ")}</p>

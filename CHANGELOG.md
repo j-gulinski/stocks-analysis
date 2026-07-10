@@ -61,6 +61,11 @@ working-capital gap explicit: receivable/inventory changes are not inferred
 from one balance snapshot. RT4.3d remains open until that source-backed bridge
 is implemented and tested.
 
+The second RT4.3d pass now maps current/non-current receivables and inventory
+from comparable balance periods, exposing their change and cash effect beside
+CF and capex. It still does not feed a projected FCF price; that final bridge
+remains open and is not inferred from the snapshot.
+
 ## 2026-07-10 · Refined RT4 next task
 
 The next implementation target is now RT4.1a: establish the durable

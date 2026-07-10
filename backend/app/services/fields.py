@@ -111,6 +111,8 @@ BALANCE_FIELD_CODES: dict[str, tuple[str, ...]] = {
     "current_liabilities": ("BalanceCurrentLiabilities",),
     "noncurrent_liabilities": ("BalanceNoncurrentLiabilities",),
     "inventory": ("BalanceInventory",),
+    "receivables_current": ("BalanceCurrentReceivables",),
+    "receivables_noncurrent": ("BalanceNoncurrentReceivables",),
     "cash": ("BalanceCash",),
     "debt_borrowings_long": ("BalanceNoncurrentBorrowings",),
     "debt_bonds_long": ("BalanceNoncurrentObligations",),
@@ -134,6 +136,8 @@ BALANCE_ALIASES: dict[str, tuple[str, ...]] = {
     "current_liabilities": ("zobowiązania krótkoterminowe",),
     "noncurrent_liabilities": ("zobowiązania długoterminowe",),
     "inventory": ("zapasy",),
+    "receivables_current": ("należności krótkoterminowe",),
+    "receivables_noncurrent": ("należności długoterminowe",),
     "cash": (
         "środki pieniężne i inne aktywa pieniężne",
         "środki pieniężne",

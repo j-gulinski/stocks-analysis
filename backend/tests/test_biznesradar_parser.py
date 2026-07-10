@@ -360,6 +360,7 @@ def test_income_field_matching_disambiguates_gross_lines():
     assert fields.match_balance_field("Środki pieniężne i inne aktywa pieniężne") == "cash"
     assert fields.match_cashflow_field("anything", "CashflowOperatingCashflow") == "operating_cashflow"
     assert fields.match_cashflow_field("Wydatki inwestycyjne") == "capex"
+    assert fields.match_balance_field("anything", "BalanceCurrentReceivables") == "receivables_current"
 
 
 # ------------------------------------------------- real recorded fixtures

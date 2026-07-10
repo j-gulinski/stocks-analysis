@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import replace
 from math import isfinite
 
-from app.services import forecast, scenarios
+from app.services import forecast, metrics, scenarios
 from app.services.strategies import base
 
 _SUPPORTED_SECTORS = {"industrial", "consumer"}
@@ -109,6 +109,7 @@ def _bridge_price(
 def build_cash_conversion_snapshot(
     cashflow_latest: dict[str, tuple[str, float]] | None,
     income: forecast.IncomeSeries,
+    balance_series: dict[str, dict[str, float]] | None = None,
 ) -> dict:
     """Report cash-conversion readiness without inventing missing bridges."""
     cashflow_latest = cashflow_latest or {}
@@ -129,12 +130,37 @@ def build_cash_conversion_snapshot(
         if capex is not None and revenue and revenue > 0
         else None
     )
+    balance_series = balance_series or {}
+    working_capital_change = None
+    if period and period in balance_series:
+        try:
+            periods = metrics.sort_periods(balance_series)
+            previous_period = next((p for p in reversed(periods) if p < period), None)
+        except ValueError:
+            previous_period = None
+        current = balance_series.get(period, {})
+        previous = balance_series.get(previous_period or "", {})
+        current_wc = sum(
+            current.get(key, 0.0)
+            for key in ("receivables_current", "receivables_noncurrent", "inventory")
+        )
+        previous_wc = sum(
+            previous.get(key, 0.0)
+            for key in ("receivables_current", "receivables_noncurrent", "inventory")
+        )
+        if previous_period and any(
+            key in current and key in previous
+            for key in ("receivables_current", "receivables_noncurrent", "inventory")
+        ):
+            working_capital_change = round(current_wc - previous_wc, 1)
+
     gaps: list[str] = []
     if conversion_ratio is None:
         gaps.append("Brak porównywalnego przepływu operacyjnego i zysku netto.")
     if capex_intensity is None:
         gaps.append("Brak capex lub przychodu do policzenia intensywności inwestycji.")
-    gaps.append("Zmiana należności i zapasów wymaga jeszcze osobnego mostu bilansowego.")
+    if working_capital_change is None:
+        gaps.append("Zmiana należności i zapasów wymaga jeszcze dwóch porównywalnych bilansów.")
     if operating_value is None:
         status = "needs_human"
     elif conversion_ratio is not None and capex_intensity is not None:
@@ -149,6 +175,10 @@ def build_cash_conversion_snapshot(
         "conversion_ratio": conversion_ratio,
         "capex": capex[1] if capex is not None else None,
         "capex_intensity_pct": capex_intensity,
+        "working_capital_change": working_capital_change,
+        "working_capital_cash_effect": (
+            round(-working_capital_change, 1) if working_capital_change is not None else None
+        ),
         "gaps": gaps,
     }
 
@@ -159,10 +189,11 @@ def build_operating_bridge(
     profile: base.StrategyProfile,
     approved_assumption_sets: list[dict] | None = None,
     cashflow_latest: dict[str, tuple[str, float]] | None = None,
+    balance_series: dict[str, dict[str, float]] | None = None,
 ) -> dict:
     """Build explicit operating what-if rows for supported company templates."""
     sector = inputs.thesis_inputs.insights.sector_group
-    cash_conversion = build_cash_conversion_snapshot(cashflow_latest, income)
+    cash_conversion = build_cash_conversion_snapshot(cashflow_latest, income, balance_series)
     if sector not in _SUPPORTED_SECTORS:
         return {
             "status": "unsupported_template",

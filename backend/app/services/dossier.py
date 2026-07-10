@@ -89,6 +89,17 @@ def load_indicators_latest(
 
 
 def load_balance_latest(db: Session, company_id: int) -> dict[str, float]:
+    series = load_balance_series(db, company_id)
+    if not series:
+        return {}
+    try:
+        latest_period = metrics.sort_periods(series)[-1]
+    except ValueError:
+        return {}
+    return series[latest_period]
+
+
+def load_balance_series(db: Session, company_id: int) -> dict[str, dict[str, float]]:
     rows = db.scalars(
         select(ReportValue).where(
             ReportValue.company_id == company_id,
@@ -96,22 +107,14 @@ def load_balance_latest(db: Session, company_id: int) -> dict[str, float]:
             ReportValue.freq == "Q",
         )
     ).all()
-    if not rows:
-        return {}
-
-    try:
-        latest_period = metrics.sort_periods({r.period for r in rows})[-1]
-    except ValueError:
-        return {}
-
-    latest: dict[str, float] = {}
+    series: dict[str, dict[str, float]] = {}
     for row in rows:
-        if row.period != latest_period or row.value is None:
+        if row.value is None:
             continue
         canonical = fields.match_balance_field(row.field_label, row.field_code)
-        if canonical and canonical not in latest:
-            latest[canonical] = float(row.value)
-    return latest
+        if canonical is not None:
+            series.setdefault(row.period, {}).setdefault(canonical, float(row.value))
+    return series
 
 
 def load_cashflow_latest(db: Session, company_id: int) -> dict[str, tuple[str, float]]:
@@ -385,6 +388,7 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
     pe_history = metrics.compute_pe_history(cz_values, ttm.valuation_pe)
 
     balance_latest = load_balance_latest(db, company.id)
+    balance_series = load_balance_series(db, company.id)
     cashflow_latest = load_cashflow_latest(db, company.id)
     net_cash_value, net_cash_note = metrics.compute_net_cash(balance_latest)
 
@@ -567,6 +571,7 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
             malik.MALIK,
             approved_assumption_sets,
             cashflow_latest=cashflow_latest,
+            balance_series=balance_series,
         ),
         "engine": "deterministic",
         "ai_notes": None,

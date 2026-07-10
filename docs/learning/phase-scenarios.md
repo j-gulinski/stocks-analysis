@@ -98,3 +98,8 @@ and capex can be surfaced from canonical cash-flow rows, but a single latest
 balance snapshot cannot prove receivable or inventory movement. The UI reports
 the partial ratio and keeps that working-capital gap visible, like a C# DTO
 with a nullable field rather than silently defaulting it to zero.
+
+The working-capital follow-up uses two comparable balance periods and reports
+the change in receivables plus inventory, including its cash direction. If one
+period or one canonical row is absent, the result stays a gap. This is the
+important distinction between a measured delta and an invented FCF forecast.

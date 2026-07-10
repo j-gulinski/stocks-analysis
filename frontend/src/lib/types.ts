@@ -188,6 +188,8 @@ export interface OperatingBridge {
     conversion_ratio: number | null;
     capex: number | null;
     capex_intensity_pct: number | null;
+    working_capital_change: number | null;
+    working_capital_cash_effect: number | null;
     gaps: string[];
   };
 }

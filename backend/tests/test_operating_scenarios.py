@@ -99,3 +99,15 @@ def test_cash_conversion_snapshot_keeps_working_capital_gap_explicit():
     assert snapshot["conversion_ratio"] == 1.5
     assert snapshot["capex_intensity_pct"] == 4.0
     assert any("należności" in gap for gap in snapshot["gaps"])
+
+    complete = operating_scenarios.build_cash_conversion_snapshot(
+        {"operating_cashflow": ("2025Q1", 1_500.0), "capex": ("2025Q1", -400.0)},
+        {"2024Q4": {"net_profit": 900.0, "revenue": 9_500.0}, "2025Q1": {"net_profit": 1_000.0, "revenue": 10_000.0}},
+        {
+            "2024Q4": {"receivables_current": 100.0, "inventory": 200.0},
+            "2025Q1": {"receivables_current": 150.0, "inventory": 250.0},
+        },
+    )
+    assert complete["working_capital_change"] == 100.0
+    assert complete["working_capital_cash_effect"] == -100.0
+    assert not any("dwóch porównywalnych" in gap for gap in complete["gaps"])
