@@ -6,6 +6,35 @@ Every completed phase additionally gets a one-page learning note `docs/learning/
 
 ---
 
+## Execution sequence (iterative, agent-ready — updated 2026-07-10)
+
+Agents pick the top unchecked item; each is one bounded, shippable iteration
+with its acceptance criteria at the referenced ID. UX slices are interleaved
+on purpose — this is an ordered queue, not a parking lot, and it is the ONLY
+ordering agents need to read. Re-order here when priorities change; details
+stay at the stable IDs below.
+
+1. CX.15a — ESPI `last_polled_at` watermark + paginate-until-watermark
+   (correctness precondition for everything session-triggered).
+2. CX.15b — `workbench start` pre-session hook (poll → ingest → queue → once).
+3. IL.1 — decision journal (independent, small; starts accumulating the
+   decision/confidence data every later evaluation needs).
+4. IL.2 + CX.15c — "what changed" diff card in the queue plus the ESPI
+   re-check / process-queue buttons (one UI iteration, same surfaces).
+5. IL.3 — falsifier status (`holding`/`warning`/`fired`) + thesis-at-risk
+   queue ordering.
+6. IL.4 — minimal position ledger; IL.4a myfund import first (API key/CSV),
+   manual entry as fallback.
+7. IL.5 — UI simplification/alignment pass over everything above (canonical
+   tab mapping, progressive disclosure, one canonical read; screenshot QA).
+8. CX.16a–d — first validation cohort: freeze cohort → point-in-time replay →
+   outcome comparison → per-case cards.
+9. RT2.3 — ledger-grade issuer/ESPI ingestion pilot (shares CX.15a watermark).
+10. Then RT stages in numeric order; CX.16e/f and CX.17 slot in when their
+    prerequisites (multiple cohort runs, RT2.3 evidence) exist.
+
+---
+
 ## Phase 0 — Scaffold
 
 **Goal:** empty but running skeleton of everything.
@@ -550,6 +579,15 @@ complete.
   dashboard. Purpose: the queue shows real-money-at-risk first, and the Brief
   can flag the ~10 % position-sizing rule (Malik row 15). Positions never
   influence scoring or verdicts.
+  - [ ] IL.4a myfund.pl import (feasibility-first, decided 2026-07-10): the
+    user's real portfolio lives in myfund.pl, which offers a per-user API key
+    (menu → Konto → Ustawienia konta) and CSV export of operation history —
+    so integration uses the official key or exported CSV, **never stored
+    login credentials**. Key lives in `backend/.env` like other secrets.
+    Slice order: (1) one-shot CSV/API import into the position ledger,
+    (2) session-triggered re-sync via CX.15b if the API proves stable,
+    (3) manual entry stays as fallback. Fetch/parse/upsert only, politeness
+    rules apply; positions remain read-only context.
 - [ ] IL.5 UI simplification/alignment slice: declare the canonical screen set
   in `docs/design/research-workspace.md` and map the four live tabs onto it
   (ends the tabs-vs-contract drift); progressive disclosure — a surface

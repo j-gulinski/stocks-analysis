@@ -18,6 +18,25 @@ keep the decisions scannable.
 
 ---
 
+## 2026-07-10 · Execution sequence + myfund.pl import (IL.4a)
+
+Replaced the risk of a "Now/Next/Later" parking lot with an ordered,
+agent-ready execution queue at the top of TASKS.md — the user codes with
+agents, so the answer to plan weight is iteration order, not postponement.
+Ten bounded iterations: CX.15a/b (watermark, session hook) → IL.1 (journal) →
+IL.2+CX.15c (diff card + re-check buttons) → IL.3 (falsifiers/queue order) →
+IL.4/IL.4a (positions + myfund import) → IL.5 (UI alignment pass) →
+CX.16a–d (first validation cohort) → RT2.3 → RT stages in order. The
+sequence section is the only ordering agents read; stable IDs keep the
+details.
+
+IL.4a: verified via web search that myfund.pl provides a per-user API key
+(Konto → Ustawienia konta) and CSV export of operation history, so the
+portfolio import uses the official key or CSV export — stored login
+credentials are explicitly ruled out; the key goes to `backend/.env`.
+One-shot import first, optional session-triggered re-sync later, manual
+entry as fallback.
+
 ## 2026-07-10 · Stage IL — investor decision loop pulled forward; UI simplification/alignment contract
 
 Plan evolution encoding the day's usability principles: the RT stages build
