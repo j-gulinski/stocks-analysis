@@ -92,8 +92,10 @@ Detailed contracts: `docs/plan-stage-codex-pivot.md`.
     `estimated_period_lag` policy and restatement caveat. The engine now
     persists both; case identity, original filing versions and price coverage
     remain to be reconstructed before this slice can close.
-  - [ ] **CX.16c** Replay deterministic prescore, thesis and scenario ranges;
-    no AI-refined output in scored results.
+  - [~] **CX.16c** The backtest engine now labels persisted output as
+    `deterministic_prescore_only` and explicitly records that AI-refined output
+    is excluded. Deterministic thesis/scenario range replay remains pending
+    point-in-time case inputs.
   - [ ] **CX.16d** Compare 1/2/3-year outcomes and write per-case cards; small-n
     summaries are diagnostic, never proof.
   - [ ] **CX.16e/f** Optional multi-`as_of` and masked-AI research after the

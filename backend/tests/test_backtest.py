@@ -68,6 +68,8 @@ def test_backtest_excludes_future_scraped_financial_rows_but_attaches_outcomes(d
 
     assert result["status"] == "completed"
     assert result["summary"]["observation_count"] == 1
+    assert result["summary"]["scoring_policy"] == "deterministic_prescore_only"
+    assert result["summary"]["ai_refined_output_included"] is False
     observation = result["observations"][0]
     assert observation["known_inputs"]["financials"]["latest_income_period"] == "2023Q1"
     assert observation["known_inputs"]["financials"]["revenue"] == 100.0

@@ -65,6 +65,13 @@ price learned after its observation date or with unknown availability; older
 rows remain unknown until refreshed. Financial version lineage and sufficient
 historical depth are still open.
 
+## 2026-07-10 · CX.16c deterministic-only scoring marker
+
+Backtest runs now persist `scoring_policy=deterministic_prescore_only` and
+`ai_refined_output_included=false` in parameters and summaries. This makes the
+current prescore boundary auditable; thesis/scenario replay remains deferred
+until the cohort has point-in-time inputs.
+
 ## 2026-07-10 · IL.4 read-only position context
 
 Added migration `0014` for a position ledger containing ticker, entry, size,

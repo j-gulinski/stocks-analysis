@@ -26,6 +26,7 @@ from app.services import fields
 from app.services.metrics import compute_one_off_share, period_key, previous_year_period
 DEFAULT_OUTCOME_WINDOWS = (30, 90, 180, 365)
 DEFAULT_REPORT_LAG_DAYS = 120
+DETERMINISTIC_SCORING_POLICY = "deterministic_prescore_only"
 FINANCIAL_AVAILABILITY_SCRAPED_AT = "scraped_at"
 FINANCIAL_AVAILABILITY_ESTIMATED_LAG = "estimated_period_lag"
 ESTIMATED_LAG_RESTATEMENT_CAVEAT = (
@@ -76,6 +77,8 @@ def run_strategy_backtest(
         "financial_availability_policy": policy,
         "report_lag_days": lag_days if policy == FINANCIAL_AVAILABILITY_ESTIMATED_LAG else None,
         "restatement_caveat": _restatement_caveat(policy),
+        "scoring_policy": DETERMINISTIC_SCORING_POLICY,
+        "ai_refined_output_included": False,
         "known_inputs_policy": _known_inputs_policy(policy, lag_days),
     }
 
@@ -533,6 +536,8 @@ def _summarize(
         "known_inputs_policy": _known_inputs_policy(
             financial_availability_policy, report_lag_days
         ),
+        "scoring_policy": DETERMINISTIC_SCORING_POLICY,
+        "ai_refined_output_included": False,
         "data_quality": {
             "financial_availability_policy": financial_availability_policy,
             "report_lag_days": (
