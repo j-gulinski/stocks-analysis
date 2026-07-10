@@ -3,6 +3,12 @@
 Use this prompt for a manual Codex thread, a background Codex thread, or a
 scheduled Codex run that should process work requested from the web UI.
 
+**Default trigger is the user's session** (CX.15): `workbench start` and the
+UI "process queue once" action invoke this contract on demand. A periodic
+scheduled run (for example the ten-minute host-local automation) is an
+optional opt-in variant for hosts that want away-capture; the system must stay
+correct with the scheduler disabled.
+
 ## Objective
 
 Process queued Stock Analysis Workbench `agent_runs` from

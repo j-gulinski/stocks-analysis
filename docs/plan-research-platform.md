@@ -386,6 +386,19 @@ ports/log locations and never spawn duplicate servers. A new Codex task may
 start the local app automatically when the user asks to research a company, but
 merely discussing the repository should not.
 
+**Operating model (decided 2026-07-10): session-triggered by default.** The
+workbench runs on the user's own machine and Malik-style decisions have
+hours-not-minutes latency needs, so ingestion and queue execution are pulled
+by the session, not pushed by a scheduler: `workbench start` runs the
+pre-session brief (ESPI poll → ingest → triage queue → process once), and the
+UI offers explicit re-check/process actions mid-session. Correctness while
+away comes from retrospective completeness — a per-source `last_polled_at`
+watermark with paginate-until-watermark ingestion — not from an always-on
+poller. Periodic execution (the ten-minute host-local Codex automation, or a
+future hosted poller) is an **optional variant**: opt-in, default off, and
+never required for the system to be correct (CX.15). A hosted poller remains
+an RT.7 decision, taken only if away-capture becomes a real need.
+
 ### 7.4 Seasoned-investor judge and improvement loop
 
 The last step of an analysis/evaluation cycle is a **separate judge model** with
@@ -554,6 +567,10 @@ current three-company qualitative calibration task.
 Only now finish auth/deployment/backups/background jobs. Add source adapters and
 templates based on real research gaps. Scheduled refresh should ingest sources
 and create a review queue; it must not silently rewrite an approved thesis.
+Hosting is **optional**, not the assumed end state: the session-triggered local
+model (§7.3) is complete on its own, and a hosted poller/worker is added here
+only if away-capture (for example phone alerts on material ESPI while
+traveling) proves to be a real need the watermark model cannot satisfy.
 
 ## 10. Definition of success
 

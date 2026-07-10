@@ -238,7 +238,7 @@ are tool-accessible, and verifier-gated outputs are auditable.
   with source links and verifier badges.
 - [x] CX.8 Backtest and learning loop: point-in-time snapshots, deterministic
   replay, future outcome attachment, look-ahead tests, UI Backtest Lab.
-- [ ] CX.9 Codex-first UI + compatibility runway: active user-facing analysis
+- [x] CX.9 Codex-first UI + compatibility runway: active user-facing analysis
   path uses provider-neutral `agent_runs`/`analysis_runs`, workflow status and
   MCP/scripts; legacy Phase-5 endpoints/modules may remain only as explicit
   compatibility until sunset.
@@ -251,6 +251,10 @@ are tool-accessible, and verifier-gated outputs are auditable.
     structured `prediction`, deterministic `potential`, and `result_quality`
     fields; downside/limited scenarios and one-off gaps must be surfaced before
     the UI can show an analysis as verified.
+  - 2026-07-10 closed: the active user-facing path is provider-neutral
+    (queue → agent_runs/analysis_runs → verifier-gated report). Remaining
+    legacy endpoints/modules exist only as the explicit compatibility runway
+    this task allows; their removal/archive is CX.10's scope.
 - [ ] CX.10 Legacy model-provider sunset/archive: remove or archive
   Anthropic/Claude config, clients, direct analysis endpoint behavior and
   compatibility tests after provider-neutral saved-analysis flows cover the
@@ -271,7 +275,7 @@ are tool-accessible, and verifier-gated outputs are auditable.
     drill-down. It fetches `GET /api/backtest-runs/{id}`, exposes the
     financial-availability policy in the run form, and shows verifier state,
     policy warnings, observation checks and outcome windows in the dashboard.
-- [~] CX.12 Web-triggered / Codex-scheduled queue execution: keep the web API as
+- [x] CX.12 Web-triggered / Codex-scheduled queue execution: keep the web API as
   durable queue creation, but add a Codex worker pickup contract so a manual,
   background or scheduled Codex run can claim queued jobs, execute the relevant
   skill/MCP/script workflow and close the `agent_run` lifecycle when output is
@@ -300,12 +304,22 @@ are tool-accessible, and verifier-gated outputs are auditable.
   - 2026-07-10 progress: created an active local Codex automation that runs
     every ten minutes, starts/checks the workbench, claims exactly one oldest
     row and applies the 5.3-research/strong-verifier contract. Runtime proof:
-    candidate-scout `#4` completed with verifier `pass`; SNT deep-analysis
-    `#5` remains next in FIFO order. The automation is host-local and must be
-    recreated on another Mac; durable queue/claim/save contracts stay in repo.
+    candidate-scout `#4` completed with verifier `pass`; SNT deep-analysis `#5`
+    was subsequently claimed, researched by Spark, independently verified by
+    `gpt-5.6-sol`, and closed as `needs-human` (not left queued/running). Its
+    deterministic read is neutral, `+9.8%`, score `54/100`; catalyst/backlog
+    are confirmed, governance is partial, and approval waits for versioned
+    issuer evidence plus human governance review. The automation is host-local
+    and must be recreated on another Mac; durable queue/claim/save contracts
+    stay in repo.
     After completion, Discover polls that exact run and shows its verified
     batch status plus per-ticker source-prescreen scores without presenting
     them as full investment ratings.
+  - 2026-07-10 closed: durable queue creation, claim/save lifecycle and the
+    worker contract are runtime-proven. The remaining "continuously scheduled
+    worker" follow-up is deliberately NOT part of this task anymore — periodic
+    execution is reclassified as an opt-in variant under CX.15d; the default
+    operating model is session-triggered (CX.15).
 - [ ] CX.13 Agent valuation backtests: evaluate saved `analysis_runs` and
   valuation memos against future price/source outcomes. See
   `docs/plan-agent-valuation-backtest.md`. First slice is schema + Python replay
@@ -357,6 +371,34 @@ are tool-accessible, and verifier-gated outputs are auditable.
     user. First refresh has one honest progress surface, watchlist rows use a
     compact decision read, and queued jobs identify the external-worker
     dependency.
+- [ ] CX.15 Session-triggered operating model (pull-based ESPI + queue; decided
+  2026-07-10): the workbench is a local, at-the-desk tool, so ingestion and
+  queue execution are triggered by the user's session, not by an always-on
+  scheduler. Malik-style decisions have hours-not-minutes latency needs; a
+  10-minute poller adds GPW load and silently stops when the Mac sleeps.
+  - [ ] CX.15a ESPI completeness watermark: persist `last_polled_at` per source
+    and extend `scrapers/espi.py` to paginate the GPW list until
+    `published_at <= watermark` (hard page cap + existing per-domain politeness
+    limits). Fixture tests for multi-page walk and cap stop. This makes
+    once-per-session polling retrospectively complete — a busy reporting
+    evening must not scroll a watched report off page 1 unseen.
+  - [ ] CX.15b `workbench start` pre-session hook: after health checks, run the
+    pre-session brief (poll ESPI → ingest → enqueue triage) and process the
+    queue once. Idempotent; failures reported as diagnostics, never blocking
+    startup.
+  - [ ] CX.15c UI re-check actions: a "Sprawdź komunikaty ESPI" button on the
+    Research header calling the existing `prepare_pre_session_brief`, and a
+    "process queue once" action for mid-session pickup. Both show run progress
+    in the activity surface, no page-blocking work.
+  - [ ] CX.15d Reclassify periodic execution as an **optional variant**: the
+    10-minute host-local Codex automation (CX.12) and any future hosted poller
+    are opt-in for hosts that want away-capture; default is off. Document the
+    variant + recreation steps next to `.codex/tasks/stock-queue-worker.md`;
+    a hosted poller/scheduled refresh remains an RT.7 decision.
+  - Acceptance: with the scheduler disabled, opening the workbench surfaces all
+    watched-company ESPI/EBI reports published since the previous session
+    exactly once, queued triage runs to completion or reports why not, and no
+    background process is required for correctness.
 
 ### Relationship to the RT roadmap
 

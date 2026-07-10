@@ -18,6 +18,34 @@ keep the decisions scannable.
 
 ---
 
+## 2026-07-10 · CX.15 — session-triggered operating model; periodic/hosted execution reclassified as optional
+
+Decision: the workbench's default running scenario is pull-based and local.
+Ingestion and queue execution are triggered by the user's session
+(`workbench start` pre-session hook + explicit UI re-check/process actions),
+not by an always-on scheduler. Rationale: Malik-style fundamental decisions
+have hours-not-minutes latency needs, a ten-minute ESPI poller adds GPW load
+against the politeness rules for no actionable benefit, and host-local
+automation silently stops when the Mac sleeps anyway.
+
+Correctness while away comes from retrospective completeness, not real-time
+capture: new task CX.15a adds a per-source `last_polled_at` watermark and
+paginate-until-watermark ESPI ingestion (hard page cap, existing per-domain
+limits), so once-per-session polling cannot miss a watched report that
+scrolled off page 1. CX.15b/c add the `workbench start` hook and the
+"Sprawdź komunikaty ESPI" / "process queue once" UI actions on the existing
+`prepare_pre_session_brief` contract.
+
+The ten-minute host-local Codex automation (CX.12) and any future hosted
+poller are reclassified as an **opt-in variant, default off** (CX.15d); a
+hosted poller stays an RT.7 decision taken only if away-capture becomes a
+real need. Updated: `docs/plan-research-platform.md` (§7.3 operating model,
+RT.7 hosting-optional), `.codex/tasks/stock-queue-worker.md` (default
+trigger), `TASKS.md` (CX.15 with acceptance criteria). Task hygiene in the
+same pass: CX.12 and CX.9 marked done — their runtime-proven/delivered scope
+is complete, with the leftover scheduled-worker follow-up moved to CX.15d and
+legacy removal already owned by CX.10.
+
 ## 2026-07-10 · cleanup — conservative dead-code removal (branch refactor/complexity-reduction)
 
 Complexity-reduction pass; behaviour unchanged (406 backend tests green,
@@ -60,8 +88,15 @@ Closed the gap between durable queue creation and real local pickup. A
 host-local Codex automation now runs every ten minutes, starts and health-checks
 the workbench, claims one oldest job, uses 5.3 Spark for bounded research/draft
 work and reserves quick/deep approval for the strongest strict verifier. The
-first runtime proof completed candidate-scout `#4` with verifier `pass`; SNT
-deep-analysis `#5` remains next in FIFO order. The repository prompt now
+first runtime proof completed candidate-scout `#4` with verifier `pass`. SNT
+deep-analysis `#5` was then claimed and closed by the same contract: Spark
+prepared the bounded research draft and `gpt-5.6-sol` independently corrected
+and verified it. The terminal verdict is `needs-human`, not a stuck queue row:
+potential `+9.8%`, neutral 540-day direction, confidence `0.45`, company score
+`54/100`, catalyst/backlog confirmed and governance partial. Approval remains
+blocked because the cited issuer pages are frozen as URLs rather than stored
+`DocumentVersion` evidence and governance promise-keeping/related-party review
+still requires a human judgment. The repository prompt now
 requires catalyst, backlog/order book and management/governance source
 completion, and records `confirmed`/`partial`/`not_found` rather than pushing
 those checks back to the user. Company size/sweet-spot fit remains strategy
@@ -104,6 +139,16 @@ expected scenario workflow: refresh evidence, deterministic dossier rebuild,
 review/edit/save forecast assumptions, then queue a verifier-gated Codex read.
 It states the current multiple-reversion limitation instead of implying that
 company-driver scenario v2 already exists.
+
+Final validation: all 406 backend tests pass, frontend TypeScript validation
+passes, and the live SNT report was reloaded in the in-app browser without the
+raw `477.7%` warning or company-size-as-risk wording. The report still exposes
+the deterministic `+9.8%` potential and continuing-earnings basis while the
+non-approved deep result remains visibly gated as `needs-human`.
+The report now distinguishes that terminal review state from unfinished work:
+it may show the verifier-owned score, confidence and researched
+catalyst/backlog/governance findings with an explicit `wymaga przeglądu` badge,
+but it still cannot present the row as verified.
 
 ## 2026-07-10 · RT.7 exploration — hosted Codex boundary and communication flow
 
