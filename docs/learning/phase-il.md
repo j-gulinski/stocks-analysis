@@ -27,3 +27,8 @@ stored facts about the user’s thesis process, not computed verdicts. The API
 requires a reason for every transition, similar to requiring an audit comment
 when changing a workflow state in a C# service. The research queue can then use
 the stored state for ordering without pretending it discovered the evidence.
+
+IL.4 keeps portfolio data as a separate read model. The CSV importer behaves
+like a small ETL boundary: validate explicit mappings, preserve unmatched rows
+for the user, and use a stable source reference for idempotency. A future
+myfund adapter must prove its official endpoint and terms before it is enabled.

@@ -751,6 +751,20 @@ export interface Falsifier {
   updated_at: string;
 }
 
+export interface Position {
+  id: number;
+  ticker: string;
+  instrument_name: string | null;
+  portfolio: string;
+  entry_date: string | null;
+  entry_price: number | null;
+  quantity: number | null;
+  size_pln: number | null;
+  sizing_rule_flag: boolean;
+  source: string;
+  imported_at: string;
+}
+
 export interface BacktestObservation {
   id: number;
   backtest_run_id: number;

@@ -614,6 +614,34 @@ class FalsifierUpdateIn(BaseModel):
     review_date: date | None = None
 
 
+class PositionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ticker: str
+    instrument_name: str | None
+    portfolio: str
+    entry_date: date | None
+    entry_price: float | None
+    quantity: float | None
+    size_pln: float | None
+    sizing_rule_flag: bool
+    source: str
+    imported_at: datetime
+
+
+class PositionCsvImportIn(BaseModel):
+    portfolio: str = Field(default="default", min_length=1, max_length=80)
+    csv_text: str = Field(min_length=1, max_length=500_000)
+
+
+class PositionImportOut(BaseModel):
+    imported: int
+    skipped_duplicates: int
+    unmatched: list[str]
+    positions: list[PositionOut]
+
+
 class AnalysisRunOut(BaseModel):
     """Provider-neutral analysis result, used by Codex/MCP workflows."""
 

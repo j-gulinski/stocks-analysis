@@ -21,7 +21,7 @@ Take the first unchecked item. Each item should be a bounded, verifiable slice.
 3. [x] IL.1 — decision journal.
 4. [x] IL.2 + CX.15c — thesis-change diff and ESPI/queue actions.
 5. [x] IL.3 — falsifiers and thesis-at-risk ordering.
-6. IL.4/IL.4a — read-only positions and myfund API-key/CSV import.
+6. [~] IL.4/IL.4a — read-only positions and myfund API-key/CSV import.
 7. IL.5 — UI alignment and screenshot QA.
 8. CX.16a–d — first mixed-outcome historical cohort replay.
 9. RT2.3 — ledger-grade issuer/ESPI pilot, reusing CX.15a.
@@ -108,12 +108,13 @@ rules: `docs/plan-research-platform.md` §3.0 and §9, plus `AGENTS.md`.
   required human/evidence reason; watchlist orders fired then warning cases.
   No status is inferred from metrics or models. Migration `0013` and company
   editor are covered by focused API/migration/UI build checks.
-- [ ] **IL.4 Position ledger:** read-only ticker, entry, size and sizing-rule
-  flag; never an analysis score or AI input.
-  - [ ] **IL.4a myfund import:** one pinned portfolio, official API key or CSV,
-    explicit instrument-to-ticker mapping, unmatched names surfaced, no login
-    password storage, session-triggered sync only. Current config slots exist;
-    import behavior does not.
+- [x] **IL.4 Position ledger:** read-only ticker, entry, size and sizing-rule
+  flag; never an analysis score or AI input. Migration `0014` and the company
+  context panel are covered by API/migration/build checks.
+  - [~] **IL.4a myfund import:** CSV import now pins one portfolio, requires
+    explicit ticker mapping, surfaces unmatched rows and is idempotent. The
+    official myfund API adapter remains deferred until its endpoint/terms are
+    verified; no login password is stored or fetched.
 - [ ] **IL.5 UI alignment:** canonical Brief/Scenarios/Evidence/Review mapping,
   progressive disclosure, one canonical company read, and screenshot QA.
 

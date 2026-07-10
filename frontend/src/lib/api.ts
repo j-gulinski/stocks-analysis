@@ -29,6 +29,7 @@ import type {
   LoginStatus,
   MonitorCheckResult,
   PricePoint,
+  Position,
   PreSessionBriefResult,
   QueueAttemptResult,
   RefreshSummary,
@@ -265,6 +266,11 @@ export const updateFalsifier = (
     `/companies/${encodeURIComponent(ticker)}/falsifiers/${id}`,
     { method: "PATCH", body: JSON.stringify(payload) },
   );
+
+export const getPositions = (ticker?: string) => {
+  const query = ticker ? `?ticker=${encodeURIComponent(ticker)}` : "";
+  return request<Position[]>(`/positions${query}`);
+};
 
 export const listBacktestRuns = (params: { limit?: number; strategy?: string } = {}) => {
   const search = new URLSearchParams();

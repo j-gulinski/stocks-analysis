@@ -23,6 +23,7 @@ from app.api import (
     forum,
     journal,
     monitor,
+    positions,
     watchlist,
 )
 from app.db.base import get_db
@@ -45,6 +46,7 @@ app.include_router(falsifiers.router, prefix="/api")
 app.include_router(discovery.router, prefix="/api")
 app.include_router(journal.router, prefix="/api")
 app.include_router(monitor.router, prefix="/api")
+app.include_router(positions.router, prefix="/api")
 
 
 @app.get("/api/health")

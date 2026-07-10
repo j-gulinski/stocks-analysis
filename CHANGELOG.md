@@ -18,6 +18,15 @@ reason; metrics and models never infer a fired state. The research queue now
 orders fired cases before warnings, and the company report exposes a compact
 editor with visible status and review date.
 
+## 2026-07-10 · IL.4 read-only position context
+
+Added migration `0014` for a position ledger containing ticker, entry, size,
+quantity and sizing-rule context. Positions are read-only to analysis and AI.
+CSV import pins one portfolio, requires explicit ticker mapping, surfaces
+unmatched rows and is idempotent. The configured myfund API-key slots remain
+credential-safe but the official API adapter is deferred until its endpoint
+and terms are verified; no guessed external calls were added.
+
 ## 2026-07-10 · Active documentation compaction
 
 Reduced `PLAN.md`, the canonical research-platform plan and the changelog to

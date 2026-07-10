@@ -343,6 +343,36 @@ class ThesisFalsifier(Base):
     )
 
 
+class PositionLedgerEntry(Base):
+    """Read-only position context; never included in analysis inputs."""
+
+    __tablename__ = "position_ledger_entries"
+    __table_args__ = (
+        UniqueConstraint(
+            "source",
+            "portfolio",
+            "source_ref",
+            name="uq_position_ledger_source_ref",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int | None] = mapped_column(
+        ForeignKey("companies.id", ondelete="SET NULL"), index=True
+    )
+    ticker: Mapped[str] = mapped_column(String(12), index=True)
+    instrument_name: Mapped[str | None] = mapped_column(String(200))
+    portfolio: Mapped[str] = mapped_column(String(80), default="default")
+    entry_date: Mapped[date | None] = mapped_column(Date)
+    entry_price: Mapped[float | None] = mapped_column(Numeric(14, 4))
+    quantity: Mapped[float | None] = mapped_column(Numeric(20, 6))
+    size_pln: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    sizing_rule_flag: Mapped[bool] = mapped_column(default=False)
+    source: Mapped[str] = mapped_column(String(30), default="csv")
+    source_ref: Mapped[str] = mapped_column(String(160))
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Forecast(Base):
     """A saved next-quarter forecast scenario (assumptions + computed result)."""
 
