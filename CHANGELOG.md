@@ -72,6 +72,11 @@ Backtest runs now persist `scoring_policy=deterministic_prescore_only` and
 current prescore boundary auditable; thesis/scenario replay remains deferred
 until the cohort has point-in-time inputs.
 
+Independent `verifier_strict` review of the live SNT probe returned
+`needs-human`: the run has no observations because historical price
+availability is unknown, remains `verification_status=pending`, and is not
+eligible for approval or strategy learning.
+
 ## 2026-07-10 · IL.4 read-only position context
 
 Added migration `0014` for a position ledger containing ticker, entry, size,
