@@ -134,8 +134,12 @@ def test_backtest_estimated_period_lag_is_opt_in_and_date_bounded(db):
         "financial_policy": "estimated_period_lag",
         "report_lag_days": 120,
         "latest_income_available_at": date(2024, 4, 29),
+        "restatement_caveat": backtest.ESTIMATED_LAG_RESTATEMENT_CAVEAT,
     }
     assert after["summary"]["data_quality"]["research_only"] is True
+    assert after["summary"]["data_quality"]["restatement_caveat"] == (
+        backtest.ESTIMATED_LAG_RESTATEMENT_CAVEAT
+    )
     assert "Research-only" in after["summary"]["known_inputs_policy"]
 
 

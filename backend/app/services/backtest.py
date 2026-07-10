@@ -28,6 +28,11 @@ DEFAULT_OUTCOME_WINDOWS = (30, 90, 180, 365)
 DEFAULT_REPORT_LAG_DAYS = 120
 FINANCIAL_AVAILABILITY_SCRAPED_AT = "scraped_at"
 FINANCIAL_AVAILABILITY_ESTIMATED_LAG = "estimated_period_lag"
+ESTIMATED_LAG_RESTATEMENT_CAVEAT = (
+    "Historical report rows may have been restated after the estimated "
+    "availability date; this proxy does not reconstruct the original filing "
+    "version."
+)
 FINANCIAL_AVAILABILITY_POLICIES = {
     FINANCIAL_AVAILABILITY_SCRAPED_AT,
     FINANCIAL_AVAILABILITY_ESTIMATED_LAG,
@@ -70,6 +75,7 @@ def run_strategy_backtest(
         "cadence": cadence,
         "financial_availability_policy": policy,
         "report_lag_days": lag_days if policy == FINANCIAL_AVAILABILITY_ESTIMATED_LAG else None,
+        "restatement_caveat": _restatement_caveat(policy),
         "known_inputs_policy": _known_inputs_policy(policy, lag_days),
     }
 
@@ -162,6 +168,14 @@ def _normalize_report_lag_days(days: int | None) -> int:
     return value
 
 
+def _restatement_caveat(policy: str) -> str | None:
+    return (
+        ESTIMATED_LAG_RESTATEMENT_CAVEAT
+        if policy == FINANCIAL_AVAILABILITY_ESTIMATED_LAG
+        else None
+    )
+
+
 def _known_inputs_policy(policy: str, report_lag_days: int) -> str:
     common = (
         "Company current scalar fields such as market_cap are not used as "
@@ -171,7 +185,7 @@ def _known_inputs_policy(policy: str, report_lag_days: int) -> str:
         return (
             "Research-only: quarterly ReportValue rows are treated as available "
             f"{report_lag_days} days after quarter end because exact publication "
-            f"timestamps are not stored yet. {common}"
+            f"timestamps are not stored yet. {ESTIMATED_LAG_RESTATEMENT_CAVEAT} {common}"
         )
     return f"Only ReportValue rows with scraped_at <= as_of_date are used. {common}"
 
@@ -262,6 +276,7 @@ def _build_observation(
                     else None
                 ),
                 "latest_income_available_at": latest_available_at,
+                "restatement_caveat": _restatement_caveat(financial_availability_policy),
             },
             "price": {"date": price.date, "close": float(price.close)},
             "financials": {
@@ -507,6 +522,7 @@ def _summarize(
                 if financial_availability_policy == FINANCIAL_AVAILABILITY_ESTIMATED_LAG
                 else None
             ),
+            "restatement_caveat": _restatement_caveat(financial_availability_policy),
             "research_only": financial_availability_policy
             == FINANCIAL_AVAILABILITY_ESTIMATED_LAG,
             "warnings": _data_quality_warnings(

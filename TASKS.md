@@ -86,8 +86,10 @@ Detailed contracts: `docs/plan-stage-codex-pivot.md`.
     control candidate and excluded unverified placeholder are recorded in
     `docs/backtest-cohort-cx16a.md`. No delisting was found in the stored
     corpus; selection, identity and availability limits remain explicit.
-  - [ ] **CX.16b** Reconstruct historical inputs with an explicit estimated-lag
-    policy and restatement caveat.
+  - [~] **CX.16b** Reconstruct historical inputs with an explicit
+    `estimated_period_lag` policy and restatement caveat. The engine now
+    persists both; case identity, original filing versions and price coverage
+    remain to be reconstructed before this slice can close.
   - [ ] **CX.16c** Replay deterministic prescore, thesis and scenario ranges;
     no AI-refined output in scored results.
   - [ ] **CX.16d** Compare 1/2/3-year outcomes and write per-case cards; small-n

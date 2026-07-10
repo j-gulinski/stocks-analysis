@@ -44,6 +44,14 @@ excluded unverified placeholder (SNT). No delisting was found in the stored
 corpus. Selection, identity, publication availability and corporate-action
 limits are recorded; no replay or performance claim is permitted yet.
 
+## 2026-07-10 · CX.16b availability caveat
+
+Extended the deterministic backtest availability metadata so
+`estimated_period_lag` runs persist an explicit restatement caveat in run
+parameters, known inputs and data-quality summaries. The mode remains
+research-only and `needs-human`; original filing versions and historical case
+identity are still open.
+
 ## 2026-07-10 · IL.4 read-only position context
 
 Added migration `0014` for a position ledger containing ticker, entry, size,
