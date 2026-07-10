@@ -51,12 +51,15 @@ _MAX_TOKENS = 8000
 # Bounded retry: a transient transport error gets a couple of extra tries
 # before we give up and tell the caller the run failed (never fabricate).
 _MAX_ATTEMPTS = 3
+_CACHE_SCHEMA_VERSION = 2
 
 # Where cached verdicts live (gitignored). `parents[2]` == the backend/ root
 # (same convention as thesis_ai._DEFAULT_CACHE_DIR).
 _DEFAULT_CACHE_DIR = Path(__file__).resolve().parents[2] / ".cache" / "analysis"
 
 _TOOL_NAME = "zapisz_analize"
+ANALYSIS_CONTRACT_NAME = "AnalysisVerdict"
+ANALYSIS_CONTRACT_VERSION = "1"
 
 # The verdict schema — single source of truth, mirrors PLAN §8 / SKILL.md's
 # "Output contract" EXACTLY. Forced via tool_choice so the model cannot answer
@@ -85,6 +88,7 @@ _VERDICT_SCHEMA = {
                     },
                 },
                 "required": ["type", "description", "horizon", "priced_in"],
+                "additionalProperties": False,
             },
         },
         "checklist": {
@@ -92,6 +96,16 @@ _VERDICT_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
+                    "id": {
+                        "type": "string",
+                        "enum": [
+                            "revenue_growth", "gross_margin_trend",
+                            "operating_leverage", "profit_quality",
+                            "valuation_vs_history", "catalyst",
+                            "margin_of_safety", "small_cap",
+                            "balance_sheet", "dividend", "framing",
+                        ],
+                    },
                     "item": {"type": "string"},
                     "verdict": {
                         "type": "string",
@@ -99,7 +113,8 @@ _VERDICT_SCHEMA = {
                     },
                     "evidence": {"type": "string"},
                 },
-                "required": ["item", "verdict", "evidence"],
+                "required": ["id", "item", "verdict", "evidence"],
+                "additionalProperties": False,
             },
         },
         "red_flags": {"type": "array", "items": {"type": "string"}},
@@ -117,6 +132,7 @@ _VERDICT_SCHEMA = {
                     "post_ids": {"type": "array", "items": {"type": "integer"}},
                 },
                 "required": ["claim", "confidence", "post_ids"],
+                "additionalProperties": False,
             },
         },
         "alignment_score": {"type": "integer", "minimum": 0, "maximum": 100},
@@ -127,6 +143,7 @@ _VERDICT_SCHEMA = {
                 "downside": {"type": "string"},
             },
             "required": ["upside", "downside"],
+            "additionalProperties": False,
         },
         "scenarios": {
             "type": "array",
@@ -177,8 +194,9 @@ _VERDICT_SCHEMA = {
                     "id": {"type": "string"},
                     "text": {"type": "string"},
                     "why": {"type": "string"},
-                },
-                "required": ["id", "text", "why"],
+            },
+            "required": ["id", "text", "why"],
+            "additionalProperties": False,
             },
         },
         "summary_pl": {"type": "string", "minLength": 80},
@@ -196,6 +214,7 @@ _VERDICT_SCHEMA = {
         "verify_next",
         "summary_pl",
     ],
+    "additionalProperties": False,
 }
 
 _TOOLS = [
@@ -293,7 +312,7 @@ def default_transport(settings):
         try:
             import anthropic  # lazy: optional dependency
 
-            client = anthropic.Anthropic(api_key=api_key)
+            client = anthropic.Anthropic(api_key=api_key, timeout=90.0)
             resp = client.messages.create(
                 model=model,
                 max_tokens=_MAX_TOKENS,
@@ -316,6 +335,8 @@ def default_transport(settings):
                     content.append({"type": "text", "text": getattr(block, "text", "")})
             usage = getattr(resp, "usage", None)
             return {
+                "id": getattr(resp, "id", None),
+                "stop_reason": getattr(resp, "stop_reason", None),
                 "content": content,
                 "usage": {
                     "input_tokens": getattr(usage, "input_tokens", None) if usage else None,
@@ -385,7 +406,11 @@ def _extract_verdict(raw) -> dict | None:
         return None
 
     for block in content:
-        if isinstance(block, dict) and block.get("type") == "tool_use":
+        if (
+            isinstance(block, dict)
+            and block.get("type") == "tool_use"
+            and block.get("name") == _TOOL_NAME
+        ):
             payload = block.get("input")
             if isinstance(payload, dict):
                 return payload
@@ -401,7 +426,7 @@ def _extract_verdict(raw) -> dict | None:
     return parsed if isinstance(parsed, dict) else None
 
 
-def _extract_usage(raw) -> tuple[int | None, int | None]:
+def extract_usage(raw) -> tuple[int | None, int | None]:
     usage = raw.get("usage") if isinstance(raw, dict) else None
     if not isinstance(usage, dict):
         return None, None
@@ -459,6 +484,33 @@ def _repair_messages(messages: list[dict], errors: list[str]) -> list[dict]:
     return repaired
 
 
+def analysis_request_parts(prompt_bundle: dict) -> tuple[list[dict], list[dict], dict]:
+    """Provider-neutral request parts for the verdict contract."""
+    messages = [
+        {"role": "system", "content": prompt_bundle.get("system", "")},
+        {"role": "user", "content": prompt_bundle.get("user", "")},
+    ]
+    return messages, _TOOLS, _TOOL_CHOICE
+
+
+def parse_analysis_response(raw: object, *, model: str) -> AnalysisResult:
+    """Validate one provider response; retries/persistence belong elsewhere."""
+    verdict = _extract_verdict(raw)
+    if verdict is None:
+        raise AnalysisUnavailable(
+            "Provider response carried no usable verdict.", reason="parse"
+        )
+    verdict = validate_analysis_verdict(verdict)
+    input_tokens, output_tokens = extract_usage(raw)
+    return AnalysisResult(
+        verdict=verdict,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        model=model,
+        engine="ai",
+    )
+
+
 # --------------------------------------------------------------------- cache
 
 
@@ -482,7 +534,16 @@ def _cache_path(settings, ticker, prompt_bundle: dict, model: str) -> Path:
             }
         )
     )
-    digest = _short_hash(_json({"ticker": ticker or "", "model": model, "prompt": prompt_hash}))
+    digest = _short_hash(
+        _json(
+            {
+                "schema_version": _CACHE_SCHEMA_VERSION,
+                "ticker": ticker or "",
+                "model": model,
+                "prompt": prompt_hash,
+            }
+        )
+    )
     return base_dir / f"{ticker or 'unknown'}_{digest}.json"
 
 
@@ -501,6 +562,19 @@ def _cache_write(path: Path, payload: dict) -> None:
             json.dump(payload, fh, ensure_ascii=False, default=str)
     except OSError:
         pass  # cache is best-effort; a write failure must never break the run
+
+
+def validate_analysis_verdict(verdict: object) -> dict:
+    """Apply the same strict contract to fresh and cached provider output."""
+    try:
+        # Lazy import preserves the module's no-PyPI import contract.
+        from app.services.analysis_contracts import AnalysisVerdict
+
+        return AnalysisVerdict.model_validate(verdict).model_dump(mode="json")
+    except Exception as exc:  # Pydantic ValidationError or missing runtime dep
+        raise AnalysisUnavailable(
+            f"Claude API verdict failed schema validation: {exc}", reason="parse"
+        ) from exc
 
 
 # --------------------------------------------------------------- entry point
@@ -542,16 +616,19 @@ def run_analysis(
         if cached is not None:
             try:
                 cached_result = AnalysisResult(**cached)
-            except TypeError:
-                cached_result = None
-            if cached_result is not None and not _verdict_validation_errors(cached_result.verdict):
+                cached_result.verdict = validate_analysis_verdict(cached_result.verdict)
+                if _verdict_validation_errors(cached_result.verdict):
+                    raise AnalysisUnavailable(
+                        "Cached verdict failed semantic validation.", reason="parse"
+                    )
                 return cached_result
+            except (TypeError, AnalysisUnavailable):
+                # Old or corrupt entries are cache misses, never a way around
+                # the current schema contract.
+                pass
 
     transport = transport or default_transport(settings)
-    messages = [
-        {"role": "system", "content": prompt_bundle.get("system", "")},
-        {"role": "user", "content": prompt_bundle.get("user", "")},
-    ]
+    messages, tools, tool_choice = analysis_request_parts(prompt_bundle)
 
     last_exc: Exception | None = None
     validation_errors: list[str] = []
@@ -560,8 +637,8 @@ def run_analysis(
             raw = transport(
                 _repair_messages(messages, validation_errors) if validation_errors else messages,
                 model,
-                _TOOLS,
-                _TOOL_CHOICE,
+                tools,
+                tool_choice,
             )
         except Exception as exc:  # noqa: BLE001 — bounded retry, then give up
             last_exc = exc
@@ -583,14 +660,12 @@ def run_analysis(
             )
             continue
 
-        input_tokens, output_tokens = _extract_usage(raw)
-        result = AnalysisResult(
-            verdict=verdict,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            model=model,
-            engine="ai",
-        )
+        try:
+            result = parse_analysis_response(raw, model=model)
+        except AnalysisUnavailable as exc:
+            last_exc = exc
+            validation_errors = [str(exc)]
+            continue
 
         if cache_enabled:
             _cache_write(cache_file, asdict(result))

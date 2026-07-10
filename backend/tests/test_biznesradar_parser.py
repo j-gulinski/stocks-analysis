@@ -9,6 +9,7 @@ from app.scrapers.biznesradar import (
     parse_forecasts,
     parse_number,
     parse_profile,
+    parse_price_history,
     parse_report_table,
 )
 from app.services import fields
@@ -344,21 +345,24 @@ def test_income_field_matching_disambiguates_gross_lines():
 
 # ------------------------------------------------- real recorded fixtures
 
+REAL_BR_ROOT = FIXTURES_DIR / "real" / "br"
+REAL_COMPANY_DIRS = sorted(path for path in REAL_BR_ROOT.glob("*") if path.is_dir())
 REAL_REPORT_FIXTURES = [
-    ("real_br_income_q.html", "Q"),
-    ("real_br_income_y.html", "Y"),
-    ("real_br_balance_q.html", "Q"),
-    ("real_br_cashflow_q.html", "Q"),
-    ("real_br_indicators_value.html", "Q"),
+    ("income_q.html", "Q"),
+    ("income_y.html", "Y"),
+    ("balance_q.html", "Q"),
+    ("cashflow_q.html", "Q"),
+    ("indicators_value.html", "Q"),
+    ("indicators_profitability.html", "Q"),
 ]
 
 
+@pytest.mark.parametrize("company_dir", REAL_COMPANY_DIRS)
 @pytest.mark.parametrize(("fixture_name", "freq"), REAL_REPORT_FIXTURES)
-def test_real_report_pages_structure(fixture_name, freq):
-    """Structural assertions over real pages recorded by scripts/record_fixtures.py."""
-    path = FIXTURES_DIR / fixture_name
-    if not path.exists():
-        pytest.skip("real fixture not recorded yet (run scripts/record_fixtures.py)")
+def test_real_report_pages_structure(company_dir, fixture_name, freq):
+    """Structural assertions over every ticker-specific real capture."""
+    path = company_dir / fixture_name
+    assert path.exists(), f"incomplete real fixture set: missing {path}"
     table = parse_report_table(path.read_text(encoding="utf-8"), freq=freq)
     assert table.periods, "expected at least one period column"
     assert table.rows, "expected at least one data row"
@@ -367,14 +371,38 @@ def test_real_report_pages_structure(fixture_name, freq):
     ), "expected at least one numeric value"
 
 
-def test_real_income_maps_core_fields():
-    path = FIXTURES_DIR / "real_br_income_q.html"
-    if not path.exists():
-        pytest.skip("real fixture not recorded yet (run scripts/record_fixtures.py)")
+@pytest.mark.parametrize("company_dir", REAL_COMPANY_DIRS)
+def test_real_income_maps_core_fields(company_dir):
+    path = company_dir / "income_q.html"
     table = parse_report_table(path.read_text(encoding="utf-8"), freq="Q")
     matched = {
         fields.match_income_field(row.label, row.field_code) for row in table.rows
     }
     # The strategy cannot work without these three lines — fail loudly if the
     # alias list needs extending for real-world labels.
-    assert {"revenue", "gross_profit", "net_profit"} <= matched
+    assert {"revenue", "net_profit"} <= matched
+    assert {"gross_profit", "cogs", "profit_on_sales"} & matched
+
+
+@pytest.mark.parametrize("company_dir", REAL_COMPANY_DIRS)
+def test_real_profile_dividend_and_price_pages(company_dir):
+    ticker = company_dir.name
+    profile_path = company_dir / "profile.html"
+    dividend_path = company_dir / "dividends.html"
+    price_path = company_dir / "price_history.html"
+    for path in (profile_path, dividend_path, price_path, company_dir / "metadata.json"):
+        assert path.exists(), f"incomplete real fixture set: missing {path}"
+
+    profile = parse_profile(profile_path.read_text(encoding="utf-8"), ticker)
+    assert profile.slug
+    assert profile.name
+    # A company may legitimately pay no dividend; parsing must still be safe.
+    assert isinstance(parse_dividends(dividend_path.read_text(encoding="utf-8")), list)
+    bars = parse_price_history(price_path.read_text(encoding="utf-8"))
+    assert bars, "expected at least one real price-history bar"
+
+
+def test_real_fixture_matrix_has_two_companies_when_rt03_is_closed():
+    if not REAL_COMPANY_DIRS:
+        pytest.skip("RT0.3 open: record one GPW and one verified NewConnect company")
+    assert len(REAL_COMPANY_DIRS) >= 2

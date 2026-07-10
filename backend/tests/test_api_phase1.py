@@ -204,8 +204,50 @@ def test_scrapers_health(client, stub_fetch):
     client.post("/api/companies/DEC/refresh")
     health = client.get("/api/health/scrapers").json()
     assert health["biznesradar.pl"]["last_ok_at"] is not None
+    assert health["biznesradar.pl"]["status"] == "healthy"
     assert health["biznesradar.pl"]["errors_24h"] == 0
     assert health["portalanaliz.pl"]["last_ok_at"] is None  # nothing synced yet
+    assert health["portalanaliz.pl"]["status"] == "unknown"
+
+
+def test_scrapers_health_distinguishes_recovery_from_active_failure(client, db):
+    from datetime import datetime, timedelta, timezone
+
+    from app.db.models import FetchLog
+
+    now = datetime.now(timezone.utc)
+    db.add(
+        FetchLog(
+            url="https://www.biznesradar.pl/notowania/OLD",
+            status=404,
+            fetched_at=now - timedelta(minutes=5),
+        )
+    )
+    db.add(
+        FetchLog(
+            url="https://www.biznesradar.pl/notowania/NEW-SLUG",
+            status=200,
+            fetched_at=now - timedelta(minutes=2),
+        )
+    )
+    db.commit()
+
+    recovered = client.get("/api/health/scrapers").json()["biznesradar.pl"]
+    assert recovered["status"] == "recovered"
+    assert recovered["errors_24h"] == 1
+
+    db.add(
+        FetchLog(
+            url="https://www.biznesradar.pl/notowania/BROKEN",
+            status=503,
+            fetched_at=now,
+        )
+    )
+    db.commit()
+
+    degraded = client.get("/api/health/scrapers").json()["biznesradar.pl"]
+    assert degraded["status"] == "degraded"
+    assert degraded["errors_24h"] == 2
 
 
 def test_reads_for_unknown_company_return_404(client):

@@ -18,18 +18,25 @@ const STATEMENTS: { value: Financials["statement"]; label: string }[] = [
 export default function FinancialsTable({ ticker }: { ticker: string }) {
   const [statement, setStatement] = useState<Financials["statement"]>("income");
   const [freq, setFreq] = useState<Financials["freq"]>("Q");
+  const [showFullHistory, setShowFullHistory] = useState(false);
 
   const { data, error, loading } = useApi(
     () => getFinancials(ticker, statement, freq),
     [ticker, statement, freq],
   );
+  const startIndex = data && !showFullHistory ? Math.max(0, data.periods.length - 8) : 0;
+  const visiblePeriods = data?.periods.slice(startIndex) ?? [];
 
   return (
     <div>
       <div className="row" style={{ marginBottom: 12 }}>
         <select
+          aria-label="Rodzaj sprawozdania"
           value={statement}
-          onChange={(e) => setStatement(e.target.value as Financials["statement"])}
+          onChange={(e) => {
+            setStatement(e.target.value as Financials["statement"]);
+            setShowFullHistory(false);
+          }}
         >
           {STATEMENTS.map((s) => (
             <option key={s.value} value={s.value}>
@@ -38,14 +45,23 @@ export default function FinancialsTable({ ticker }: { ticker: string }) {
           ))}
         </select>
         <select
+          aria-label="Częstotliwość sprawozdania"
           value={freq}
-          onChange={(e) => setFreq(e.target.value as Financials["freq"])}
+          onChange={(e) => {
+            setFreq(e.target.value as Financials["freq"]);
+            setShowFullHistory(false);
+          }}
           disabled={statement !== "income"} // only income is scraped annually (v1)
         >
           <option value="Q">Kwartalnie</option>
           <option value="Y">Rocznie</option>
         </select>
         <span className="small muted">wartości w tys. zł</span>
+        {data && data.periods.length > 8 && (
+          <button className="btn compact" onClick={() => setShowFullHistory((value) => !value)}>
+            {showFullHistory ? "Pokaż 8 ostatnich" : `Pełna historia (${data.periods.length})`}
+          </button>
+        )}
       </div>
 
       {loading && (
@@ -64,7 +80,7 @@ export default function FinancialsTable({ ticker }: { ticker: string }) {
             <thead>
               <tr>
                 <th>Pozycja</th>
-                {data.periods.map((period) => (
+                {visiblePeriods.map((period) => (
                   <th key={period}>{period}</th>
                 ))}
               </tr>
@@ -73,8 +89,8 @@ export default function FinancialsTable({ ticker }: { ticker: string }) {
               {data.rows.map((row) => (
                 <tr key={row.field_code}>
                   <td className="secondary">{row.label}</td>
-                  {row.values.map((value, index) => (
-                    <td key={data.periods[index]}>{fmtNumber(value, 0)}</td>
+                  {row.values.slice(startIndex).map((value, index) => (
+                    <td key={visiblePeriods[index]}>{fmtNumber(value, 0)}</td>
                   ))}
                 </tr>
               ))}

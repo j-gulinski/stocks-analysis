@@ -3,7 +3,7 @@
     cd backend
     python scripts/record_topic_fixture.py "https://portalanaliz.pl/forum/viewtopic.php?f=7&t=1234"
 
-Saves tests/fixtures/real_pa_topic.html — used to verify post/upvote parsing
+Saves tests/fixtures/real/pa/topic.html — used to verify post/upvote parsing
 against real markup (see skills/scraper-doctor/SKILL.md). Uses the polite
 fetcher; public topics need no login.
 """
@@ -29,7 +29,8 @@ def main() -> int:
     if response.status_code != 200:
         print(f"HTTP {response.status_code} — nothing saved.")
         return 1
-    target = FIXTURES_DIR / "real_pa_topic.html"
+    target = FIXTURES_DIR / "real" / "pa" / "topic.html"
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(response.text, encoding="utf-8")
     print(f"saved {target} ({len(response.text)} bytes)")
     print("Now run: pytest tests/test_forum.py -v")

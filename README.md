@@ -1,14 +1,31 @@
 # Stock Analysis Workbench
 
-Personal GPW stock-analysis app implementing the Paweł Malik / OBS strategy:
-BiznesRadar financials + PortalAnaliz forum threads → metrics, quarterly
-charts, next-quarter forecasts and (Phase 5) AI strategy verdicts.
+Personal GPW fundamental-research workbench. The current vertical slice combines
+BiznesRadar financials, PortalAnaliz context, deterministic metrics/forecast/
+thesis/scenarios and an optional AI verdict. The binding next-stage plan adds
+point-in-time evidence, company-driver scenarios, controlled model routing,
+judge evaluation and a Codex-facilitated research workflow.
 
-Docs: `PLAN.md` (architecture) · `TASKS.md` (task breakdown) · `CHANGELOG.md`
+Docs: `docs/plan-research-platform.md` (binding target) · `PLAN.md` (overview
+and first-build history) · `TASKS.md` (task breakdown) · `CHANGELOG.md`
 (decision log — required for every change) · `docs/design/` (UI reference) ·
 `docs/learning/` (concept notes for a C# dev learning this stack).
 
-## Run locally (backend, Phases 0–3)
+## Start locally (recommended)
+
+```bash
+./workbench doctor       # read-only: dependencies/config/services/stored source health
+./workbench start        # Docker Postgres + migrations + backend + frontend
+./workbench status
+./workbench start --open # same, then open the app on macOS
+./workbench stop         # stops owned app processes; leaves Postgres running
+```
+
+The command is idempotent and stores only local PID/log state under the
+gitignored `.workbench/` directory. It never prints secret values. On macOS,
+`start` opens Docker Desktop when it is installed but not running.
+
+## Run components manually
 
 ```bash
 # 1. Database
@@ -35,15 +52,18 @@ PA_PASSWORD="your password"
 
 # Phase 5:
 # ANTHROPIC_API_KEY=sk-ant-...
+# AI_DAILY_LIMIT=20          # logical analysis runs; 0 disables
+# AI_DAILY_CALL_LIMIT=60     # actual provider attempts, retries included
+# AI_DAILY_TOKEN_LIMIT=500000
 ```
 
 Interactive API docs: http://localhost:8000/docs
 
-## Run locally (frontend, Phase 4)
+### Frontend
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -111,7 +131,8 @@ git init                                  # if not done yet
 git config core.hooksPath .githooks
 ```
 
-## Deployment (Phase 6, later)
+## Deployment (RT.7, later)
 
 Vercel (Next.js frontend, Auth.js Google allowlist) + Railway (this backend +
-Postgres). The browser talks only to the Next proxy; see PLAN §9a.
+Postgres). Deployment follows the evidence/scenario/evaluation pilot rather
+than preceding it; see `docs/plan-research-platform.md`.

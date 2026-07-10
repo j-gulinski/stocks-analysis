@@ -17,6 +17,8 @@ from app.api import (
     backtests,
     companies,
     diagnostics,
+    discovery,
+    evidence,
     forum,
     watchlist,
 )
@@ -35,6 +37,8 @@ app.include_router(analyses.router, prefix="/api")
 app.include_router(agent_runs.router, prefix="/api")
 app.include_router(backtests.router, prefix="/api")
 app.include_router(agent_evaluations.router, prefix="/api")
+app.include_router(evidence.router, prefix="/api")
+app.include_router(discovery.router, prefix="/api")
 
 
 @app.get("/api/health")

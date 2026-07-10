@@ -1,10 +1,15 @@
-# UI design reference (v1 — SUPERSEDED)
+# Legacy UI design reference (v1 — superseded)
 
-> **2026-07-09: superseded by `design-v2.md` + `mockups-v2.html`** ("Research
-> studio" light direction, per user decision to discard the dark/dense v1
-> look). Kept as archive; do not base new frontend work on this file.
+> The implemented evidence-first workflow and information architecture follow
+> `research-workspace.md`. `design-v2.md` and `mockups-v2.html` preserve the
+> later light “Research studio” full-app visual proposal. Treat that proposal
+> as a candidate visual system until it is reconciled with and implemented on
+> the binding research workflow; do not base new work on this dark/dense v1.
 
-Open `mockups.html` in a browser — it contains both approved screens (watchlist + stock page) rendered with the final dark palette. Frontend work (Phase 4) must match these. This file defines the tokens and component rules to translate into SCSS.
+`mockups.html` contains the completed Phase-4 watchlist and stock screens. It is
+kept as design history, but it no longer defines the product information
+architecture. New frontend work follows `research-workspace.md`; this file still
+documents the original palette and component lineage.
 
 ## Tokens (`src/styles/_variables.scss`)
 

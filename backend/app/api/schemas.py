@@ -27,6 +27,29 @@ class WatchlistItemOut(BaseModel):
     added_at: datetime
 
 
+# --------------------------------------------------------------- discovery
+
+class DiscoveryCandidateOut(BaseModel):
+    ticker: str
+    name: str | None
+    report_period: str
+    br_rating: str | None
+    br_rating_value: float | None
+    piotroski_f_score: int | None
+    reasons: list[str]
+    caveat: str
+
+
+class DiscoveryOut(BaseModel):
+    source: str
+    source_url: str
+    as_of: datetime
+    universe_count: int
+    result_count: int
+    source_note: str
+    candidates: list[DiscoveryCandidateOut]
+
+
 # ---------------------------------------------------------------- companies
 
 class CompanyOut(BaseModel):
@@ -388,13 +411,22 @@ class AnalysisOut(BaseModel):
 
     id: int
     created_at: datetime
+    completed_at: datetime | None
+    as_of: datetime | None
+    provider: str | None
     model: str
+    purpose: str
+    status: str
+    skill_version: str | None
+    skill_hash: str | None
+    validation: dict | None
+    latency_ms: int | None
     alignment_score: int | None
     input_tokens: int | None
     output_tokens: int | None
     input_hash: str | None = None
     created_by: str | None
-    output: dict
+    output: dict | None
 
 
 class AgentRunOut(BaseModel):

@@ -84,6 +84,9 @@ class ReportValue(Base):
     field_label: Mapped[str] = mapped_column(String(200))
     position: Mapped[int | None] = mapped_column(Integer)  # row order in source table
     value: Mapped[float | None] = mapped_column(Numeric(20, 2))  # tys. PLN
+    # Logical lineage link (kept unconstrained for portable additive SQLite
+    # migrations); evidence tests enforce that referenced facts exist.
+    source_fact_id: Mapped[int | None] = mapped_column(Integer, index=True)
     scraped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     company: Mapped[Company] = relationship(back_populates="report_values")
@@ -102,6 +105,7 @@ class IndicatorValue(Base):
     indicator: Mapped[str] = mapped_column(String(40))  # cz, cwk, ev_ebitda, roe, …
     period: Mapped[str] = mapped_column(String(8))
     value: Mapped[float | None] = mapped_column(Numeric(14, 4))
+    source_fact_id: Mapped[int | None] = mapped_column(Integer, index=True)
     scraped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -256,21 +260,256 @@ class Forecast(Base):
 
 
 class Analysis(Base):
-    """AI analysis run (Phase 5) — schema prepared now so migrations stay linear."""
+    """A reproducible AI analysis run.
+
+    The legacy table name stays in place until the RT1.3 orchestrator migration
+    consolidates every analysis producer. A row is inserted *before* provider
+    work starts, so failed and interrupted attempts remain auditable instead of
+    disappearing.
+    """
 
     __tablename__ = "analyses"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
     model: Mapped[str] = mapped_column(String(60))
+    provider: Mapped[str | None] = mapped_column(String(40))
+    purpose: Mapped[str] = mapped_column(String(80), default="investment_verdict")
+    status: Mapped[str] = mapped_column(String(24), default="running", index=True)
+    as_of: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     prescore: Mapped[dict | None] = mapped_column(JSONVariant)
     input_snapshot: Mapped[dict | None] = mapped_column(JSONVariant)
     input_hash: Mapped[str | None] = mapped_column(String(64))
+    evidence_ids: Mapped[dict | None] = mapped_column(JSONVariant)
+    skill_version: Mapped[str | None] = mapped_column(String(120))
+    skill_hash: Mapped[str | None] = mapped_column(String(80))
+    model_configuration: Mapped[dict | None] = mapped_column(JSONVariant)
+    idempotency_key_hash: Mapped[str | None] = mapped_column(
+        String(64), unique=True, index=True
+    )
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     output: Mapped[dict | None] = mapped_column(JSONVariant)
+    validation: Mapped[dict | None] = mapped_column(JSONVariant)
     alignment_score: Mapped[int | None] = mapped_column(Integer)
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
+    estimated_cost: Mapped[float | None] = mapped_column(Numeric(14, 6))
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    error: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    model_calls: Mapped[list[ModelCall]] = relationship(
+        back_populates="analysis", cascade="all, delete-orphan"
+    )
+
+
+class ModelCall(Base):
+    """One provider attempt made as part of an analysis run."""
+
+    __tablename__ = "model_calls"
+    __table_args__ = (
+        Index("ix_model_calls_analysis_role", "analysis_id", "role"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    analysis_id: Mapped[int] = mapped_column(
+        ForeignKey("analyses.id", ondelete="CASCADE")
+    )
+    role: Mapped[str] = mapped_column(String(60))
+    provider: Mapped[str] = mapped_column(String(40))
+    model: Mapped[str] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(24))
+    attempt: Mapped[int] = mapped_column(Integer, default=1)
+    operation_key: Mapped[str | None] = mapped_column(String(200))
+    contract_name: Mapped[str | None] = mapped_column(String(100))
+    contract_version: Mapped[str | None] = mapped_column(String(40))
+    request_hash: Mapped[str | None] = mapped_column(String(80))
+    output: Mapped[dict | None] = mapped_column(JSONVariant)
+    provider_request_id: Mapped[str | None] = mapped_column(String(200))
+    finish_reason: Mapped[str | None] = mapped_column(String(80))
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    # Logical self-reference kept unconstrained so SQLite migrations remain
+    # portable; executor tests ensure it points at an existing successful call.
+    cache_source_call_id: Mapped[int | None] = mapped_column(Integer)
+    cache_hit: Mapped[bool] = mapped_column(default=False)
+    billed: Mapped[bool | None] = mapped_column()
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    estimated_cost: Mapped[float | None] = mapped_column(Numeric(14, 6))
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    error: Mapped[str | None] = mapped_column(Text)
+    escalation_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    analysis: Mapped[Analysis] = relationship(back_populates="model_calls")
+
+
+class AiUsageDaily(Base):
+    """Atomic daily reservations and measured model usage per provider."""
+
+    __tablename__ = "ai_usage_daily"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    provider: Mapped[str] = mapped_column(String(40), primary_key=True)
+    run_count: Mapped[int] = mapped_column(Integer, default=0)
+    logical_operations: Mapped[int] = mapped_column(Integer, default=0)
+    provider_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    cache_hits: Mapped[int] = mapped_column(Integer, default=0)
+    billable_calls: Mapped[int] = mapped_column(Integer, default=0)
+    unknown_billing_calls: Mapped[int] = mapped_column(Integer, default=0)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    estimated_cost: Mapped[float] = mapped_column(Numeric(14, 6), default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class SourceDocument(Base):
+    """Stable identity for one externally published/fetched document URL."""
+
+    __tablename__ = "source_documents"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_ticker",
+            "source_name",
+            "source_type",
+            "scope_key",
+            name="uq_source_document_identity",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int | None] = mapped_column(
+        ForeignKey("companies.id", ondelete="SET NULL"), index=True
+    )
+    company_ticker: Mapped[str] = mapped_column(String(12), index=True)
+    source_name: Mapped[str] = mapped_column(String(80))
+    source_type: Mapped[str] = mapped_column(String(80), index=True)
+    scope_key: Mapped[str] = mapped_column(String(200))
+    canonical_url: Mapped[str] = mapped_column(String(1000))
+    title: Mapped[str | None] = mapped_column(String(500))
+    period: Mapped[str | None] = mapped_column(String(40))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    latest_content_hash: Mapped[str] = mapped_column(String(64))
+    mime_type: Mapped[str] = mapped_column(String(120))
+    parser_version: Mapped[str] = mapped_column(String(120))
+    last_fetch_status: Mapped[int | None] = mapped_column(Integer)
+
+
+class DocumentVersion(Base):
+    """Immutable raw content version; identical re-fetches reuse one row."""
+
+    __tablename__ = "document_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_document_id", "content_hash", name="uq_document_version_hash"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_document_id: Mapped[int] = mapped_column(
+        ForeignKey("source_documents.id", ondelete="CASCADE"), index=True
+    )
+    content_hash: Mapped[str] = mapped_column(String(64))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    requested_url: Mapped[str] = mapped_column(String(1000))
+    effective_url: Mapped[str] = mapped_column(String(1000))
+    response_status: Mapped[int | None] = mapped_column(Integer)
+    mime_type: Mapped[str] = mapped_column(String(120))
+    parser_version: Mapped[str] = mapped_column(String(120))
+    parse_status: Mapped[str] = mapped_column(String(40), default="pending")
+    parse_error: Mapped[str | None] = mapped_column(Text)
+    byte_size: Mapped[int] = mapped_column(Integer)
+    raw_content: Mapped[str] = mapped_column(Text)
+
+
+class Fact(Base):
+    """Typed, point-in-time fact extracted from an immutable document version."""
+
+    __tablename__ = "facts"
+    __table_args__ = (
+        UniqueConstraint("source_version_id", "fact_hash", name="uq_fact_version_hash"),
+        Index("ix_facts_company_known_key", "company_id", "known_at", "fact_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int | None] = mapped_column(
+        ForeignKey("companies.id", ondelete="SET NULL"), index=True
+    )
+    company_ticker: Mapped[str] = mapped_column(String(12), index=True)
+    source_version_id: Mapped[int] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="CASCADE"), index=True
+    )
+    fact_type: Mapped[str] = mapped_column(String(80))
+    fact_key: Mapped[str] = mapped_column(String(200))
+    fact_hash: Mapped[str] = mapped_column(String(64))
+    numeric_value: Mapped[float | None] = mapped_column(Numeric(24, 6))
+    text_value: Mapped[str | None] = mapped_column(Text)
+    unit: Mapped[str | None] = mapped_column(String(80))
+    period: Mapped[str | None] = mapped_column(String(40))
+    effective_date: Mapped[date | None] = mapped_column(Date)
+    known_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    locator: Mapped[dict] = mapped_column(JSONVariant)
+    extractor_version: Mapped[str] = mapped_column(String(120))
+    confidence: Mapped[float | None] = mapped_column(Numeric(5, 4))
+    verification_state: Mapped[str] = mapped_column(String(40), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Event(Base):
+    """Material company event linked to the version that disclosed it."""
+
+    __tablename__ = "events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int | None] = mapped_column(
+        ForeignKey("companies.id", ondelete="SET NULL"), index=True
+    )
+    company_ticker: Mapped[str] = mapped_column(String(12), index=True)
+    source_version_id: Mapped[int] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="CASCADE"), index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(80), index=True)
+    title: Mapped[str] = mapped_column(String(500))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    known_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    claims: Mapped[list] = mapped_column(JSONVariant)
+    verification_state: Mapped[str] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DataConflict(Base):
+    """Explicit disagreement between two facts; never silently overwrite it."""
+
+    __tablename__ = "data_conflicts"
+    __table_args__ = (
+        UniqueConstraint(
+            "left_fact_id", "right_fact_id", name="uq_data_conflict_fact_pair"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int | None] = mapped_column(
+        ForeignKey("companies.id", ondelete="SET NULL"), index=True
+    )
+    company_ticker: Mapped[str] = mapped_column(String(12), index=True)
+    fact_key: Mapped[str] = mapped_column(String(200), index=True)
+    period: Mapped[str | None] = mapped_column(String(40))
+    left_fact_id: Mapped[int] = mapped_column(
+        ForeignKey("facts.id", ondelete="CASCADE")
+    )
+    right_fact_id: Mapped[int] = mapped_column(
+        ForeignKey("facts.id", ondelete="CASCADE")
+    )
+    status: Mapped[str] = mapped_column(String(40), default="open", index=True)
+    resolution_rule: Mapped[str | None] = mapped_column(Text)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -519,4 +758,5 @@ class FetchLog(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     url: Mapped[str] = mapped_column(String(500))
     status: Mapped[int | None] = mapped_column(Integer)  # None = network error
+    document_version_id: Mapped[int | None] = mapped_column(Integer, index=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

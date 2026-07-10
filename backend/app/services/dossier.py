@@ -4,7 +4,6 @@ all math to the pure functions in metrics.py / forecast.py."""
 from __future__ import annotations
 
 from datetime import date
-from types import SimpleNamespace
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -23,12 +22,9 @@ from app.db.models import (
 from app.services import (
     fields,
     insights,
-    insights_ai,
     metrics,
     scenarios,
-    scenarios_ai,
     thesis,
-    thesis_ai,
     valuation_ai,
     market_data,
 )
@@ -232,7 +228,9 @@ def _consensus_eps_basis(
 
 
 def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = False) -> dict:
-    ai_refiner_settings = None if use_ai_refiners else SimpleNamespace(anthropic_api_key=None)
+    # Compatibility argument only: dossier reads stay deterministic and
+    # provider work belongs to explicit, audited analysis runs.
+    _ = use_ai_refiners
     income = load_income_series(db, company.id)
     quarters = metrics.compute_quarter_metrics(income)[-12:]
 
@@ -348,24 +346,18 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
         prescore=prescore.to_dict(),
     )
     company_thesis = thesis.build_thesis(thesis_inputs, profile=malik.MALIK)
-    # WP2b: try the optional iterative Claude-API refiner on top of the
-    # deterministic read. With no ANTHROPIC_API_KEY (the default) this is a
-    # transparent pass-through returning the exact deterministic body plus
-    # `engine: "deterministic"`; with a key it may return `engine: "ai"`
-    # (+ ai_notes). It never raises, so the dossier always has a thesis block.
-    thesis_block = thesis_ai.refine_thesis(
-        thesis_inputs,
-        malik.MALIK,
-        company_thesis,
-        ticker=company.ticker,
-        settings=ai_refiner_settings,
-    )
+    # Read paths are deterministic and network-free. Optional model refinement
+    # belongs to an explicit analysis run with quota/provenance, never a GET.
+    thesis_block = {
+        **company_thesis.to_dict(),
+        "engine": "deterministic",
+        "ai_notes": None,
+    }
 
     # Scenario-simulation layer (stage SC / WP3): a coherent negative/base/
     # positive trio reverting the SECTOR-relevant multiple toward the company's
-    # own-history quartiles, plus the optional Claude-API refiner (event
-    # scenarios, reworded narratives). Pure composition on top of the pieces
-    # above; recomputes no indicator. Load the own-history series for the
+    # own-history quartiles. Pure composition on top of the pieces above;
+    # recomputes no indicator. Load the own-history series for the
     # sector-appropriate multiple (C/Z generally, C/WK finance/realestate,
     # EV/EBITDA energy) — parametrised by indicator code, same query shape as cz.
     selected_multiple = scenarios.select_valuation_multiple(
@@ -425,42 +417,22 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
         },
     )
     scenario_set = scenarios.build_scenario_set(scenario_inputs, malik.MALIK)
-    # No ANTHROPIC_API_KEY (the default) ⇒ transparent pass-through returning the
-    # deterministic body + `engine: "deterministic"`; never raises.
-    scenarios_block = scenarios_ai.simulate_scenarios(
-        scenario_inputs,
-        malik.MALIK,
-        scenario_set,
-        ticker=company.ticker,
-        settings=ai_refiner_settings,
-    )
+    scenarios_block = {
+        **scenario_set.to_dict(),
+        "engine": "deterministic",
+        "ai_notes": None,
+    }
 
     # AI valuation layer (stage SC / WP4): a stock-potential read on TOP of the
     # scenario set — how much potential (anchored to the weighted EV), at what
     # confidence (a deterministic coverage heuristic), and what would change the
-    # assessment. Same deterministic-first contract: no key ⇒ the deterministic
-    # valuation + `engine: "deterministic"`; never raises, so the dossier always
-    # has a valuation block.
-    try:
-        valuation_block = valuation_ai.assess_potential(
-            scenario_inputs,
-            scenarios_block,
-            malik.MALIK,
-            ticker=company.ticker,
-            settings=ai_refiner_settings,
-        )
-    except valuation_ai.ValuationContextError as exc:
-        valuation_block = valuation_ai.assess_potential(
-            scenario_inputs,
-            scenarios_block,
-            malik.MALIK,
-            ticker=company.ticker,
-            settings=SimpleNamespace(anthropic_api_key=None),
-        )
-        valuation_block["ai_notes"] = {
-            "context_error": str(exc),
-            "action": "Uzupełnij company_market_data o ROIC/FCF przed wyceną Anthropic.",
-        }
+    # assessment. This public deterministic entry point does not resolve model
+    # settings; explicit analysis jobs own every provider call.
+    valuation_block = {
+        **valuation_ai.build_potential(scenario_inputs, scenarios_block, malik.MALIK),
+        "engine": "deterministic",
+        "ai_notes": None,
+    }
 
     topics_count = db.scalar(
         select(func.count()).select_from(ForumTopic).where(ForumTopic.company_id == company.id)
@@ -511,32 +483,11 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
         )
     )
 
-    # Insights AI refiner: rewrite the summary/per-indicator comments/
-    # strengths/concerns PROSE only (the Fundamenty tab + the Brief tab's
-    # "Najważniejsze sygnały" both render this block) so it reads like an
-    # analyst weighing the whole picture instead of template-composed
-    # sentences. `context` bundles the decision-relevant extras computed
-    # above so the rewrite isn't limited to the indicator list in isolation.
-    # Same deterministic-first contract as the other refiners: no key ⇒ the
-    # deterministic block + `engine: "deterministic"`; never raises.
-    insights_context = {
-        "prescore": prescore.to_dict(),
-        "ttm": ttm_dict,
-        "net_cash": {"value": net_cash_value, "note": net_cash_note},
-        "pe_history": pe_history_dict,
-        "forum_expectations": (
-            (forum_snapshot or {}).get("expectations") or {}
-        ).get("claims", [])[:8],
-        "forecast_consensus": market_snapshot.get("forecast_consensus"),
-        "forecast_consensus_note": market_snapshot.get("forecast_consensus_note"),
-        "entry_quality": (thesis_block or {}).get("entry_quality"),
+    insights_block = {
+        **company_insights.to_dict(),
+        "engine": "deterministic",
+        "ai_notes": None,
     }
-    insights_block = insights_ai.refine_insights(
-        company_insights,
-        ticker=company.ticker,
-        context=insights_context,
-        settings=ai_refiner_settings,
-    )
 
     return {
         "company": company,

@@ -3,6 +3,7 @@
 /** Settings — connection status checks only; secrets never leave the backend. */
 import { IconCheck, IconX } from "@tabler/icons-react";
 import {
+  getAiUsage,
   getBrLoginStatus,
   getForumLoginStatus,
   getHealth,
@@ -14,18 +15,14 @@ import { relativeDate } from "@/lib/format";
 
 function StatusCard({
   title,
-  ok,
+  status,
   detail,
   loading,
-  okLabel = "OK",
-  errorLabel = "błąd",
 }: {
   title: string;
-  ok: boolean | null;
+  status: "ok" | "error" | "not_configured" | null;
   detail: string;
   loading: boolean;
-  okLabel?: string;
-  errorLabel?: string;
 }) {
   return (
     <div className="card spread">
@@ -35,9 +32,15 @@ function StatusCard({
           {loading ? "Sprawdzanie…" : detail}
         </p>
       </div>
-      {!loading && ok != null && (
-        <span className={`badge ${ok ? "success" : "danger"}`}>
-          {ok ? <IconCheck size={13} /> : <IconX size={13} />} {ok ? okLabel : errorLabel}
+      {!loading && status != null && (
+        <span
+          className={`badge ${
+            status === "ok" ? "success" : status === "error" ? "danger" : "warning"
+          }`}
+        >
+          {status === "ok" && <IconCheck size={13} />}
+          {status === "error" && <IconX size={13} />}
+          {status === "ok" ? "OK" : status === "error" ? "błąd" : "Nie skonfigurowano"}
         </span>
       )}
     </div>
@@ -49,6 +52,7 @@ export default function SettingsPage() {
   const forum = useApi(getForumLoginStatus, []);
   const biznesradar = useApi(getBrLoginStatus, []);
   const scrapers = useApi(getScrapersHealth, []);
+  const aiUsage = useApi(getAiUsage, []);
   const workflows = useApi(getWorkflowStatus, []);
 
   return (
@@ -57,35 +61,32 @@ export default function SettingsPage() {
       <div style={{ display: "grid", gap: 10 }}>
         <StatusCard
           title="Backend + baza danych"
-          ok={health.error ? false : health.data ? true : null}
+          status={health.error ? "error" : health.data ? "ok" : null}
           detail={health.error ?? "API odpowiada, połączenie z bazą działa."}
           loading={health.loading}
         />
         <StatusCard
           title="Logowanie BiznesRadar"
-          ok={biznesradar.data?.ok ?? (biznesradar.error ? false : null)}
+          status={biznesradar.data?.status ?? (biznesradar.error ? "error" : null)}
           detail={biznesradar.data?.detail ?? biznesradar.error ?? ""}
           loading={biznesradar.loading}
         />
         <StatusCard
           title="Logowanie PortalAnaliz"
-          ok={forum.data?.ok ?? (forum.error ? false : null)}
+          status={forum.data?.status ?? (forum.error ? "error" : null)}
           detail={forum.data?.detail ?? forum.error ?? ""}
           loading={forum.loading}
         />
         <StatusCard
           title="Codex workflow queue"
-          ok={workflows.data ? workflows.data.ok : workflows.error ? false : null}
+          status={workflows.error ? "error" : workflows.data ? "ok" : null}
           detail={
-            workflows.error
-              ? workflows.error
-              : workflows.data
-                ? `${workflows.data.queued} queued · ${workflows.data.running} running · ${workflows.data.verified_24h} verified / 24 h`
-                : ""
+            workflows.error ??
+            (workflows.data
+              ? `${workflows.data.queued} queued · ${workflows.data.running} running · ${workflows.data.verified_24h} verified / 24 h`
+              : "")
           }
           loading={workflows.loading}
-          okLabel="gotowe"
-          errorLabel="błąd"
         />
 
         <div className="card">
@@ -106,9 +107,21 @@ export default function SettingsPage() {
                   </span>
                 </span>
                 <span
-                  className={`badge ${info.errors_24h === 0 ? "success" : info.last_ok_at ? "warning" : "danger"}`}
+                  className={`badge ${
+                    info.status === "healthy" || info.status === "recovered"
+                      ? "success"
+                      : info.status === "degraded"
+                        ? "danger"
+                        : "warning"
+                  }`}
                 >
-                  {info.errors_24h === 0 ? "OK" : `${info.errors_24h} błędów`}
+                  {info.status === "healthy"
+                    ? "OK"
+                    : info.status === "recovered"
+                      ? `Przywrócono · ${info.errors_24h} bł.`
+                      : info.status === "degraded"
+                        ? `Błąd · ${info.errors_24h}`
+                        : "Brak danych"}
                 </span>
               </div>
             ))}
@@ -121,10 +134,51 @@ export default function SettingsPage() {
           </p>
         </div>
         <div className="card">
+          <div className="spread" style={{ marginBottom: 10 }}>
+            <p style={{ fontWeight: 500, fontSize: 13, margin: 0 }}>
+              Budżet AI (UTC)
+            </p>
+            {aiUsage.data && <span className="small muted">{aiUsage.data.day}</span>}
+          </div>
+          {aiUsage.loading && <p className="small muted">Sprawdzanie…</p>}
+          {aiUsage.error && <p className="small neg">{aiUsage.error}</p>}
+          {aiUsage.data && (
+            <div style={{ display: "grid", gap: 7, fontSize: 13 }}>
+              <div className="spread">
+                <span>Analizy</span>
+                <strong>{aiUsage.data.usage.runs} / {aiUsage.data.limits.runs}</strong>
+              </div>
+              <div className="spread">
+                <span>Wywołania dostawców (retry wliczone)</span>
+                <strong>
+                  {aiUsage.data.usage.provider_attempts} / {aiUsage.data.limits.provider_attempts}
+                </strong>
+              </div>
+              <div className="spread">
+                <span>Zmierzony ruch tokenów</span>
+                <strong>
+                  {aiUsage.data.usage.input_tokens + aiUsage.data.usage.output_tokens}
+                  {" / "}{aiUsage.data.limits.tokens}
+                </strong>
+              </div>
+              <div className="spread small muted">
+                <span>
+                  cache: {aiUsage.data.usage.cache_hits} · billable: {aiUsage.data.usage.billable_calls}
+                </span>
+                <span>billing nieznany: {aiUsage.data.usage.unknown_billing_calls}</span>
+              </div>
+              <p className="small muted" style={{ margin: "3px 0 0" }}>
+                Koszt pieniężny pojawi się dopiero z wersjonowaną tabelą cen modelu;
+                aplikacja nie przelicza tokenów według zgadywanej stawki.
+              </p>
+            </div>
+          )}
+        </div>
+        <div className="card">
           <p style={{ fontWeight: 500, fontSize: 13, margin: 0 }}>Konfiguracja</p>
           <p className="small muted" style={{ margin: "6px 0 0", lineHeight: 1.6 }}>
             Sekrety trzymane są wyłącznie w <code>backend/.env</code> (PA_USERNAME,
-            PA_PASSWORD, BR_USERNAME, BR_PASSWORD) oraz{" "}
+            PA_PASSWORD, BR_USERNAME, BR_PASSWORD, ANTHROPIC_API_KEY) oraz{" "}
             <code>frontend/.env.local</code> (BACKEND_URL).
           </p>
         </div>

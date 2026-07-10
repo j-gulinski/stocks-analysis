@@ -516,6 +516,12 @@ export default function AnalysisPanel({
       ? null
       : agentRows.find((run) => run.id === selectedAgentRunId) ?? null;
   const context = dossier.analysis_context_status;
+  const selectedOutput = selectedAgentRun?.output ?? {};
+  const selectedRedFlags = textList(selectedOutput.red_flags ?? selectedOutput.risks).slice(0, 4);
+  const selectedDataGaps = textList(selectedOutput.data_gaps ?? selectedOutput.missing_data).slice(0, 4);
+  const selectedVerifierNote = selectedAgentRun
+    ? textField(selectedAgentRun.verification?.summary) || textField(selectedAgentRun.verification?.verdict)
+    : null;
 
   return (
     <div>
@@ -537,15 +543,38 @@ export default function AnalysisPanel({
 
       {error && <div className="error-box">{error}</div>}
 
-      {workflowRows.length > 0 && (
+      {selectedAgentRun && (
         <div className="card analysis" style={{ marginBottom: 14 }}>
           <div className="spread" style={{ flexWrap: "wrap", gap: 8 }}>
             <div>
-              <p className="analysis-title">Codex workflow state</p>
-              <p className="small muted">Queued means waiting for a Codex/MCP worker, not running.</p>
+              <p className="analysis-title">Najważniejsze wyjątki</p>
+              <p className="small muted">{analysisRunSummary(selectedAgentRun)}</p>
             </div>
-            <span className="badge neutral">{workflowRows.length} recent runs</span>
+            <span className={`badge ${verificationTone(selectedAgentRun.verification_status)}`}>
+              verifier: {selectedAgentRun.verification_status}
+            </span>
           </div>
+          {(selectedRedFlags.length > 0 || selectedDataGaps.length > 0 || selectedVerifierNote) ? (
+            <div className="analysis-section" style={{ marginTop: 10 }}>
+              {selectedRedFlags.map((flag, index) => (
+                <p className="verify-item" key={`flag-${index}`}>Ryzyko: {flag}</p>
+              ))}
+              {selectedDataGaps.map((gap, index) => (
+                <p className="verify-item" key={`gap-${index}`}>Brak danych: {gap}</p>
+              ))}
+              {selectedVerifierNote && <p className="verify-item">Verifier: {selectedVerifierNote}</p>}
+            </div>
+          ) : (
+            <p className="small muted" style={{ margin: "10px 0 0" }}>
+              Model nie nazwał wyjątków. Nadal sprawdź źródła przed decyzją.
+            </p>
+          )}
+        </div>
+      )}
+
+      {workflowRows.length > 0 && (
+        <details className="review-history">
+          <summary>Stan kolejki Codex ({workflowRows.length})</summary>
           <div className="analysis-section" style={{ marginTop: 10 }}>
             {workflowRows.map((run) => {
               const outputId = agentRunOutputId(run);
@@ -568,20 +597,12 @@ export default function AnalysisPanel({
               );
             })}
           </div>
-        </div>
+        </details>
       )}
 
       {agentRows.length > 0 && (
-        <div className="card analysis" style={{ marginBottom: 14 }}>
-          <div className="spread" style={{ flexWrap: "wrap", gap: 8 }}>
-            <div>
-              <p className="analysis-title">Codex analysis runs</p>
-              <p className="small muted">
-                {agentRows.length} zapisanych wyników z agentów / MCP
-              </p>
-            </div>
-            <span className="badge success">provider-neutral</span>
-          </div>
+        <details className="review-history">
+          <summary>Historia recenzji Codex ({agentRows.length})</summary>
           <div className="analysis-section" style={{ marginTop: 10 }}>
             {agentRows.slice(0, 5).map((run) => {
               const signal = analysisRunSignal(run);
@@ -619,14 +640,19 @@ export default function AnalysisPanel({
               );
             })}
           </div>
-        </div>
+        </details>
       )}
 
       {!selectedAgentRun && !error && (
         <p className="empty-state">Brak analiz — zakolejkuj pierwszą pracę Codex.</p>
       )}
 
-      {selectedAgentRun && <ProviderNeutralAnalysisCard run={selectedAgentRun} />}
+      {selectedAgentRun && (
+        <details className="review-history">
+          <summary>Pełny zapis wybranej recenzji</summary>
+          <ProviderNeutralAnalysisCard run={selectedAgentRun} />
+        </details>
+      )}
     </div>
   );
 }

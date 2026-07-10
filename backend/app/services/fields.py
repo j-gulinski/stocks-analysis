@@ -265,3 +265,13 @@ def match_indicator(label: str, field_code: str | None = None) -> str | None:
                     return label_canonical
                 return canonical
     return label_canonical
+
+
+PERCENT_INDICATORS = frozenset(
+    {"roe", "roa", "roic", "gross_margin", "operating_margin", "net_margin"}
+)
+
+
+def indicator_unit(indicator: str) -> str:
+    """Canonical unit belongs with field meaning, never scraper markup."""
+    return "percent" if indicator in PERCENT_INDICATORS else "ratio"

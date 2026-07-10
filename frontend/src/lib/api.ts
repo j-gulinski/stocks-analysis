@@ -3,16 +3,19 @@
  * handler proxies it to FastAPI (never call the backend directly).
  */
 import type {
+  AiUsageHealth,
   AgentEvaluationRun,
   AgentEvaluationRunCreate,
   AgentEvaluationRunDetail,
   AgentRun,
   AgentRunCreate,
+  Analysis,
   AnalysisRun,
   BacktestRun,
   BacktestRunCreate,
   BacktestRunDetail,
   Dividend,
+  DiscoveryResult,
   Dossier,
   Financials,
   Forecast,
@@ -69,6 +72,20 @@ export const addToWatchlist = (ticker: string, note?: string) =>
 
 export const removeFromWatchlist = (ticker: string) =>
   request<void>(`/watchlist/${encodeURIComponent(ticker)}`, { method: "DELETE" });
+
+// --------------------------------------------------------------- discovery
+export const getDiscovery = (
+  minRating = 7,
+  minFScore: number | null = 5,
+  force = false,
+) => {
+  const params = new URLSearchParams({
+    min_rating: String(minRating),
+    force: String(force),
+  });
+  if (minFScore != null) params.set("min_f_score", String(minFScore));
+  return request<DiscoveryResult>(`/discovery?${params}`);
+};
 
 // ---------------------------------------------------------------- companies
 export const getDossier = (ticker: string) =>
@@ -150,6 +167,16 @@ export const getForumPosts = (
     `/companies/${encodeURIComponent(ticker)}/forum?${params}`,
   );
 };
+
+// Legacy provider endpoint remains available while the Review UI moves to
+// verifier-gated, provider-neutral Codex workflows.
+export const runAnalysis = (ticker: string) =>
+  request<Analysis>(`/companies/${encodeURIComponent(ticker)}/analyses`, {
+    method: "POST",
+  });
+
+export const listAnalyses = (ticker: string) =>
+  request<Analysis[]>(`/companies/${encodeURIComponent(ticker)}/analyses`);
 
 export const listAnalysisRuns = (ticker: string) =>
   request<AnalysisRun[]>(`/companies/${encodeURIComponent(ticker)}/analysis-runs`);
@@ -233,3 +260,4 @@ export const getScrapersHealth = () =>
   request<Record<string, ScraperHealth>>("/health/scrapers");
 export const getWorkflowStatus = () =>
   request<WorkflowStatus>("/diagnostics/workflow-status");
+export const getAiUsage = () => request<AiUsageHealth>("/health/ai-usage");

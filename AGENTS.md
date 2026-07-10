@@ -1,9 +1,10 @@
 # Stock Analysis Workbench
 
-Personal GPW stock-analysis app implementing the Paweł Malik / OBS strategy:
-scrape BiznesRadar financials + PortalAnaliz forum → metrics/prescore +
-dynamic per-company insights → (Phase 5) Codex-API verdicts. UI designs in
-`docs/design/` are the reference for frontend work.
+Personal GPW fundamental-research workbench: evidence + point-in-time data →
+deterministic metrics/company templates/scenarios → versioned strategy skills
+and controlled AI review/judge loops. The Malik / OBS strategy is the first
+investment lens, not the whole product. UI designs in `docs/design/` remain a
+reference for the completed first vertical slice.
 
 ## Read on demand (don't preload everything)
 
@@ -11,6 +12,11 @@ dynamic per-company insights → (Phase 5) Codex-API verdicts. UI designs in
   task (§2 layout, §4 schema, §6 scrapers, §7 metrics/frontend, §8 AI,
   §9a deploy, §10 extension points).
 - `TASKS.md` — task breakdown, stable IDs ("do P1.3").
+- `docs/plan-research-platform.md` — **binding next-stage architecture and
+  RT.0–RT.7 order**: evidence lineage, company templates, scenario v2,
+  OpenAI/Codex orchestration, judge loop and honest backtesting.
+- `skills/workbench-research/SKILL.md` — local app operator/research workflow;
+  use it for start/status/diagnosis or Codex-facilitated company research.
 - `skills/scraper-doctor/SKILL.md` — **any scraper/data problem starts
   here**: diagnostic ladder + verified quirks ledger (BR slug/`,Q` redirect
   trap, robots rules, indicator label traps, price-chain order, storage
@@ -39,16 +45,18 @@ dynamic per-company insights → (Phase 5) Codex-API verdicts. UI designs in
 - `frontend/` — Next.js (App Router, TS) + SCSS global primitives, recharts.
   Domain data/labels Polish, nav labels English (user decision). All API
   calls via the Next route-handler proxy, never directly to the backend.
-- Production: Vercel + Railway, Auth.js Google allowlist (Phase 6; local dev
-  runs open). `skill/` — codified strategy for the Codex API layer.
+- Production target remains Vercel + Railway, but deployment is RT.7 after the
+  local evidence/scenario/eval workflow is proven. `skill/` is the investment
+  strategy skill; the Codex workflow skill lives separately under
+  `skills/workbench-research/`.
 
 ## Rules (non-negotiable)
 
 - **Changelog discipline:** every change to code/schema/plan/config needs a
   `CHANGELOG.md` entry (date · scope · what + why + decisions). A diff
   without an entry is incomplete — enforced by `.githooks/pre-commit`.
-- Simple first, no overengineering; extension points live in PLAN §10 —
-  don't build them early.
+- Simple first, no speculative framework work; implement RT stages in order and
+  add company templates/source adapters only for real pilot needs.
 - Scrapers: fetch + parse + upsert only. ALL HTTP through
   `scrapers/http.py` (jittered per-domain limits, backoff) — politeness is
   non-negotiable. Parser changes require green fixture tests.
@@ -67,6 +75,8 @@ dynamic per-company insights → (Phase 5) Codex-API verdicts. UI designs in
 
 ## Commands
 
+- Preferred operator path: `./workbench doctor` · `./workbench start` ·
+  `./workbench status` · `./workbench stop`
 - DB: `docker compose up -d postgres`
 - Backend: `cd backend && uvicorn app.main:app --reload --port 8000`
 - Frontend: `cd frontend && npm run dev` (proxy → :8000)

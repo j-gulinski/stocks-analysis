@@ -10,6 +10,27 @@ export interface WatchlistItem {
   added_at: string;
 }
 
+export interface DiscoveryCandidate {
+  ticker: string;
+  name: string | null;
+  report_period: string;
+  br_rating: string | null;
+  br_rating_value: number | null;
+  piotroski_f_score: number | null;
+  reasons: string[];
+  caveat: string;
+}
+
+export interface DiscoveryResult {
+  source: string;
+  source_url: string;
+  as_of: string;
+  universe_count: number;
+  result_count: number;
+  source_note: string;
+  candidates: DiscoveryCandidate[];
+}
+
 export interface Company {
   ticker: string;
   name: string | null;
@@ -446,9 +467,36 @@ export interface ForumPost {
 }
 
 export interface ScraperHealth {
+  status: "healthy" | "recovered" | "degraded" | "unknown";
   last_ok_at: string | null;
   last_error: { url: string; status: number | null; at: string } | null;
   errors_24h: number;
+}
+
+export interface AiUsageHealth {
+  day: string;
+  limits: { runs: number; provider_attempts: number; tokens: number };
+  usage: {
+    runs: number;
+    logical_operations: number;
+    provider_attempts: number;
+    cache_hits: number;
+    billable_calls: number;
+    unknown_billing_calls: number;
+    input_tokens: number;
+    output_tokens: number;
+  };
+  providers: Array<{
+    provider: string;
+    logical_operations: number;
+    provider_attempts: number;
+    cache_hits: number;
+    billable_calls: number;
+    unknown_billing_calls: number;
+    input_tokens: number;
+    output_tokens: number;
+  }>;
+  pricing_status: "not_configured";
 }
 
 export interface ForumPage {
@@ -466,6 +514,7 @@ export interface ForumSync {
 
 export interface LoginStatus {
   ok: boolean;
+  status: "ok" | "error" | "not_configured";
   detail: string;
 }
 
@@ -490,6 +539,7 @@ export interface AnalysisCatalyst {
 }
 
 export interface AnalysisChecklistItem {
+  id: string;
   item: string;
   verdict: "spełnia" | "nie spełnia" | "nieznane";
   evidence: string;
@@ -522,7 +572,7 @@ export interface AnalysisVerdict {
   red_flags: string[];
   one_off_risk: string;
   forum_insights: ForumInsight[];
-  alignment_score: number;
+  alignment_score: number | null;
   potential: AnalysisPotential;
   scenarios?: AnalysisScenario[];
   verify_next: VerifyNextItem[]; // reuses the thesis type — identical shape
@@ -532,7 +582,16 @@ export interface AnalysisVerdict {
 export interface Analysis {
   id: number;
   created_at: string;
+  completed_at: string | null;
+  as_of: string | null;
+  provider: string | null;
   model: string;
+  purpose: string;
+  status: string;
+  skill_version: string | null;
+  skill_hash: string | null;
+  validation: Record<string, unknown> | null;
+  latency_ms: number | null;
   alignment_score: number | null;
   input_tokens: number | null;
   output_tokens: number | null;

@@ -1,17 +1,8 @@
-"""AI analysis endpoints (Phase 5, P5.6): run a Claude verdict + read history.
+"""Explicit, audited full-company analysis runs and successful-run history.
 
-`POST /{ticker}/analyses` builds the dossier (services/dossier.py), reads the
-structured `forum_intelligence` block produced during sync, assembles the skill
-prompt (services/prompts.py), and calls Claude forced into the verdict JSON
-schema (services/claude_client.py). A global daily cap
-(`settings.ai_daily_limit`, PLAN §9a "Cost guard") protects the API bill from
-enthusiastic friends — enforced here, not in the client, since it is a
-cross-request/global concern.
-
-`claude_client.AnalysisUnavailable.reason` ("no_key" / "transport" / "parse")
-is mapped to its HTTP status + Polish message by `_unavailable_to_http`
-below — a catch-all 503 used to blame a missing key even when the key was
-present and the transport call or response parsing failed instead.
+The endpoint delegates provider work to ``analysis.orchestrator``.  Legacy
+formatting/ranking helpers remain here because older clients and tests import
+them, but they no longer bypass the durable run, quota, and model-call ledger.
 """
 from __future__ import annotations
 
@@ -19,22 +10,20 @@ import hashlib
 import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.analysis import orchestrator
 from app.api.deps import get_user_email
 from app.api.schemas import AnalysisOut
 from app.config import get_settings
 from app.db.base import get_db
 from app.db.models import Analysis, Company
 from app.services import claude_client
-from app.services import dossier as dossier_service
-from app.services import prompts as prompts_service
 
 router = APIRouter(prefix="/companies", tags=["analyses"])
 _MAX_FORUM_CLAIMS_FOR_AI = 12
-
 
 def _fact_rank(item: dict) -> tuple[int, int, int]:
     confidence_rank = {"confirmed": 4, "high": 3, "medium": 2, "low": 1}
@@ -56,9 +45,6 @@ def _fact_rank(item: dict) -> tuple[int, int, int]:
 
 
 def _get_company_or_404(db: Session, ticker: str) -> Company:
-    """Same lookup as `app/api/companies.py`/`forum.py` — kept local rather
-    than importing a private helper across router modules (existing repo
-    convention: each router owns its own 404)."""
     company = db.scalar(select(Company).where(Company.ticker == ticker.upper()))
     if company is None:
         raise HTTPException(
@@ -180,53 +166,27 @@ def _snapshot_hash(snapshot: dict) -> str:
 def _json_safe(obj):
     """Round-trip through JSON so DB JSONB never sees date/Decimal objects."""
     return json.loads(json.dumps(obj, ensure_ascii=False, default=str))
-
-
 @router.post("/{ticker}/analyses", response_model=AnalysisOut)
 def run_analysis(
     ticker: str,
     db: Session = Depends(get_db),
     user_email: str | None = Depends(get_user_email),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> Analysis:
     company = _get_company_or_404(db, ticker)
-    settings = get_settings()
-
-    limit = int(getattr(settings, "ai_daily_limit", 20) or 20)
-    today_count = count_analyses_today(db)
-    if today_count >= limit:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"Osiągnięto dzienny limit analiz AI ({limit}). Spróbuj ponownie jutro.",
-        )
-
-    dossier = dossier_service.build_dossier(
-        db, company, use_ai_refiners=bool(getattr(settings, "ai_refiners_enabled", True))
-    )
-    forum_claims = _forum_claims_from_intelligence(dossier)
-    prompt_bundle = prompts_service.build_analysis_prompt(
-        dossier, forum_posts=[], forum_claims=forum_claims
-    )
-
     try:
-        result = claude_client.run_analysis(prompt_bundle, settings=settings, ticker=company.ticker)
-    except claude_client.AnalysisUnavailable as exc:
-        raise _unavailable_to_http(exc, settings.anthropic_model)
-
-    record = Analysis(
-        company_id=company.id,
-        model=result.model,
-        prescore=dossier["prescore"],
-        input_snapshot=_json_safe(prompt_bundle.get("snapshot") or {}),
-        input_hash=_snapshot_hash(prompt_bundle.get("snapshot") or {}),
-        output=result.verdict,
-        alignment_score=result.verdict.get("alignment_score"),
-        input_tokens=result.input_tokens,
-        output_tokens=result.output_tokens,
-        created_by=user_email,
-    )
-    db.add(record)
-    db.commit()
-    return record
+        return orchestrator.run_analysis(
+            db,
+            company,
+            get_settings(),
+            user_email=user_email,
+            idempotency_key=idempotency_key,
+        )
+    except orchestrator.AnalysisRunError as exc:
+        raise HTTPException(
+            status_code=exc.http_status,
+            detail=exc.public_detail,
+        ) from exc
 
 
 @router.get("/{ticker}/analyses", response_model=list[AnalysisOut])
@@ -234,6 +194,9 @@ def list_analyses(ticker: str, db: Session = Depends(get_db)) -> list[Analysis]:
     company = _get_company_or_404(db, ticker)
     return db.scalars(
         select(Analysis)
-        .where(Analysis.company_id == company.id)
+        .where(
+            Analysis.company_id == company.id,
+            Analysis.status == "succeeded",
+        )
         .order_by(Analysis.created_at.desc(), Analysis.id.desc())
     ).all()

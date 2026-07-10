@@ -18,6 +18,24 @@ keep the decisions scannable.
 
 ---
 
+## 2026-07-10 · Documentation merge — one evidence-first Codex roadmap
+
+Reconciled the parallel Codex-agent/evaluation work and the evidence-first RT
+roadmap without erasing either history. Existing CX queue, MCP, ESPI/EBI,
+verification and replay capabilities remain documented, while RT.0–RT.7 is the
+binding delivery order for provenance, company templates, operating-driver
+scenarios, controlled model routing, judge evaluation and honest backtesting.
+The implemented `research-workspace.md` controls workflow/IA; the light
+Research-studio v2 remains a visual proposal to reconcile in a later UI slice.
+No incomplete task was promoted to done during the merge.
+
+The merged `./workbench` operator was also reconciled with the main project's
+Compose port (`5433`, configured through `DATABASE_URL`). It now derives the
+database host/port without exposing credentials instead of hard-coding the old
+worktree's `5432`; doctor/status/start and the migration readiness gate all use
+the same endpoint. This was caught by starting the merged app from the primary
+checkout rather than treating test success as an operational handoff.
+
 ## 2026-07-09 · Expert review doc — roadmap vs automation/learning expectations
 
 Added `docs/expert-review-2026-07-09.md`: consolidated session feedback in one
@@ -605,7 +623,277 @@ the next backend/source step is a fixture-tested BR screener using explicit
 filters for scaling businesses, with all HTTP still routed through
 `scrapers/http.py` and results flowing into the same scaling-score model before
 any company is promoted to the watchlist.
+## 2026-07-09 · RT3.0 / RT4.5–RT4.7 — market discovery + workflow-first UI overhaul
 
+Redefined the product around one investor workflow instead of exposing every
+implementation concept as a peer. Three independent delegated audits reviewed
+the live desktop/mobile app from investor-workflow, content-architecture and
+visual-system perspectives. Their shared finding was duplication, not merely a
+palette problem: the old Brief repeated thesis, metrics and scenarios while the
+AI tab produced a second report; the watchlist ranked partial checklist and
+forum-volume concepts beside fragile scenario upside. The new binding design is
+`docs/design/research-workspace.md`.
+
+Added the first real `Discover -> Research` funnel. `GET /api/discovery` makes
+one polite, cache-aware BiznesRadar request to the GPW rating universe, stores
+the immutable raw response in the evidence ledger, parses report period,
+financial-condition rating/Altman EM-Score and Piotroski F-Score, and filters/
+sorts locally. Missing F-Score is never coerced to zero and fails a minimum
+filter. The source score is explicitly preliminary evidence, never the
+Malik/OBS score or a recommendation. A live-shape discrepancy (`AAA ( 8,6 )`
+produced by nested spans) was diagnosed from the already-preserved raw version,
+fixed only in the BiznesRadar parser, and added to the fixture test. The live
+page yields 384 candidates without per-company scraping.
+
+Replaced the dense Watchlist table with a Research queue showing one workflow
+state, two signals, one risk/gap, one next action and freshness. Removed
+watchlist scenario upside, "best match" and forum/AI-volume cards. Global
+navigation is now Discover, Research and System. Candidate presets disclose
+their exact source thresholds and `Rozpocznij analizę` hands a ticker into the
+existing watchlist/dossier workflow.
+
+Rebuilt the company workspace as Brief, Evidence, Financials, Scenarios and
+Review. Brief has one canonical read, four key figures, at most four signals,
+two arguments per side and two next checks; it no longer renders the full
+scenario engine. Scenarios owns the current forecast/valuation output and warns
+that bear/base/bull is a multiple sensitivity, not yet an operating-driver
+simulation. Review is exception-first and collapses the full legacy generated
+record/history. Raw statements default to the newest eight periods, with
+explicit full-history expansion inside a contained scroller.
+
+Raised tertiary-text contrast, body size and canvas width; removed card nesting
+from the new workflow surfaces; made mobile navigation horizontal and preserved
+non-colour status labels. TypeScript and the production Next build pass. Manual
+in-app browser QA at 1280 px and 390 px exercised Discover, Research and every
+SNT workflow tab. It caught and fixed document-level financial-table overflow;
+the final tested views have no horizontal page overflow. The full backend suite
+is green (with only the explicitly skipped external/provider cases), alongside
+the focused discovery/evidence/migration tests.
+
+**Scope boundary:** this is the first vertical slice, not premature completion
+of RT.4. Persistent ResearchCase/Monitor/Journal, source locator drawer,
+template-specific discovery fields, scenario matrix/driver bridge and the
+seasoned-investor judge/evaluation loop remain on RT.3–RT.6. Model routing still
+cannot claim GPT-5.3 until the OpenAI adapter exposes a selectable configured
+model; `ModelPolicy` retains GPT-5.3 as the bounded cheap-loop candidate with
+deterministic validators and escalation.
+
+---
+
+## 2026-07-09 · RT.0–RT.1 implementation — reproducible local app + explicit analysis runs
+
+Restored a green, reproducible baseline and implemented the first trust boundary
+from the research-platform roadmap. Backend fixture assertions now match their
+recorded BiznesRadar price while the time-sensitive stale-data test freezes its
+clock. The full backend suite is green. The frontend now reproduces with
+`npm ci`, builds in production mode, and pins a non-vulnerable PostCSS through
+the lockfile override; `npm audit --audit-level=moderate` reports no findings.
+
+Added the root `./workbench` operator contract with read-only `doctor`,
+idempotent `start`, owned-process `status` and `stop`. It can start Docker
+Desktop/Postgres, runs Alembic, waits for backend/frontend health, stores only
+gitignored PID/log state, never prints credentials and leaves Postgres intact
+on stop. README and agent instructions now use this path. A browser pilot
+opened the watchlist, SNT research page and Settings with no console errors;
+it also confirmed that the existing repeated thesis cards and generic fixed
+multiple scenarios belong in the planned RT.4 workflow/UI overhaul rather than
+being polished in place.
+
+Created and validated `skills/workbench-research/SKILL.md` for repeatable Codex
+app operation and research facilitation. A separate forward test exercised its
+commands successfully. The skill deliberately documents only commands that
+exist; evidence-extraction, scenario-review and seasoned-investor-judge become
+separate skills only after their data contracts and gold cases stabilize.
+
+Removed all optional AI refiners from dossier GET assembly: thesis, scenarios
+and valuation reads are deterministic and a regression test makes any hidden
+provider call fail. Added strict/no-coercion Pydantic verdict contracts with
+stable checklist ids, forced expected-tool validation, cache revalidation and
+a cache schema version. Strategy alignment arithmetic now lives in a pure
+server scorer: unknowns leave the denominator, duplicates cannot double-count,
+rounding is explicit, the deterministic profit-quality and loss/net-debt vetoes
+apply, and missing catalysts cap the result. Provider-proposed scores are kept
+only as input and overwritten in both the persisted output and top-level field.
+
+Migration `0005` extends the current `analyses` table with purpose/status/
+`as_of`, frozen full prompt snapshot, evidence ids, skill hash/version,
+provider/model configuration, validation, latency/cost/error/completion and
+user provenance, and creates child `model_calls`. It deliberately preserves a
+separate experimental `analysis_runs`/judge/backtest schema found in the local
+pilot DB but absent from this worktree's Alembic history; RT1.3 must reconcile
+those contracts instead of overwriting either. A run is committed before
+provider work, then finalized as succeeded or failed; successful history hides
+failed attempts while those attempts remain auditable. Current scope records
+the main verdict call. Per-retry/forum-distillation rows, durable idempotency,
+price-based cost and async cancellation remain explicitly in RT1.3/RT1.6.
+
+**Observed external gap:** local stored source health reports eight recent
+BiznesRadar failures and no PortalAnaliz failures. No live credential/model
+calls were made during diagnostics. RT0.3 remains open for real login/upvote
+fixtures and a full live refresh pilot.
+
+**Follow-up diagnosis:** the eight BR failures were the old `/DEC` ticker URLs
+from before slug resolution; `/DECORA` succeeded minutes later and subsequent
+watchlist companies are healthy. Source diagnostics now distinguish
+`healthy`, `recovered`, `degraded` and `unknown`: recovered errors stay visible
+as 24-hour history but no longer produce a false active-warning state in
+`./workbench doctor` or Settings. This changes presentation only and makes no
+new external requests.
+
+**Real-fixture hardening (RT0.3 preparation).** The old BR recorder overwrote
+its previous company and built report URLs directly from the ticker—the exact
+redirect trap in the quirks ledger. It now fetches the profile first, requires
+the canonical slug, optionally verifies the declared market, and writes all
+nine page types under `tests/fixtures/real/br/{TICKER}/`. Structural tests
+discover every recorded company and cover report, profile, dividend and price
+parsers. PortalAnaliz recording now writes `real/pa/topic.html`, which is
+actually consumed by a test requiring recognized real vote markup. No real
+pages were captured in this change; RT0.3 remains open until one verified GPW
+and one verified NewConnect company, the logged-out/login smoke and a voted PA
+topic are recorded without committing credentials or cookies.
+
+**RT1.3 explicit execution boundary.** The verdict POST no longer owns prompt,
+retry, provider and persistence policy inside the FastAPI route. It now calls a
+single analysis orchestrator, which delegates one-attempt HTTP work to a narrow
+`AnthropicProvider` through an audited executor. Migration `0006` adds scoped
+idempotency hashes, run heartbeats and per-attempt operation/contract/output/
+provider/cache/billing fields. Repeating an `Idempotency-Key` returns the same
+run; a deliberate new run may reuse a strictly revalidated durable response and
+records a non-billable `cached` call referencing its source. Transport retries
+produce separate ordered rows, while missing configuration, transport failure
+and invalid structured output remain distinct error codes instead of all being
+reported as a missing key.
+
+The production orchestrator bypasses the legacy file cache. It also temporarily
+uses the deterministic token-capped raw-forum path, visibly labelled as
+unverified opinions, rather than allowing up to 40 untracked distillation model
+calls. The parent validation trace records this limitation. Forum distillation
+must migrate through the same executor before it is re-enabled; atomic billable
+quota/cost reservations, stale-run recovery and async cancellation remain
+RT1.6 work. The compatibility `claude_client.run_analysis` and its file cache
+remain only for existing isolated callers/tests during migration.
+
+**Browser-found Settings correction.** Optional BR/PA credentials that are
+absent now return and render a neutral `not_configured` state instead of a red
+login error. Actual configured-login failures remain red. This keeps setup
+gaps distinct from operational failures while leaving the broader RT.4 UI/UX
+overhaul in its planned sequence.
+
+**RT1.6 atomic usage and recovery guard.** Migration `0007` adds a UTC-day
+usage ledger. A global row atomically reserves logical runs and actual provider
+attempts, while provider rows record logical operations, retries, cache hits,
+billable calls, unknown-billing failures and measured input/output tokens.
+`AI_DAILY_LIMIT`, `AI_DAILY_CALL_LIMIT` and `AI_DAILY_TOKEN_LIMIT` are separate
+ceilings; retries consume attempts, cache hits and missing configuration do not,
+and a configured zero now intentionally disables that budget instead of falling
+back to 20. Monetary cost remains zero/unpriced until RT5 `ModelPolicy` can
+snapshot an evaluated model id and price table—tokens are not converted using
+guessed or stale prices.
+
+Provider stop outcomes now distinguish completed, truncated and refused before
+contract parsing; invalid structured output remains separate. The official SDK
+adapter has an explicit 90-second timeout. Runs/calls whose heartbeat exceeds
+the conservative 15-minute window are conditionally claimed once, marked
+`stale_interrupted`, and outstanding call billing is recorded as unknown. This
+reconciliation runs before new work and is idempotent under competing workers;
+successful history remains terminal-success only.
+
+Settings now exposes this ledger read-only: daily run/attempt/token ceilings,
+cache and billable counts, and unknown-billing failures. It explicitly states
+that monetary pricing is not configured, so a token count is never presented as
+a fabricated cost estimate.
+
+**RT2 immutable evidence slice.** Migration `0008` adds stable source-document
+identity, immutable raw document versions, typed facts, events and explicit
+data-conflict contracts. Immutable rows carry a ticker snapshot and nullable
+company link so removing a watchlist item cannot erase the audit trail. Fetch
+logs can point to retained versions; new report/indicator serving rows point to
+their exact source fact, while legacy rows remain null rather than receiving
+fabricated lineage.
+
+Fresh BiznesRadar report and indicator pages are stored before parsing with
+requested/effective URL, byte hash, MIME type, parser version and parse result.
+Identical forced refreshes reuse the version/facts; changed pages append a new
+version and advance current serving pointers; malformed changed pages remain as
+failed evidence but cannot blank good current rows. For this mutable aggregator,
+`known_at` is the first observed fetch time—not a historical publication label
+shown today—preventing corrections from leaking backward into backtests.
+
+Read-only document/fact/conflict APIs support point-in-time selection by taking
+the latest complete parsed version of each logical document at `as_of`. This
+also treats a row omitted from a later full version as superseded instead of
+silently reviving an old fact. Cross-document disagreements create an open
+conflict record; same-document version changes are treated as corrections.
+Tests cover raw retention, serving lineage, identical/changed/failed pages,
+historical `as_of`, conflict idempotency and evidence survival after watchlist
+removal. Profile/dividend/price lineage and official issuer/ESPI events follow
+on this same contract.
+
+## 2026-07-09 · Top-down roadmap reset — evidence-first research platform + judge loop
+
+Audited the implemented backend/frontend/AI path against the desired product:
+a comprehensive, company-specific fundamental-research workflow that can be
+facilitated from a Codex task and eventually evaluated historically. Added the
+binding target plan `docs/plan-research-platform.md`, revised PLAN/TASKS and
+updated the agent read-on-demand index. No application behavior/schema changed
+in this planning task.
+
+**Evidence from the audit.** The first vertical slice is substantial (polite
+scrapers, canonical fields, pure metrics/forecast/thesis logic, usable stock
+workspace, versioned Malik skill, structured AI history), but the next step
+cannot honestly be deployment or backtesting. Full `pytest -q` currently has
+two drift failures (fixture price date and forward C/Z); frontend build cannot
+run in this worktree until dependencies are installed. Refresh may
+delete/replace report rows; there is no immutable source-document/publication
+lineage or `as_of` reconstruction. Prompt snapshots are assembled but not
+persisted. `build_dossier()` may trigger three hidden Claude refiners per stock
+when a key is configured, outside the explicit analysis quota/run history.
+Transports/caches/contracts are duplicated, the model emits the strategy score,
+and the current “scenarios” are fixed-probability own-multiple sensitivities
+with constant earnings rather than company operating-driver scenarios.
+
+**Direction/sequence.** New stages RT.0–RT.7 replace “deploy next”: restore a
+green/reproducible baseline; make reads deterministic and AI runs explicit with
+full provenance; add immutable evidence/facts/events and issuer/ESPI/EBI
+sources; deepen cash-flow/working-capital/capex/dilution metrics and introduce
+company templates; build operating-driver scenario v2 + a durable research
+case; add an OpenAI Responses API adapter, role-based cheap/strong model routing
+and a stable `workbench` CLI/repository skill for Codex; then run calibration,
+judge evaluation and point-in-time replay before deploy/auth/backups. The old
+claim that the existing DB is already backtest-ready was removed: publication
+times, revisions, corporate actions, delistings, total-return outcomes and
+frozen input/strategy versions are prerequisites.
+
+**AI correctness/cost decision.** Low-cost models handle extraction,
+classification and narration through bounded retries over only failed fields.
+Deterministic schema/unit/period/arithmetic/citation checks run first; material
+unresolved conflicts escalate to a stronger model or human. All authoritative
+financial math and strategy scores stay deterministic. Model configuration is
+by role, not one hard-coded “latest” model. OpenAI's Responses API is the target
+for versioned skills, strict structured outputs, background runs and eval
+traces; the existing Anthropic path becomes a temporary adapter during
+migration.
+
+**User-added final gate: seasoned-investor judge.** RT.6 now includes an
+isolated evaluator that launches the application, waits for health, seeds a
+frozen historical/current case, drives the public CLI/API plus a small
+Playwright path, runs the cheaper-model scenario workflow and captures its full
+trace. A separate strong judge, instructed as a seasoned fundamental investor
+and stock-data expert, grades source/accounting correctness, company-template
+choice, thesis/counter-thesis/falsifiers, scenario coherence, uncertainty,
+specificity, missing-evidence detection, usability, cost and latency. It emits
+failure labels and improvement proposals; candidates run on calibration and
+untouched holdout cases. The judge never mutates production directly — model,
+prompt, template or validator promotion requires regression/cost evidence and
+explicit user approval.
+
+**Current official-capability check.** OpenAI documentation reviewed during the
+audit supports versioned Agent Skills, Structured Outputs, background Responses
+and trace/dataset evals. Current model guidance names a flagship model for
+complex work and smaller mini/nano variants for cost/latency; exact model ids
+remain configuration/eval decisions. Batch is reserved for non-urgent larger
+evals/backtests (official docs currently describe lower cost with a 24-hour
+completion window).
 ## 2026-07-08 · Analyst workspace overhaul — load-on-add, source cleanup, useful summaries
 
 Turned the app toward a decision-first analyst workflow instead of a raw data

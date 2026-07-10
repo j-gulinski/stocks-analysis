@@ -1,8 +1,20 @@
 # Stock Analysis Workbench — Project Plan
 
-Personal tool that aggregates data about GPW companies (BiznesRadar financials + PortalAnaliz forum threads), presents it the way Paweł Malik / OBS works in Excel, and uses a codified "strategy skill" (via Claude API) to assess whether a stock aligns with the strategy and has potential.
+Personal GPW fundamental-research tool that aggregates company data, preserves
+source evidence, presents it in a company-specific analytical workflow and uses
+a versioned strategy skill plus controlled AI runs to challenge the thesis and
+scenarios. The application supports a human decision process; it does not issue
+buy/sell signals.
 
 **Guiding principles:** simple first, no overengineering. Every module is a separately buildable, separately testable part with a clear interface. Extension points are documented, not pre-built.
+
+> **Current direction (2026-07-09):** phases 0–5 and stages TH/SC created a
+> substantial first vertical slice, but the next stage is **not deployment**.
+> The top-down audit found missing point-in-time provenance, discarded analysis
+> snapshots, hidden AI calls on dossier reads and generic rather than
+> operating-driver scenarios. `docs/plan-research-platform.md` is the binding
+> target architecture and delivery order (RT.0–RT.7). This file remains the
+> overview and history of the first build.
 
 ---
 
@@ -34,10 +46,10 @@ What the source materials describe, and what in the app covers it:
 │  Backend — FastAPI (Python) │
 │  ├─ scrapers/portalanaliz   │  Module A (phpBB login, thread sync)
 │  ├─ scrapers/biznesradar    │  Module B (financials, indicators, dividends)
-│  ├─ scrapers/stooq+yahoo    │  Module B (price history; BR archiwum is the reliable leg)
+│  ├─ scrapers/biznesradar    │  Module B (financials + recent BR price history/profile)
 │  ├─ services/metrics        │  Module C (computed metrics, prescore)
 │  ├─ services/forecast       │  Module C (Excel-workflow forecast engine)
-│  ├─ analysis/               │  Module D (skill prompt assembly, Claude API)
+│  ├─ services/ai             │  explicit, traced analysis jobs (provider adapters)
 │  └─ api/                    │  routers
 └────────────┬────────────────┘
              │ SQLAlchemy
@@ -49,7 +61,9 @@ What the source materials describe, and what in the app covers it:
 Principles:
 - Scrapers only fetch + parse + upsert. No business logic inside scrapers.
 - Metrics/forecast are pure functions over DB data — easy to unit test.
-- AI layer consumes the same dossier JSON the frontend uses. One aggregation, two consumers.
+- Deterministic calculations and source evidence feed both UI and analysis
+  runs. AI input is a frozen, persisted evidence pack; loading a dossier never
+  triggers a model call.
 - Local dev runs everything on localhost (Postgres via docker-compose). Production: frontend on Vercel, backend + Postgres on Railway as a long-running container — scrapers, delays and in-memory sessions work unchanged. Access limited to you and friends via Google sign-in allowlist (see §9a).
 
 ### Repo layout (monorepo)
@@ -65,7 +79,7 @@ stocks-analyzis/
 │   │   │   ├── http.py          # single fetch path: rate limiter + jitter, UA, backoff, fetch_log
 │   │   │   ├── biznesradar.py
 │   │   │   ├── portalanaliz.py
-│   │   │   └── stooq.py
+│   │   │   └── (future source adapters land only after RT.2 evaluation)
 │   │   ├── services/
 │   │   │   ├── metrics.py       # computed metrics + deterministic prescore
 │   │   │   ├── forecast.py      # forecast engine
@@ -103,7 +117,7 @@ Note on `pa-scraper.zip`: treated as **reference only**. The phpBB login/paginat
 | PostgreSQL in docker-compose | Chosen; JSONB for forecasts/analyses, proper upserts for scraped series |
 | SQLAlchemy 2 + Alembic | Plain ORM + migrations — minimum viable maintainability for an evolving schema |
 | requests + BeautifulSoup | Proven against both sites by the reference scraper; no browser automation needed |
-| anthropic Python SDK | Module D; model set via config (default `claude-sonnet-4-6`) |
+| OpenAI Responses API + narrow provider adapters | Target AI path: versioned skills, strict structured outputs, background runs and eval traces; existing Anthropic code remains a temporary adapter during migration |
 | recharts (frontend) | Simple quarterly bar/line charts like his Excel "Wykresy" sheet |
 | Auth.js (NextAuth) + Google provider | Friends log in with Google; allowlisted emails only; added in deploy phase — local dev stays open |
 | Vercel (frontend) + Railway (backend, Postgres) | Free/cheap (~$5/mo), zero server admin, backend stays a normal long-running process |
@@ -112,19 +126,29 @@ Deliberately **not** used in v1: task queues (Celery), schedulers, Redis, auth f
 
 ## 4. Data model (PostgreSQL)
 
-Long/narrow format for scraped series — new fields on BiznesRadar don't require migrations:
+The current v1 schema uses a long/narrow format for scraped series. It is a
+useful serving model, but **not point-in-time research storage**: refreshes may
+replace values and rows lack source-document/publication lineage. RT.1–RT.2 add
+the immutable evidence/run layer specified in
+`docs/plan-research-platform.md` §4.
 
 - `companies` — id, ticker (uq), name, market (GPW/NC), sector, shares_outstanding, updated_at
 - `report_values` — company_id, statement (`income|balance|cashflow`), freq (`Q|Y`), period (e.g. `2025Q3`), field_code, field_label, value (numeric, tys. PLN), scraped_at · **PK** (company_id, statement, freq, period, field_code)
 - `indicator_values` — company_id, indicator (`cz`, `cwk`, `ev_ebitda`, …), period, value — historical C/Z etc.
 - `dividends` — company_id, year, dps, yield_pct
-- `prices` — company_id, date, close, volume (stooq daily CSV)
+- `prices` — company_id, date, close, volume (current source: BiznesRadar
+  history/profile; RT.2 evaluates corporate-action-aware long history)
 - `forum_topics` — id, company_id (nullable), url (uq), title, last_post_at, last_synced_at
 - `forum_posts` — id, topic_id, post_no, author, posted_at, content_text, content_html · unique (topic_id, post_no)
 - `watchlist_items` — company_id (uq), note, added_at
 - `forecasts` — id, company_id, label, assumptions JSONB, result JSONB, created_at
-- `analyses` — id, company_id, created_at, model, prescore JSONB, output JSONB, alignment_score, input_tokens, output_tokens
+- `analyses` — current Phase-5 rows. Target `analysis_runs` additionally stores
+  purpose/status, frozen input snapshot, evidence ids, skill/provider/model
+  versions, validation, cost/latency and child model calls.
 - `fetch_log` — url, status, fetched_at (politeness/debugging; also powers "data freshness" in UI)
+- Target evidence layer: immutable `source_documents`/versions, typed `facts`
+  with `known_at` and locators, `events`, conflicts, research cases, thesis and
+  assumption/scenario versions, feedback and backtest runs.
 
 ## 5. Module A — PortalAnaliz scraper
 
@@ -159,10 +183,11 @@ First implementation step: **record real HTML of every page type into `tests/fix
 - Upsert keyed on (company, statement, freq, period, field) — refresh is idempotent.
 - Cache policy: skip refetch if page scraped < 24 h ago unless `force=true`.
 - Politeness: ~2 s between page fetches, sequential only (watchlist scale: ~7 pages per company).
-- Prices (chain, reworked 2026-07 — see quirks ledger): incremental = BR
-  archiwum notowań page 1 (robots-allowed, ~50 sessions) → Yahoo v8 chart →
-  BR profile quote; backfill = Yahoo (5y) → stooq (one chance; it denies
-  non-browser clients) → BR archiwum → profile quote.
+- Prices (current chain): BiznesRadar archiwum notowań page 1
+  (robots-allowed, recent sessions only) → already-fetched BR profile quote.
+  This is adequate for freshness/current valuation, **not backtesting**. RT.2
+  evaluates a licensed/official long-history source with corporate actions,
+  delistings and total-return support.
 
 API: `POST /api/companies/{ticker}/refresh?scope=financials|prices|all&force=` · `GET /api/companies/{ticker}/financials?statement=&freq=` · `/indicators` · `/dividends` · `/prices`
 
@@ -215,6 +240,12 @@ Approved designs live in `docs/design/` — `mockups.html` (both screens, final 
 
 ## 8. Module D — Strategy skill & AI analysis
 
+The text below describes the implemented Phase-5 slice. The target is the
+explicit run orchestrator in `docs/plan-research-platform.md` §7: provider
+adapters, no AI on read paths, persisted traces/snapshots, deterministic scores
+and math, low-cost extraction/verification loops, strong-model synthesis and a
+separate seasoned-investor judge/eval loop.
+
 ### The skill (`skill/`)
 
 `SKILL.md` distills the four source documents into analyst instructions: philosophy (stock picking, thesis-first), the 14-point OBS checklist, the 7 golden rules, catalyst taxonomy, one-off vs sustainable improvement guidance, red flags (management credibility, related-party transactions), valuation approach (forward C/Z vs own history, margin of safety). `rubric.md` defines per-item weights → alignment score 0–100. `examples/` holds 2–3 worked examples distilled from real OBS reasoning in `obs.txt` (few-shot grounding).
@@ -236,18 +267,25 @@ claims labeled with confidence, not raw posts.
 ### Analysis run (`analysis/`)
 
 1. Build input: dossier JSON (metrics, prescore, last 8 quarters of key lines, C/Z history stats, dividends) + recent forum posts (newest first, token-capped ~30k; full-thread summarization = extension) 
-2. Call Claude API — system prompt = SKILL.md + rubric; forced structured output (tool use JSON schema)
+2. Call the configured analysis provider — system prompt = versioned skill +
+   rubric; strict structured output
 3. Persist to `analyses`, render in UI
 
 Output schema: `thesis` (or "no thesis found"), `catalysts[]` (type, description, horizon, priced-in?), `checklist[]` (item, verdict, evidence), `red_flags[]`, `one_off_risk`, `forum_insights`, `alignment_score` 0–100, `potential` (upside/downside case), `verify_next[]` (what to check after next report), `summary_pl`.
 
-Model default `claude-sonnet-4-6`, configurable (`ANTHROPIC_MODEL`). Token counts logged per run. Each analysis stores its input snapshot → re-run after next quarterly report and diff verdicts = the "thesis verification" loop from the strategy.
+The current implementation defaults to an Anthropic model and logs token
+counts, but **does not persist the prompt snapshot**. RT.1 fixes this before the
+history is treated as reproducible. Target model configuration is by role
+(extract/analyze/adjudicate/judge), not one global model string.
 
 ## 9. Config & secrets
 
 Local: `backend/.env` + `frontend/.env.local` (both gitignored, `.example` files committed). Production: the same variables set in Railway / Vercel dashboards — never in the repo.
 
-- Backend (local `.env` / Railway): `DATABASE_URL`, `PA_USERNAME`, `PA_PASSWORD`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `API_TOKEN` (shared bearer, prod only), `AI_DAILY_LIMIT`
+- Backend (local `.env` / Railway): source credentials plus provider-neutral AI
+  role configuration (`OPENAI_API_KEY`, extract/analyze/adjudicate/judge model
+  ids; temporary Anthropic adapter settings), `API_TOKEN`, per-role budgets and
+  run limits
 - Frontend (local `.env.local` / Vercel): `BACKEND_URL`, `BACKEND_API_TOKEN` (server-side only), `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `ALLOWED_EMAILS`
 
 Loaded via pydantic-settings (backend); secrets never reach the browser or DB.
@@ -259,17 +297,37 @@ Browser ──► Vercel: Next.js + Auth.js (Google sign-in, ALLOWED_EMAILS allo
                 │  route-handler proxy /api/* → adds Bearer API_TOKEN + X-User-Email
                 ▼
             Railway: FastAPI container ──► Railway Postgres
-                │  polite scrapers + Claude API
+                │  polite source adapters + configured AI provider
                 ▼
-            biznesradar.pl · portalanaliz.pl · yahoo/stooq · api.anthropic.com
+            company/data sources · configured AI provider
 ```
 
 - The browser never calls Railway directly: all frontend API calls go through Next.js route handlers (`app/api/[...path]`) that check the Auth.js session, then forward server-to-server with a static bearer token. Backend middleware rejects requests without the token. No CORS, one trust boundary, ~50 lines total.
 - `X-User-Email` is passed through so analyses/forecasts record who ran them.
 - Local dev: no auth (middleware activates only when `API_TOKEN` is set), proxy points at `localhost:8000` — same code path in dev and prod.
-- Cost guard: `AI_DAILY_LIMIT` caps Claude analyses per day globally, protecting your API bill from enthusiastic friends.
+- Current RT.1 guard: atomic UTC-day `AI_DAILY_LIMIT`,
+  `AI_DAILY_CALL_LIMIT` and `AI_DAILY_TOKEN_LIMIT` reservations protect logical
+  runs, actual provider attempts (including retries) and measured tokens.
+  Hidden dossier refiners are removed; forum distillation stays disabled until
+  each child call uses the same executor. Monetary pricing/version and
+  per-role budgets land with `ModelPolicy` before multi-model routing.
 
 ## 10. Build order, phases, extension points
+
+### Revised next stages (binding)
+
+| Stage | Scope | Gate |
+|---|---|---|
+| RT.0 | Restore green backend/frontend baseline and live smoke evidence | no known red suite; reproducible install/build |
+| RT.1 | Pure read paths + persisted, validated AI run provenance | no hidden calls; exact input/skill/model trace |
+| RT.2 | Immutable evidence ledger + issuer/ESPI/EBI pilot | material claims cite source and `known_at` |
+| RT.3 | Fundamental depth + first company templates | cash conversion/working capital/capex/dilution and 2–3 driver models |
+| RT.4 | Operating-driver scenario engine + research-case UI | editable assumptions, deterministic bridge, falsifiers/history |
+| RT.5 | Responses API orchestration + Codex CLI/skill | guarded role routing; Codex can start and facilitate the case |
+| RT.6 | Calibration + seasoned-investor judge loop + walk-forward replay | training/holdout separation; changes promoted only after gates |
+| RT.7 | Deploy/auth/backups/scheduled review queue | pilot workflow proven locally first |
+
+### Completed first-build order (historical)
 
 Phases match your four dividable parts; B before A only because everything downstream feeds on financials. A and B are independent — order can swap.
 
@@ -288,14 +346,23 @@ Explicit **extension points** (documented, not built). Each was checked against 
 - **Market-wide screener** over prescore; **forum topic auto-discovery**; **US stocks** via stockanalysis.com.
 - **BiznesRadar premium login** (task P1.9, user has an account): optional `BR_USERNAME/BR_PASSWORD`, session login before page fetches → longer statement/indicator history (better own-history C/Z stats). Fits cleanly: scrapers already accept a shared `requests.Session`; needs one recorded login-page fixture to implement the form flow.
 - **ESPI/EBI feed + e-mail alerts** (espiebi.pap.pl / stockwatch.pl): new `scrapers/espi.py` (fetch+parse+upsert into a new `espi_reports` table keyed by report id), polled for watchlist tickers by the scheduler extension (Railway cron → internal endpoint); a notifier module e-mails you when the distiller flags a report as material for an observed stock. Fits: same polite-fetch path, same long-format storage, analyses layer already consumes per-company events.
-- **"Hotness" score with self-learning backtests** (0–100 potential): the DB already stores everything a backtest needs — dated forum posts (+upvotes), financials per quarter, daily prices for outcome labels, and AI verdicts with input snapshots. A later `research/` module can replay history (posts+financials known at time T → price outcome at T+n) to calibrate weights without any schema change. Complex; explicitly parked until the base runs in production.
+- **Walk-forward research evaluation / backtesting:** this **does require schema
+  and source changes**. Current financial rows are overwritten, analysis input
+  snapshots are not stored, publication dates/corporate actions/delistings are
+  incomplete and the price history is not a survivorship-safe total-return
+  dataset. RT.1–RT.2 establish point-in-time truth; RT.6 begins mixed-outcome
+  case replay before any market-wide score optimization.
 
 ## 11. Testing (pragmatic)
 
 - Parsers: pytest against recorded HTML fixtures — the one place regressions are likely (site markup changes).
 - Metrics/forecast: unit tests with hand-checked numbers (e.g. Novita example from the transcript).
-- API: a few happy-path tests via FastAPI TestClient.
-- Frontend: no test suite in v1; manual verification. (Extension: Playwright smoke test.)
+- API: contract and failure-path tests via FastAPI TestClient, including no
+  model calls on GET and run provenance/validation.
+- Frontend: type/build gate plus Playwright smoke coverage for the research-case
+  and scenario workflow before deployment.
+- AI: gold evidence/extraction cases, strict schema/citation checks, trace
+  graders and a judge-model evaluation on training plus untouched holdout cases.
 
 ## 12. Risks & etiquette
 

@@ -604,6 +604,24 @@ def _cache_write(path: Path, payload: dict) -> None:
 # --------------------------------------------------------------- entry point
 
 
+def build_potential(
+    inputs: scenarios.ScenarioInputs,
+    scenario_set: dict,
+    profile: base.StrategyProfile,
+) -> dict:
+    """Return the deterministic valuation block without resolving settings.
+
+    Dossier/read paths use this entry point so merely loading company data can
+    never trigger a provider call. `assess_potential` remains the explicit,
+    optional AI refinement path until RT.1 consolidates all model work behind
+    the analysis-run orchestrator.
+    """
+    deterministic, _computable, _history_n = _build_deterministic_valuation(
+        inputs, scenario_set, profile
+    )
+    return {**deterministic, "engine": "deterministic"}
+
+
 def assess_potential(
     inputs: scenarios.ScenarioInputs,
     scenario_set: dict,

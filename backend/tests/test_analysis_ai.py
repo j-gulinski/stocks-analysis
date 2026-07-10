@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.services import claude_client, prompts as prompts_service
@@ -227,11 +228,17 @@ class StubTransport:
         return action
 
 
-def _tool_use_resp(verdict: dict, *, input_tokens=1234, output_tokens=567) -> dict:
+def _tool_use_resp(
+    verdict: dict,
+    *,
+    input_tokens=1234,
+    output_tokens=567,
+    tool_name="zapisz_analize",
+) -> dict:
     return {
         "content": [
             {"type": "text", "text": "Oto analiza:"},
-            {"type": "tool_use", "name": "zapisz_analize", "input": verdict},
+            {"type": "tool_use", "name": tool_name, "input": verdict},
         ],
         "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
     }
@@ -248,7 +255,30 @@ def _verdict(**overrides) -> dict:
             {"type": "operational", "description": "poprawa marży", "horizon": "2 kwartały", "priced_in": "nie"}
         ],
         "checklist": [
-            {"item": "Wzrost przychodów", "verdict": "spełnia", "evidence": "przychody +12% r/r"}
+            {
+                "id": "revenue_growth",
+                "item": "Wzrost przychodów",
+                "verdict": "spełnia",
+                "evidence": "przychody +12% r/r",
+            },
+            {
+                "id": "gross_margin_trend",
+                "item": "Trend marży brutto",
+                "verdict": "spełnia",
+                "evidence": "marża brutto rośnie r/r",
+            },
+            {
+                "id": "valuation_vs_history",
+                "item": "Wycena vs własna historia",
+                "verdict": "spełnia",
+                "evidence": "C/Z 9,5 vs mediana 14,0",
+            },
+            {
+                "id": "catalyst",
+                "item": "Katalizator",
+                "verdict": "nieznane",
+                "evidence": "brak potwierdzenia w danych",
+            },
         ],
         "red_flags": [],
         "one_off_risk": "Niski udział zdarzeń jednorazowych.",
@@ -320,6 +350,60 @@ def test_happy_path_parses_verdict_and_tokens():
     assert result.model == "claude-test"
     assert result.engine == "ai"
     assert stub.calls == 1
+
+
+def test_strict_contract_rejects_unknown_fields_and_duplicate_ids():
+    with_extra = _verdict(unexpected="not allowed")
+    try:
+        claude_client.run_analysis(
+            prompts_service.build_analysis_prompt(_dossier(), []),
+            settings=_settings(),
+            transport=StubTransport([_tool_use_resp(with_extra)]),
+            ticker="SNT",
+        )
+        raise AssertionError("unknown field should have failed validation")
+    except claude_client.AnalysisUnavailable as exc:
+        assert "schema validation" in str(exc)
+
+    duplicate = _verdict()
+    duplicate["checklist"] = [duplicate["checklist"][0], duplicate["checklist"][0]]
+    try:
+        claude_client.run_analysis(
+            prompts_service.build_analysis_prompt(_dossier(), []),
+            settings=_settings(),
+            transport=StubTransport([_tool_use_resp(duplicate)]),
+            ticker="SNT",
+        )
+        raise AssertionError("duplicate checklist ids should have failed validation")
+    except claude_client.AnalysisUnavailable as exc:
+        assert "checklist ids must be unique" in str(exc)
+
+    coerced_score = _verdict(alignment_score="72")
+    try:
+        claude_client.run_analysis(
+            prompts_service.build_analysis_prompt(_dossier(), []),
+            settings=_settings(),
+            transport=StubTransport([_tool_use_resp(coerced_score)]),
+            ticker="SNT",
+        )
+        raise AssertionError("string score should not be coerced")
+    except claude_client.AnalysisUnavailable as exc:
+        assert "schema validation" in str(exc)
+
+
+def test_wrong_tool_name_is_rejected():
+    try:
+        claude_client.run_analysis(
+            prompts_service.build_analysis_prompt(_dossier(), []),
+            settings=_settings(),
+            transport=StubTransport(
+                [_tool_use_resp(_verdict(), tool_name="inne_narzedzie")]
+            ),
+            ticker="SNT",
+        )
+        raise AssertionError("unexpected tool name should not be accepted")
+    except claude_client.AnalysisUnavailable as exc:
+        assert "no usable verdict" in str(exc)
 
 
 def test_request_carries_forced_tool_use():
@@ -415,6 +499,29 @@ def test_cache_hit_skips_transport():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_invalid_cached_verdict_is_a_cache_miss():
+    tmp = Path(tempfile.mkdtemp(prefix="analysis_ai_bad_cache_"))
+    try:
+        bundle = prompts_service.build_analysis_prompt(_dossier(), [])
+        cfg = _settings(ai_cache_enabled=True, ai_cache_dir=str(tmp))
+        first_stub = StubTransport([_tool_use_resp(_verdict())])
+        claude_client.run_analysis(bundle, settings=cfg, transport=first_stub, ticker="SNT")
+
+        cache_file = next(tmp.glob("*.json"))
+        cached = json.loads(cache_file.read_text(encoding="utf-8"))
+        cached["verdict"]["alignment_score"] = "not-an-integer"
+        cache_file.write_text(json.dumps(cached), encoding="utf-8")
+
+        second_stub = StubTransport([_tool_use_resp(_verdict(alignment_score=44))])
+        result = claude_client.run_analysis(
+            bundle, settings=cfg, transport=second_stub, ticker="SNT"
+        )
+        assert second_stub.calls == 1
+        assert result.verdict["alignment_score"] == 44
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_cache_disabled_bypasses_cache():
     tmp = Path(tempfile.mkdtemp(prefix="analysis_ai_nocache_"))
     try:
@@ -451,15 +558,22 @@ def test_run_analysis_endpoint_persists_and_returns_verdict(client, db, monkeypa
         "app.services.claude_client.default_transport", lambda settings: stub
     )
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("AI_CACHE_ENABLED", "false")
     # Settings is cached via lru_cache; force a fresh read that sees the key.
     from app.config import get_settings
 
     get_settings.cache_clear()
-
     response = client.post("/api/companies/SNT/analyses")
     assert response.status_code == 200
     body = response.json()
-    assert body["alignment_score"] == 63
+    # Provider proposed 63, but three known passes + unknown catalyst trigger
+    # the deterministic catalyst cap.
+    assert body["alignment_score"] == 75
+    assert body["output"]["alignment_score"] == 75
+    assert body["status"] == "succeeded"
+    assert body["provider"] == "anthropic"
+    assert body["skill_hash"].startswith("sha256:")
+    assert body["validation"]["authoritative_score"] == "analysis_scoring@1"
     assert body["input_tokens"] == 111
     assert body["output_tokens"] == 222
     assert body["output"]["summary_pl"] == verdict["summary_pl"]
@@ -471,8 +585,174 @@ def test_run_analysis_endpoint_persists_and_returns_verdict(client, db, monkeypa
     get_settings.cache_clear()
 
 
+def test_endpoint_idempotency_key_reuses_same_run(client, db, monkeypatch):
+    from sqlalchemy import func, select
+
+    from app.db.models import Analysis, Company, ModelCall
+
+    company = Company(ticker="SNT", name="SYNEKTIK")
+    db.add(company)
+    db.commit()
+    stub = StubTransport([_tool_use_resp(_verdict())])
+    monkeypatch.setattr(
+        "app.services.claude_client.default_transport", lambda settings: stub
+    )
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    headers = {"Idempotency-Key": "research-click-1"}
+    first = client.post("/api/companies/SNT/analyses", headers=headers)
+    second = client.post("/api/companies/SNT/analyses", headers=headers)
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["id"] == second.json()["id"]
+    assert stub.calls == 1
+    assert db.scalar(select(func.count()).select_from(Analysis)) == 1
+    assert db.scalar(select(func.count()).select_from(ModelCall)) == 1
+    get_settings.cache_clear()
+
+
+def test_endpoint_records_each_transport_attempt(client, db, monkeypatch):
+    from sqlalchemy import select
+
+    from app.db.models import AiUsageDaily, Company, ModelCall
+
+    company = Company(ticker="SNT", name="SYNEKTIK")
+    db.add(company)
+    db.commit()
+    stub = StubTransport([RuntimeError("temporary outage"), _tool_use_resp(_verdict())])
+    monkeypatch.setattr(
+        "app.services.claude_client.default_transport", lambda settings: stub
+    )
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    response = client.post("/api/companies/SNT/analyses")
+
+    assert response.status_code == 200
+    calls = db.scalars(select(ModelCall).order_by(ModelCall.id)).all()
+    assert [(call.attempt, call.status, call.error_code) for call in calls] == [
+        (1, "failed", "transport_error"),
+        (2, "succeeded", None),
+    ]
+    assert stub.calls == 2
+    global_usage = db.get(AiUsageDaily, (datetime.now(timezone.utc).date(), "_all"))
+    provider_usage = db.get(
+        AiUsageDaily, (datetime.now(timezone.utc).date(), "anthropic")
+    )
+    assert global_usage.run_count == 1
+    assert provider_usage.logical_operations == 1
+    assert provider_usage.provider_attempts == 2
+    assert provider_usage.billable_calls == 1
+    assert provider_usage.unknown_billing_calls == 1
+    get_settings.cache_clear()
+
+
+def test_durable_request_cache_records_non_billable_use(client, db, monkeypatch):
+    from sqlalchemy import select
+
+    from app.db.models import AiUsageDaily, Company, ModelCall
+
+    company = Company(ticker="SNT", name="SYNEKTIK")
+    db.add(company)
+    db.commit()
+    stub = StubTransport([_tool_use_resp(_verdict())])
+    monkeypatch.setattr(
+        "app.services.claude_client.default_transport", lambda settings: stub
+    )
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    first = client.post("/api/companies/SNT/analyses")
+    second = client.post("/api/companies/SNT/analyses")
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["id"] != second.json()["id"]
+    assert stub.calls == 1
+    calls = db.scalars(select(ModelCall).order_by(ModelCall.id)).all()
+    assert [call.status for call in calls] == ["succeeded", "cached"]
+    assert calls[1].cache_hit is True
+    assert calls[1].billed is False
+    assert calls[1].cache_source_call_id == calls[0].id
+    assert second.json()["input_tokens"] == 0
+    global_usage = db.get(AiUsageDaily, (datetime.now(timezone.utc).date(), "_all"))
+    provider_usage = db.get(
+        AiUsageDaily, (datetime.now(timezone.utc).date(), "anthropic")
+    )
+    assert global_usage.run_count == 2
+    assert provider_usage.logical_operations == 2
+    assert provider_usage.provider_attempts == 1
+    assert provider_usage.cache_hits == 1
+    assert provider_usage.billable_calls == 1
+    get_settings.cache_clear()
+
+
+def test_endpoint_distinguishes_truncated_provider_output(client, db, monkeypatch):
+    from sqlalchemy import select
+
+    from app.db.models import Analysis, Company, ModelCall
+
+    company = Company(ticker="SNT", name="SYNEKTIK")
+    db.add(company)
+    db.commit()
+    truncated = _tool_use_resp(_verdict())
+    truncated["stop_reason"] = "max_tokens"
+    stub = StubTransport([truncated])
+    monkeypatch.setattr(
+        "app.services.claude_client.default_transport", lambda settings: stub
+    )
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    response = client.post("/api/companies/SNT/analyses")
+
+    assert response.status_code == 503
+    assert "obcięta" in response.json()["detail"]
+    run = db.scalar(select(Analysis))
+    call = db.scalar(select(ModelCall))
+    assert run.validation["error_code"] == "truncated"
+    assert call.error_code == "truncated"
+    assert call.billed is True
+    get_settings.cache_clear()
+
+
+def test_endpoint_call_limit_rejects_before_transport(client, db, monkeypatch):
+    from sqlalchemy import select
+
+    from app.db.models import Company, ModelCall
+
+    company = Company(ticker="SNT", name="SYNEKTIK")
+    db.add(company)
+    db.commit()
+    stub = StubTransport([_tool_use_resp(_verdict())])
+    monkeypatch.setattr(
+        "app.services.claude_client.default_transport", lambda settings: stub
+    )
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("AI_DAILY_CALL_LIMIT", "0")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    response = client.post("/api/companies/SNT/analyses")
+
+    assert response.status_code == 429
+    assert "wywołań lub tokenów" in response.json()["detail"]
+    assert stub.calls == 0
+    call = db.scalar(select(ModelCall))
+    assert call.status == "rejected"
+    assert call.error_code == "call_limit"
+    assert call.billed is False
+    get_settings.cache_clear()
+
+
 def test_run_analysis_endpoint_503_without_key(client, db, monkeypatch):
-    from app.db.models import Company
+    from sqlalchemy import select
+
+    from app.db.models import Analysis, Company, ModelCall
 
     company = Company(ticker="SNT", name="SYNEKTIK")
     db.add(company)
@@ -491,7 +771,13 @@ def test_run_analysis_endpoint_503_without_key(client, db, monkeypatch):
 
     response = client.post("/api/companies/SNT/analyses")
     assert response.status_code == 503
-    assert "ANTHROPIC_API_KEY" in response.json()["detail"]
+    assert "dostawcy modelu" in response.json()["detail"]
+    failed = db.scalar(select(Analysis))
+    assert failed is not None
+    assert failed.status == "failed"
+    assert failed.input_snapshot["ticker"] == "SNT"
+    call = db.scalar(select(ModelCall))
+    assert call is not None and call.status == "failed"
     get_settings.cache_clear()
 
 
@@ -524,15 +810,15 @@ def test_run_analysis_endpoint_502_on_transport_failure(client, db, monkeypatch)
 
 
 def test_run_analysis_endpoint_daily_cap(client, db, monkeypatch):
-    from app.db.models import Analysis, Company
+    from app.analysis import usage
+    from app.db.models import Company
 
     company = Company(ticker="SNT", name="SYNEKTIK")
     db.add(company)
     db.commit()
 
-    for _ in range(2):
-        db.add(Analysis(company_id=company.id, model="claude-test", output={"alignment_score": 50}))
-    db.commit()
+    assert usage.reserve_run(db, "_all", 2) is True
+    assert usage.reserve_run(db, "_all", 2) is True
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setenv("AI_DAILY_LIMIT", "2")

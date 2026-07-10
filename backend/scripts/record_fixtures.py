@@ -1,18 +1,18 @@
-"""Record real BiznesRadar pages as test fixtures (run on YOUR machine).
+"""Record replayable BiznesRadar fixtures for one company.
 
-The committed fixtures are synthetic (structure mirrors the reference scraper's
-verified markup). Replace them with real pages once, then re-run pytest — that
-is task P1.1:
+Run from ``backend/`` on a machine allowed to reach BiznesRadar:
 
-    cd backend
-    python scripts/record_fixtures.py DEC
+    python scripts/record_fixtures.py SNT --expected-market GPW
 
-Uses the same polite rate-limited fetcher as the app, so this takes ~30 s.
-If a parser test fails afterwards, the site's markup changed — fix
-app/scrapers/biznesradar.py (and only it), not the tests.
+The profile is fetched first and its canonical slug is required before any
+report URL is built. Record a second, explicitly verified NewConnect company in
+the same way; ticker-specific directories prevent one capture overwriting the
+other. All requests use the application's polite fetcher.
 """
 from __future__ import annotations
 
+import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -22,44 +22,113 @@ from app.scrapers import biznesradar
 from app.scrapers import http as polite_http
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
+REAL_BR_DIR = FIXTURES_DIR / "real" / "br"
 
-# Real pages are stored under real_* names: synthetic fixtures (exact-value
-# tests) stay untouched, while structural tests pick real_* up automatically.
-PAGE_TO_FIXTURE = {
-    "profile": "real_br_profile.html",
-    "income_q": "real_br_income_q.html",
-    "income_y": "real_br_income_y.html",
-    "balance_q": "real_br_balance_q.html",
-    "cashflow_q": "real_br_cashflow_q.html",
-    "indicators_value": "real_br_indicators_value.html",
-    "indicators_profitability": "real_br_indicators_profitability.html",
-    "dividends": "real_br_dividend.html",
-    # Archiwum notowań — price-history source (page 1 only; robots.txt
-    # disallows the ,N paginated views, so only page 1 is ever recorded).
-    "price_history": "real_br_price_history.html",
+PAGE_TO_FILENAME = {
+    "profile": "profile.html",
+    "income_q": "income_q.html",
+    "income_y": "income_y.html",
+    "balance_q": "balance_q.html",
+    "cashflow_q": "cashflow_q.html",
+    "indicators_value": "indicators_value.html",
+    "indicators_profitability": "indicators_profitability.html",
+    "dividends": "dividends.html",
+    # Page 1 only: robots.txt disallows /notowania-historyczne/*,* pagination.
+    "price_history": "price_history.html",
 }
 
 
-def main() -> int:
-    if len(sys.argv) != 2:
-        print(__doc__)
-        return 1
-    ticker = sys.argv[1].upper()
+def recording_plan(ticker: str, profile_html: str) -> tuple[dict, dict[str, str]]:
+    """Return parsed metadata and slug-safe URLs; pure for regression tests."""
+    ticker = ticker.upper()
+    profile = biznesradar.parse_profile(profile_html, ticker)
+    if not profile.slug:
+        raise ValueError(
+            f"Profile for {ticker} did not expose a canonical BiznesRadar slug; "
+            "abort before risking the ticker redirect trap."
+        )
+    urls = {"profile": biznesradar.page_url("profile", ticker)}
+    urls.update(
+        {
+            kind: biznesradar.page_url(kind, profile.slug)
+            for kind in PAGE_TO_FILENAME
+            if kind != "profile"
+        }
+    )
+    metadata = {
+        "ticker": ticker,
+        "slug": profile.slug,
+        "name": profile.name,
+        "market": profile.market,
+    }
+    return metadata, urls
 
-    for kind, filename in PAGE_TO_FIXTURE.items():
-        url = biznesradar.page_url(kind, ticker)
+
+def record_company(ticker: str, expected_market: str | None = None) -> int:
+    ticker = ticker.upper()
+    profile_url = biznesradar.page_url("profile", ticker)
+    print(f"fetching {profile_url} ...", flush=True)
+    profile_response = polite_http.fetch(profile_url)
+    if profile_response.status_code != 200:
+        print(f"profile HTTP {profile_response.status_code} — nothing saved")
+        return 1
+
+    try:
+        metadata, urls = recording_plan(ticker, profile_response.text)
+    except ValueError as exc:
+        print(str(exc))
+        return 1
+
+    if expected_market:
+        parsed_market = (metadata["market"] or "").casefold()
+        if parsed_market != expected_market.casefold():
+            print(
+                f"market check failed: expected {expected_market}, parsed "
+                f"{metadata['market'] or 'unknown'} — nothing saved"
+            )
+            return 1
+
+    target_dir = REAL_BR_DIR / ticker
+    target_dir.mkdir(parents=True, exist_ok=True)
+    (target_dir / PAGE_TO_FILENAME["profile"]).write_text(
+        profile_response.text, encoding="utf-8"
+    )
+    (target_dir / "metadata.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(
+        f"  -> {ticker}/profile.html; canonical slug={metadata['slug']}; "
+        f"market={metadata['market'] or 'unknown'}"
+    )
+
+    failed = False
+    for kind, filename in PAGE_TO_FILENAME.items():
+        if kind == "profile":
+            continue
+        url = urls[kind]
         print(f"fetching {url} ...", flush=True)
         response = polite_http.fetch(url)
         if response.status_code != 200:
-            print(f"  -> HTTP {response.status_code}, skipped")
+            failed = True
+            print(f"  -> HTTP {response.status_code}, not recorded")
             continue
-        (FIXTURES_DIR / filename).write_text(response.text, encoding="utf-8")
-        print(f"  -> {filename} ({len(response.text)} bytes)")
+        (target_dir / filename).write_text(response.text, encoding="utf-8")
+        print(f"  -> {ticker}/{filename} ({len(response.text)} bytes)")
 
-    print("\nDone. Now run: pytest tests/test_biznesradar_parser.py -v")
-    print("Structural tests over real_* fixtures activate automatically;")
-    print("if one fails, the site's markup changed — fix the parser module.")
-    return 0
+    print("\nRun: pytest tests/test_biznesradar_parser.py -v")
+    return 1 if failed else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("ticker")
+    parser.add_argument(
+        "--expected-market",
+        choices=("GPW", "NewConnect"),
+        help="abort if the profile does not explicitly confirm this market",
+    )
+    args = parser.parse_args(argv)
+    return record_company(args.ticker, expected_market=args.expected_market)
 
 
 if __name__ == "__main__":

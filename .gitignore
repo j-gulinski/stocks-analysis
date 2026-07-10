@@ -28,3 +28,6 @@ out/
 # AI response cache (WP2b thesis refiner — never commit cached model output)
 .cache/
 backend/.cache/
+
+# Local workbench process state/logs (managed by ./workbench)
+.workbench/
