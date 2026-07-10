@@ -10,6 +10,9 @@ from app.api.deps import get_user_email
 from app.config import get_settings
 from app.api.schemas import (
     CompanyOut,
+    AssumptionSetCreateIn,
+    AssumptionSetOut,
+    AssumptionSetUpdateIn,
     DividendOut,
     DossierOut,
     FinancialsOut,
@@ -29,6 +32,7 @@ from app.db.models import (
     Company,
     Dividend,
     Forecast,
+    AssumptionSet,
     IndicatorValue,
     Price,
     ReportValue,
@@ -259,6 +263,117 @@ def update_research_case(
     db.commit()
     db.refresh(case)
     return case
+
+
+def _get_research_case_for_company(db: Session, company: Company, purpose: str) -> ResearchCase:
+    case = db.scalar(
+        select(ResearchCase).where(
+            ResearchCase.company_id == company.id,
+            ResearchCase.purpose == purpose,
+        )
+    )
+    if case is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Research case not found.")
+    return case
+
+
+@router.get(
+    "/{ticker}/research-case/assumptions",
+    response_model=list[AssumptionSetOut],
+)
+def list_assumption_sets(
+    ticker: str,
+    purpose: str = Query(default="investment-research", min_length=1, max_length=80),
+    db: Session = Depends(get_db),
+) -> list[AssumptionSet]:
+    company = _get_company_or_404(db, ticker)
+    case = _get_research_case_for_company(db, company, purpose)
+    return list(
+        db.scalars(
+            select(AssumptionSet)
+            .where(AssumptionSet.research_case_id == case.id)
+            .order_by(AssumptionSet.id)
+        ).all()
+    )
+
+
+@router.post(
+    "/{ticker}/research-case/assumptions",
+    response_model=AssumptionSetOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_assumption_set(
+    ticker: str,
+    payload: AssumptionSetCreateIn,
+    purpose: str = Query(default="investment-research", min_length=1, max_length=80),
+    db: Session = Depends(get_db),
+    user_email: str | None = Depends(get_user_email),
+) -> AssumptionSet:
+    company = _get_company_or_404(db, ticker)
+    case = _get_research_case_for_company(db, company, purpose)
+    label = payload.label.strip()
+    if not label:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="label cannot be blank.")
+    assumption_set = AssumptionSet(
+        research_case_id=case.id,
+        scenario_kind=payload.scenario_kind,
+        label=label,
+        status=payload.status,
+        as_of=payload.as_of,
+        assumptions=[item.model_dump() for item in payload.assumptions],
+        created_by=user_email,
+    )
+    db.add(assumption_set)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Assumption set already exists for this scenario.",
+        ) from None
+    db.refresh(assumption_set)
+    return assumption_set
+
+
+@router.patch(
+    "/{ticker}/research-case/assumptions/{assumption_set_id}",
+    response_model=AssumptionSetOut,
+)
+def update_assumption_set(
+    ticker: str,
+    assumption_set_id: int,
+    payload: AssumptionSetUpdateIn,
+    purpose: str = Query(default="investment-research", min_length=1, max_length=80),
+    db: Session = Depends(get_db),
+) -> AssumptionSet:
+    company = _get_company_or_404(db, ticker)
+    case = _get_research_case_for_company(db, company, purpose)
+    assumption_set = db.scalar(
+        select(AssumptionSet).where(
+            AssumptionSet.id == assumption_set_id,
+            AssumptionSet.research_case_id == case.id,
+        )
+    )
+    if assumption_set is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assumption set not found.")
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        if key == "label" and value is not None:
+            value = value.strip()
+            if not value:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="label cannot be blank.")
+        if key == "assumptions" and value is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="assumptions cannot be null; provide an empty list to clear them.",
+            )
+        if key == "assumptions":
+            value = [item.model_dump() for item in payload.assumptions]
+        setattr(assumption_set, key, value)
+    assumption_set.updated_at = utcnow()
+    db.commit()
+    db.refresh(assumption_set)
+    return assumption_set
 
 
 # ------------------------------------------------------------ Phase 3: dossier

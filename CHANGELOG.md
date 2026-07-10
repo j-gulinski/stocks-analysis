@@ -51,6 +51,16 @@ reason. The report brief now names the selected case step so the deterministic
 read is anchored to the current research task; case state is never advanced
 automatically. Creation and update failures remain visible in the page.
 
+## 2026-07-10 · RT4.2a assumption-set contract
+
+Added migration `0017` and a case-linked `AssumptionSet` contract for
+negative/base/positive/event scenarios. Each input stores a required
+provenance label (`evidence`, `human_assumption`, or `model_suggestion`),
+optional source reference, rationale and unit; the API keeps sets scoped to a
+research case and records the forwarded editor identity. This is the durable
+input boundary only; the scenario editor, step history and priced operating
+equations remain subsequent slices.
+
 ## 2026-07-10 · Explore ranking rationale and stale-analysis queue
 
 Explore candidates now show their source rank, deterministic tie-break order,

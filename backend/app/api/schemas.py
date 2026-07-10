@@ -7,7 +7,7 @@ object, like AutoMapper-lite.
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -67,6 +67,50 @@ class ResearchCaseOut(BaseModel):
     current_step: CaseStep
     as_of: datetime | None
     blocked_reason: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+AssumptionScenarioKind = Literal["negative", "base", "positive", "event"]
+AssumptionStatus = Literal["draft", "approved", "rejected"]
+AssumptionProvenance = Literal["evidence", "human_assumption", "model_suggestion"]
+
+
+class AssumptionItemIn(BaseModel):
+    key: str = Field(min_length=1, max_length=80)
+    value: Any
+    unit: str | None = Field(default=None, max_length=40)
+    provenance: AssumptionProvenance
+    source_ref: str | None = Field(default=None, max_length=240)
+    rationale: str = Field(min_length=1, max_length=1000)
+
+
+class AssumptionSetCreateIn(BaseModel):
+    scenario_kind: AssumptionScenarioKind
+    label: str = Field(min_length=1, max_length=120)
+    status: AssumptionStatus = "draft"
+    as_of: datetime | None = None
+    assumptions: list[AssumptionItemIn] = Field(max_length=30)
+
+
+class AssumptionSetUpdateIn(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=120)
+    status: AssumptionStatus | None = None
+    as_of: datetime | None = None
+    assumptions: list[AssumptionItemIn] | None = Field(default=None, max_length=30)
+
+
+class AssumptionSetOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    research_case_id: int
+    scenario_kind: AssumptionScenarioKind
+    label: str
+    status: AssumptionStatus
+    as_of: datetime | None
+    assumptions: list[AssumptionItemIn]
+    created_by: str | None
     created_at: datetime
     updated_at: datetime
 

@@ -86,6 +86,34 @@ class ResearchCase(Base):
     )
 
 
+class AssumptionSet(Base):
+    """Case-linked scenario inputs with explicit provenance per assumption."""
+
+    __tablename__ = "assumption_sets"
+    __table_args__ = (
+        UniqueConstraint(
+            "research_case_id", "scenario_kind",
+            name="uq_assumption_set_case_scenario",
+        ),
+        Index("ix_assumption_sets_case_status", "research_case_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    research_case_id: Mapped[int] = mapped_column(
+        ForeignKey("research_cases.id", ondelete="CASCADE"), index=True
+    )
+    scenario_kind: Mapped[str] = mapped_column(String(20))
+    label: Mapped[str] = mapped_column(String(120))
+    status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
+    as_of: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    assumptions: Mapped[list] = mapped_column(JSONVariant)
+    created_by: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class ReportValue(Base):
     """One cell of a financial statement: (statement, freq, period, field) → value."""
 
