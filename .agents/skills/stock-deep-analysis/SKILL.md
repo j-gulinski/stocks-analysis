@@ -18,8 +18,8 @@ structured result for the UI.
 - Let the 5.3 worker iterate until every material question is sourced or
   explicitly recorded as a gap. Stop repeating searches that add no new
   primary evidence.
-- Use `verifier_strict` with the strongest configured model, currently
-  `gpt-5.5` with high reasoning, after the merged draft. The verifier reads the
+- Use `verifier_strict` with the strongest model available on the current
+  Codex host, at high reasoning, after the merged draft. The verifier reads the
   frozen dossier/source manifest independently and owns the final
   `prediction`, `confidence`, `result_quality`, and verification status.
 - Never mark a 5.3 draft verified without that separate strongest-model pass.

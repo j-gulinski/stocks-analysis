@@ -26,7 +26,7 @@ source of truth.
 5. Use the repo MCP tools or JSON scripts to gather only stored/sourced data.
 6. Follow the claimed skill's routing. For `stock-deep-analysis`, use
    `gpt-5.3-codex-spark` for the source-completion loop and full draft, then use
-   the strongest configured `verifier_strict` model (currently `gpt-5.5` high)
+   the strongest model available on the current Codex host (`verifier_strict`, high)
    to decide the final prediction/confidence and approve or reject the result.
    Any UI-visible verified result must pass both `stock-result-verifier` and
    `stock-verifier`.
