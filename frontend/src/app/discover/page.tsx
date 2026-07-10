@@ -11,15 +11,63 @@ import {
   IconRefresh,
   IconShieldCheck,
 } from "@tabler/icons-react";
-import { addToWatchlist, getDiscovery } from "@/lib/api";
+import { addToWatchlist, getDiscovery, listAgentRuns } from "@/lib/api";
 import { fmtDate } from "@/lib/format";
-import type { DiscoveryResult } from "@/lib/types";
+import type { AgentRun, DiscoveryResult } from "@/lib/types";
 
 const PRESETS = [
   { id: "broad", label: "Szeroki radar", minRating: 5, minFScore: null },
   { id: "selective", label: "Selekcja jakościowa", minRating: 7, minFScore: 5 },
   { id: "strict", label: "Wysoka jakość", minRating: 8, minFScore: 7 },
 ] as const;
+
+type CandidateEvaluation = {
+  score: number | null;
+  status: string | null;
+  nextStep: string | null;
+};
+
+function recordField(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function textField(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function candidateEvaluations(run: AgentRun | null): Map<string, CandidateEvaluation> {
+  const output = recordField(run?.outputs.output);
+  const rows = Array.isArray(output?.candidates) ? output.candidates : [];
+  const result = new Map<string, CandidateEvaluation>();
+  rows.forEach((value) => {
+    const row = recordField(value);
+    const ticker = textField(row?.ticker);
+    if (!ticker) return;
+    result.set(ticker, {
+      score: typeof row?.score === "number" && Number.isFinite(row.score) ? row.score : null,
+      status: textField(row?.status),
+      nextStep: textField(row?.recommended_next_step),
+    });
+  });
+  return result;
+}
+
+function evaluationStatusLabel(status: string | null): string {
+  if (status?.includes("ready-for-bounded-review")) return "gotowa do przeglądu dossier";
+  if (status?.includes("secondary")) return "druga partia odświeżenia";
+  if (status?.includes("refresh-candidate")) return "kandydat do kontrolowanego odświeżenia";
+  return "prescreen źródłowy";
+}
+
+function runStatusLabel(status: string): string {
+  if (status === "completed" || status === "verified") return "zakończona";
+  if (status === "running") return "w toku";
+  if (status === "queued") return "w kolejce";
+  if (status === "needs-human") return "wymaga decyzji";
+  if (status === "failed" || status === "rejected") return "odrzucona";
+  return status;
+}
 
 export default function DiscoverPage() {
   const router = useRouter();
@@ -29,6 +77,7 @@ export default function DiscoverPage() {
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(15);
+  const [evaluationRun, setEvaluationRun] = useState<AgentRun | null>(null);
 
   const load = async (force = false, nextPreset = presetId) => {
     const preset = PRESETS.find((item) => item.id === nextPreset) ?? PRESETS[0];
@@ -48,6 +97,25 @@ export default function DiscoverPage() {
     // Initial source load only. Preset changes are explicit button actions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const evaluationJobId = result?.evaluation_job?.id ?? null;
+  useEffect(() => {
+    if (evaluationJobId == null) {
+      setEvaluationRun(null);
+      return;
+    }
+    let cancelled = false;
+    const pollEvaluation = async () => {
+      const rows = await listAgentRuns({ workflow: "stock-candidate-scout", limit: 8 });
+      if (!cancelled) setEvaluationRun(rows.find((run) => run.id === evaluationJobId) ?? null);
+    };
+    pollEvaluation().catch(() => undefined);
+    const pollId = window.setInterval(() => pollEvaluation().catch(() => undefined), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(pollId);
+    };
+  }, [evaluationJobId]);
 
   const choosePreset = (next: (typeof PRESETS)[number]["id"]) => {
     setPresetId(next);
@@ -70,6 +138,16 @@ export default function DiscoverPage() {
     }
     router.push(`/stock/${ticker}`);
   };
+
+  const evaluated = candidateEvaluations(evaluationRun);
+  const evaluationOutput = recordField(evaluationRun?.outputs.output);
+  const evaluationSummary = recordField(evaluationOutput?.summary);
+  const evaluatedCount = typeof evaluationSummary?.evaluated_count === "number"
+    ? evaluationSummary.evaluated_count
+    : evaluated.size;
+  const boundedBatch = Array.isArray(evaluationSummary?.bounded_refresh_batch)
+    ? evaluationSummary.bounded_refresh_batch.filter((item): item is string => typeof item === "string")
+    : [];
 
   return (
     <main className="page-stack discover-page">
@@ -137,13 +215,30 @@ export default function DiscoverPage() {
           <p>Sortowanie: rating źródłowy, następnie Piotroski F-Score.</p>
         </div>
 
+        {evaluationRun && evaluationRun.status !== "queued" && (
+          <div className="candidate-evaluation-summary">
+            <span className={`badge ${evaluationRun.status === "completed" ? "success" : "accent"}`}>
+              Ocena Codex #{evaluationRun.id}: {runStatusLabel(evaluationRun.status)}
+            </span>
+            <span>{evaluatedCount} ocenionych na podstawie źródła</span>
+            {boundedBatch.length > 0 && <span>Następna partia: {boundedBatch.join(", ")}</span>}
+          </div>
+        )}
+
         <div className="candidate-list" aria-live="polite">
-          {result?.candidates.slice(0, visibleCount).map((candidate) => (
+          {result?.candidates.slice(0, visibleCount).map((candidate) => {
+            const evaluation = evaluated.get(candidate.ticker);
+            return (
             <article className="candidate-row" key={candidate.ticker}>
               <div className="candidate-company">
                 <span className="ticker-mark">{candidate.ticker}</span>
                 <strong>{candidate.name ?? "Nazwa do potwierdzenia"}</strong>
                 <span>raport {candidate.report_period}</span>
+                {evaluation && (
+                  <span className="candidate-codex-score">
+                    ocena źródeł Codex {evaluation.score == null ? "b/d" : `${Math.round(evaluation.score)}/100`}
+                  </span>
+                )}
               </div>
               <div className="candidate-reasons">
                 <span className="candidate-label">Dlaczego na liście</span>
@@ -157,7 +252,11 @@ export default function DiscoverPage() {
               </div>
               <div className="candidate-caveat">
                 <IconAlertTriangle size={15} />
-                <span>{candidate.caveat}</span>
+                <span>
+                  {evaluation
+                    ? evaluationStatusLabel(evaluation.status)
+                    : candidate.caveat}
+                </span>
               </div>
               <div className="candidate-actions">
                 <button className="btn accent" onClick={() => void startResearch(candidate.ticker)} disabled={starting === candidate.ticker}>
@@ -172,7 +271,8 @@ export default function DiscoverPage() {
                 </button>
               </div>
             </article>
-          ))}
+            );
+          })}
         </div>
         {result && visibleCount < result.candidates.length && (
           <button className="btn show-more-candidates" onClick={() => setVisibleCount((count) => count + 15)}>
@@ -186,8 +286,8 @@ export default function DiscoverPage() {
           <p>{result.source_note}</p>
           {result.evaluation_job && (
             <p>
-              Ocena Codex #{result.evaluation_job.id}: {result.evaluation_job.status}
-              {result.evaluation_job.status === "queued"
+              Ocena Codex #{result.evaluation_job.id}: {runStatusLabel(evaluationRun?.status ?? result.evaluation_job.status)}
+              {(evaluationRun?.status ?? result.evaluation_job.status) === "queued"
                 ? " — czeka na uruchomienie workera"
                 : ""}
               . Szeroki snapshot zachował {result.evaluation_job.candidate_count}

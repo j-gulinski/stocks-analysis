@@ -409,6 +409,31 @@ def test_codex_pick_agent_run_claims_next_queue_item(db, monkeypatch, capsys):
     assert agent.started_at is not None
 
 
+def test_deep_analysis_pick_contract_requires_research_resolution(db):
+    from app.db.models import AgentRun
+    from scripts.codex_pick_agent_run import _execution_contract
+
+    contract = _execution_contract(
+        AgentRun(
+            id=99,
+            workflow="stock-deep-analysis",
+            status="running",
+            model_role="orchestrator",
+            model="gpt-5.3-codex-spark",
+            inputs={"ticker": "SNT"},
+            outputs={},
+        )
+    )
+    steps = " ".join(contract["steps"])
+
+    assert "catalyst" in steps
+    assert "backlog" in steps
+    assert "management/governance" in steps
+    assert "research_resolution" in steps
+    assert "not a company risk" in steps
+    assert "stock-result-verifier" in steps
+
+
 def test_codex_complete_agent_run_script_closes_queue_item(db, monkeypatch, capsys):
     from app.db.models import AgentRun
     from scripts import codex_complete_agent_run

@@ -11,6 +11,7 @@ monkeypatched fetcher — no real network, no politeness sleep.
 import pytest
 
 import app.scrapers.biznesradar as br
+from app.services import refresh
 from app.scrapers.biznesradar import (
     BASE_URL,
     BrClient,
@@ -136,3 +137,30 @@ def test_br_login_status_endpoint_without_credentials(client):
     assert body["ok"] is False
     assert body["status"] == "not_configured"
     assert "not configured" in body["detail"]
+
+
+def test_refresh_login_summary_never_exposes_account_identifier(monkeypatch):
+    class Settings:
+        br_username = "private@example.com"
+        br_password = "secret"
+
+    class FakeClient:
+        session = object()
+
+        def login(self, _username, _password):
+            return None
+
+    monkeypatch.setattr(refresh, "get_settings", lambda: Settings())
+    monkeypatch.setattr(refresh.biznesradar, "BrClient", FakeClient)
+    summary: dict[str, str] = {}
+
+    session = refresh._build_br_session(summary)
+
+    assert session is not None
+    assert summary["br_login"] == "ok (zalogowano)"
+    assert "private@example.com" not in summary["br_login"]
+
+    diagnostic = refresh.check_br_login()
+    assert diagnostic["ok"] is True
+    assert diagnostic["detail"] == "BiznesRadar login verified."
+    assert "private@example.com" not in diagnostic["detail"]

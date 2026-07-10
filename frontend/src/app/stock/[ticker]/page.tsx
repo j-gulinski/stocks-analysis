@@ -12,7 +12,13 @@ import {
   IconSparkles,
   IconX,
 } from "@tabler/icons-react";
-import { getDossier, refreshCompany } from "@/lib/api";
+import {
+  getDossier,
+  listAgentRuns,
+  listAnalysisRuns,
+  refreshCompany,
+} from "@/lib/api";
+import { findCurrentVerifiedRun } from "@/lib/analysis";
 import { hasDossierData } from "@/lib/dossier";
 import { useApi } from "@/lib/hooks";
 import { fmtDate, fmtMcap, fmtPln, relativeDate, staleDays } from "@/lib/format";
@@ -28,6 +34,7 @@ import ForumPanel from "@/components/ForumPanel";
 import AnalysisPanel from "@/components/AnalysisPanel";
 import ScenariosPanel from "@/components/ScenariosPanel";
 import CompanyReport from "@/components/CompanyReport";
+import type { AgentRun, AnalysisRun } from "@/lib/types";
 
 const TABS = [
   { id: "Report", label: "Raport", icon: IconFileAnalytics },
@@ -44,7 +51,35 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
   const [refreshing, setRefreshing] = useState(false);
   const [autoRefreshStarted, setAutoRefreshStarted] = useState(false);
   const [refreshSummary, setRefreshSummary] = useState<Record<string, string> | null>(null);
+  const [analysisRuns, setAnalysisRuns] = useState<AnalysisRun[] | null>(null);
+  const [agentRuns, setAgentRuns] = useState<AgentRun[] | null>(null);
   const { data: dossier, error, loading, reload } = useApi(() => getDossier(ticker), [ticker]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadReviewState = async () => {
+      const [analyses, jobs] = await Promise.all([
+        listAnalysisRuns(ticker),
+        listAgentRuns({ ticker, limit: 8 }),
+      ]);
+      if (!cancelled) {
+        setAnalysisRuns(analyses);
+        setAgentRuns(jobs);
+      }
+    };
+    const refreshReviewState = () => {
+      loadReviewState().catch(() => {
+        // The report remains useful from the deterministic dossier. Queue/API
+        // diagnostics stay available in the Codex tab when this side read fails.
+      });
+    };
+    refreshReviewState();
+    const pollId = window.setInterval(refreshReviewState, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(pollId);
+    };
+  }, [ticker]);
 
   useEffect(() => {
     if (loading || !dossier || hasDossierData(dossier) || refreshing || autoRefreshStarted) return;
@@ -77,6 +112,60 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
   const hasErrors = entries.some(([, status]) => !status.startsWith("ok") && status !== "cached" && !status.startsWith("pominięto"));
   const { company, ttm } = dossier;
   const priceAge = staleDays(ttm.price_date);
+  const hasData = hasDossierData(dossier);
+  const currentAnalysis = findCurrentVerifiedRun(analysisRuns, dossier);
+  const latestDeepJob = agentRuns?.find((run) => run.workflow === "stock-deep-analysis") ?? null;
+
+  if (!hasData) {
+    const preparing = refreshing || !autoRefreshStarted;
+    return (
+      <main className="page-stack stock-workspace initial-refresh-workspace">
+        <section className="stock-header workspace-header initial-refresh-header">
+          <div className="stock-title">
+            <div className="row wrap"><h1>{ticker}</h1></div>
+            <div className="meta-row">
+              <span className={`badge ${preparing ? "accent" : "warning"}`}>
+                {preparing ? "Zbieranie danych" : "Brak dossier"}
+              </span>
+            </div>
+          </div>
+        </section>
+        <section className="initial-refresh-panel" aria-live="polite">
+          <IconRefresh size={24} className={preparing ? "spin" : ""} />
+          <div>
+            <p className="eyebrow">Pierwsze uruchomienie spółki</p>
+            <h2>{preparing ? "Przygotowuję raport" : "Nie udało się zbudować raportu"}</h2>
+            <p>
+              {preparing
+                ? "Pobieram źródła, zapisuję pochodzenie faktów i buduję dossier. Zwykle trwa to kilkadziesiąt sekund."
+                : "Uruchom ponownie odświeżenie. Szczegóły błędów źródeł pojawią się poniżej."}
+            </p>
+          </div>
+          <ol className="initial-refresh-steps">
+            <li className={preparing ? "active" : ""}>Źródła BiznesRadar i PortalAnaliz</li>
+            <li>Normalizacja faktów i jakości wyniku</li>
+            <li>Scenariusze i gotowy raport</li>
+          </ol>
+          {!preparing && (
+            <button className="btn accent" onClick={() => void handleRefresh()}>
+              <IconRefresh size={14} /> Spróbuj ponownie
+            </button>
+          )}
+          {refreshSummary && !preparing && (
+            <div className="source-list">
+              {entries.map(([source, status]) => (
+                <div className="source-row" key={source}>
+                  <span className={status.startsWith("ok") || status === "cached" ? "pos" : "neg"}>●</span>
+                  <span className="secondary source-name">{source}</span>
+                  <span>{status}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="page-stack stock-workspace">
@@ -86,10 +175,15 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
           <div className="meta-row"><span className="badge accent">Researching</span>{company.market && <span>{company.market}</span>}{company.sector && <span>{company.sector}</span>}<span>as of {relativeDate(dossier.freshness.financials_scraped_at)}</span></div>
         </div>
         <div className="quote-panel"><span className="quote-price">{fmtPln(ttm.price)}</span><span className="small muted">{ttm.price_date ? fmtDate(ttm.price_date) : "brak kursu"}</span><span className="quote-divider" /><span className="small secondary">mcap {fmtMcap(ttm.market_cap)}</span>{priceAge != null && priceAge > 5 && <span className="badge warning">kurs sprzed {priceAge} dni</span>}</div>
-        <div className="command-row header-actions"><button className="btn" onClick={() => void handleRefresh()} disabled={refreshing}><IconRefresh size={14} className={refreshing ? "spin" : ""} /> Odśwież</button><button className="btn accent" onClick={() => setTab("History")}><IconSparkles size={14} /> Analiza Codex</button></div>
+        <div className="command-row header-actions"><button className="btn" onClick={() => void handleRefresh()} disabled={refreshing}><IconRefresh size={14} className={refreshing ? "spin" : ""} /> {refreshing ? "Odświeżanie…" : "Odśwież"}</button><button className="btn accent" onClick={() => setTab("History")}><IconSparkles size={14} /> Analiza Codex</button></div>
       </section>
 
-      {refreshing && <LoadingMessages messages={["Pobieram źródła BiznesRadar…", "Zachowuję wersje i pochodzenie faktów…", "Aktualizuję dossier…"]} intervalMs={2600} />}
+      {refreshing && (
+        <section className="refresh-activity" aria-live="polite">
+          <IconRefresh size={15} className="spin" />
+          <div><strong>Odświeżam raport w tle</strong><span>Źródła → fakty → dossier → scenariusze</span></div>
+        </section>
+      )}
 
       {refreshSummary && !refreshing && (
         <details className="source-status source-status-collapsed" open={hasErrors}>
@@ -103,7 +197,7 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
         {TABS.map(({ id, label, icon: Icon }, index) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)} role="tab" aria-selected={tab === id}><span className="tab-step">{index + 1}</span><Icon size={13} /> {label}</button>)}
       </div>
 
-      {tab === "Report" && (!hasDossierData(dossier) ? <section className="card empty-panel"><IconRefresh size={18} className={refreshing ? "spin" : ""} /><strong>{refreshing ? "Zbieram pierwsze dane" : "Brak zbudowanego dossier"}</strong><span>Uruchom odświeżenie, aby przygotować raport.</span>{!refreshing && <button className="btn accent" onClick={() => void handleRefresh()}><IconRefresh size={14} /> Pobierz dane</button>}</section> : <><CompanyReport dossier={dossier} onRequestAnalysis={() => setTab("History")} /><section className="overview-section report-chart"><div className="section-heading"><div><p className="section-label">Trend operacyjny</p><h2>Najważniejsze wykresy wyników</h2></div><p>W raporcie pozostaje tylko trend potrzebny do oceny tezy.</p></div><QuarterlyCharts quarters={dossier.quarters} preferContinuingNet /></section></>)}
+      {tab === "Report" && <><CompanyReport dossier={dossier} analysis={currentAnalysis} analysisJob={latestDeepJob} onRequestAnalysis={() => setTab("History")} /><section className="overview-section report-chart"><div className="section-heading"><div><p className="section-label">Trend operacyjny</p><h2>Najważniejsze wykresy wyników</h2></div><p>W raporcie pozostaje tylko trend potrzebny do oceny tezy.</p></div><QuarterlyCharts quarters={dossier.quarters} preferContinuingNet /></section></>}
 
       {tab === "Charts" && <><section className="scenario-warning"><IconAlertTriangle size={17} /><div><strong>Ograniczenie scenariuszy</strong><p>Obecna wersja zmienia głównie mnożnik. Traktuj ją jako wrażliwość wyceny do czasu scenariuszy operacyjnych v2.</p></div></section><section className="overview-section"><div className="section-heading"><div><p className="section-label">Wycena</p><h2>Scenariusze i kurs</h2></div><p>Widoki wspierające raport, bez surowych tabel.</p></div>{dossier.scenarios && <ScenariosPanel scenarios={dossier.scenarios} valuation={dossier.valuation} />}<div className="overview-grid scenario-context"><ForecastPanel ticker={ticker} dossier={dossier} onSaved={reload} /><PriceChart ticker={ticker} /></div></section></>}
 

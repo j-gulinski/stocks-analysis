@@ -22,7 +22,7 @@ import {
 } from "@/lib/api";
 import { LoadingMessages, SkeletonRows } from "@/components/Loading";
 import { hasDossierData } from "@/lib/dossier";
-import { fmtMcap, fmtPln, relativeDate, staleDays } from "@/lib/format";
+import { fmtMcap, fmtPln, fmtPct, relativeDate, staleDays } from "@/lib/format";
 import type { Dossier } from "@/lib/types";
 
 interface Row {
@@ -32,9 +32,44 @@ interface Row {
   refreshing: boolean;
 }
 
-function currentRead(dossier: Dossier | null): string {
-  if (!dossier) return "Dane nie zostały jeszcze zebrane.";
-  return dossier.thesis?.entry_quality.rationale ?? dossier.insights.summary;
+function confidenceLabel(level: string | undefined): string {
+  if (level === "high") return "wysoka";
+  if (level === "medium") return "średnia";
+  if (level === "low") return "niska";
+  return "nieustalona";
+}
+
+function decisionRead(dossier: Dossier | null): string {
+  if (!dossier) return "Raport nie został jeszcze zbudowany.";
+  const userChecks = dossier.prescore.checks.filter((check) => check.id !== "small_cap");
+  const passed = userChecks.filter((check) => check.verdict === "pass").length;
+  return [
+    `Potencjał ${fmtPct(dossier.valuation?.potential.value_pct, { signed: true })}`,
+    `pewność ${confidenceLabel(dossier.valuation?.confidence.level)}`,
+    `sito ${passed}/${userChecks.length}`,
+  ].join(" · ");
+}
+
+function strategyFitOnly(value: string): boolean {
+  const normalized = value.toLocaleLowerCase("pl-PL");
+  return normalized.includes("sweet spot") || normalized.includes("przewaga informacyjna");
+}
+
+function compactRisk(dossier: Dossier | null): { label: string; value: string; clear: boolean } {
+  if (!dossier) return { label: "Stan danych", value: "Dossier czeka na odświeżenie", clear: false };
+  if (dossier.result_quality.is_material) {
+    return {
+      label: "Jakość wyniku",
+      value: dossier.result_quality.valuation_warning
+        ?? "Wynik raportowany zawiera działalność zaniechaną; wycena używa wyniku kontynuowanego.",
+      clear: false,
+    };
+  }
+  const missing = dossier.insights.missing[0];
+  if (missing) return { label: "Główna luka", value: missing.name, clear: false };
+  const concern = dossier.insights.concerns.find((item) => !strategyFitOnly(item));
+  if (concern) return { label: "Najważniejsze ryzyko", value: concern, clear: false };
+  return { label: "Najważniejsze ryzyko", value: "Brak krytycznego ryzyka w obecnym odczycie", clear: true };
 }
 
 function researchState(row: Row): { label: string; tone: string; next: string } {
@@ -193,9 +228,7 @@ export default function ResearchQueuePage() {
               const dossier = row.dossier;
               const state = researchState(row);
               const signals = dossier?.insights.key_indicators.slice(0, 2) ?? [];
-              const missingEvidence = dossier?.insights.missing[0]?.why ?? null;
-              const concern = dossier?.insights.concerns[0] ?? null;
-              const gap = missingEvidence ?? concern ?? "Brak krytycznej luki w obecnym odczycie";
+              const risk = compactRisk(dossier);
               const scrapedAt = dossier?.freshness.financials_scraped_at ?? null;
               const days = staleDays(scrapedAt);
               return (
@@ -208,15 +241,15 @@ export default function ResearchQueuePage() {
                     </div>
                     <div className="research-state">
                       <span className={`badge ${state.tone}`}>{state.label}</span>
-                      <p>{currentRead(dossier)}</p>
+                      <p>{decisionRead(dossier)}</p>
                     </div>
                     <div className="research-signals">
                       <span className="candidate-label">Kluczowe sygnały</span>
                       {signals.length > 0 ? signals.map((signal) => <span key={signal.id}>{signal.name}: <strong>{signal.value}</strong></span>) : <span>Po zebraniu danych</span>}
                     </div>
-                    <div className={`research-gap ${!missingEvidence && !concern ? "clear" : ""}`}>
-                      <span className="candidate-label">{missingEvidence ? "Główna luka" : "Główne ryzyko"}</span>
-                      <span>{!missingEvidence && !concern ? <IconCircleCheck size={13} /> : <IconAlertTriangle size={13} />} {gap}</span>
+                    <div className={`research-gap ${risk.clear ? "clear" : ""}`}>
+                      <span className="candidate-label">{risk.label}</span>
+                      <span>{risk.clear ? <IconCircleCheck size={13} /> : <IconAlertTriangle size={13} />} {risk.value}</span>
                     </div>
                     <div className="research-next">
                       <span>{state.next}</span>

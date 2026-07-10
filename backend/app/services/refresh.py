@@ -95,7 +95,9 @@ def _build_br_session(summary: dict[str, str]) -> requests.Session | None:
         logger.warning("BiznesRadar premium login failed: %s", exc)
         summary["br_login"] = f"error: {exc}"
         return None
-    summary["br_login"] = f"ok (zalogowano jako {settings.br_username})"
+    # Refresh summaries are returned to the browser. Authentication state is
+    # useful; the account identifier is not and must never leave server config.
+    summary["br_login"] = "ok (zalogowano)"
     return client.session
 
 
@@ -119,7 +121,7 @@ def check_br_login() -> dict:
         return {
             "ok": True,
             "status": "ok",
-            "detail": f"Logged in as {settings.br_username}.",
+            "detail": "BiznesRadar login verified.",
         }
     except Exception as exc:  # noqa: BLE001 — diagnostics endpoint, see docstring
         return {

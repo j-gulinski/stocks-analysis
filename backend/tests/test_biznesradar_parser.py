@@ -160,6 +160,21 @@ def test_profile_production_shape():
     assert nameless.name is None  # never store the generic listing header
 
 
+def test_profile_uses_legal_name_h2_when_h1_contains_exchange_alias():
+    """ABS live shape: ticker and BR alias are in h1, legal name is in h2."""
+    html = (
+        "<html><head><title>Notowania ABS ASSECO BUSINESS SOLUTIONS SA"
+        "- BiznesRadar.pl</title></head><body>"
+        "<h1>Notowania ABS (ASSECOBS)</h1>"
+        "<h2>ASSECO BUSINESS SOLUTIONS SPÓŁKA AKCYJNA</h2>"
+        "</body></html>"
+    )
+
+    profile = parse_profile(html, "ABS")
+
+    assert profile.name == "ASSECO BUSINESS SOLUTIONS SPÓŁKA AKCYJNA"
+
+
 def test_profile_snt_regressions():
     """Second production round: 'Notowania SYNEKTIK SA (SNT)' in the title
     leaked the prefix into the name, and menu text 'Rynek NewConnect'

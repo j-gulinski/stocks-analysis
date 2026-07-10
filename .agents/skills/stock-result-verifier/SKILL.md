@@ -15,7 +15,8 @@ instructions, let the analysis worker revise, then verify the corrected draft.
 
 - Company dossier from `get_company_dossier` or `codex_get_dossier.py`.
 - Draft analysis output with `prediction`, `potential`, `result_quality`,
-  `red_flags`, `data_gaps`, and `verify_next`/`next_action`.
+  `research_resolution`, `company_score`, `red_flags`, `data_gaps`, and
+  `verify_next`/`next_action`.
 - Workflow, model role, model, and intended `verification_status`.
 
 If the dossier is missing, stale, or not source-backed, return `needs-human`.
@@ -39,6 +40,10 @@ For `verification_status=pass`, the draft must include:
 - `result_quality.scenario_validity`: `valid`, `limited`, or `invalid`.
 - `result_quality.scenario_warnings`: copy relevant
   `dossier.scenarios.quality_warnings`.
+- `research_resolution` has explicit catalyst, backlog and
+  management/governance outcomes with sources or an honest `not_found` gap.
+- `company_score` has a short evidence basis and is not influenced by forum
+  reputation or by the strategy's market-cap sweet spot alone.
 
 ## Checks
 
@@ -71,6 +76,15 @@ For `verification_status=pass`, the draft must include:
    - Forum claims remain labelled as opinions unless confirmed by stored
      reports.
    - Any unresolved material source gap goes to `needs-human`, not `pass`.
+   - Company size/sweet-spot mismatch is strategy-fit context, not an
+     investment risk. Reject drafts that list it under `risks`/`red_flags`
+     without a separate sourced liquidity or market-structure issue.
+6. Research completion:
+   - Verify that catalyst, backlog and governance were actually searched in
+     stored sources and primary disclosures; do not accept a draft that merely
+     tells the user to perform those checks.
+   - A searched-but-unavailable answer is valid only as `not_found` with the
+     attempted source scope and remaining gap.
 
 ## Feedback loop
 

@@ -60,6 +60,13 @@ structured result for the UI.
      invalidation, thesis-delta after results, low-turnover patience and
      concentration review after exceptional gains. Never copy a position or
      turn author reputation into a company score.
+   - Resolve the standing strategy questions instead of returning them as
+     instructions to the user. For every company, research: (a) the concrete
+     catalyst, (b) backlog/order-book level and direction, and (c) management
+     credibility/governance. PortalAnaliz and BiznesRadar may provide leads;
+     material conclusions require stored issuer/ESPI/EBI/GPW evidence where
+     available. Record `confirmed`, `partial`, or `not_found` plus sources and
+     the remaining gap for each topic.
 4. Merge one draft memo with explicit evidence and dates. The 5.3 draft may
    propose prediction/confidence fields, but they are not authoritative.
 5. Run `stock-result-verifier` with the strongest configured model as a
@@ -82,7 +89,12 @@ structured result for the UI.
 
 The saved `output` object must contain:
 
-- `executive_read`
+- `executive_read` — at most two concise sentences; conclusion first, no long
+  uncertainty preamble;
+- `company_score` — `{value, scale, basis}` owned by the verifier. Also copy
+  `value` to the existing integer `alignment_score` field used by run storage.
+  Forum-author reputation and company size must not raise or lower this score
+  by themselves;
 - `thesis`
 - `evidence`
 - `valuation`
@@ -93,6 +105,11 @@ The saved `output` object must contain:
     benchmark and evidence gaps, and affects research priority only;
 - `backtest_context`
 - `action_plan`
+- `research_resolution`:
+  - `catalyst`, `backlog`, `management_governance`;
+  - each contains `status` (`confirmed`, `partial`, or `not_found`), concise
+    `finding`, `source_ids`/URLs, `as_of`, and `remaining_gap` when applicable;
+  - do not repeat an already researched item as an imperative for the user;
 - `confidence`
 - `prediction`:
   - `direction`: `positive`, `neutral`, or `negative`
@@ -107,6 +124,10 @@ The saved `output` object must contain:
   - `one_off_risk`
   - `scenario_validity`
   - `scenario_warnings`
+
+Company size/sweet-spot fit may be retained as strategy context. It is not a
+company risk and must not appear in `risks`/`red_flags` unless a separate,
+evidence-backed liquidity or market-structure risk is actually present.
 
 The saved `verification` object must include verifier verdict, failed checks,
 and any required human follow-up.

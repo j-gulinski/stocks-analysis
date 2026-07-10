@@ -54,6 +54,57 @@ stays as the documented scraper reference (PLAN.md §"reference only");
 are live with different roles (codex save-path checker vs verdict pydantic
 contract).
 
+## 2026-07-10 · CX.12/CX.14/RT5.4 — live queue pickup and decision-first report UX
+
+Closed the gap between durable queue creation and real local pickup. A
+host-local Codex automation now runs every ten minutes, starts and health-checks
+the workbench, claims one oldest job, uses 5.3 Spark for bounded research/draft
+work and reserves quick/deep approval for the strongest strict verifier. The
+first runtime proof completed candidate-scout `#4` with verifier `pass`; SNT
+deep-analysis `#5` remains next in FIFO order. The repository prompt now
+requires catalyst, backlog/order book and management/governance source
+completion, and records `confirmed`/`partial`/`not_found` rather than pushing
+those checks back to the user. Company size/sweet-spot fit remains strategy
+context and is explicitly forbidden as a standalone risk or score input. The
+automation is local Codex state, not a deployable backend worker; another host
+must recreate it, and a sleeping/offline Mac cannot execute it.
+
+Reworked the prepared report around the actual decision summary: estimated
+scenario potential, scenario confidence, a verifier score (or honest prescore
+fallback) and valuation basis now lead. Long deterministic uncertainty prose
+is compressed; confidence rationale is collapsed; catalyst/backlog/governance
+have three visible research-status cards. Raw discontinued-operation anomalies
+stay in the result-quality bridge rather than leaking as the main watchlist
+risk, while strategy-size factors are filtered from visible pros/risks. The
+analysis history now polls completed analysis rows as well as queue rows,
+prevents duplicate deep jobs while one is active and labels queued work as FIFO
+waiting for the external cyclic worker.
+
+Replaced the contradictory first-refresh UI with one progress surface and a
+single retry path; established-company refresh runs as a compact activity row.
+Watchlist rows now summarize potential, confidence and deterministic score and
+prefer a prepared result-quality warning over raw insight text. Scraper-doctor
+also isolated the ABS missing-name symptom: the live profile uses a generic h1
+with the legal name in h2. `parse_profile` now accepts that non-generic h2
+fallback, covered by a focused test and recorded ABS real-fixture matrix.
+The same live refresh exposed that `br_login` echoed the configured account
+identifier into the browser-visible source summary; it now returns only the
+authentication state, with a regression test preventing credential-identity
+leakage.
+
+The completed candidate-scout output is no longer hidden in queue JSON.
+Discover polls the exact evaluation job, shows its verified batch summary and
+adds compact per-ticker `prescreen Codex x/100` context for evaluated names.
+The label deliberately says source prescreen rather than company/investment
+score, and the row keeps only the organized next-stage classification instead
+of dumping the worker's raw evidence and English action prose.
+
+README now explains starting/opening the app from a local Codex project and the
+expected scenario workflow: refresh evidence, deterministic dossier rebuild,
+review/edit/save forecast assumptions, then queue a verifier-gated Codex read.
+It states the current multiple-reversion limitation instead of implying that
+company-driver scenario v2 already exists.
+
 ## 2026-07-10 · RT.7 exploration — hosted Codex boundary and communication flow
 
 Added `docs/hosting-codex-automation.md` after checking the current code and

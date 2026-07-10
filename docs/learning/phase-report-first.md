@@ -13,6 +13,27 @@ while the company report is a small CQRS read model. Adding a source field does
 not automatically add a UI tile. It earns a place only when it changes a
 decision or explains uncertainty.
 
+The same separation now applies to the analysis queue. `agent_runs` is a
+durable command table; FastAPI does not contain a Codex runtime. A local Codex
+automation is the hosted-service equivalent: it starts/checks the app, claims
+one command and writes the verified result back. `queued` therefore means
+"persisted and waiting", not "a thread is already reasoning".
+
+## How to read and run scenarios
+
+The current scenario set is a deterministic projection rebuilt from the latest
+dossier, not model prose. Think of `build_scenario_set` as a pure C# domain
+service: the same facts and assumptions produce the same negative/base/positive
+rows and weighted potential. Saving a forecast changes an explicit input; the
+next dossier read recomputes the projection. Codex interprets and challenges
+the result later, while the strict verifier owns the displayed confidence and
+score.
+
+This distinction matters because scenario v1 mainly tests reversion to the
+company's own valuation history. It does not yet simulate company drivers such
+as backlog conversion or contract timing. Those are researched and reported as
+evidence/gaps now; RT.4 will make them first-class scenario equations.
+
 ## Reported profit versus continuing profit
 
 An explicit discontinued-operation result is subtracted from reported net

@@ -30,6 +30,16 @@ source of truth.
    to decide the final prediction/confidence and approve or reject the result.
    Any UI-visible verified result must pass both `stock-result-verifier` and
    `stock-verifier`.
+   The source-completion pass must attempt catalyst, backlog/order book and
+   management/governance research. PortalAnaliz/BiznesRadar are discovery
+   leads; preserve primary issuer/ESPI/EBI/GPW evidence or record `not_found`.
+   Do not return those three topics as generic instructions to the user.
+   When the scheduled task itself runs on the strict-verifier model, launch the
+   bounded draft pass explicitly with local Codex CLI, for example
+   `codex exec -m gpt-5.3-codex-spark -s read-only --ephemeral -C <repo>`.
+   Give it the claimed run id and frozen dossier/source manifest, capture its
+   structured draft, then let the parent strict-verifier task independently
+   correct/approve it. Never substitute a same-model self-review.
 7. Save results with the same `agent_run_id`, for example:
 
    ```bash
@@ -67,3 +77,4 @@ source of truth.
   `verification_status`, `input_snapshot`, `output`, and `verification`.
 - Material investment claims are sourced or marked as gaps.
 - No deterministic numbers are invented by the model.
+- A size/sweet-spot mismatch is strategy-fit context, not a company risk.

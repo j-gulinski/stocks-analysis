@@ -271,7 +271,7 @@ are tool-accessible, and verifier-gated outputs are auditable.
     drill-down. It fetches `GET /api/backtest-runs/{id}`, exposes the
     financial-availability policy in the run form, and shows verifier state,
     policy warnings, observation checks and outcome windows in the dashboard.
-- [ ] CX.12 Web-triggered / Codex-scheduled queue execution: keep the web API as
+- [~] CX.12 Web-triggered / Codex-scheduled queue execution: keep the web API as
   durable queue creation, but add a Codex worker pickup contract so a manual,
   background or scheduled Codex run can claim queued jobs, execute the relevant
   skill/MCP/script workflow and close the `agent_run` lifecycle when output is
@@ -297,6 +297,15 @@ are tool-accessible, and verifier-gated outputs are auditable.
     job `#4` was created once and reused on an identical request. Company-page
     requests now queue `stock-deep-analysis` with 5.3 Spark research/drafting
     and reserve prediction/result-quality approval for the strongest verifier.
+  - 2026-07-10 progress: created an active local Codex automation that runs
+    every ten minutes, starts/checks the workbench, claims exactly one oldest
+    row and applies the 5.3-research/strong-verifier contract. Runtime proof:
+    candidate-scout `#4` completed with verifier `pass`; SNT deep-analysis
+    `#5` remains next in FIFO order. The automation is host-local and must be
+    recreated on another Mac; durable queue/claim/save contracts stay in repo.
+    After completion, Discover polls that exact run and shows its verified
+    batch status plus per-ticker source-prescreen scores without presenting
+    them as full investment ratings.
 - [ ] CX.13 Agent valuation backtests: evaluate saved `analysis_runs` and
   valuation memos against future price/source outcomes. See
   `docs/plan-agent-valuation-backtest.md`. First slice is schema + Python replay
@@ -341,6 +350,13 @@ are tool-accessible, and verifier-gated outputs are auditable.
     Codex audit views. Old `needs-human` analyses are no longer selected as the
     current report. A current model result must be verifier `pass` and match the
     normalized valuation snapshot.
+  - 2026-07-10 progress: the prepared report now leads with deterministic or
+    verifier-owned potential, scenario confidence and company score; strategy
+    size fit is excluded from visible risks. Catalyst, backlog and governance
+    are displayed as Codex research outcomes/statuses, not instructions to the
+    user. First refresh has one honest progress surface, watchlist rows use a
+    compact decision read, and queued jobs identify the external-worker
+    dependency.
 
 ### Relationship to the RT roadmap
 
@@ -523,7 +539,9 @@ evaluation. IDs below are stable.
 - [~] RT5.4 Build an idempotent `workbench` CLI: `doctor`, `start`, `stop`,
   `status`, `refresh`, `case`, `analyze`, `feedback`, `backtest`. **The four
   operator commands are implemented; add research commands with their RT.2–RT.6
-  domain contracts rather than wrapping unstable endpoints early.**
+  domain contracts rather than wrapping unstable endpoints early. README now
+  documents the exact local-project prompt/command Codex uses to start, open and
+  health-check the app, plus the expected scenario run sequence.**
 - [~] RT5.5 Create `skills/workbench-research/SKILL.md` so a Codex task starts
   or checks the app when asked to research a company, facilitates the case
   stages, reports blockers and opens the relevant UI. Keep `skill/SKILL.md` as

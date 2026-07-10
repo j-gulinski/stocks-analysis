@@ -34,7 +34,8 @@ If inputs are missing, return `needs-human` or `fail`; do not infer.
    - Required fields for the workflow are present.
    - Missing data is explicit in `data_gaps`, `missing_data`, or equivalent.
    - Quick/deep company analysis with `verification_status=pass` includes
-     `prediction`, `potential`, and `result_quality`.
+     `prediction`, `potential`, `result_quality`, `research_resolution`, and a
+     verifier-owned `company_score` basis.
    - `stock-result-verifier` passed for quick/deep company analysis, or its
      failed checks are included and the result is saved as rejected.
 3. Role discipline:
@@ -46,6 +47,10 @@ If inputs are missing, return `needs-human` or `fail`; do not infer.
    - Confidence reflects data quality.
    - Red flags and invalidation conditions are not hidden.
    - Downside-only scenario sets are not described with bullish wording.
+   - Market-cap sweet-spot fit is not presented as a company risk unless a
+     distinct sourced liquidity or market-structure risk exists.
+   - Catalyst, backlog and governance fields contain researched outcomes, not
+     generic instructions that push the work back to the user.
 5. Backtest integrity, when applicable:
    - No future data in `known_inputs`.
    - Date boundaries and outcome windows are explicit.

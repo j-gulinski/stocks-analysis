@@ -25,6 +25,59 @@ The command is idempotent and stores only local PID/log state under the
 gitignored `.workbench/` directory. It never prints secret values. On macOS,
 `start` opens Docker Desktop when it is installed but not running.
 
+### Start from Codex
+
+Add or open this repository as a local Codex project (the project folder must
+be `/Users/jgulinski/Claude/Projects/stocks-analyzis`), then ask:
+
+> Start the Stock Analysis Workbench, open it, and verify doctor/status.
+
+Codex should use the repository `workbench-research` skill and run the same
+stable contract:
+
+```bash
+cd /Users/jgulinski/Claude/Projects/stocks-analyzis
+./workbench start --open
+./workbench doctor
+./workbench status
+```
+
+No additional shell access or secret sharing is required. Selecting the local
+project gives Codex access to this folder; credentials stay in the gitignored
+`backend/.env` and diagnostics report only whether they are configured. A local
+scheduled Codex worker can also run `./workbench start` before claiming queued
+analyses, so you do not need to start the web app first. The Mac and the Codex
+local host still need to be awake and available when that job runs.
+
+## Expected scenario workflow
+
+Scenarios are a controlled research loop, not a separate scraper and not a
+buy/sell signal:
+
+1. Add a ticker and refresh it. The refresh stores source evidence; it does not
+   ask a model to invent assumptions.
+2. Open the company page. Every dossier read deterministically rebuilds the
+   negative/base/positive scenario set from the latest stored facts, the
+   company's own multiple history, current price and the active earnings basis.
+3. Open **Wykresy**. Review the scenario probabilities, target-multiple bridge,
+   price range and warnings. The headline potential is the probability-weighted
+   result; it is conditional, not a recommendation.
+4. Use the forecast editor on the same screen to change operating assumptions.
+   Preview first, save a named forecast only when the assumptions are yours,
+   then reload the dossier. The saved forecast becomes the preferred forward
+   earnings input where the current engine supports it.
+5. Queue **Analiza Codex** after the deterministic set is coherent. Spark may
+   research and draft, but the strongest strict verifier owns final potential
+   interpretation, confidence, result quality and company score. Only a
+   current `pass` result may appear as verified in the prepared report.
+6. After a new report or material event, refresh and compare again. Old model
+   output remains audit history and must not silently replace the new dossier.
+
+Current limitation: scenario v1 is mainly a multiple-reversion sensitivity
+against the company's own history. It is useful for valuation ranges, but it is
+not yet the RT.4 company-driver simulator (for example backlog conversion,
+units/prices or contract timing). The UI labels this limitation explicitly.
+
 ## Run components manually
 
 ```bash

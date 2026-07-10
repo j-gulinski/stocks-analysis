@@ -9,6 +9,7 @@ import {
   listAnalysisRuns,
   queueAgentRun,
 } from "@/lib/api";
+import { isCurrentVerifiedRun } from "@/lib/analysis";
 import { fmtDate, fmtPct, relativeDate, signClass } from "@/lib/format";
 import type {
   AgentRun,
@@ -50,20 +51,6 @@ function analysisRunSummary(run: AnalysisRun): string {
     textField(run.output.thesis) ||
     "Brak krótkiego opisu w zapisanym wyniku."
   );
-}
-
-function isCurrentVerifiedRun(run: AnalysisRun, dossier: Dossier): boolean {
-  if (run.verification_status !== "pass") return false;
-  const root = recordField(run.input_snapshot.dossier) ?? run.input_snapshot;
-  const snapshotTtm = recordField(root.ttm);
-  const snapshotQuality = recordField(root.result_quality);
-  const snapshotPe = numberField(snapshotTtm?.valuation_pe);
-  const currentPe = dossier.ttm.valuation_pe;
-  const peMatches =
-    snapshotPe == null || currentPe == null
-      ? snapshotPe === currentPe
-      : Math.abs(snapshotPe - currentPe) < 0.01;
-  return snapshotQuality != null && peMatches;
 }
 
 function runStatusTone(status: string): string {
@@ -111,12 +98,14 @@ function agentRunOutputId(run: AgentRun): string | null {
 }
 
 function agentRunLifecycleText(run: AgentRun): string {
-  if (run.status === "queued") return "waiting for Codex/MCP worker";
-  if (run.status === "running") return "worker claimed this job";
-  if (run.status === "completed" || run.status === "verified") return "worker closed this job";
-  if (run.status === "needs-human") return "worker needs verifier/human review";
-  if (run.status === "rejected" || run.status === "failed") return run.error ?? "worker failed/rejected this job";
-  return "workflow state recorded";
+  if (run.status === "queued") {
+    return "oczekuje w FIFO na cykliczny worker Codex";
+  }
+  if (run.status === "running") return "worker odebrał zlecenie";
+  if (run.status === "completed" || run.status === "verified") return "worker zakończył zlecenie";
+  if (run.status === "needs-human") return "verifier wymaga decyzji człowieka";
+  if (run.status === "rejected" || run.status === "failed") return run.error ?? "zlecenie odrzucone lub zakończone błędem";
+  return "stan workflow zapisany";
 }
 
 function textList(value: unknown): string[] {
@@ -465,21 +454,18 @@ export default function AnalysisPanel({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    const loadWorkflowRows = async () => {
-      const workflowRows = await listAgentRuns({ ticker, limit: 6 });
-      if (!cancelled) setAgentWorkflowRows(workflowRows);
+    const loadRows = async () => {
+      const [agentRows, workflowRows] = await Promise.all([
+        listAnalysisRuns(ticker),
+        listAgentRuns({ ticker, limit: 6 }),
+      ]);
+      if (cancelled) return;
+      setAgentHistory(agentRows);
+      setAgentWorkflowRows(workflowRows);
+      const currentVerified = agentRows.find((run) => isCurrentVerifiedRun(run, dossier));
+      if (currentVerified) setSelectedAgentRunId(currentVerified.id);
     };
-    Promise.all([
-      listAnalysisRuns(ticker),
-      listAgentRuns({ ticker, limit: 6 }),
-    ])
-      .then(([agentRows, workflowRows]) => {
-        if (cancelled) return;
-        setAgentHistory(agentRows);
-        setAgentWorkflowRows(workflowRows);
-        const currentVerified = agentRows.find((run) => isCurrentVerifiedRun(run, dossier));
-        setSelectedAgentRunId(currentVerified?.id ?? null);
-      })
+    loadRows()
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       })
@@ -487,7 +473,7 @@ export default function AnalysisPanel({
         if (!cancelled) setLoading(false);
       });
     const pollId = window.setInterval(() => {
-      loadWorkflowRows().catch((err) => {
+      loadRows().catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       });
     }, 30_000);
@@ -528,6 +514,11 @@ export default function AnalysisPanel({
 
   const agentRows = agentHistory ?? [];
   const workflowRows = agentWorkflowRows ?? [];
+  const activeDeepJob = workflowRows.find(
+    (run) =>
+      run.workflow === "stock-deep-analysis" &&
+      (run.status === "queued" || run.status === "running"),
+  );
   const selectedAgentRun =
     selectedAgentRunId == null
       ? null
@@ -544,8 +535,9 @@ export default function AnalysisPanel({
   return (
     <div>
       <div className="row wrap" style={{ marginBottom: 14 }}>
-        <button className="btn accent" onClick={handleQueueCodex} disabled={queueing}>
-          <IconSparkles size={14} className={queueing ? "spin" : ""} /> Zleć pełny raport
+        <button className="btn accent" onClick={handleQueueCodex} disabled={queueing || Boolean(activeDeepJob)}>
+          <IconSparkles size={14} className={queueing ? "spin" : ""} />
+          {activeDeepJob ? "Pełny raport jest w kolejce" : "Zleć pełny raport"}
         </button>
         {context && (
           <span className={`badge ${context.ready_for_ai ? "success" : "warning"}`}>

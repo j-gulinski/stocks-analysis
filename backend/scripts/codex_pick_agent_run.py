@@ -85,8 +85,12 @@ def _execution_contract(agent: AgentRun) -> dict[str, Any]:
             "steps": [
                 "Read docs/project-guardrails.md and docs/strategy-malik.md.",
                 f"Use get_company_dossier for {ticker or 'the queued ticker'}.",
-                "Build a verifier-gated decision memo with thesis, scenarios, risks and gaps.",
-                "Run stock-verifier before saving any verified status.",
+                "Research catalyst, backlog/order book and management/governance; "
+                "store primary evidence or record an explicit not_found gap.",
+                "Build a concise decision memo with potential, scenario confidence, "
+                "company score, thesis, risks and research_resolution.",
+                "Treat market-cap sweet-spot fit as strategy context, not a company risk.",
+                "Run stock-result-verifier and stock-verifier before saving any verified status.",
                 "Save through save_analysis_run with this agent_run_id.",
             ],
         }

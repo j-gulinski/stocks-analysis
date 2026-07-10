@@ -727,12 +727,18 @@ def parse_profile(html: str, ticker: str) -> CompanyProfile:
             profile.name = name or None
             break
     else:
-        heading = soup.find("h1")
-        if heading:
+        # Some live profiles use the short exchange alias in h1
+        # ("Notowania ABS (ASSECOBS)") and put the legal company name in h2.
+        # Prefer the first non-generic heading instead of treating a generic h1
+        # as proof that the page is nameless.
+        for heading in soup.find_all(["h1", "h2"], limit=8):
             heading_text = heading.get_text(" ", strip=True)
-            # A generic listing header is worse than no name at all.
-            if not heading_text.lower().startswith("notowania"):
-                profile.name = re.sub(r"\s*\([^)]*\)\s*$", "", heading_text) or None
+            if not heading_text or heading_text.lower().startswith("notowania"):
+                continue
+            cleaned = re.sub(r"\s*\([^)]*\)\s*$", "", heading_text).strip()
+            if cleaned and cleaned.upper() != ticker.upper():
+                profile.name = cleaned
+                break
 
     text = soup.get_text(" ", strip=True)
 
