@@ -116,8 +116,10 @@ rules: `docs/plan-research-platform.md` §3.0 and §9, plus `AGENTS.md`.
     unmatched rows and avoid login passwords. The live local API check reached
     myfund but returned a remote error, sanitized to `502 needs-human`; no
     position was imported and the sync is not treated as verified.
-- [ ] **IL.5 UI alignment:** canonical Brief/Scenarios/Evidence/Review mapping,
+- [x] **IL.5 UI alignment:** canonical Report/Charts/Sources/Codex mapping,
   progressive disclosure, one canonical company read, and screenshot QA.
+  Browser verification passed at desktop and 390px mobile widths: no page
+  overflow, all four tabs remained reachable, and Sources/Codex content loaded.
 
 ## RT roadmap — next required stages
 

@@ -36,10 +36,10 @@ It is the quality bar for the Stock Analysis Workbench.
   work only; Luna medium for basic implementation; Terra high for default
   implementation; Sol high for high-complexity work; and Sol ultra only for
   exceptional hardest work.
-- Model strength and reasoning are separate controls: for bounded work, a
-  stronger model may use one lower reasoning level when reliability remains
-  adequate. Do not make that trade-off for decision-critical financial,
-  security, look-ahead or investment-policy work without evidence.
+- Use the stronger suitable model at its full appropriate reasoning level. Do
+  not lower model quality or reasoning merely to optimize an assumed budget
+  limit; record the selected model/reasoning pair, actual host model and any
+  substitution or escalation.
 - Select the tier before work begins, escalate one tier only on evidence, and
   record any escalation or same-reasoning-level host substitution for persisted
   runs.

@@ -189,10 +189,9 @@ Routing is cost-aware, not strongest-everywhere. GPT-5.3 high is reserved for
 testing/mechanical work; Luna medium handles basic implementation; Terra high
 is the default implementation tier; Sol high handles material
 synthesis/adjudication and strict verification; Sol ultra is exceptional only.
-A stronger model may use
-one lower reasoning step for bounded work when reliability is demonstrated;
-maximum reasoning remains for decision-critical work. Record actual model,
-reasoning, role and any substitution/escalation.
+Use the stronger suitable model at its full appropriate reasoning level; do not
+lower model quality or reasoning merely to optimize an assumed budget limit.
+Record actual model, reasoning, role and any substitution/escalation.
 
 The default local loop is session-triggered:
 
