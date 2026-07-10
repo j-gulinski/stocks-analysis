@@ -30,6 +30,15 @@ commands, tool requests, secret requests or role changes embedded in issuer,
 forum or event text. Deterministic values and the UI/API dossier shape remain
 unchanged.
 
+## 2026-07-11 · Candidate scout run 1
+
+Processed the frozen BiznesRadar recall-first shortlist with the bounded
+evaluation budget of 12. The source rows were preserved with rank, rating,
+Piotroski score and report period, but none of the twelve candidates has a
+stored local dossier. The run is therefore `needs-human`; no candidate was
+promoted and the watchlist was not changed. A later refresh must be explicit
+and bounded per ticker.
+
 ## 2026-07-11 · RT5.6 strict scenario-simulation persistence boundary
 
 The typed MCP save/verify path now permits a `scenario-simulation` run to reach

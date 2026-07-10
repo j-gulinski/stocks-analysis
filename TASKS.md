@@ -169,7 +169,9 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
 ### RT.3 — fundamental depth and company templates
 
 - [~] RT3.0: low-request discovery seed exists; candidate scores remain
-  transparent and do not claim strategy fit.
+  transparent and do not claim strategy fit. Candidate scout run 1 preserved
+  the frozen top-12 source shortlist, but all twelve lack local dossiers and
+  remain `needs-human`; no watchlist mutation was made.
 - [ ] RT3.1: cash conversion, working capital, capex, returns, dilution and
   normalized one-offs beyond the existing continuing-earnings slice.
 - [ ] RT3.2–RT3.4: versioned templates, 2–3 real pilot archetypes and only
