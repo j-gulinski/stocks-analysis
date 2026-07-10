@@ -93,6 +93,56 @@ def test_dossier(refreshed, monkeypatch):
     assert dossier["analysis_context_status"]["premium"]["has_enterprise_value"] is True
 
 
+def test_dossier_exposes_only_approved_case_assumptions(refreshed):
+    """The scenario context is a safe bridge: approved only, provenance intact."""
+    created_case = refreshed.post(
+        "/api/companies/DEC/research-case",
+        json={"state": "scenarios", "current_step": "scenarios"},
+    )
+    assert created_case.status_code == 201
+
+    approved = refreshed.post(
+        "/api/companies/DEC/research-case/assumptions",
+        headers={"X-User-Email": "analyst@example.test"},
+        json={
+            "scenario_kind": "base",
+            "label": "Bazowe wejścia zatwierdzone",
+            "status": "approved",
+            "assumptions": [
+                {
+                    "key": "revenue_growth",
+                    "value": 0.12,
+                    "unit": "ratio",
+                    "provenance": "evidence",
+                    "source_ref": "fact:revenue-growth",
+                    "rationale": "Wynika z zamrożonego źródła.",
+                }
+            ],
+        },
+    )
+    assert approved.status_code == 201
+
+    for scenario_kind, status in (("positive", "draft"), ("negative", "rejected")):
+        response = refreshed.post(
+            "/api/companies/DEC/research-case/assumptions",
+            json={
+                "scenario_kind": scenario_kind,
+                "label": f"{scenario_kind} wejścia",
+                "status": status,
+                "assumptions": [],
+            },
+        )
+        assert response.status_code == 201
+
+    dossier = refreshed.get("/api/companies/DEC").json()
+    visible = dossier["scenarios"]["approved_assumption_sets"]
+    assert len(visible) == 1
+    assert visible[0]["label"] == "Bazowe wejścia zatwierdzone"
+    assert visible[0]["status"] == "approved"
+    assert visible[0]["assumptions"][0]["provenance"] == "evidence"
+    assert visible[0]["assumptions"][0]["source_ref"] == "fact:revenue-growth"
+
+
 def test_consensus_eps_basis_uses_sane_biznesradar_net_income():
     market_snapshot = {
         "forecast_consensus": {

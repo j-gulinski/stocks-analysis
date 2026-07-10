@@ -1,4 +1,4 @@
-import type { Scenario, ScenarioSet, Valuation } from "@/lib/types";
+import type { AssumptionItem, Scenario, ScenarioSet, Valuation } from "@/lib/types";
 import { fmtPln, fmtPct, signClass } from "@/lib/format";
 
 /**
@@ -33,6 +33,21 @@ function scenarioTone(scenario: Scenario): string {
   if (scenario.implied_upside_pct < 0) return "warning";
   if (scenario.implied_upside_pct > 0) return "success";
   return "neutral";
+}
+
+const PROVENANCE_LABEL: Record<AssumptionItem["provenance"], string> = {
+  evidence: "źródło",
+  human_assumption: "założenie człowieka",
+  model_suggestion: "sugestia modelu",
+};
+
+function assumptionValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 export default function ScenariosPanel({
@@ -145,6 +160,37 @@ export default function ScenariosPanel({
           </div>
         ))}
       </div>
+
+      {scenarios.approved_assumption_sets && scenarios.approved_assumption_sets.length > 0 && (
+        <div className="thesis-section approved-assumptions">
+          <p className="thesis-title">Zatwierdzone założenia przypadku</p>
+          <p className="assumption-context-note">
+            Przekazane do kontekstu scenariusza; na tym etapie nie zmieniają jeszcze ceny docelowej.
+          </p>
+          <div className="approved-assumption-list">
+            {scenarios.approved_assumption_sets.map((set) => (
+              <div className="approved-assumption-set" key={set.id}>
+                <div className="spread" style={{ flexWrap: "wrap", gap: 6 }}>
+                  <strong>{set.label}</strong>
+                  <span className="badge muted">{set.scenario_kind}</span>
+                </div>
+                {set.assumptions.length > 0 ? (
+                  <ul>
+                    {set.assumptions.map((item) => (
+                      <li key={`${set.id}-${item.key}`}>
+                        <span className="assumption-key">{item.key}</span>: {assumptionValue(item.value)}
+                        {item.unit ? ` ${item.unit}` : ""} · {PROVENANCE_LABEL[item.provenance]}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="small muted">Brak pozycji w zatwierdzonym zestawie.</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* AI path only: a minimal secondary line (model / iteration count). */}
       {scenarios.engine === "ai" && scenarios.ai_notes && (

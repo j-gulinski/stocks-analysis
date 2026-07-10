@@ -22,6 +22,15 @@ qualitative conditions for analysis and that the current target price remains
 the existing multiple-only calculation; priced operating-driver equations stay
 deferred to RT.4.
 
+## 2026-07-10 · RT4.3a approved-assumption context bridge
+
+Approved case-linked assumption sets now flow into the dossier's scenario
+context with their per-item provenance intact. Draft and rejected sets stay
+out of UI-visible scenario output, and the scenario panel labels the context
+as non-priced so the current deterministic multiple valuation cannot be
+silently changed. RT4.3b remains the separate step for mapping approved driver
+keys into tested operating equations and valuation sensitivity.
+
 ## 2026-07-10 · Refined RT4 next task
 
 The next implementation target is now RT4.1a: establish the durable

@@ -566,6 +566,11 @@ class ScenarioSetOut(BaseModel):
     framing: str  # fixed "punkt wejścia w analizę, nie sygnał"
     disclaimer: str
     quality_warnings: list[str] = Field(default_factory=list)
+    # Approved case inputs are shown as context only until RT4.3b wires them
+    # into operating equations. Keeping the full provenance-bearing contract
+    # here prevents sourced facts and human/model assumptions from collapsing
+    # into one unlabeled number.
+    approved_assumption_sets: list[AssumptionSetOut] = Field(default_factory=list)
     # Provenance: "deterministic" (no key / AI fallback) or "ai" (+ ai_notes).
     engine: str = "deterministic"
     ai_notes: dict | None = None

@@ -197,8 +197,12 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
   - [x] RT4.2c: Retain an appendable history of case-step changes with an
     explicit transition reason and editor identity; legacy cases remain
     history-empty until a new transition is recorded.
-  - [ ] RT4.3a: Connect approved case assumptions to scenario inputs and keep
-    sourced, human and model suggestions distinct in the valuation bridge.
+  - [x] RT4.3a: Connect approved case assumptions to the scenario context and
+    keep sourced, human and model suggestions distinct in the dossier/UI;
+    approved inputs remain context-only until priced equations are added.
+  - [ ] RT4.3b: Map approved driver keys into pure scenario inputs and expose
+    deterministic sensitivity changes without allowing drafts or suggestions
+    to alter the saved valuation silently.
 - [~] RT4.5–RT4.7: report-first UI and manual QA slices exist; scenario rows
   now expose a qualitative negative/stable/improving company outcome and case
   assumptions have provenance-aware persistence/editor surfaces and appendable

@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    AssumptionSet,
     Company,
     Dividend,
     ForumIntelligence,
@@ -18,6 +19,7 @@ from app.db.models import (
     IndicatorValue,
     Price,
     ReportValue,
+    ResearchCase,
 )
 from app.services import (
     fields,
@@ -109,6 +111,41 @@ def load_balance_latest(db: Session, company_id: int) -> dict[str, float]:
         if canonical and canonical not in latest:
             latest[canonical] = float(row.value)
     return latest
+
+
+def load_approved_assumption_sets(db: Session, company_id: int) -> list[dict]:
+    """Expose only approved case inputs as scenario context.
+
+    This is deliberately a dossier composition concern: the deterministic
+    scenario engine stays pure and its current valuation equations remain
+    unchanged. Drafts and rejected inputs must never leak into UI-visible
+    scenario context, while each approved item keeps its provenance fields.
+    """
+    rows = db.scalars(
+        select(AssumptionSet)
+        .join(ResearchCase, ResearchCase.id == AssumptionSet.research_case_id)
+        .where(
+            ResearchCase.company_id == company_id,
+            ResearchCase.purpose == "investment-research",
+            AssumptionSet.status == "approved",
+        )
+        .order_by(AssumptionSet.scenario_kind, AssumptionSet.id)
+    ).all()
+    return [
+        {
+            "id": row.id,
+            "research_case_id": row.research_case_id,
+            "scenario_kind": row.scenario_kind,
+            "label": row.label,
+            "status": row.status,
+            "as_of": row.as_of,
+            "assumptions": row.assumptions,
+            "created_by": row.created_by,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+        for row in rows
+    ]
 
 
 def latest_price(db: Session, company_id: int) -> tuple[float | None, object | None]:
@@ -494,8 +531,10 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
         },
     )
     scenario_set = scenarios.build_scenario_set(scenario_inputs, malik.MALIK)
+    approved_assumption_sets = load_approved_assumption_sets(db, company.id)
     scenarios_block = {
         **scenario_set.to_dict(),
+        "approved_assumption_sets": approved_assumption_sets,
         "engine": "deterministic",
         "ai_notes": None,
     }

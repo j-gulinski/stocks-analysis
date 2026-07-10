@@ -423,6 +423,7 @@ export interface ScenarioSet {
   framing: string; // "punkt wejścia w analizę, nie sygnał"
   disclaimer: string;
   quality_warnings?: string[];
+  approved_assumption_sets?: AssumptionSet[];
   engine: "deterministic" | "ai";
   ai_notes: AiNotes | null;
 }
