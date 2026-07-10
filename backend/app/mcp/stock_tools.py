@@ -238,6 +238,13 @@ def save_analysis_run(arguments: dict[str, Any]) -> dict[str, Any]:
         verification_status=verification_status,
         output=output,
     )
+    contract_errors += analysis_contract.verified_scenario_simulation_contract_errors(
+        workflow=workflow,
+        verification_status=verification_status,
+        input_snapshot=_optional_dict(arguments, "input_snapshot"),
+        output=output,
+        verification=_optional_dict(arguments, "verification"),
+    )
     if contract_errors:
         raise ToolInputError(" ".join(contract_errors))
     input_snapshot = _optional_dict(arguments, "input_snapshot")
@@ -363,6 +370,7 @@ def mark_verification_result(arguments: dict[str, Any]) -> dict[str, Any]:
     verdict = _require_text(arguments, "verdict")
     verifier_model = _require_text(arguments, "verifier_model")
     checks = _optional_dict(arguments, "checks")
+    model_role = str(arguments.get("model_role") or "verifier_strict")
     agent_run_id = arguments.get("agent_run_id")
     analysis_run_id = arguments.get("analysis_run_id")
     if agent_run_id is None and analysis_run_id is None:
@@ -372,7 +380,7 @@ def mark_verification_result(arguments: dict[str, Any]) -> dict[str, Any]:
         verification = VerificationRun(
             agent_run_id=agent_run_id,
             analysis_run_id=analysis_run_id,
-            model_role=str(arguments.get("model_role") or "verifier_strict"),
+            model_role=model_role,
             verifier_model=verifier_model,
             verdict=verdict,
             checks=checks,
@@ -382,6 +390,20 @@ def mark_verification_result(arguments: dict[str, Any]) -> dict[str, Any]:
         if isinstance(analysis_run_id, int):
             analysis = db.get(AnalysisRun, analysis_run_id)
             if analysis is not None:
+                contract_errors = analysis_contract.verified_scenario_simulation_contract_errors(
+                    workflow=analysis.workflow,
+                    verification_status=verdict,
+                    input_snapshot=analysis.input_snapshot or {},
+                    output=analysis.output or {},
+                    verification={
+                        "model_role": model_role,
+                        "verifier_model": verifier_model,
+                        "verdict": verdict,
+                        "checks": checks,
+                    },
+                )
+                if contract_errors:
+                    raise ToolInputError(" ".join(contract_errors))
                 analysis.verification_status = verdict
                 analysis.verification = checks
                 analysis.status = _analysis_status_from_verification(verdict)

@@ -222,6 +222,178 @@ def test_mcp_save_analysis_run_rejects_pass_without_prediction(db):
     assert "output.prediction is required" in payload["error"]
 
 
+def _verified_scenario_simulation_payload(*, fingerprint="bridge:fixture"):
+    scenario_set = {
+        "engine": "deterministic",
+        "current_price": 25.0,
+        "weighted_expected_price": 25.0,
+        "weighted_expected_upside_pct": 0.0,
+        "framing": "To punkt wejścia w analizę, nie sygnał kupna/sprzedaży.",
+        "disclaimer": "Analiza nie jest rekomendacją inwestycyjną.",
+        "simulation_verification": {"strict_verification_required": True},
+        "scenarios": [
+            {
+                "id": "negative",
+                "kind": "negative",
+                "probability": 0.25,
+                "target_price": 20.0,
+                "implied_upside_pct": -20.0,
+                "company_outcome": {"direction": "negative", "mode": "qualitative"},
+            },
+            {
+                "id": "base",
+                "kind": "base",
+                "probability": 0.50,
+                "target_price": 25.0,
+                "implied_upside_pct": 0.0,
+                "company_outcome": {"direction": "neutral", "mode": "qualitative"},
+            },
+            {
+                "id": "positive",
+                "kind": "positive",
+                "probability": 0.25,
+                "target_price": 30.0,
+                "implied_upside_pct": 20.0,
+                "company_outcome": {"direction": "positive", "mode": "qualitative"},
+            },
+        ],
+    }
+    return {
+        "scenario_set": scenario_set,
+        "priced_operating_outcomes": {
+            "status": "approved",
+            "input_fingerprint": fingerprint,
+        },
+    }
+
+
+def _strict_scenario_verification(*, fingerprint="bridge:fixture"):
+    return {
+        "model_role": "verifier_strict",
+        "verifier_model": "fixture-verifier",
+        "verdict": "pass",
+        "checks": {
+            "representative_archetypes": {
+                "archetypes": ["industrial", "financial", "event-driven"]
+            },
+            "no_lookahead": {"passed": True},
+            "math_reconciliation": {"passed": True},
+            "source_lineage": {"passed": True},
+            "scenario_input_match": {"passed": True, "fingerprint": fingerprint},
+        },
+    }
+
+
+def test_mcp_scenario_simulation_pass_requires_strict_snapshot_and_verifier(db):
+    from app.db.models import AnalysisRun, Company, VerificationRun
+    from app.mcp.stock_workbench_server import handle_message
+
+    db.add(Company(ticker="DEC", name="DECORA"))
+    db.commit()
+    output = _verified_scenario_simulation_payload()
+
+    saved = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 51,
+            "method": "tools/call",
+            "params": {
+                "name": "save_analysis_run",
+                "arguments": {
+                    "ticker": "DEC",
+                    "workflow": "scenario-simulation",
+                    "model_role": "analyst_deep",
+                    "model": "fixture-analyst",
+                    "verification_status": "needs-human",
+                    "input_snapshot": {
+                        "operating_bridge_fingerprint": "bridge:fixture",
+                        "scenario_set": output["scenario_set"],
+                    },
+                    "output": output,
+                },
+            },
+        }
+    )
+    saved_payload = saved["result"]["structuredContent"]
+    assert saved_payload["ok"] is True
+
+    verified = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 52,
+            "method": "tools/call",
+            "params": {
+                "name": "mark_verification_result",
+                "arguments": {
+                    "analysis_run_id": saved_payload["analysis_run_id"],
+                    **_strict_scenario_verification(),
+                    "summary": "Fixture-only strict scenario contract.",
+                },
+            },
+        }
+    )
+    verified_payload = verified["result"]["structuredContent"]
+    assert verified_payload["ok"] is True
+
+    analysis = db.get(AnalysisRun, saved_payload["analysis_run_id"])
+    assert analysis.status == "verified"
+    assert analysis.verification_status == "pass"
+    assert db.query(VerificationRun).one().verdict == "pass"
+
+
+def test_mcp_scenario_simulation_rejects_stale_bridge_on_strict_pass(db):
+    from app.db.models import AnalysisRun, Company
+    from app.mcp.stock_workbench_server import handle_message
+
+    db.add(Company(ticker="DEC", name="DECORA"))
+    db.commit()
+    output = _verified_scenario_simulation_payload()
+    saved = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 53,
+            "method": "tools/call",
+            "params": {
+                "name": "save_analysis_run",
+                "arguments": {
+                    "ticker": "DEC",
+                    "workflow": "scenario-simulation",
+                    "model_role": "analyst_deep",
+                    "model": "fixture-analyst",
+                    "verification_status": "needs-human",
+                    "input_snapshot": {
+                        "operating_bridge_fingerprint": "bridge:old",
+                        "scenario_set": output["scenario_set"],
+                    },
+                    "output": output,
+                },
+            },
+        }
+    )
+    saved_payload = saved["result"]["structuredContent"]
+    assert saved_payload["ok"] is True
+
+    response = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 54,
+            "method": "tools/call",
+            "params": {
+                "name": "mark_verification_result",
+                "arguments": {
+                    "analysis_run_id": saved_payload["analysis_run_id"],
+                    **_strict_scenario_verification(),
+                },
+            },
+        }
+    )
+    payload = response["result"]["structuredContent"]
+    assert payload["ok"] is False
+    assert "operating_bridge_fingerprint" in payload["error"]
+    analysis = db.get(AnalysisRun, saved_payload["analysis_run_id"])
+    assert analysis.verification_status == "needs-human"
+
+
 def test_mcp_save_analysis_run_closes_existing_agent_run(db):
     from app.db.models import AgentRun, Company
     from app.mcp.stock_workbench_server import handle_message

@@ -3,6 +3,18 @@
 Durable decisions and completed slices only. `TASKS.md` owns current status;
 implementation detail lives in stage plans, validation notes, archives and git.
 
+## 2026-07-11 · RT5.6 strict scenario-simulation persistence boundary
+
+The typed MCP save/verify path now permits a `scenario-simulation` run to reach
+`pass` only when the deterministic scenario snapshot passes its own verifier,
+the priced-outcome gate is approved, the input snapshot carries the matching
+operating-bridge fingerprint, and an independent `verifier_strict` result
+passes representative coverage, no-look-ahead, math, source-lineage and input
+match checks. Draft and `needs-human` runs remain saveable. A stale bridge is
+rejected before the analysis or verification row is committed, so a previous
+approval cannot silently unlock changed inputs. This is an audit boundary, not
+an OpenAI provider implementation; RT5.1–RT5.3 remain open.
+
 ## 2026-07-10 · Clarified model-routing scope
 
 GPT-5.3 is now reserved for testing/mechanical work. Luna medium is the

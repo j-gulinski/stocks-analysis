@@ -236,9 +236,12 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
 
 - [~] RT5.4–RT5.5: `workbench` operator and research skill exist for current
   commands; extend only as case contracts land.
-- [ ] RT5.1–RT5.3, RT5.1b, RT5.2, RT5.6: Responses API adapter, model policy,
-  bounded extraction/verification, prompt-injection isolation and optional
-  typed MCP/plugin after the CLI contract stabilizes.
+- [~] RT5.6: typed MCP save/verify now has a strict `scenario-simulation`
+  approval boundary: deterministic scenario snapshot, current bridge
+  fingerprint, priced gate and verifier checks must agree before `pass`.
+- [ ] RT5.1–RT5.3, RT5.1b, RT5.2: Responses API adapter, model policy,
+  bounded extraction/verification and prompt-injection isolation remain after
+  the stable CLI/MCP contract; no provider call is implied by this boundary.
 
 ### RT.6 — judge, calibration and honest replay
 
