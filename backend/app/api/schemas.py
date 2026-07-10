@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -29,6 +30,45 @@ class WatchlistItemOut(BaseModel):
     risk_level: str = "none"
     fired_falsifiers: int = 0
     warning_falsifiers: int = 0
+
+
+CaseState = Literal[
+    "new", "ingesting", "data_review", "business_model", "thesis",
+    "scenarios", "review", "monitoring", "blocked", "closed",
+]
+CaseStep = Literal[
+    "ingest", "data_review", "business_model", "thesis",
+    "scenarios", "review", "monitoring",
+]
+
+
+class ResearchCaseCreateIn(BaseModel):
+    purpose: str = Field(default="investment-research", min_length=1, max_length=80)
+    state: CaseState = "new"
+    current_step: CaseStep = "ingest"
+    as_of: datetime | None = None
+    blocked_reason: str | None = Field(default=None, max_length=2000)
+
+
+class ResearchCaseUpdateIn(BaseModel):
+    state: CaseState | None = None
+    current_step: CaseStep | None = None
+    as_of: datetime | None = None
+    blocked_reason: str | None = Field(default=None, max_length=2000)
+
+
+class ResearchCaseOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    company_id: int
+    purpose: str
+    state: CaseState
+    current_step: CaseStep
+    as_of: datetime | None
+    blocked_reason: str | None
+    created_at: datetime
+    updated_at: datetime
 
 
 # -------------------------------------------------------- decision journal

@@ -3,6 +3,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_user_email
@@ -19,9 +20,21 @@ from app.api.schemas import (
     PriceOut,
     RefreshSummaryOut,
     ReportRowOut,
+    ResearchCaseCreateIn,
+    ResearchCaseOut,
+    ResearchCaseUpdateIn,
 )
 from app.db.base import get_db
-from app.db.models import Company, Dividend, Forecast, IndicatorValue, Price, ReportValue
+from app.db.models import (
+    Company,
+    Dividend,
+    Forecast,
+    IndicatorValue,
+    Price,
+    ReportValue,
+    ResearchCase,
+    utcnow,
+)
 from app.services import dossier as dossier_service
 from app.services import forecast as forecast_service
 from app.services import refresh as refresh_service
@@ -145,6 +158,107 @@ def get_prices(
 @router.get("/{ticker}/info", response_model=CompanyOut)
 def get_company_info(ticker: str, db: Session = Depends(get_db)) -> Company:
     return _get_company_or_404(db, ticker)
+
+
+def _validate_research_case_payload(state: str, blocked_reason: str | None) -> None:
+    if state == "blocked" and not (blocked_reason or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="blocked_reason is required when a research case is blocked.",
+        )
+
+
+@router.get("/{ticker}/research-case", response_model=ResearchCaseOut)
+def get_research_case(
+    ticker: str,
+    purpose: str = Query(default="investment-research", min_length=1, max_length=80),
+    db: Session = Depends(get_db),
+) -> ResearchCase:
+    company = _get_company_or_404(db, ticker)
+    case = db.scalar(
+        select(ResearchCase)
+        .where(
+            ResearchCase.company_id == company.id,
+            ResearchCase.purpose == purpose,
+        )
+        .limit(1)
+    )
+    if case is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Research case not found.")
+    return case
+
+
+@router.post(
+    "/{ticker}/research-case",
+    response_model=ResearchCaseOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_research_case(
+    ticker: str,
+    payload: ResearchCaseCreateIn,
+    db: Session = Depends(get_db),
+) -> ResearchCase:
+    company = _get_company_or_404(db, ticker)
+    _validate_research_case_payload(payload.state, payload.blocked_reason)
+    existing = db.scalar(
+        select(ResearchCase).where(
+            ResearchCase.company_id == company.id,
+            ResearchCase.purpose == payload.purpose,
+        )
+    )
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Research case already exists.")
+    case = ResearchCase(
+        company_id=company.id,
+        purpose=payload.purpose,
+        state=payload.state,
+        current_step=payload.current_step,
+        as_of=payload.as_of,
+        blocked_reason=payload.blocked_reason.strip() if payload.blocked_reason else None,
+    )
+    db.add(case)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Research case already exists.",
+        ) from None
+    db.refresh(case)
+    return case
+
+
+@router.patch("/{ticker}/research-case", response_model=ResearchCaseOut)
+def update_research_case(
+    ticker: str,
+    payload: ResearchCaseUpdateIn,
+    purpose: str = Query(default="investment-research", min_length=1, max_length=80),
+    db: Session = Depends(get_db),
+) -> ResearchCase:
+    company = _get_company_or_404(db, ticker)
+    case = db.scalar(
+        select(ResearchCase).where(
+            ResearchCase.company_id == company.id,
+            ResearchCase.purpose == purpose,
+        )
+    )
+    if case is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Research case not found.")
+    values = payload.model_dump(exclude_unset=True)
+    state = values.get("state", case.state)
+    blocked_reason = values.get("blocked_reason", case.blocked_reason)
+    _validate_research_case_payload(state, blocked_reason)
+    for key, value in values.items():
+        if key == "blocked_reason" and value is not None:
+            value = value.strip() or None
+        setattr(case, key, value)
+    if state != "blocked" and "blocked_reason" not in values:
+        case.blocked_reason = None
+    case.updated_at = utcnow()
+    db.commit()
+    db.refresh(case)
+    return case
 
 
 # ------------------------------------------------------------ Phase 3: dossier

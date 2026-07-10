@@ -177,8 +177,13 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
 
 ### RT.4 — research case and operating-driver scenarios
 
-- [ ] RT4.1–RT4.4: persistent case state, driver assumptions, sourced/human/
+- [~] RT4.1–RT4.4: persistent case state, driver assumptions, sourced/human/
   model labels, template scenario v2 and valuation sensitivity migration.
+  - [x] RT4.1a: Add the durable `ResearchCase` root for one company and
+    purpose, with explicit state/current step/`as_of`, one forward migration,
+    read/write API contract and fixture tests. Forecast/scenario persistence
+    remains out of scope until this root is extended and verified in the next
+    case slice.
 - [~] RT4.5–RT4.7: report-first UI and manual QA slices exist; scenario rows
   now expose a qualitative negative/stable/improving company outcome, while
   persistent case editing, priced driver equations, automated
@@ -186,8 +191,8 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
   driven QA remain.
   - [x] RT4.5a: Add company-outcome conditions to C/Z, C/WK and EV/EBITDA
     rows, including fallback/missing-data and AI-event boundaries.
-  - [ ] RT4.5b: Replace qualitative outcome conditions with priced operating
-    drivers and source-backed scenario equations.
+  - [ ] RT4.5b: After RT4.1–RT4.4, replace qualitative outcome conditions with
+    priced operating drivers and source-backed scenario equations.
 
 ### RT.5 — OpenAI orchestration and Codex workflow
 

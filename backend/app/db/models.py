@@ -63,6 +63,29 @@ class Company(Base):
     )
 
 
+class ResearchCase(Base):
+    """Durable workflow root for one company and research purpose."""
+
+    __tablename__ = "research_cases"
+    __table_args__ = (
+        UniqueConstraint("company_id", "purpose", name="uq_research_case_company_purpose"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), index=True
+    )
+    purpose: Mapped[str] = mapped_column(String(80), default="investment-research")
+    state: Mapped[str] = mapped_column(String(40), default="new", index=True)
+    current_step: Mapped[str] = mapped_column(String(40), default="ingest")
+    as_of: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    blocked_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class ReportValue(Base):
     """One cell of a financial statement: (statement, freq, period, field) → value."""
 

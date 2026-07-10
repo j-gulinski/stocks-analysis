@@ -22,6 +22,21 @@ qualitative conditions for analysis and that the current target price remains
 the existing multiple-only calculation; priced operating-driver equations stay
 deferred to RT.4.
 
+## 2026-07-10 · Refined RT4 next task
+
+The next implementation target is now RT4.1a: establish the durable
+`ResearchCase` root with explicit state, current step and `as_of` before adding
+priced operating-driver equations. This preserves the roadmap order and keeps
+forecast/scenario persistence out of scope until the case contract is verified.
+
+## 2026-07-10 · RT4.1a ResearchCase root
+
+Added migration `0016` and a durable `ResearchCase` root keyed by company and
+purpose. The API supports explicit workflow state, current step, `as_of` and a
+named blocked reason, with purpose-scoped reads/updates and duplicate-safe
+creation. Forecast and scenario persistence remain deliberately separate until
+the case root is exercised by the next RT4 slice.
+
 ## 2026-07-10 · Explore ranking rationale and stale-analysis queue
 
 Explore candidates now show their source rank, deterministic tie-break order,
