@@ -129,3 +129,9 @@ badge. Each required check has its own `pass`, `fail` or `oczekuje` state, so a
 reviewer can see whether the gap is coverage, chronology, arithmetic or source
 lineage. This is the UI equivalent of returning a C# validation-result object
 with field-level errors rather than only a boolean `IsValid`.
+
+The end-to-end test also verifies the aggregate boundary: approved assumptions,
+an analysis run and a strict verification run must all exist before a scenario
+row changes mode. The fixture is deliberately labelled as test-only, which is
+the same separation a C# integration test makes between a seeded database row
+and evidence accepted for a real decision.

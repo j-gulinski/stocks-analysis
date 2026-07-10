@@ -99,6 +99,10 @@ is not promoted to pass, and an approved gate remains the only path that
 changes the company outcome from qualitative to priced. Representative
 persisted verifier cases remain the open acceptance item.
 
+The RT4.5b API test now covers the full promotion path with fixture-only
+`AnalysisRun`/`VerificationRun` records: complete checks promote the base row
+to `mode: priced`, while production still requires real persisted evidence.
+
 ## 2026-07-10 · Refined RT4 next task
 
 The next implementation target is now RT4.1a: establish the durable

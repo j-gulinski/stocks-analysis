@@ -157,6 +157,109 @@ def test_dossier_exposes_only_approved_case_assumptions(refreshed):
     assert any(item["key"] == "revenue_growth" for item in sensitivity["rows"][0]["ignored"])
 
 
+def test_dossier_promotes_priced_outcome_only_after_persisted_strict_verifier(
+    refreshed, db
+):
+    """The real dossier path must honor the persisted verifier gate."""
+    from app.db.models import AnalysisRun, Company, VerificationRun
+
+    created_case = refreshed.post(
+        "/api/companies/DEC/research-case",
+        json={"state": "scenarios", "current_step": "scenarios"},
+    )
+    assert created_case.status_code == 201
+
+    assumptions = refreshed.post(
+        "/api/companies/DEC/research-case/assumptions",
+        headers={"X-User-Email": "fixture-verifier@example.test"},
+        json={
+            "scenario_kind": "base",
+            "label": "Fixture priced base",
+            "status": "approved",
+            "assumptions": [
+                {
+                    "key": "revenue",
+                    "value": 125000,
+                    "unit": "tys. PLN",
+                    "provenance": "evidence",
+                    "source_ref": "fixture:revenue",
+                    "rationale": "Fixture-only operating input.",
+                },
+                {
+                    "key": "gross_margin_pct",
+                    "value": 35.0,
+                    "unit": "%",
+                    "provenance": "evidence",
+                    "source_ref": "fixture:gross-margin",
+                    "rationale": "Fixture-only margin input.",
+                },
+                {
+                    "key": "capex",
+                    "value": -400.0,
+                    "unit": "tys. PLN",
+                    "provenance": "evidence",
+                    "source_ref": "fixture:capex",
+                    "rationale": "Fixture-only capex input.",
+                },
+                {
+                    "key": "working_capital_change",
+                    "value": 100.0,
+                    "unit": "tys. PLN",
+                    "provenance": "human_assumption",
+                    "rationale": "Fixture-only working-capital input.",
+                },
+                {
+                    "key": "fcf_multiple",
+                    "value": 12.0,
+                    "unit": "x",
+                    "provenance": "human_assumption",
+                    "rationale": "Fixture-only explicit FCF multiple.",
+                },
+            ],
+        },
+    )
+    assert assumptions.status_code == 201
+
+    company = db.query(Company).filter(Company.ticker == "DEC").one()
+    analysis = AnalysisRun(
+        company_id=company.id,
+        workflow="fixture_priced_outcome",
+        model_role="analyst_deep",
+        model="fixture",
+        status="completed",
+        verification_status="pass",
+        input_snapshot={"fixture": True},
+        output={"fixture": True},
+    )
+    db.add(analysis)
+    db.flush()
+    db.add(
+        VerificationRun(
+            analysis_run_id=analysis.id,
+            model_role="verifier_strict",
+            verifier_model="fixture-verifier",
+            verdict="pass",
+            checks={
+                "representative_archetypes": {
+                    "archetypes": ["industrial", "financial", "event-driven"]
+                },
+                "no_lookahead": {"passed": True},
+                "math_reconciliation": {"passed": True},
+                "source_lineage": {"passed": True},
+            },
+            summary="Fixture-only approval contract; not production evidence.",
+        )
+    )
+    db.commit()
+
+    dossier = refreshed.get("/api/companies/DEC").json()
+    gate = dossier["scenarios"]["priced_operating_outcomes"]
+    assert gate["status"] == "approved"
+    assert gate["verification"]["verifier_model"] == "fixture-verifier"
+    base = next(row for row in dossier["scenarios"]["scenarios"] if row["kind"] == "base")
+    assert base["company_outcome"]["mode"] == "priced"
+
+
 def test_consensus_eps_basis_uses_sane_biznesradar_net_income():
     market_snapshot = {
         "forecast_consensus": {
