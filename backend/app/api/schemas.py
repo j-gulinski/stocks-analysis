@@ -642,6 +642,10 @@ class PositionImportOut(BaseModel):
     positions: list[PositionOut]
 
 
+class MyfundImportIn(BaseModel):
+    portfolio: str | None = Field(default=None, min_length=1, max_length=80)
+
+
 class AnalysisRunOut(BaseModel):
     """Provider-neutral analysis result, used by Codex/MCP workflows."""
 

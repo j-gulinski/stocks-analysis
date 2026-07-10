@@ -23,9 +23,10 @@ editor with visible status and review date.
 Added migration `0014` for a position ledger containing ticker, entry, size,
 quantity and sizing-rule context. Positions are read-only to analysis and AI.
 CSV import pins one portfolio, requires explicit ticker mapping, surfaces
-unmatched rows and is idempotent. The configured myfund API-key slots remain
-credential-safe but the official API adapter is deferred until its endpoint
-and terms are verified; no guessed external calls were added.
+unmatched rows and is idempotent. The documented official API endpoint is now
+implemented behind the same polite HTTP boundary with no key in errors/logs.
+The live local call reached myfund but returned a remote error, sanitized to
+HTTP 502; no position was imported and the external sync remains needs-human.
 
 ## 2026-07-10 · Active documentation compaction
 

@@ -31,4 +31,6 @@ the stored state for ordering without pretending it discovered the evidence.
 IL.4 keeps portfolio data as a separate read model. The CSV importer behaves
 like a small ETL boundary: validate explicit mappings, preserve unmatched rows
 for the user, and use a stable source reference for idempotency. A future
-myfund adapter must prove its official endpoint and terms before it is enabled.
+myfund adapter uses the documented endpoint and still treats a remote error as
+needs-human; a successful HTTP response is not assumed to mean a valid mapping
+or a safe portfolio sync.

@@ -111,10 +111,11 @@ rules: `docs/plan-research-platform.md` §3.0 and §9, plus `AGENTS.md`.
 - [x] **IL.4 Position ledger:** read-only ticker, entry, size and sizing-rule
   flag; never an analysis score or AI input. Migration `0014` and the company
   context panel are covered by API/migration/build checks.
-  - [~] **IL.4a myfund import:** CSV import now pins one portfolio, requires
-    explicit ticker mapping, surfaces unmatched rows and is idempotent. The
-    official myfund API adapter remains deferred until its endpoint/terms are
-    verified; no login password is stored or fetched.
+  - [~] **IL.4a myfund import:** CSV import and the documented official API
+    adapter pin one portfolio, require explicit ticker mapping, surface
+    unmatched rows and avoid login passwords. The live local API check reached
+    myfund but returned a remote error, sanitized to `502 needs-human`; no
+    position was imported and the sync is not treated as verified.
 - [ ] **IL.5 UI alignment:** canonical Brief/Scenarios/Evidence/Review mapping,
   progressive disclosure, one canonical company read, and screenshot QA.
 

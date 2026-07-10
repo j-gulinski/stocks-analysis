@@ -37,3 +37,51 @@ def test_csv_import_surfaces_unmatched_and_is_idempotent(client, db):
     assert len(listed) == 1
     assert listed[0]["ticker"] == "SNT"
     assert listed[0]["size_pln"] == 1005.0
+
+
+def test_myfund_import_uses_one_pinned_portfolio_and_surfaces_unknowns(
+    client, db, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from app.api import positions
+    from app.db.models import Company
+
+    db.add(Company(ticker="SNT", name="SYNEKTIK"))
+    db.commit()
+    monkeypatch.setattr(
+        positions,
+        "get_settings",
+        lambda: SimpleNamespace(
+            myfund_api_key="secret-test-key",
+            myfund_portfolio="IKE",
+            myfund_base_url="https://myfund.pl/",
+        ),
+    )
+
+    class FakeResponse:
+        def json(self):
+            return {
+                "status": {"code": 0, "text": "OK"},
+                "tickers": {
+                    "1": {"tickerClear": "SNT", "nazwa": "Synektik", "cenaZakupu": "100,5", "liczbaJednostek": "10", "wartosc": "1005"},
+                    "2": {"tickerClear": "UNKNOWN", "nazwa": "Nieznany instrument", "wartosc": "22"},
+                },
+            }
+
+    captured = {}
+
+    def fake_fetch(url, *, params):
+        captured["url"] = url
+        captured["params"] = params
+        return FakeResponse()
+
+    monkeypatch.setattr(positions.polite_http, "fetch", fake_fetch)
+    response = client.post("/api/positions/import/myfund", json={})
+
+    assert response.status_code == 200
+    assert response.json()["imported"] == 1
+    assert len(response.json()["unmatched"]) == 1
+    assert captured["url"].endswith("/API/v1/getPortfel.php")
+    assert captured["params"]["portfel"] == "IKE"
+    assert captured["params"]["apiKey"] == "secret-test-key"
