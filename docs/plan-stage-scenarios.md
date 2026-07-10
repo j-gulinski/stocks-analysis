@@ -19,6 +19,9 @@ current execution belongs in [`TASKS.md`](../TASKS.md), and future design in
 
 - The current engine is a valuation sensitivity tool, not a company operating
   simulation. It must migrate into RT.4 driver-based scenarios.
+- Each deterministic row may now expose a qualitative company outcome
+  condition, but its target price remains a multiple-only illustration until
+  RT.4 adds priced operating-driver equations.
 - Deterministic code owns multiples, weights, ranges and scoreable outputs;
   AI may explain or challenge them only through a guarded contract.
 - Missing EBITDA, multiple drivers or history stays visible and may trigger a

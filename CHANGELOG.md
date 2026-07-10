@@ -13,6 +13,15 @@ The stronger suitable model now runs at its full appropriate reasoning level;
 quality or reasoning is not lowered for an assumed budget limit. The ledger
 records the selected pair and any host substitution or escalation.
 
+## 2026-07-10 · Scenario company outcomes
+
+Scenario rows now include an explicit company-side condition: result under
+pressure, stable result or improving result, with the relevant driver named as
+EPS/zysk na akcję, value per share or EBITDA. The copy states that these are
+qualitative conditions for analysis and that the current target price remains
+the existing multiple-only calculation; priced operating-driver equations stay
+deferred to RT.4.
+
 ## 2026-07-10 · Explore ranking rationale and stale-analysis queue
 
 Explore candidates now show their source rank, deterministic tie-break order,

@@ -322,6 +322,12 @@ export interface ScenarioHorizon {
   basis_label: string;
 }
 
+export interface ScenarioCompanyOutcome {
+  direction: "negative" | "neutral" | "positive" | "unknown";
+  label: string;
+  description: string;
+}
+
 export interface Scenario {
   id: string;
   kind: "negative" | "base" | "positive" | "event";
@@ -334,6 +340,7 @@ export interface Scenario {
   horizon: ScenarioHorizon;
   drivers: string[];
   assumptions: string[];
+  company_outcome?: ScenarioCompanyOutcome | null;
 }
 
 export interface ScenarioSet {

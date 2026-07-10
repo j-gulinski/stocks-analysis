@@ -7,6 +7,7 @@ object, like AutoMapper-lite.
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -431,6 +432,12 @@ class ScenarioHorizonOut(BaseModel):
     basis_label: str  # Polish; a labelled default until the corpus cites real ones
 
 
+class ScenarioCompanyOutcomeOut(BaseModel):
+    direction: Literal["negative", "neutral", "positive", "unknown"]
+    label: str
+    description: str
+
+
 class ScenarioOut(BaseModel):
     """One simulation scenario — an if-this-then-that projection, never a signal."""
 
@@ -445,6 +452,7 @@ class ScenarioOut(BaseModel):
     horizon: ScenarioHorizonOut
     drivers: list[str]  # each traceable
     assumptions: list[str]  # each labelled as an assumption
+    company_outcome: ScenarioCompanyOutcomeOut | None = None
 
 
 class ScenarioSetOut(BaseModel):

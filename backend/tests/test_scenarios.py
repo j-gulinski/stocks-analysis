@@ -113,6 +113,10 @@ def test_target_price_cz_matches_hand_check():
     assert by["positive"]["implied_upside_pct"] == 70.0
     assert by["base"]["target_multiple"]["value"] == 14.0
     assert "n=8" in by["base"]["target_multiple"]["basis_label"]
+    assert by["negative"]["company_outcome"]["direction"] == "negative"
+    assert "EPS / zysk na akcję" in by["negative"]["company_outcome"]["description"]
+    assert by["base"]["company_outcome"]["direction"] == "neutral"
+    assert by["positive"]["company_outcome"]["direction"] == "positive"
 
 
 def test_target_price_cwk_matches_hand_check():
@@ -142,6 +146,18 @@ def test_target_price_ev_ebitda_matches_hand_check():
     assert by["negative"]["implied_upside_pct"] == -30.0
     assert by["positive"]["target_price"] == 75.0
     assert by["positive"]["implied_upside_pct"] == 50.0
+
+
+def test_company_outcome_names_the_selected_operating_driver():
+    cases_by_driver = (
+        (cwk_inputs(), "wartość księgowa na akcję"),
+        (ev_ebitda_inputs(), "EBITDA"),
+    )
+    for inputs, driver in cases_by_driver:
+        ss = scenarios.build_scenario_set(inputs, malik.MALIK).to_dict()
+        for row in ss["scenarios"]:
+            assert driver in row["company_outcome"]["description"]
+            assert "wyłącznie rewersję mnożnika" in row["company_outcome"]["description"]
 
 
 def test_probabilities_sum_to_one():
@@ -307,7 +323,7 @@ def test_scenario_set_shape_and_engine():
     sc = ss["scenarios"][0]
     assert set(sc) == {"id", "kind", "label", "probability", "narrative",
                        "target_multiple", "target_price", "implied_upside_pct",
-                       "horizon", "drivers", "assumptions"}
+                       "horizon", "drivers", "assumptions", "company_outcome"}
     assert set(sc["target_multiple"]) == {"type", "value", "basis_label"}
     assert set(sc["horizon"]) == {"low_months", "high_months", "basis_label"}
     # deterministic engine emits no event scenarios (it cannot invent catalysts)

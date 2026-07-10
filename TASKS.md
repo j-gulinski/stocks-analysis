@@ -179,9 +179,15 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
 
 - [ ] RT4.1–RT4.4: persistent case state, driver assumptions, sourced/human/
   model labels, template scenario v2 and valuation sensitivity migration.
-- [~] RT4.5–RT4.7: report-first UI and manual QA slices exist; persistent case
-  editing, driver editor, automated screenshots/accessibility and representative
-  industrial/financial/event-driven QA remain.
+- [~] RT4.5–RT4.7: report-first UI and manual QA slices exist; scenario rows
+  now expose a qualitative negative/stable/improving company outcome, while
+  persistent case editing, priced driver equations, automated
+  screenshots/accessibility and representative industrial/financial/event-
+  driven QA remain.
+  - [x] RT4.5a: Add company-outcome conditions to C/Z, C/WK and EV/EBITDA
+    rows, including fallback/missing-data and AI-event boundaries.
+  - [ ] RT4.5b: Replace qualitative outcome conditions with priced operating
+    drivers and source-backed scenario equations.
 
 ### RT.5 — OpenAI orchestration and Codex workflow
 

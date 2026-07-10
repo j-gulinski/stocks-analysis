@@ -104,6 +104,14 @@ export default function ScenariosPanel({
 
             {s.narrative && <p className="narrative">{s.narrative}</p>}
 
+            {s.company_outcome && (
+              <div className={`scenario-outcome ${s.company_outcome.direction}`}>
+                <span className="k">Wynik w spółce</span>
+                <strong>{s.company_outcome.label}</strong>
+                <p>{s.company_outcome.description}</p>
+              </div>
+            )}
+
             <div className="scenario-metrics">
               <div>
                 <span className="k">Cena docelowa</span>

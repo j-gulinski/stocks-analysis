@@ -289,6 +289,14 @@ def _build_event(proposed: dict, det: dict) -> dict:
         "horizon": dict(scenarios.DEFAULT_HORIZON),
         "drivers": _sanitize_str_list(proposed.get("drivers"), []),
         "assumptions": _sanitize_str_list(proposed.get("assumptions"), []),
+        "company_outcome": {
+            "direction": "unknown",
+            "label": "Wynik spółki do weryfikacji",
+            "description": (
+                "Scenariusz zdarzeniowy nie ma deterministycznego założenia "
+                "wyniku spółki; skutek wymaga weryfikacji."
+            ),
+        },
     }
 
 

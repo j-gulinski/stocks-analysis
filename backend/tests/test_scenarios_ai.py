@@ -252,6 +252,8 @@ def test_probability_renormalisation_after_event_scenario():
     # the event carries no fabricated price
     event_out = next(s for s in out["scenarios"] if s["kind"] == "event")
     assert event_out["target_price"] is None
+    assert event_out["company_outcome"]["direction"] == "unknown"
+    assert "do weryfikacji" in event_out["company_outcome"]["label"]
 
 
 def test_cache_hit_skips_transport():

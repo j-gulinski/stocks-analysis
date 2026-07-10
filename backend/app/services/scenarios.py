@@ -62,6 +62,15 @@ _SCENARIO_SPECS: tuple[tuple[str, str, str, float, str, str], ...] = (
 # Multiple-type token → Polish label shown in narratives / basis labels.
 _MULTIPLE_LABEL = {"cz": "C/Z", "cwk": "C/WK", "ev_ebitda": "EV/EBITDA"}
 
+# The deterministic engine is still a valuation-sensitivity tool, not a full
+# operating model. These labels make the company-side condition explicit while
+# stating that its numerical effect is not yet priced into the target.
+_OUTCOME_DRIVER = {
+    "cz": "EPS / zysk na akcję",
+    "cwk": "wartość księgowa na akcję",
+    "ev_ebitda": "EBITDA",
+}
+
 # Which valuation criterion maps to which multiple-type token. The APPLICABILITY
 # (which sector gets which) is NOT re-encoded here — it is read from the
 # profile's own criteria (malik.py: `cwk`→finance/realestate, `ev_ebitda`→
@@ -149,6 +158,7 @@ class Scenario:
     horizon: dict  # {"low_months", "high_months", "basis_label"}
     drivers: list[str] = field(default_factory=list)  # each traceable
     assumptions: list[str] = field(default_factory=list)  # each labelled
+    company_outcome: dict = field(default_factory=dict)  # explicit operating condition
 
     def to_dict(self) -> dict:
         return {
@@ -163,6 +173,7 @@ class Scenario:
             "horizon": self.horizon,
             "drivers": list(self.drivers),
             "assumptions": list(self.assumptions),
+            "company_outcome": dict(self.company_outcome),
         }
 
 
@@ -417,6 +428,45 @@ def _resolve_multiple(inputs: ScenarioInputs, preferred: str):
     return "cz", cz_hist, full_gap
 
 
+def _company_outcome(kind: str, effective: str) -> dict:
+    """Describe the operating condition alongside the valuation sensitivity.
+
+    The condition is deliberately qualitative until RT.4 adds driver-based
+    operating equations; the target price remains the existing multiple-only
+    calculation and says so explicitly in the description.
+    """
+    driver = _OUTCOME_DRIVER.get(effective, "wynik spółki")
+    if kind == "negative":
+        return {
+            "direction": "negative",
+            "label": "Wynik spółki pod presją",
+            "description": (
+                f"Warunek operacyjny: {driver} pogarsza się lub nie realizuje "
+                "poziomu bazowego. Cena docelowa nadal pokazuje wyłącznie "
+                "rewersję mnożnika przy bieżącym driverze."
+            ),
+        }
+    if kind == "positive":
+        return {
+            "direction": "positive",
+            "label": "Poprawa wyniku spółki",
+            "description": (
+                f"Warunek operacyjny: {driver} poprawia się względem poziomu "
+                "bazowego. Cena docelowa nadal pokazuje wyłącznie rewersję "
+                "mnożnika przy bieżącym driverze."
+            ),
+        }
+    return {
+        "direction": "neutral",
+        "label": "Stabilny wynik spółki",
+        "description": (
+            f"Warunek operacyjny: {driver} pozostaje zbliżony do poziomu "
+            "bazowego. Cena docelowa nadal pokazuje wyłącznie rewersję "
+            "mnożnika przy bieżącym driverze."
+        ),
+    }
+
+
 # ------------------------------------------------------------- construction
 
 
@@ -479,6 +529,7 @@ def _build_scenario(
             horizon=dict(_DEFAULT_HORIZON),
             drivers=drivers,
             assumptions=assumptions,
+            company_outcome=_company_outcome(kind, effective),
         )
 
     basis = f"{quartile_phrase} {mult_label} {_fmt(mult_value)} (n={n})"
@@ -521,6 +572,7 @@ def _build_scenario(
         horizon=dict(_DEFAULT_HORIZON),
         drivers=drivers,
         assumptions=assumptions,
+        company_outcome=_company_outcome(kind, effective),
     )
 
 
