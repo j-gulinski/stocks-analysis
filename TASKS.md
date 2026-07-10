@@ -77,7 +77,10 @@ Detailed contracts: `docs/plan-stage-codex-pivot.md`.
   - [x] **CX.15c** Add UI actions for ESPI re-check and one queue-processing
     attempt with visible progress and failure state. The queue action stops at
     the durable claim boundary; it does not execute a model.
-  - [ ] **CX.15d** Document periodic/hosted polling as an opt-in variant.
+  - [x] **CX.15d** Document periodic/hosted polling as an opt-in variant.
+    The documented command only polls and queues after complete ingestion;
+    overlapping runs, queue claims, model calls and approvals remain outside
+    the scheduled job.
 - [ ] **CX.16 Historical cohort replay.** Research-only precursor to RT6.6.
   - [ ] **CX.16a** Freeze a mixed cohort: winners, matched controls, failures,
     delistings where possible; record survivorship limits before replay.

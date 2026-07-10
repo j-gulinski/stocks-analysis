@@ -28,6 +28,14 @@ Codex. Desktop and 390px mobile screenshot checks found no page overflow; fresh
 DOM-grounded tab interactions loaded the Sources audit view and Codex review
 view. The task is complete; the next queue remains in RT.1/RT.2.
 
+## 2026-07-10 · CX.15d opt-in polling boundary
+
+Documented the existing pre-session script as the only supported periodic
+entrypoint. Scheduling is disabled by default and may poll/queue only after
+complete ingestion; it cannot claim work, call a model or approve output.
+Hosted use requires private deployment controls and never receives personal
+Codex/provider credentials.
+
 ## 2026-07-10 · IL.4 read-only position context
 
 Added migration `0014` for a position ledger containing ticker, entry, size,

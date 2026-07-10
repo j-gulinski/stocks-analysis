@@ -20,6 +20,33 @@ must not silently run or approve investment analysis, rewrite a thesis, or
 present unverified output. Every run needs source, `as_of`, skill/model,
 cost/status and verifier provenance.
 
+## Opt-in periodic variant (CX.15d)
+
+The default remains session-triggered: `./workbench start` runs the local
+pre-session hook once and stops at the durable queue claim boundary. No daemon,
+cron entry or hosted scheduler is installed by the repository.
+
+If a user deliberately enables periodic polling, schedule only the existing
+pre-session ingestion command, for example:
+
+```bash
+cd /Users/jgulinski/Claude/Projects/stocks-analyzis/backend
+python scripts/codex_pre_session.py --trigger local-schedule --pretty
+```
+
+The job may poll ESPI/EBI and create one `stock-pre-session-brief` queue item
+after complete ingestion. It must not call `process-one`, claim work, invoke a
+model, or approve a result. The scheduled runner must prevent overlapping
+invocations and keep source politeness/rate limits enabled. A failed or
+incomplete poll remains visible as `ok: false` and must not create a queue item.
+
+A hosted scheduler may use the same private API contract at
+`POST /api/agent-runs/pre-session`, but only behind deployment authentication
+and network access controls. Hosted polling is still ingestion-plus-queueing;
+Codex remains the supervised local operator and owns claim, research,
+verification and save. Personal Codex or provider credentials never move to the
+hosted job.
+
 ## Notifications
 
 Add Slack/email only after the queue and event contracts are stable. Messages

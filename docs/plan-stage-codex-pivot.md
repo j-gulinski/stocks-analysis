@@ -66,8 +66,9 @@ labelled as suggestion or approved conclusion only after verification.
 - CX.15a: ESPI watermark, pagination, strict fixtures and completeness gate.
 - CX.15b: idempotent `workbench start` health/pre-session hook with at most one
   queue claim; hook failure must not hide app readiness.
-- CX.15c/d: UI re-check/one-attempt controls and documented opt-in periodic
-  variant remain open.
+- CX.15c: UI re-check/one-attempt controls are delivered.
+- CX.15d: the opt-in periodic/hosted polling boundary is documented; no
+  scheduler or hosted model execution is enabled by default.
 - CX.10: archive legacy provider calls only after RT1 migration.
 - CX.11/CX.16: make point-in-time cohort replay honest before scoring.
 - CX.13: continue valuation replay; prose-only predictions remain unknown.
