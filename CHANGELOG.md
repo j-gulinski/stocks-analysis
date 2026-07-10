@@ -18,6 +18,26 @@ keep the decisions scannable.
 
 ---
 
+## 2026-07-10 · CX.16e/f + CX.17 — multi-as_of replay, masked AI replay limits, verify_next automation path
+
+Extended the cohort-replay design after user review. CX.16e grows sample size
+via event-anchored multi-`as_of` replay (decision points = report
+publications) with the statistical honesty rules written down: same-company
+rows are not independent, headline stats cluster by company, and the
+per-company time series answers a distinct question — thesis trajectory /
+falsifier behaviour between consecutive reports. CX.16f documents that
+training-data contamination cannot be blocked, only mitigated: per-case
+contamination probe, masked dossiers, and process-scoring instead of
+call-scoring; outcome-scored AI results are `contamination-risk` soft
+evidence, deterministic replay stays the only clean layer.
+
+CX.17 captures the desired end state for the human-only gaps: backlog,
+guidance credibility and governance checks become computed, cited dossier
+features (ledger ingestion → cited AI extraction → deterministic comparators
+like promise-vs-delivery → replay-measured, holdout-gated weights). Models
+extract; deterministic code owns the number; nothing is learned end-to-end at
+this sample size.
+
 ## 2026-07-10 · CX.16 — retrospective cohort replay; task de-duplication and execution order
 
 Added CX.16: the first empirical validation of the deterministic analysis

@@ -454,6 +454,46 @@ are tool-accessible, and verifier-gated outputs are auditable.
     research-only. Winner/control cases become candidate RT6.1 gold cases.
     Distinct from CX.13, which grades outputs that were actually saved at the
     time; CX.16 replays hypothetical historical reads.
+  - [ ] CX.16e Multi-`as_of` expansion (added 2026-07-10): grow sample size by
+    replaying each company at several **event-anchored** decision points — the
+    natural valid points in time are report publications, not arbitrary dates.
+    Statistical honesty rules: rows from the same company are NOT independent
+    samples (overlapping outcome windows share one trajectory), so headline
+    stats aggregate per company (cluster-by-company; prefer non-overlapping
+    12m outcome windows), and 10 companies × 8 dates is closer to 10–15
+    effective observations than 80. The unique value of the per-company time
+    series is a different question breadth cannot answer: **thesis
+    trajectory** — did score/falsifiers strengthen or break correctly between
+    consecutive reports (Malik's "sell when the thesis stops confirming").
+  - [ ] CX.16f Masked AI replay (optional; soft evidence only): training-data
+    contamination cannot be truly removed — a model cannot un-know an outcome,
+    and "pretend it's 2023" suppresses only explicit leakage, not shaped
+    priors. Permitted mitigations, in required order: (1) contamination probe
+    per case — separately ask the model what it knows about the company and
+    its subsequent performance; any outcome knowledge excludes the case from
+    AI replay; (2) masked dossier — strip name/ticker/city/identifying ESPI
+    strings, keep numbers and neutralized qualitative claims (works best
+    precisely for obscure GPW small caps); (3) score the model on **process,
+    not calls** — one-off detection, falsifier choice, claim extraction
+    checked against the documents, where ground truth is in the source, not
+    in the future. Outcome-scored AI results are labelled
+    `contamination-risk` and never gate a change alone; deterministic replay
+    (CX.16a–d) remains the only clean layer.
+- [ ] CX.17 Evidence-backed automation of `verify_next` checks (added
+  2026-07-10): progressively convert today's human-only gaps (backlog/order
+  book, guidance credibility, governance events) into computed, cited
+  dossier features — the honest version of "the tool learns to do the
+  qualitative work". Path: RT2.3 ledger ingestion supplies versioned issuer
+  documents → AI **extraction with mandatory source citations** turns them
+  into typed facts (backlog values, guidance statements, related-party
+  events) → deterministic comparators compute the feature (e.g. a
+  promise-vs-delivery tracker: guidance given in report N vs realized in
+  N+2, per management team) → CX.16/RT6.6 replay measures whether the
+  feature separates outcomes → weights/thresholds change only through the
+  RT6.4 holdout-gated loop. Models extract and summarize; they never own the
+  judgment number. Not learnable end-to-end at n≈30–100 without overfitting —
+  the learning loop tunes transparent parameters and extraction quality, not
+  prose opinions.
 
 ### Relationship to the RT roadmap
 
