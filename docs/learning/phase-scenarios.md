@@ -141,3 +141,15 @@ operating bridge. The verifier must echo that fingerprint, which prevents a
 previously approved result from silently being reused after inputs change. In
 C# terms, this is an immutable DTO/version key checked before an approval record
 can be joined to the current aggregate.
+
+The deterministic verifier also refuses to calculate an unconditional expected
+value when one positive-probability path has no price. It reports the priced
+mass and routes the incomplete case to a human. This avoids the common LINQ
+mistake of filtering null rows and accidentally changing the probability
+distribution.
+
+The live SNT dossier demonstrates the intended two-level result: the
+deterministic simulation is mathematically consistent, but the investment
+approval remains blocked because the biotech operating template and strict
+point-in-time evidence are absent. A green unit check is therefore not the
+same thing as a green investment decision.

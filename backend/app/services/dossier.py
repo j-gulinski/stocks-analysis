@@ -141,12 +141,13 @@ def load_cashflow_latest(db: Session, company_id: int) -> dict[str, tuple[str, f
 
 
 def load_latest_priced_outcome_verification(db: Session, company_id: int) -> dict | None:
-    """Read only the latest strict verifier result for this company's analyses."""
+    """Read only the latest strict verifier result for scenario simulation."""
     row = db.scalar(
         select(VerificationRun)
         .join(AnalysisRun, AnalysisRun.id == VerificationRun.analysis_run_id)
         .where(
             AnalysisRun.company_id == company_id,
+            AnalysisRun.workflow == "scenario-simulation",
             VerificationRun.model_role == "verifier_strict",
         )
         .order_by(VerificationRun.created_at.desc(), VerificationRun.id.desc())
@@ -600,6 +601,9 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
     priced_gate = operating_scenarios.evaluate_priced_outcome_gate(
         operating_bridge, priced_verification, operating_bridge_fingerprint
     )
+    simulation_verification = scenarios.verify_scenario_simulation(
+        scenario_set.to_dict()
+    )
     scenarios_block = {
         **scenario_set.to_dict(),
         "approved_assumption_sets": approved_assumption_sets,
@@ -608,6 +612,7 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
         ),
         "operating_bridge": operating_bridge,
         "priced_operating_outcomes": priced_gate,
+        "simulation_verification": simulation_verification,
         "engine": "deterministic",
         "ai_notes": None,
     }

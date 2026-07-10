@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field, replace
-from math import isfinite
+from math import isclose, isfinite
 
 from app.services import thesis
 from app.services.strategies import base
@@ -199,6 +199,7 @@ class ScenarioSet:
     weighted_expected_upside_pct: float | None
     framing: str
     disclaimer: str
+    priced_probability_mass: float | None = None
     quality_warnings: list[str] = field(default_factory=list)
     engine: str = "deterministic"  # scenarios_ai may set "ai"
 
@@ -211,6 +212,7 @@ class ScenarioSet:
             "weighted_expected_upside_pct": self.weighted_expected_upside_pct,
             "framing": self.framing,
             "disclaimer": self.disclaimer,
+            "priced_probability_mass": self.priced_probability_mass,
             "quality_warnings": list(self.quality_warnings),
             "engine": self.engine,
         }
@@ -593,17 +595,254 @@ def weighted_expected(scenarios: list, current_price: float | None):
     """Probability-weighted expected price (Σ pᵢ·target_priceᵢ over priced
     scenarios) and its implied upside vs the current price. `None` when no
     scenario carries a price."""
-    priced = [
+    rows = [
         (s["probability"] if isinstance(s, dict) else s.probability,
          s["target_price"] if isinstance(s, dict) else s.target_price)
         for s in scenarios
     ]
-    priced = [(p, tp) for p, tp in priced if tp is not None and p is not None]
+    # A partial priced set is not an unconditional expected value. Returning
+    # None is safer than silently dropping probability mass or renormalizing
+    # the remaining paths into a different question.
+    if any(p is not None and tp is None and p > 0 for p, tp in rows):
+        return None, None
+    priced = [(p, tp) for p, tp in rows if tp is not None and p is not None]
     if not priced:
         return None, None
     wprice = round(sum(p * tp for p, tp in priced), 2)
     wupside = _upside(wprice, current_price)
     return wprice, wupside
+
+
+def priced_probability_mass(scenarios: list) -> float:
+    """Return the probability mass with a deterministic target price."""
+    return round(
+        sum(
+            (s["probability"] if isinstance(s, dict) else s.probability)
+            for s in scenarios
+            if (s["target_price"] if isinstance(s, dict) else s.target_price) is not None
+            and (s["probability"] if isinstance(s, dict) else s.probability) is not None
+        ),
+        4,
+    )
+
+
+def verify_scenario_simulation(scenario_set: dict) -> dict:
+    """Verify deterministic scenario arithmetic without granting strict approval.
+
+    This is a mechanical simulation check. Source lineage, point-in-time
+    validity and representative template coverage still belong to
+    ``verifier_strict`` and the priced-outcome gate.
+    """
+    checks: list[dict] = []
+
+    def add(check_id: str, verdict: str, evidence: str) -> None:
+        checks.append({"id": check_id, "verdict": verdict, "evidence": evidence})
+
+    rows = scenario_set.get("scenarios")
+    if not isinstance(rows, list) or not rows:
+        add("scenario_rows", "fail", "Brak scenariuszy do sprawdzenia.")
+    else:
+        ids = [row.get("id") for row in rows]
+        add(
+            "scenario_ids_unique",
+            "pass" if len(ids) == len(set(ids)) else "fail",
+            "Identyfikatory scenariuszy są unikalne."
+            if len(ids) == len(set(ids))
+            else "Powtórzone identyfikatory scenariuszy.",
+        )
+        required_kinds = {"negative", "base", "positive"}
+        present_kinds = {row.get("kind") for row in rows}
+        add(
+            "required_kinds_present",
+            "pass" if required_kinds.issubset(present_kinds) else "fail",
+            "Obecne są warianty negative/base/positive."
+            if required_kinds.issubset(present_kinds)
+            else "Brakuje jednego z wymaganych wariantów.",
+        )
+        numeric_values = [
+            row.get(field)
+            for row in rows
+            for field in ("probability", "target_price", "implied_upside_pct")
+            if row.get(field) is not None
+        ] + [
+            scenario_set.get("current_price"),
+            scenario_set.get("weighted_expected_price"),
+            scenario_set.get("weighted_expected_upside_pct"),
+        ]
+        finite = all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and isfinite(value)
+            for value in numeric_values
+            if value is not None
+        )
+        add(
+            "numbers_finite",
+            "pass" if finite else "fail",
+            "Wartości liczbowe są skończone."
+            if finite
+            else "Wynik zawiera NaN, nieskończoność albo nieliczbową wartość.",
+        )
+        probabilities_valid = all(
+            isinstance(row.get("probability"), (int, float))
+            and not isinstance(row.get("probability"), bool)
+            and isfinite(row["probability"])
+            and 0 <= row["probability"] <= 1
+            for row in rows
+        )
+        add(
+            "probabilities_in_range",
+            "pass" if probabilities_valid else "fail",
+            "Prawdopodobieństwa mieszczą się w zakresie 0–1."
+            if probabilities_valid
+            else "Prawdopodobieństwo jest poza zakresem 0–1.",
+        )
+        computed_priced_mass = priced_probability_mass(rows)
+        add(
+            "priced_probability_mass",
+            "pass" if isclose(computed_priced_mass, 1.0, abs_tol=0.0001) else "needs-human",
+            f"Policzalna masa prawdopodobieństwa = {computed_priced_mass:.4f}; "
+            f"niepoliczalna = {round(1.0 - computed_priced_mass, 4):.4f}.",
+        )
+        if (
+            scenario_set.get("weighted_expected_price") is not None
+            and not isclose(computed_priced_mass, 1.0, abs_tol=0.0001)
+        ):
+            add(
+                "unpriced_probability_policy",
+                "fail",
+                "Wartość oczekiwana nie może pomijać niepoliczalnej masy prawdopodobieństwa.",
+            )
+        else:
+            add(
+                "unpriced_probability_policy",
+                "pass",
+                "Niepełna masa nie jest prezentowana jako bezwarunkowa wartość oczekiwana.",
+            )
+        probabilities = [row.get("probability") for row in rows]
+        if all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in probabilities):
+            total = sum(probabilities)
+            add(
+                "probability_sum",
+                "pass" if isclose(total, 1.0, abs_tol=0.0001) else "fail",
+                f"Suma prawdopodobieństw = {total:.4f}; oczekiwano 1.0000.",
+            )
+        else:
+            add("probability_sum", "fail", "Prawdopodobieństwa muszą być liczbami.")
+
+        current_price = scenario_set.get("current_price")
+        priced = [
+            row for row in rows
+            if isinstance(row.get("probability"), (int, float))
+            and isinstance(row.get("target_price"), (int, float))
+        ]
+        expected_price = scenario_set.get("weighted_expected_price")
+        if priced and isinstance(expected_price, (int, float)):
+            computed_price = round(
+                sum(row["probability"] * row["target_price"] for row in priced), 2
+            )
+            add(
+                "weighted_price_reconciliation",
+                "pass" if isclose(computed_price, expected_price, abs_tol=0.01) else "fail",
+                f"Policzono {computed_price:.2f}; zapisano {expected_price:.2f}.",
+            )
+        else:
+            add(
+                "weighted_price_reconciliation",
+                "needs-human",
+                "Brak pełnych danych do niezależnego odtworzenia ceny ważonej.",
+            )
+
+        expected_upside = scenario_set.get("weighted_expected_upside_pct")
+        if isinstance(expected_price, (int, float)) and isinstance(current_price, (int, float)) and isinstance(expected_upside, (int, float)) and current_price != 0:
+            computed_upside = round((expected_price / current_price - 1.0) * 100.0, 2)
+            add(
+                "weighted_upside_reconciliation",
+                "pass" if isclose(computed_upside, expected_upside, abs_tol=0.01) else "fail",
+                f"Policzono {computed_upside:.2f}%; zapisano {expected_upside:.2f}%.",
+            )
+        else:
+            add(
+                "weighted_upside_reconciliation",
+                "needs-human",
+                "Brak pełnych danych do odtworzenia ważonego potencjału.",
+            )
+
+        row_failures = []
+        for row in rows:
+            target = row.get("target_price")
+            current = current_price
+            upside = row.get("implied_upside_pct")
+            if target is None or current is None or upside is None or current == 0:
+                continue
+            computed = round((target / current - 1.0) * 100.0, 2)
+            if not isclose(computed, upside, abs_tol=0.01):
+                row_failures.append(row.get("kind", "unknown"))
+        add(
+            "row_upside_reconciliation",
+            "pass" if not row_failures else "fail",
+            "Wiersze scenariuszy mają spójny potencjał."
+            if not row_failures
+            else f"Niespójne wiersze: {', '.join(row_failures)}.",
+        )
+
+        outcome_failures = []
+        for row in rows:
+            outcome = row.get("company_outcome") or {}
+            expected_direction = {"negative": "negative", "base": "neutral", "positive": "positive"}.get(row.get("kind"))
+            if expected_direction and outcome.get("direction") != expected_direction:
+                outcome_failures.append(row.get("kind", "unknown"))
+            if outcome.get("mode") == "priced":
+                outcome_failures.append(f"{row.get('kind', 'unknown')}:priced")
+        add(
+            "outcome_mode_gate",
+            "pass" if not outcome_failures else "fail",
+            "Wyniki spółki pozostają jakościowe przed priced-outcome gate."
+            if not outcome_failures
+            else f"Nieprawidłowy outcome: {', '.join(outcome_failures)}.",
+        )
+
+    framing = str(scenario_set.get("framing") or "").lower()
+    disclaimer = str(scenario_set.get("disclaimer") or "").lower()
+    safety_ok = (
+        "nie sygnał" in framing
+        and ("nie jest rekomendacja" in disclaimer or "nie jest rekomendacją" in disclaimer)
+    )
+    add(
+        "safety_language",
+        "pass" if safety_ok else "fail",
+        "Framing i disclaimer jasno odróżniają analizę od sygnału inwestycyjnego."
+        if safety_ok
+        else "Brak wymaganego framingu/disclaimera.",
+    )
+
+    if scenario_set.get("engine") == "deterministic":
+        add("deterministic_engine", "pass", "Źródłem symulacji jest silnik deterministyczny.")
+    else:
+        add(
+            "deterministic_engine",
+            "needs-human",
+            "Wynik nie pochodzi wyłącznie z silnika deterministycznego.",
+        )
+
+    verdicts = {check["verdict"] for check in checks}
+    if "fail" in verdicts:
+        status = "failed"
+    elif "needs-human" in verdicts:
+        status = "needs-human"
+    else:
+        status = "math_passed"
+    return {
+        "status": status,
+        "checks": checks,
+        "summary": (
+            "Deterministyczna symulacja przechodzi kontrolę matematyczną; "
+            "źródła, point-in-time i priced outcomes nadal wymagają verifier_strict."
+            if status == "math_passed"
+            else "Symulacja wymaga dalszej kontroli przed użyciem jako priced outcome."
+        ),
+        "strict_verification_required": True,
+    }
 
 
 def scenario_quality_warnings(scenario_rows: list, weighted_upside: float | None) -> list[str]:
@@ -818,6 +1057,7 @@ def build_scenario_set(
         weighted_expected_upside_pct=wupside,
         framing=FRAMING,
         disclaimer=thesis.DISCLAIMER,
+        priced_probability_mass=priced_probability_mass(scenarios),
         quality_warnings=warnings,
         engine="deterministic",
     )

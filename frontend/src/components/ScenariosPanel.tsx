@@ -43,6 +43,17 @@ const pricedCheckLabels: Record<string, string> = {
   scenario_input_match: "zgodność z aktualnym mostem",
 };
 
+const simulationCheckLabels: Record<string, string> = {
+  scenario_rows: "wiersze scenariuszy",
+  probability_sum: "suma prawdopodobieństw",
+  weighted_price_reconciliation: "cena ważona",
+  weighted_upside_reconciliation: "potencjał ważony",
+  row_upside_reconciliation: "potencjał wierszy",
+  outcome_mode_gate: "warstwa outcome",
+  safety_language: "framing bezpieczeństwa",
+  deterministic_engine: "silnik deterministyczny",
+};
+
 function pricedCheckState(gate: PricedOutcomeGate, checkId: string) {
   if (gate.status === "approved") return "pass";
   const checks = gate.verification?.checks;
@@ -127,7 +138,9 @@ export default function ScenariosPanel({
           </span>
         ) : (
           <span className="headline-gap">
-            wycena niedostępna — brak ceny docelowej w scenariuszach
+            {scenarios.priced_probability_mass != null && scenarios.priced_probability_mass < 1
+              ? "wartość oczekiwana niedostępna — niepełna masa scenariuszy"
+              : "wycena niedostępna — brak ceny docelowej w scenariuszach"}
           </span>
         )}
       </div>
@@ -167,6 +180,28 @@ export default function ScenariosPanel({
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {scenarios.simulation_verification && (
+        <div className={`simulation-verification ${scenarios.simulation_verification.status}`}>
+          <div className="spread" style={{ flexWrap: "wrap", gap: 8 }}>
+            <strong>Symulacja deterministyczna</strong>
+            <span className={`badge ${scenarios.simulation_verification.status === "math_passed" ? "success" : scenarios.simulation_verification.status === "failed" ? "danger" : "warning"}`}>
+              {scenarios.simulation_verification.status === "math_passed" ? "spójna matematycznie" : scenarios.simulation_verification.status === "failed" ? "błąd" : "wymaga człowieka"}
+            </span>
+          </div>
+          <p>{scenarios.simulation_verification.summary}</p>
+          <div className="simulation-checks" aria-label="Kontrole symulacji deterministycznej">
+            {scenarios.simulation_verification.checks.map((check) => (
+              <div className="simulation-check" key={check.id}>
+                <span>{simulationCheckLabels[check.id] ?? check.id}</span>
+                <span className={`badge ${check.verdict === "pass" ? "success" : check.verdict === "fail" ? "danger" : "warning"}`}>
+                  {check.verdict === "pass" ? "pass" : check.verdict === "fail" ? "fail" : "needs-human"}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       )}

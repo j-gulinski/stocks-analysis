@@ -85,6 +85,8 @@ def test_dossier(refreshed, monkeypatch):
 
     assert dossier["latest_forecast"] is None
     assert dossier["scenarios"]["priced_operating_outcomes"]["status"] == "blocked"
+    assert dossier["scenarios"]["simulation_verification"]["status"] == "math_passed"
+    assert dossier["scenarios"]["priced_probability_mass"] == 1.0
     assert dossier["forum"] == {
         "topics": 0,
         "posts": 0,
@@ -229,7 +231,7 @@ def test_dossier_promotes_priced_outcome_only_after_persisted_strict_verifier(
     company = db.query(Company).filter(Company.ticker == "DEC").one()
     analysis = AnalysisRun(
         company_id=company.id,
-        workflow="fixture_priced_outcome",
+        workflow="scenario-simulation",
         model_role="analyst_deep",
         model="fixture",
         status="completed",

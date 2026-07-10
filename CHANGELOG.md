@@ -107,6 +107,20 @@ The gate now also hashes the exact deterministic operating bridge and requires
 the strict verifier to return that fingerprint. A valid verifier result for an
 older or otherwise different input bridge therefore remains blocked.
 
+Only a verifier linked to the dedicated `scenario-simulation` workflow can now
+unlock priced outcomes; quick/deep company-analysis verification is not reused
+for this decision-sensitive scenario contract.
+
+Added a deterministic simulation verifier to the dossier/UI. It checks unique
+scenario IDs, required kinds, finite numbers, probability ranges and sum,
+weighted price/upside reconciliation, row upside, qualitative outcome mode and
+safety framing. The weighted engine now returns no unconditional EV when a
+positive-probability scenario lacks a target price; `priced_probability_mass`
+and a human-review status make that gap explicit. Live SNT verification is
+`math_passed` (419.22 PLN / 12.03% reconciled), while strict priced approval
+remains blocked by the unsupported biotech template and missing persisted
+scenario verifier.
+
 ## 2026-07-10 · Refined RT4 next task
 
 The next implementation target is now RT4.1a: establish the durable

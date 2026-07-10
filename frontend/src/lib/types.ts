@@ -503,12 +503,14 @@ export interface ScenarioSet {
   current_price: number | null;
   weighted_expected_price: number | null; // PLN, Σ pᵢ·target_priceᵢ
   weighted_expected_upside_pct: number | null;
+  priced_probability_mass?: number | null;
   framing: string; // "punkt wejścia w analizę, nie sygnał"
   disclaimer: string;
   quality_warnings?: string[];
   approved_assumption_sets?: AssumptionSet[];
   driver_sensitivity?: ScenarioDriverSensitivity;
   operating_bridge?: OperatingBridge;
+  simulation_verification?: SimulationVerification;
   priced_operating_outcomes?: PricedOutcomeGate;
   engine: "deterministic" | "ai";
   ai_notes: AiNotes | null;
@@ -520,6 +522,19 @@ export interface PricedOutcomeGate {
   required_checks: string[];
   verification: Record<string, unknown> | null;
   input_fingerprint?: string | null;
+}
+
+export interface SimulationVerificationCheck {
+  id: string;
+  verdict: "pass" | "fail" | "needs-human";
+  evidence: string;
+}
+
+export interface SimulationVerification {
+  status: "failed" | "math_passed" | "needs-human";
+  checks: SimulationVerificationCheck[];
+  summary: string;
+  strict_verification_required: boolean;
 }
 
 // --- AI valuation (stage SC / WP4) — mirrors schemas.ValuationOut -------------

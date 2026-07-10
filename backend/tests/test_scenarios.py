@@ -180,6 +180,50 @@ def test_weighted_expected_value_matches_hand_check():
     assert cwk["weighted_expected_upside_pct"] == 5.0
 
 
+def test_verify_scenario_simulation_reconciles_math_and_safety_contract():
+    scenario_set = scenarios.build_scenario_set(cz_inputs(), malik.MALIK).to_dict()
+
+    verified = scenarios.verify_scenario_simulation(scenario_set)
+
+    assert verified["status"] == "math_passed"
+    assert verified["strict_verification_required"] is True
+    assert {check["id"] for check in verified["checks"]} >= {
+        "probability_sum",
+        "weighted_price_reconciliation",
+        "weighted_upside_reconciliation",
+        "row_upside_reconciliation",
+        "outcome_mode_gate",
+        "safety_language",
+    }
+
+    tampered = dict(scenario_set)
+    tampered["weighted_expected_price"] += 1.0
+    failed = scenarios.verify_scenario_simulation(tampered)
+    assert failed["status"] == "failed"
+    assert any(
+        check["id"] == "weighted_price_reconciliation" and check["verdict"] == "fail"
+        for check in failed["checks"]
+    )
+
+
+def test_partial_priced_probability_does_not_become_unconditional_ev():
+    scenario_set = scenarios.build_scenario_set(cz_inputs(), malik.MALIK).to_dict()
+    scenario_set["scenarios"][0]["target_price"] = None
+    scenario_set["scenarios"][0]["implied_upside_pct"] = None
+    scenario_set["weighted_expected_price"] = None
+    scenario_set["weighted_expected_upside_pct"] = None
+
+    wprice, wupside = scenarios.weighted_expected(scenario_set["scenarios"], scenario_set["current_price"])
+
+    assert wprice is None and wupside is None
+    verification = scenarios.verify_scenario_simulation(scenario_set)
+    assert verification["status"] == "needs-human"
+    assert any(
+        check["id"] == "priced_probability_mass" and check["verdict"] == "needs-human"
+        for check in verification["checks"]
+    )
+
+
 def test_downside_only_set_warns_and_avoids_positive_label():
     """CBF-style case: even the upper-quartile own-history path is below the
     current price. The internal `positive` id remains for compatibility, but the
@@ -319,7 +363,8 @@ def test_scenario_set_shape_and_engine():
     ss = scenarios.build_scenario_set(cz_inputs(), malik.MALIK).to_dict()
     assert set(ss) == {"scenarios", "valuation_multiple", "current_price",
                        "weighted_expected_price", "weighted_expected_upside_pct",
-                       "framing", "disclaimer", "quality_warnings", "engine"}
+                       "priced_probability_mass", "framing", "disclaimer",
+                       "quality_warnings", "engine"}
     sc = ss["scenarios"][0]
     assert set(sc) == {"id", "kind", "label", "probability", "narrative",
                        "target_multiple", "target_price", "implied_upside_pct",

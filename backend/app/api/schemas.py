@@ -589,6 +589,19 @@ class PricedOutcomeGateOut(BaseModel):
     input_fingerprint: str | None = None
 
 
+class SimulationVerificationCheckOut(BaseModel):
+    id: str
+    verdict: Literal["pass", "fail", "needs-human"]
+    evidence: str
+
+
+class SimulationVerificationOut(BaseModel):
+    status: Literal["failed", "math_passed", "needs-human"]
+    checks: list[SimulationVerificationCheckOut] = Field(default_factory=list)
+    summary: str
+    strict_verification_required: bool = True
+
+
 class OperatingBridgeRowOut(BaseModel):
     scenario_kind: AssumptionScenarioKind
     label: str
@@ -627,6 +640,7 @@ class ScenarioSetOut(BaseModel):
     current_price: float | None  # PLN
     weighted_expected_price: float | None  # PLN, Σ pᵢ·target_priceᵢ
     weighted_expected_upside_pct: float | None
+    priced_probability_mass: float | None = None
     framing: str  # fixed "punkt wejścia w analizę, nie sygnał"
     disclaimer: str
     quality_warnings: list[str] = Field(default_factory=list)
@@ -659,6 +673,12 @@ class ScenarioSetOut(BaseModel):
         default_factory=lambda: PricedOutcomeGateOut(
             status="blocked",
             reason="Brak zapisanego wyniku verifier_strict dla priced outcomes.",
+        )
+    )
+    simulation_verification: SimulationVerificationOut = Field(
+        default_factory=lambda: SimulationVerificationOut(
+            status="needs-human",
+            summary="Brak wyniku deterministycznej kontroli symulacji.",
         )
     )
     # Provenance: "deterministic" (no key / AI fallback) or "ai" (+ ai_notes).
