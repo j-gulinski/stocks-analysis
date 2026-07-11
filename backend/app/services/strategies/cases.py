@@ -49,6 +49,12 @@ class WorkedCase:
     citation: str = ""
     gaps: list[str] = field(default_factory=list)
     outcome: str = ""  # "hit" | "miss" | "" — see docstring (WP4b bias guard)
+    market_ticker: str | None = None
+    isin: str | None = None
+    market: str | None = None
+    identity_source: str | None = None
+    anchor_date: str | None = None
+    cohort_label: str | None = None
 
 
 # The worked-case comparison corpus. WP4 seeds it with DGN + SNT (defined at the
@@ -128,11 +134,11 @@ def evaluate_case(profile: base.StrategyProfile, case: WorkedCase) -> dict:
 # §"Risks & honesty rules"; docs/strategy-malik.md §"Unverified / open
 # questions"). Two honesty invariants hold for EVERY case below:
 #
-#   1. No reconstructed fundamentals. The sandbox has no egress to BiznesRadar,
-#      and even with egress the entry-era statements Malik acted on are only as
+#   1. No reconstructed fundamentals. The local ledger does not contain the
+#      immutable entry-era statements Malik acted on; current source access is
 #      deep as BR still exposes. So each case's `inputs` are all `MissingData`
 #      (routed to "co sprawdzić dalej", never invented) and `expected_read` is
-#      the honest achievable read from what we CAN reconstruct in-sandbox —
+#      the honest achievable read from what we CAN reconstruct point-in-time —
 #      `insufficient_data`, NOT the catch's aspirational verdict. The `inputs`
 #      therefore carry ZERO numbers — nothing to fabricate there.
 #   2. Every NUMBER below is a *sourced provenance label*, living only in the
@@ -152,8 +158,10 @@ def evaluate_case(profile: base.StrategyProfile, case: WorkedCase) -> dict:
 
 def _dgn_case() -> WorkedCase:
     """Digital Network (ex-4fun Media) — Malik's textbook catch. The catch is
-    VERIFIED (POS PortalAnaliz 02.2023; his own analysis "+2500% w ciągu 5 lat",
-    2025-09-18 [DGN][AUT]); the frequently-quoted "~20 PLN entry" is NOT sourced
+    VERIFIED as an author-associated historical winner (POS PortalAnaliz 02.2023;
+    his own analysis "+2500% w ciągu 5 lat", 2025-09-18 [DGN][AUT]). The source
+    does not bind that five-year return to the 2023 flag, and the frequently-
+    quoted "~20 PLN entry" is NOT sourced
     and is deliberately absent (docs/strategy-malik.md §Unverified). We can name
     the small-cap edge qualitatively but none of the entry-date fundamentals."""
     company = build_case_insights(
@@ -161,13 +169,13 @@ def _dgn_case() -> WorkedCase:
         size_label="Mała spółka",
         sector_group="tech",  # Digital Network — cyfrowa reklama / media (tech).
         sector="Media / reklama cyfrowa",
-        indicators=[],  # no entry-era fundamentals are reconstructable in-sandbox
+        indicators=[],  # no entry-era fundamentals are reconstructed point-in-time
         missing=[
             insights_mod.MissingData(
                 "pe_vs_history", "C/Z na tle własnej historii",
-                "C/Z z daty flagi POS i własna historia C/Z nieodtwarzalne "
-                "w sandboxie (brak egress do BiznesRadar); do uzupełnienia na "
-                "maszynie użytkownika."),
+                "C/Z z daty flagi POS i własna historia C/Z nie są zapisane "
+                "punkt-w-czas w lokalnym ledgerze; wymagają wersjonowanego "
+                "źródła z epoki."),
             insights_mod.MissingData(
                 "gross_margin", "Marża brutto na sprzedaży",
                 "Trend marży z epoki wejścia niedostępny — motor tezy Malika, "
@@ -186,18 +194,26 @@ def _dgn_case() -> WorkedCase:
         as_of="2023-02 (flaga POS PortalAnaliz)",
         inputs=thesis_mod.ThesisInputs(insights=company),
         outcome="hit",  # udokumentowany repricing (patrz `repricing` niżej)
+        market_ticker="DIG",
+        isin="PL4FNMD00013",
+        market="GPW",
+        identity_source=(
+            "GPW issuer list: DIGITANET / DIG / PL4FNMD00013; Digital Network "
+            "issuer reports document the 4fun Media name change."
+        ),
+        cohort_label="documented_winner",
         sources={
             "size": "Mała spółka — teza o przewadze w małych spółkach [SB]; "
                     "DGN (ex-4fun Media) był małą spółką; dokładna kap. z daty "
                     "wejścia NIEodtworzona",
-            "catch": "POS 02.2023; „+2500% w ciągu 5 lat” [DGN, analiza Malika "
-                     "2025-09-18]",
-            # WP4b: the one sourced repricing MAGNITUDE + DURATION in the corpus.
-            # "5 lat" → ≈60 mies. is arithmetic on the sourced span, not a new
-            # fact; it seeds the scenario horizon band (plan §WP4b).
-            "repricing": "Repricing „+2500% w ciągu 5 lat” (≈60 mies.) licząc od "
-                         "flagi POS 02.2023 — magnituda i horyzont z analizy "
-                         "Malika [DGN, 2025-09-18]",
+            "catch": "Dwa oddzielne fakty: POS 02.2023 oraz autorski opis "
+                     "historycznego wzrostu „+2500% w ciągu 5 lat” [DGN, "
+                     "analiza Malika 2025-09-18]; źródło nie wiąże tej stopy "
+                     "zwrotu z datą flagi.",
+            "repricing": "Historyczny opis „+2500% w ciągu 5 lat” (około 60 "
+                         "miesięcy) z analizy "
+                         "Malika [DGN, 2025-09-18]; nie jest to policzony wynik "
+                         "od flagi POS 02.2023 i nie trafia do replay return.",
             "sector": "Media / reklama cyfrowa — z opisu spółki [DGN]",
             "catalyst": "Pivot na cyfrową dystrybucję treści — jakościowy, "
                         "nie liczbowy [DGN]",
@@ -207,10 +223,11 @@ def _dgn_case() -> WorkedCase:
                  "(„DGN ~20 PLN” NIEzweryfikowane); anchors [DGN][AUT][SB]",
         gaps=[
             "Fundamenty z daty wejścia (przychody, marża brutto, C/Z, gotówka "
-            "netto) nieodtwarzalne w sandboxie — brak egress do BiznesRadar.",
+            "netto) nie są odtworzone w lokalnym ledgerze punkt-w-czas.",
             "Cena wejścia „~20 PLN” NIEzweryfikowana w źródłach [spec §Unverified].",
             "Głębokość własnej historii C/Z na BR z tamtego okresu nieznana — "
-            "repricing znamy jako magnitudę/horyzont, nie jako mnożnik wejścia.",
+            "historyczny repricing znamy z opisu, ale nie jest związany z "
+            "dokładną kotwicą replay ani mnożnikiem wejścia.",
             "Katalizator (pivot na digital) opisany jakościowo — nie da się go "
             "policzyć z danych (zawsze trafia do „co sprawdzić dalej”).",
             "Aby ocenić mechanicznie: uruchom scripts/validate_thesis.py DGN "
@@ -235,8 +252,8 @@ def _snt_case() -> WorkedCase:
         missing=[
             insights_mod.MissingData(
                 "pe_vs_history", "C/Z na tle własnej historii",
-                "Brak jakichkolwiek danych SNT w sandboxie; C/Z i jego historia "
-                "niedostępne."),
+                "Brak zweryfikowanej kotwicy i danych SNT punkt-w-czas; bieżące "
+                "C/Z i jego historia nie są dopuszczalnym zamiennikiem."),
             insights_mod.MissingData(
                 "revenue_growth", "Dynamika przychodów r/r",
                 "Dynamika przychodów niedostępna — brak danych."),
@@ -246,6 +263,9 @@ def _snt_case() -> WorkedCase:
         ticker="SNT",
         as_of="(brak zweryfikowanej daty wejścia)",
         inputs=thesis_mod.ThesisInputs(insights=company),
+        market_ticker="SNT",
+        market="GPW",
+        cohort_label="unverified_placeholder",
         sources={
             "attribution": "UWAGA: brak pierwotnego źródła wiążącego Malika "
                            "z wczesnym wejściem w SNT [spec §Unverified] — "
@@ -259,8 +279,8 @@ def _snt_case() -> WorkedCase:
         gaps=[
             "Atrybucja do Malika NIEzweryfikowana — pozycja pozostaje jako "
             "nasienie kalibracyjne z jawną flagą, nie jako potwierdzony sukces.",
-            "Brak jakichkolwiek fundamentów SNT w sandboxie (brak egress; "
-            "commitowany fixture modeluje DECORA, nie SNT).",
+            "Brak fundamentów SNT związanych ze zweryfikowaną historyczną "
+            "kotwicą; bieżący dossier nie potwierdza dawnego case'u.",
             "Aby cokolwiek ocenić: potwierdź atrybucję w źródłach i zrekonstruuj "
             "fundamenty (scripts/validate_thesis.py SNT tam, gdzie działa egress).",
         ],
@@ -276,9 +296,9 @@ def _optex_case() -> WorkedCase:
     ~20% foreign-stock stop [F; digest §5]. The multiples are sourced; the
     repricing OUTCOME is not quantified in the sources, so this is an
     entry-pattern exemplar (`outcome=""`), not a documented hit — the own-history
-    C/Z depth and exact ticker/ISIN stay gaps for a machine with egress."""
+    C/Z depth and exact entry date remain gaps in the point-in-time ledger."""
     company = build_case_insights(
-        size_code=None,  # entry-date size/cap not reconstructed in-sandbox
+        size_code=None,  # entry-date size/cap not reconstructed point-in-time
         size_label=None,
         sector_group="industrial",  # spółka zbrojeniowa (optyka wojskowa)
         sector="Zbrojeniówka / optyka wojskowa (USA)",
@@ -286,8 +306,8 @@ def _optex_case() -> WorkedCase:
         missing=[
             insights_mod.MissingData(
                 "pe_vs_history", "C/Z na tle własnej historii",
-                "Własna historia C/Z OPTEX nieodtwarzalna w sandboxie (spółka "
-                "spoza GPW, brak egress) — mnożnik wejścia znamy z opisu autora, "
+                "Własna historia C/Z OPTEX nie jest odtworzona w lokalnym "
+                "ledgerze (spółka spoza GPW) — mnożnik wejścia znamy z opisu autora, "
                 "nie z policzonej historii."),
             insights_mod.MissingData(
                 "backlog", "Portfel zamówień / backlog",
@@ -300,6 +320,13 @@ def _optex_case() -> WorkedCase:
         as_of="analiza I.2025 (pierwsza inwestycja zagraniczna autora) [F]",
         inputs=thesis_mod.ThesisInputs(insights=company),
         outcome="",  # wzorzec WEJŚCIA — wynik repricingu nieskwantyfikowany w źródłach
+        market_ticker="OPXS",
+        market="NASDAQ",
+        identity_source=(
+            "SEC issuer filings identify Optex Systems Holdings, Inc. common "
+            "stock as OPXS on Nasdaq (CIK 0001397016)."
+        ),
+        cohort_label="control_candidate",
         sources={
             # WP4b: the sourced ENTRY multiples (C/Z ~12 trailing, prognoza <10).
             "valuation": "Kupiona przy C/Z ~12, a wg prognozy zysku C/Z <10 — "
@@ -314,8 +341,8 @@ def _optex_case() -> WorkedCase:
         citation="docs/strategy-malik.md zasada 8 („OPTEX: P/E~12, prog.<10, "
                  "rosnący backlog”) [F][M1]; obs.txt (Portfel IKE, OPTEX Systems)",
         gaps=[
-            "Dokładny ticker/ISIN (NASDAQ) i własna historia C/Z OPTEX "
-            "nieodtwarzalne w sandboxie — do potwierdzenia u użytkownika.",
+            "Tożsamość została potwierdzona jako OPXS (Nasdaq), ale dokładny "
+            "dzień analizy/wejścia i punkt-w-czas historia C/Z nie są zamrożone.",
             "Wynik inwestycji (magnituda i horyzont ewentualnego repricingu) nie "
             "jest w źródłach skwantyfikowany — to przykład WZORCA WEJŚCIA, nie "
             "udokumentowany „hit”.",
@@ -342,8 +369,8 @@ def _suntech_case() -> WorkedCase:
         missing=[
             insights_mod.MissingData(
                 "pe_vs_history", "C/Z na tle własnej historii",
-                "Mnożnik wejścia i własna historia C/Z nieodtwarzalne "
-                "w sandboxie (brak egress) — znamy tylko średnią cenę wejścia."),
+                "Mnożnik wejścia i własna historia C/Z nie są odtworzone "
+                "punkt-w-czas — znamy tylko średnią cenę wejścia."),
             insights_mod.MissingData(
                 "catalyst", "Katalizator (nowe kontrakty)",
                 "Oczekiwany katalizator — duże nowe kontrakty — się nie "
@@ -355,6 +382,14 @@ def _suntech_case() -> WorkedCase:
         as_of="portfel IKE 2021–2024 (trzymana wbrew własnej dyscyplinie) [F]",
         inputs=thesis_mod.ThesisInputs(insights=company),
         outcome="miss",  # teza/katalizator się nie potwierdziły (bias guard)
+        market_ticker="SUN",
+        isin="PLSNTCH00012",
+        market="NewConnect",
+        identity_source=(
+            "Suntech Q3 2023 issuer report: ticker SUN, ISIN PLSNTCH00012."
+        ),
+        anchor_date="2023-03-31",
+        cohort_label="documented_failure",
         sources={
             "identity": "Suntech S.A. (SunVizion, NetPlanner) — NIE mylić "
                         "z Synektik (SNT) [F]",
@@ -369,9 +404,10 @@ def _suntech_case() -> WorkedCase:
         citation="docs/source-materials/Filozofia_inwestycyjna_OBS_Portfel_IKE.md "
                  "§7 (błędy poznawcze); obs.txt (Portfel IKE), wpisy o Suntechu",
         gaps=[
-            "Mnożnik wejścia (C/Z) i własna historia C/Z nieodtwarzalne "
-            "w sandboxie — brak egress; do uzupełnienia scripts/validate_thesis.py.",
-            "Dokładny ticker/ISIN GPW Suntech S.A. do potwierdzenia u użytkownika.",
+            "Mnożnik wejścia (C/Z) i własna historia C/Z nie są odtworzone "
+            "punkt-w-czas; bieżące dane nie mogą ich zastąpić.",
+            "Tożsamość SUN / PLSNTCH00012 jest potwierdzona, ale lokalny ledger "
+            "nie ma jeszcze dopuszczalnej historii ceny od kotwicy 2023-03-31.",
             "To „miss” tezy/katalizatora (kontrakty się nie pojawiły) i błąd "
             "dyscypliny (trzymanie wbrew zasadom), nie udokumentowane derating "
             "samego mnożnika — rozróżnienie zachowane świadomie.",

@@ -123,11 +123,14 @@ def run_strategy_backtest(
                 )
 
     summary = _summarize(observations_payload, windows, policy, lag_days)
+    verification_status = _initial_verification_status(
+        observations_payload,
+        financial_availability_policy=policy,
+    )
     if run is not None:
         run.status = "completed"
         run.summary = _json_safe(summary)
-        if policy == FINANCIAL_AVAILABILITY_ESTIMATED_LAG:
-            run.verification_status = "needs-human"
+        run.verification_status = verification_status
         db.commit()
 
     return {
@@ -136,6 +139,7 @@ def run_strategy_backtest(
         "status": "completed",
         "backtest_run_id": run.id if run is not None else None,
         "strategy": strategy,
+        "verification_status": verification_status,
         "from_date": from_date,
         "to_date": to_date,
         "parameters": parameters,
@@ -555,6 +559,30 @@ def _summarize(
     }
 
 
+def _initial_verification_status(
+    observations: list[dict[str, Any]],
+    *,
+    financial_availability_policy: str,
+) -> str:
+    """Return the safest persisted state before an independent verifier pass.
+
+    A deterministic run is not automatically verified. Estimated availability,
+    no observations, or observations with no usable financial signal all need
+    human/data completion; only a strict run with an actual signal may remain
+    pending for the independent verifier.
+    """
+    if financial_availability_policy == FINANCIAL_AVAILABILITY_ESTIMATED_LAG:
+        return "needs-human"
+    if not observations:
+        return "needs-human"
+    if all(
+        observation["signal"].get("label") == "insufficient_data"
+        for observation in observations
+    ):
+        return "needs-human"
+    return "pending"
+
+
 def _data_quality_warnings(
     financial_availability_policy: str,
     observations: list[dict[str, Any]],
@@ -565,6 +593,11 @@ def _data_quality_warnings(
             "Exact report publication timestamps are not stored; this run uses "
             "a conservative quarter-end lag and needs verifier review before "
             "strategy learning."
+        )
+    if not observations:
+        warnings.append(
+            "No point-in-time observations were admissible; stored price or "
+            "financial availability does not cover the requested period."
         )
     if all(
         observation["signal"].get("label") == "insufficient_data"

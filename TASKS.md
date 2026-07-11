@@ -27,9 +27,12 @@ Take the first unchecked item. Each item should be a bounded, verifiable slice.
 6. [x] IL.2 + CX.15c — thesis-change diff and ESPI/queue actions.
 7. [x] IL.3 — falsifiers and thesis-at-risk ordering.
 8. [~] IL.4/IL.4a — read-only positions and myfund API-key/CSV import.
-9. [ ] IL.5 — UI alignment and screenshot QA.
-10. CX.16a–d — first mixed-outcome historical cohort replay.
-11. RT2.3 — ledger-grade issuer/ESPI pilot, reusing CX.15a.
+9. [x] IL.5 — UI alignment and screenshot QA; current browser-client retry is
+   blocked for localhost, so prior desktop/mobile evidence remains the latest
+   valid visual gate.
+10. [~] CX.16a–d — identity-resolved 1/2/3-year cards exist; numeric outcomes
+    remain blocked by exact-anchor and point-in-time price/evidence gaps.
+11. [ ] RT2.3 — ledger-grade issuer/ESPI pilot, reusing CX.15a.
 12. RT stages in order; add CX.16e/f and CX.17 only when prerequisites exist.
 
 ## Completed work
@@ -107,14 +110,17 @@ matching operational skill; completed stage detail is archived.
     corpus; selection, identity and availability limits remain explicit.
   - [~] **CX.16b** Reconstruct historical inputs with an explicit
     `estimated_period_lag` policy and restatement caveat. The engine now
-    persists both; case identity, original filing versions and price coverage
-    remain to be reconstructed before this slice can close.
+    persists both. DIG/SUN/OPXS identity is now primary-source resolved; exact
+    DGN/OPXS anchors, original filing versions and price coverage remain open.
   - [~] **CX.16c** The backtest engine now labels persisted output as
     `deterministic_prescore_only` and explicitly records that AI-refined output
     is excluded. Deterministic thesis/scenario range replay remains pending
     point-in-time case inputs.
-  - [ ] **CX.16d** Compare 1/2/3-year outcomes and write per-case cards; small-n
-    summaries are diagnostic, never proof.
+  - [~] **CX.16d** Deterministic 1/2/3-year cards now preserve aliases, resolved
+    market identities, admission status and per-horizon blockers. The real run
+    remains `needs-human` with no numeric outcomes; exact anchors and admissible
+    total-return prices are required before comparison. Small-n summaries are
+    diagnostic, never proof.
   - [ ] **CX.16e/f** Optional multi-`as_of` and masked-AI research after the
     first cohort; contamination-risk results remain soft evidence only.
 - [ ] **CX.17 Evidence-derived guidance.** After RT2.3, compute cited

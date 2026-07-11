@@ -498,8 +498,9 @@ def test_corpus_enriched_multiples_and_durations_are_citable():
     them)."""
     from app.services import scenarios_ai
     citable = scenarios_ai.collect_corpus_numbers(cases.CORPUS)
-    # DGN "+2500% w 5 lat (≈60 mies.)"; OPTEX "C/Z ~12, prognoza <10";
-    # Suntech entry "~2,40 zł" — each sourced, each now citable.
+    # DGN historical "+2500% w 5 lat (≈60 mies.)" (not a post-POS replay
+    # return); OPTEX "C/Z ~12, prognoza <10"; Suntech entry "~2,40 zł" —
+    # each sourced, each now citable with its provenance boundary.
     for figure in (2500.0, 60.0, 12.0, 10.0, 2.4):
         assert figure in citable, figure
 

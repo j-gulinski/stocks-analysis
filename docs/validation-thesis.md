@@ -247,10 +247,10 @@ Pozostałe archetypy (ręcznie budowane, `tests/test_thesis.py`) domykają kody:
 
 ### DGN (Digital Network, ex-4fun Media) — werdykt
 
-- **Trafienie ZWERYFIKOWANE:** flaga POS PortalAnaliz 02.2023; własna analiza
-  Malika „+2500% w ciągu 5 lat… książkowy przykład" (2025-09-18) — `docs/strategy-malik.md`
-  anchors **[DGN][AUT]**. **Cena wejścia „~20 PLN" NIEzweryfikowana** (spec
-  §Unverified) → **nie użyta jako liczba**.
+- **Historyczny winner i atrybucja ZWERYFIKOWANE:** flaga POS PortalAnaliz
+  02.2023 oraz własna analiza Malika „+2500% w ciągu 5 lat…” (2025-09-18) są
+  oddzielnymi anchorami **[DGN][AUT]**. Nie dowodzą stopy zwrotu liczonej od
+  flagi POS. **Cena wejścia „~20 PLN" NIEzweryfikowana** → nie użyta jako liczba.
 - **Czy kryteria by ją oflagowały?** *Jakościowo — spójne* z zasadami: sweet
   spot małych spółek (zasada 9), teza-z-katalizatorem (zasada 7 — pivot na
   cyfrową dystrybucję), sprawozdania-first / wzrost (zasady 2–4). **Mechanicznie

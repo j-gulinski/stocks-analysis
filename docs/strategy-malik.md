@@ -66,10 +66,11 @@ year (2018) [M3][F]. Three load-bearing ideas:
 His edge is deliberately in **small caps** — big money and sell-side crowd the
 large caps, *"można zakładać, że już wszystko jest w cenach"*, whereas in small
 caps *"zanim coś dotrze na rynek, można to przewidzieć"* [SB]; he dislikes
-static *molochy* (*"nie lubię spółek typu Orlen"*) [F]. **Digital Network** (ex-4fun
-Media) is his textbook catch — flagged via PortalAnaliz POS in Feb 2023, later
-*"+2500 % w ciągu 5 lat… książkowy przykład jakich spółek powinien szukać
-racjonalny inwestor"* [DGN].
+static *molochy* (*"nie lubię spółek typu Orlen"*) [F]. **Digital Network**
+(ex-4fun Media) is his textbook catch. Two separately sourced facts are retained:
+a PortalAnaliz POS flag in Feb 2023 and his later description of the company's
+historical *"+2500 % w ciągu 5 lat…"* path [DGN]. The latter is not treated as a
+return measured from the POS flag.
 
 ## Screening principles → dossier fields
 
@@ -187,9 +188,10 @@ Sources support the WP2 rule; tuning notes below. All thresholds → named const
 - **Synektik (SNT) "early" catch — UNVERIFIED.** No primary Malik document found
   tying him to an early SNT call; do not assert it as a Malik catch. (SNT appears
   in the repo only as a scraper fixture.)
-- **DGN "near 20 PLN years before repricing"** — the **catch is verified** (his
-  own analyses; POS Feb 2023; *"+2500 %/5 lat"* [DGN]); the specific **20 PLN
-  entry price is not** sourced — leave the number unstated or label it.
+- **DGN "near 20 PLN years before repricing"** — association with the author
+  and the historical winner is verified (his analyses; POS Feb 2023;
+  *"+2500 %/5 lat"* [DGN]), but these facts do not establish a post-POS return.
+  The specific **20 PLN entry price is not** sourced — leave it unstated.
 - **"< 1 mld zł" cutoff** — operationalisation, not a Malik-stated figure (see
   valuation doctrine).
 - **[YT] transcript** not extracted — cited by title/topic only, no verbatim

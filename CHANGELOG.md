@@ -3,6 +3,24 @@
 Durable decisions and completed slices only. `TASKS.md` owns current status;
 implementation detail lives in stage plans, validation notes, archives and git.
 
+## 2026-07-11 · CX.16d honest cohort replay cards
+
+Resolved frozen-case market identities from primary issuer/regulator sources
+without changing cohort membership: DGN→DIG (`PL4FNMD00013`), SUNTECH→SUN
+(`PLSNTCH00012`) and OPTEX→OPXS. Added deterministic 365/730/1095-day cards
+that calculate a return only from an exact anchor and a point-in-time-admissible
+base price; the real local run therefore remains `needs-human` with every
+numeric horizon unavailable and SNT excluded. Zero-observation and all-
+insufficient-data backtests now persist `needs-human` with an explicit warning
+instead of remaining indefinitely `pending`; strict runtime run 4 verifies the
+new state and the older local run 3 was reclassified. Focused tests cover no-
+fabrication identity cards and the one admissible synthetic measurement path.
+The verifier also separated DGN's February 2023 POS flag from the independently
+sourced “+2500% over five years” company-history statement; the latter remains
+citable context but is never treated as a post-POS replay return.
+The in-app browser retry was blocked by the current client for localhost, so no
+new screenshot pass is claimed; prior IL.5 desktop/mobile evidence remains valid.
+
 ## 2026-07-11 · CX.15f durable Codex worker boundary
 
 The collector/API remains responsible for source polling, evidence upserts and

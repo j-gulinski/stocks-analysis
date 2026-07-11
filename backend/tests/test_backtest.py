@@ -67,6 +67,7 @@ def test_backtest_excludes_future_scraped_financial_rows_but_attaches_outcomes(d
     )
 
     assert result["status"] == "completed"
+    assert result["verification_status"] == "pending"
     assert result["summary"]["observation_count"] == 1
     assert result["summary"]["scoring_policy"] == "deterministic_prescore_only"
     assert result["summary"]["ai_refined_output_included"] is False
@@ -80,6 +81,7 @@ def test_backtest_excludes_future_scraped_financial_rows_but_attaches_outcomes(d
 
     run = db.get(BacktestRun, result["backtest_run_id"])
     assert run.status == "completed"
+    assert run.verification_status == "pending"
     assert run.summary["observation_count"] == 1
     stored = db.query(BacktestObservation).one()
     assert stored.known_inputs["financials"]["latest_income_period"] == "2023Q1"
@@ -188,6 +190,10 @@ def test_backtest_excludes_price_learned_after_observation_date(db):
     )
 
     assert result["summary"]["observation_count"] == 0
+    assert result["verification_status"] == "needs-human"
+    assert "No point-in-time observations" in result["summary"]["data_quality"][
+        "warnings"
+    ][0]
 
 
 def test_backtest_rejects_unknown_strategy(db):
@@ -254,6 +260,7 @@ def test_backtest_api_creates_lists_and_reads_detail(client, db):
     assert payload["status"] == "completed"
     assert payload["summary"]["observation_count"] == 1
     assert payload["observations"][0]["signal"]["label"] == "insufficient_data"
+    assert payload["verification_status"] == "needs-human"
 
     runs = client.get("/api/backtest-runs").json()
     assert runs[0]["id"] == payload["id"]
