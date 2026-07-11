@@ -364,6 +364,189 @@ export interface ResearchCaseStepHistory {
   created_at: string;
 }
 
+// --- canonical valuation (P3) ---------------------------------------------
+
+export type ValuationScenarioKind = "negative" | "base" | "positive" | "event";
+export type ValuationSnapshotStatus = "provisional" | "verified" | "rejected" | "needs-human";
+
+export interface ValuationMethodPack {
+  id: string;
+  version: string;
+  label: string;
+  status: "ready" | "blocked";
+  reason: string | null;
+  skill: string | null;
+}
+
+export interface ValuationTemplate {
+  id: string;
+  version: string;
+  archetype: ResearchArchetype;
+  label: string;
+  driver_copy: string[];
+  equation: string;
+}
+
+export interface ValuationAssumptionValue {
+  value: number;
+  provenance: "evidence" | "human_assumption";
+  rationale: string;
+  source_fact_ids: number[];
+}
+
+export interface ValuationScenarioAssumptions {
+  kind: ValuationScenarioKind;
+  label: string;
+  quarter_revenue_growth_pct: ValuationAssumptionValue;
+  year_revenue_growth_pct: ValuationAssumptionValue;
+  gross_margin_pct: ValuationAssumptionValue;
+  operating_cost_ratio_pct: ValuationAssumptionValue;
+  financial_result_ratio_pct: ValuationAssumptionValue;
+  tax_rate_pct: ValuationAssumptionValue;
+  cash_conversion_pct: ValuationAssumptionValue;
+  capex_spend_ratio_pct: ValuationAssumptionValue;
+  target_pe: ValuationAssumptionValue;
+  event_one_off_net_pln_thousands?: ValuationAssumptionValue | null;
+}
+
+export interface ValuationRequest {
+  research_snapshot_id: number;
+  method_pack_id: string;
+  assumptions: ValuationScenarioAssumptions[];
+  as_of: string;
+}
+
+export interface ValuationProjection {
+  revenue_pln_thousands: number;
+  gross_profit_pln_thousands: number;
+  ebit_pln_thousands: number;
+  financial_result_pln_thousands: number;
+  pretax_result_pln_thousands: number;
+  tax_pln_thousands: number;
+  net_result_pln_thousands: number;
+  eps_pln: number;
+  cfo_pln_thousands: number;
+  capex_spend_pln_thousands: number;
+  fcf_pln_thousands: number;
+}
+
+export interface ValuationScenarioOutput {
+  kind: ValuationScenarioKind;
+  label: string;
+  quarter: ValuationProjection;
+  forward_12m: ValuationProjection;
+  target_pe: number;
+  target_price_pln: number | null;
+  return_pct: number | null;
+  valuation_status?: "priced" | "not_meaningful" | string;
+  valuation_gap?: string | null;
+}
+
+export interface ValuationDeterministicOutputs {
+  engine_version: string;
+  current_price_pln: number;
+  scenarios: ValuationScenarioOutput[];
+  probability_weighted: {
+    status: "calculated" | "unavailable";
+    price_pln: number | null;
+    return_pct: number | null;
+    gap: string | null;
+  } | null;
+  own_history_sensitivity: { status: string; note: string };
+}
+
+export interface ValuationPreview {
+  research_snapshot_id: number;
+  method_pack: ValuationMethodPack;
+  template: ValuationTemplate;
+  base_values: Record<string, unknown>;
+  deterministic_outputs: ValuationDeterministicOutputs;
+  input_manifest: Record<string, unknown>;
+  gaps: string[];
+  input_fingerprint: string;
+  calculation_fingerprint: string;
+}
+
+export interface ValuationFinalProbability {
+  kind: ValuationScenarioKind;
+  probability_pct: number;
+  rationale: string;
+}
+
+export interface CanonicalValuationSnapshot {
+  id: number;
+  research_case_id: number;
+  research_snapshot_id: number;
+  agent_run_id: number;
+  verification_run_id: number;
+  version: number;
+  contract_version: string;
+  status: ValuationSnapshotStatus;
+  as_of: string;
+  method_pack_id: string;
+  method_pack_version: string;
+  template_id: string;
+  template_version: string;
+  calculation_engine_version: string;
+  assumptions: ValuationScenarioAssumptions[] | { scenarios: ValuationScenarioAssumptions[] };
+  base_values: Record<string, unknown>;
+  deterministic_outputs: ValuationDeterministicOutputs;
+  codex_judgment: {
+    method_read?: string;
+    scenarios?: Array<{
+      kind: ValuationScenarioKind;
+      mechanism: string;
+      proposed_probability_pct: number;
+      probability_rationale: string;
+      catalyst_or_counter_driver: string;
+      falsifier: string;
+      gaps: string[];
+    }>;
+    catalysts?: string[];
+    falsifiers?: string[];
+  };
+  input_manifest: Record<string, unknown>;
+  gaps: string[];
+  input_fingerprint: string;
+  calculation_fingerprint: string;
+  artifact_fingerprint: string;
+  verifier_result: {
+    model_role: "verifier_strict";
+    verifier_model: string;
+    verdict: "pass" | "fail" | "needs-human";
+    checks: Record<string, boolean>;
+    final_probabilities: ValuationFinalProbability[];
+    summary: string;
+  };
+  created_at: string;
+}
+
+export interface ValuationHistoryItem {
+  id: number;
+  version: number;
+  status: ValuationSnapshotStatus;
+  as_of: string;
+  method_pack_id: string;
+  template_id: string;
+  created_at: string;
+}
+
+export interface ValuationWorkspace {
+  research_case_id: number;
+  latest_research_snapshot_id: number | null;
+  method_packs: ValuationMethodPack[];
+  template: ValuationTemplate | null;
+  latest_valuation: CanonicalValuationSnapshot | null;
+  history: ValuationHistoryItem[];
+}
+
+export interface ValuationQueueResult {
+  agent_run_id: number;
+  status: string;
+  created: boolean;
+  input_fingerprint: string;
+}
+
 export type AssumptionScenarioKind = "negative" | "base" | "positive" | "event";
 export type AssumptionStatus = "draft" | "approved" | "rejected";
 export type AssumptionProvenance = "evidence" | "human_assumption" | "model_suggestion";

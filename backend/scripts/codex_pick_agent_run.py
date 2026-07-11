@@ -118,6 +118,29 @@ def _execution_contract(agent: AgentRun) -> dict[str, Any]:
                 "Add that verification_run_id to the unchanged draft, save with this agent_run_id, then complete only this claimed job.",
             ],
         }
+    if agent.workflow == "stock-company-valuation":
+        case_id = (agent.inputs or {}).get("research_case_id")
+        return {
+            **base,
+            "skill": "company-valuation",
+            "frozen_contract": frozen_task,
+            "verify_command": (
+                "cd backend && ./.venv/bin/python scripts/codex_verify_valuation_snapshot.py "
+                f"--case-id {case_id} --input <verification.json>"
+            ),
+            "save_command": (
+                "cd backend && ./.venv/bin/python scripts/codex_save_valuation_snapshot.py "
+                f"--case-id {case_id} --input <snapshot.json>"
+            ),
+            "steps": [
+                "Read the frozen valuation bundle; never replace its facts, assumptions, method or calculations.",
+                "Read valuation history and use the next sequential snapshot version; version is allocated at execution, not queue time.",
+                "Apply strategy-malik-obs only to explain mechanisms, catalysts, falsifiers and proposed probabilities.",
+                "Keep the deterministic quarter/year/price outputs unchanged and preserve every named gap.",
+                "Have a distinct verifier_strict context own final probabilities and persist its exact-draft verdict.",
+                "Save the unchanged draft with that verification_run_id and stop after this one claimed job.",
+            ],
+        }
     if agent.workflow == "stock-quick-analysis":
         return {
             **base,

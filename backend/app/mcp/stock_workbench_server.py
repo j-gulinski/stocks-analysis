@@ -63,6 +63,12 @@ TOOLS: dict[str, ToolSpec] = {
         },
         stock_tools.get_archetype_pack,
     ),
+    "get_valuation_method_packs": ToolSpec(
+        "get_valuation_method_packs",
+        "Return versioned valuation methods and honest readiness/block reasons.",
+        {"type": "object", "properties": {}, "additionalProperties": False},
+        stock_tools.get_valuation_method_packs,
+    ),
     "get_company_dossier": ToolSpec(
         "get_company_dossier",
         "Return the deterministic company dossier used by the UI and Codex skills.",
@@ -223,6 +229,28 @@ TOOLS: dict[str, ToolSpec] = {
             "additionalProperties": False,
         },
         stock_tools.verify_research_snapshot,
+    ),
+    "save_valuation_snapshot": ToolSpec(
+        "save_valuation_snapshot",
+        "Save an immutable valuation after exact independent verification.",
+        {
+            "type": "object",
+            "properties": {"case_id": {"type": "integer"}, "payload": {"type": "object"}},
+            "required": ["case_id", "payload"],
+            "additionalProperties": False,
+        },
+        stock_tools.save_valuation_snapshot,
+    ),
+    "verify_valuation_snapshot": ToolSpec(
+        "verify_valuation_snapshot",
+        "Record verifier_strict probabilities and verdict for one exact valuation draft.",
+        {
+            "type": "object",
+            "properties": {"case_id": {"type": "integer"}, "payload": {"type": "object"}},
+            "required": ["case_id", "payload"],
+            "additionalProperties": False,
+        },
+        stock_tools.verify_valuation_snapshot,
     ),
     "mark_verification_result": ToolSpec(
         "mark_verification_result",

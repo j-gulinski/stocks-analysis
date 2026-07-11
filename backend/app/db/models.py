@@ -168,6 +168,58 @@ class ResearchSnapshot(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class ValuationSnapshot(Base):
+    """Canonical immutable valuation produced from one research snapshot."""
+
+    __tablename__ = "valuation_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "research_case_id", "version", name="uq_valuation_snapshot_case_version"
+        ),
+        UniqueConstraint("agent_run_id", name="uq_valuation_snapshot_agent_run"),
+        CheckConstraint("version > 0", name="ck_valuation_snapshot_positive_version"),
+        CheckConstraint(
+            "status IN ('provisional', 'verified', 'rejected', 'needs-human')",
+            name="ck_valuation_snapshot_status",
+        ),
+        Index("ix_valuation_snapshots_case_created", "research_case_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    research_case_id: Mapped[int] = mapped_column(
+        ForeignKey("research_cases.id", ondelete="CASCADE"), index=True
+    )
+    research_snapshot_id: Mapped[int] = mapped_column(
+        ForeignKey("research_snapshots.id", ondelete="RESTRICT"), index=True
+    )
+    agent_run_id: Mapped[int] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="RESTRICT"), unique=True, index=True
+    )
+    verification_run_id: Mapped[int] = mapped_column(
+        ForeignKey("verification_runs.id", ondelete="RESTRICT"), unique=True, index=True
+    )
+    version: Mapped[int] = mapped_column(Integer)
+    contract_version: Mapped[str] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(30), index=True)
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    method_pack_id: Mapped[str] = mapped_column(String(60))
+    method_pack_version: Mapped[str] = mapped_column(String(60))
+    template_id: Mapped[str] = mapped_column(String(80))
+    template_version: Mapped[str] = mapped_column(String(60))
+    calculation_engine_version: Mapped[str] = mapped_column(String(60))
+    assumptions: Mapped[dict] = mapped_column(JSONVariant)
+    base_values: Mapped[dict] = mapped_column(JSONVariant)
+    deterministic_outputs: Mapped[dict] = mapped_column(JSONVariant)
+    codex_judgment: Mapped[dict] = mapped_column(JSONVariant)
+    input_manifest: Mapped[dict] = mapped_column(JSONVariant)
+    gaps: Mapped[list] = mapped_column(JSONVariant)
+    input_fingerprint: Mapped[str] = mapped_column(String(64))
+    calculation_fingerprint: Mapped[str] = mapped_column(String(64))
+    artifact_fingerprint: Mapped[str] = mapped_column(String(64))
+    verifier_result: Mapped[dict] = mapped_column(JSONVariant)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class AssumptionSet(Base):
     """Case-linked scenario inputs with explicit provenance per assumption."""
 

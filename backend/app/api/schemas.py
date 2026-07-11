@@ -389,6 +389,271 @@ class ResearchCaseWorkspaceOut(BaseModel):
     archetype_pack: ArchetypePackOut | None = None
 
 
+# --------------------------------------------------------------- valuation v1
+
+ValuationScenarioKind = Literal["negative", "base", "positive", "event"]
+ValuationStatus = Literal["provisional", "verified", "rejected", "needs-human"]
+
+
+class ValuationMethodPackOut(BaseModel):
+    id: str
+    version: str
+    label: str
+    status: Literal["ready", "blocked"]
+    reason: str | None = None
+    skill: str | None = None
+
+
+class ValuationAssumptionValue(StrictResearchModel):
+    value: float
+    provenance: Literal["evidence", "human_assumption"]
+    rationale: str = Field(min_length=1, max_length=1000)
+    source_fact_ids: list[int] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_provenance(self):
+        from math import isfinite
+
+        if not isfinite(self.value):
+            raise ValueError("assumption values must be finite")
+        if self.provenance == "evidence" and not self.source_fact_ids:
+            raise ValueError("evidence assumptions require source_fact_ids")
+        if self.provenance == "human_assumption" and self.source_fact_ids:
+            raise ValueError("human assumptions cannot claim source_fact_ids")
+        return self
+
+
+class ValuationScenarioAssumptions(StrictResearchModel):
+    kind: ValuationScenarioKind
+    label: str = Field(min_length=1, max_length=120)
+    quarter_revenue_growth_pct: ValuationAssumptionValue
+    year_revenue_growth_pct: ValuationAssumptionValue
+    gross_margin_pct: ValuationAssumptionValue
+    operating_cost_ratio_pct: ValuationAssumptionValue
+    financial_result_ratio_pct: ValuationAssumptionValue
+    tax_rate_pct: ValuationAssumptionValue
+    cash_conversion_pct: ValuationAssumptionValue
+    capex_spend_ratio_pct: ValuationAssumptionValue
+    target_pe: ValuationAssumptionValue
+    event_one_off_net_pln_thousands: ValuationAssumptionValue | None = None
+
+    @model_validator(mode="after")
+    def validate_ranges(self):
+        if self.quarter_revenue_growth_pct.value <= -100 or self.year_revenue_growth_pct.value <= -100:
+            raise ValueError("revenue growth must stay above -100%")
+        if not -200 <= self.gross_margin_pct.value <= 200:
+            raise ValueError("gross margin must be bounded to -200..200%")
+        if not -100 <= self.operating_cost_ratio_pct.value <= 300:
+            raise ValueError("operating cost ratio must be bounded to -100..300%")
+        if not -300 <= self.financial_result_ratio_pct.value <= 300:
+            raise ValueError("financial result ratio must be bounded to -300..300%")
+        if not 0 <= self.tax_rate_pct.value <= 100:
+            raise ValueError("tax rate must be 0..100%")
+        if not -500 <= self.cash_conversion_pct.value <= 500:
+            raise ValueError("cash conversion must be bounded to -500..500%")
+        if not 0 <= self.capex_spend_ratio_pct.value <= 100:
+            raise ValueError("capex spend ratio must be 0..100% positive magnitude")
+        if self.target_pe.value <= 0:
+            raise ValueError("target_pe must be positive")
+        if self.capex_spend_ratio_pct.value < 0:
+            raise ValueError("capex spend is a positive outlay ratio")
+        if self.kind != "event" and self.event_one_off_net_pln_thousands is not None:
+            raise ValueError("event one-off is allowed only in the event scenario")
+        if self.kind == "event" and self.event_one_off_net_pln_thousands is None:
+            raise ValueError("event scenario requires an explicit net one-off assumption")
+        return self
+
+
+class ValuationRequestIn(StrictResearchModel):
+    research_snapshot_id: int = Field(ge=1)
+    method_pack_id: str = "malik_obs_v1"
+    assumptions: list[ValuationScenarioAssumptions] = Field(min_length=3, max_length=4)
+    as_of: datetime
+
+    @model_validator(mode="after")
+    def validate_scenarios(self):
+        if self.as_of.tzinfo is None:
+            raise ValueError("as_of must include a timezone")
+        kinds = [row.kind for row in self.assumptions]
+        if len(kinds) != len(set(kinds)):
+            raise ValueError("scenario kinds must be unique")
+        if set(kinds) - {"negative", "base", "positive", "event"}:
+            raise ValueError("unsupported scenario kind")
+        if not {"negative", "base", "positive"}.issubset(kinds):
+            raise ValueError("negative, base and positive scenarios are required")
+        return self
+
+
+class ValuationScenarioJudgment(StrictResearchModel):
+    kind: ValuationScenarioKind
+    mechanism: str = Field(min_length=1, max_length=2000)
+    proposed_probability_pct: int = Field(ge=0, le=100)
+    probability_rationale: str = Field(min_length=1, max_length=1000)
+    catalyst_or_counter_driver: str = Field(min_length=1, max_length=1000)
+    falsifier: str = Field(min_length=1, max_length=1000)
+    gaps: list[str] = Field(default_factory=list)
+
+
+class ValuationDraftJudgment(StrictResearchModel):
+    method_read: str = Field(min_length=1, max_length=4000)
+    scenarios: list[ValuationScenarioJudgment] = Field(min_length=3, max_length=4)
+    catalysts: list[str] = Field(default_factory=list)
+    falsifiers: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_scenario_kinds(self):
+        kinds = [row.kind for row in self.scenarios]
+        if len(kinds) != len(set(kinds)):
+            raise ValueError("judgment scenario kinds must be unique")
+        return self
+
+
+class ValuationSnapshotDraftIn(StrictResearchModel):
+    contract_version: Literal["valuation-snapshot-v1"] = "valuation-snapshot-v1"
+    engine_version: Literal["valuation-engine-v2"] = "valuation-engine-v2"
+    template_contract_version: Literal["valuation-templates-v1"] = "valuation-templates-v1"
+    agent_run_id: int = Field(ge=1)
+    lease_owner: str = Field(min_length=1, max_length=200)
+    version: int = Field(ge=1)
+    research_snapshot_id: int = Field(ge=1)
+    as_of: datetime
+    method_pack_id: str
+    method_pack_version: str
+    template_id: str
+    template_version: str
+    assumptions: list[ValuationScenarioAssumptions]
+    base_values: dict
+    deterministic_outputs: dict
+    input_manifest: dict
+    gaps: list[str] = Field(default_factory=list)
+    input_fingerprint: str = Field(min_length=64, max_length=64)
+    calculation_fingerprint: str = Field(min_length=64, max_length=64)
+    codex_judgment: ValuationDraftJudgment
+
+    @model_validator(mode="after")
+    def require_aware_as_of(self):
+        if self.as_of.tzinfo is None:
+            raise ValueError("as_of must include a timezone")
+        return self
+
+
+class ValuationVerifierChecks(StrictResearchModel):
+    schema_integrity: bool
+    source_integrity: bool
+    company_identity: bool
+    look_ahead: bool
+    math_integrity: bool
+    probability_coherence: bool
+    method_integrity: bool
+
+
+class ValuationFinalProbability(StrictResearchModel):
+    kind: ValuationScenarioKind
+    probability_pct: int = Field(ge=0, le=100)
+    rationale: str = Field(min_length=1, max_length=1000)
+
+
+class ValuationVerifierResult(StrictResearchModel):
+    model_role: Literal["verifier_strict"] = "verifier_strict"
+    verifier_model: str = Field(min_length=1, max_length=80)
+    verdict: Literal["pass", "fail", "needs-human"]
+    checks: ValuationVerifierChecks
+    final_probabilities: list[ValuationFinalProbability] = Field(default_factory=list, max_length=4)
+    summary: str = Field(min_length=1, max_length=4000)
+
+    @model_validator(mode="after")
+    def validate_probabilities(self):
+        kinds = [row.kind for row in self.final_probabilities]
+        if len(kinds) != len(set(kinds)):
+            raise ValueError("final probability kinds must be unique")
+        if self.verdict == "pass":
+            if len(self.final_probabilities) < 3:
+                raise ValueError("passing verification requires final probabilities")
+            if sum(row.probability_pct for row in self.final_probabilities) != 100:
+                raise ValueError("final probabilities must sum exactly to 100")
+        elif self.final_probabilities:
+            raise ValueError("fail/needs-human verdicts do not own final probabilities")
+        return self
+
+
+class ValuationSnapshotVerificationIn(StrictResearchModel):
+    verifier_worker_id: str = Field(min_length=1, max_length=200)
+    draft: ValuationSnapshotDraftIn
+    verifier_result: ValuationVerifierResult
+
+
+class ValuationSnapshotSaveIn(ValuationSnapshotDraftIn):
+    verification_run_id: int = Field(ge=1)
+
+
+class ValuationSnapshotOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    research_case_id: int
+    research_snapshot_id: int
+    agent_run_id: int
+    verification_run_id: int
+    version: int
+    contract_version: str
+    status: ValuationStatus
+    as_of: datetime
+    method_pack_id: str
+    method_pack_version: str
+    template_id: str
+    template_version: str
+    calculation_engine_version: str
+    assumptions: dict
+    base_values: dict
+    deterministic_outputs: dict
+    codex_judgment: dict
+    input_manifest: dict
+    gaps: list[str]
+    input_fingerprint: str
+    calculation_fingerprint: str
+    artifact_fingerprint: str
+    verifier_result: dict
+    created_at: datetime
+
+
+class ValuationHistoryOut(BaseModel):
+    id: int
+    version: int
+    status: ValuationStatus
+    as_of: datetime
+    method_pack_id: str
+    template_id: str
+    created_at: datetime
+
+
+class ValuationWorkspaceOut(BaseModel):
+    research_case_id: int
+    latest_research_snapshot_id: int | None
+    method_packs: list[ValuationMethodPackOut]
+    template: dict | None
+    latest_valuation: ValuationSnapshotOut | None
+    history: list[ValuationHistoryOut]
+
+
+class ValuationPreviewOut(BaseModel):
+    research_snapshot_id: int
+    method_pack: ValuationMethodPackOut
+    template: dict
+    base_values: dict
+    deterministic_outputs: dict
+    input_manifest: dict
+    gaps: list[str]
+    input_fingerprint: str
+    calculation_fingerprint: str
+
+
+class ValuationQueueOut(BaseModel):
+    agent_run_id: int
+    status: str
+    created: bool
+    input_fingerprint: str
+
+
 class ResearchCaseStepHistoryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

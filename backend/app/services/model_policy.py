@@ -88,6 +88,19 @@ _POLICIES: dict[str, dict[str, Any]] = {
         "reasoning": "high",
         "verification_scope": "deterministic simulation, bridge fingerprint and priced gate",
     },
+    "stock-company-valuation": {
+        "draft_role": "worker_standard",
+        "draft_model": "gpt-5.6-terra",
+        "draft_reasoning_effort": "high",
+        "required_verifier_role": "verifier_strict",
+        "verifier_model": "gpt-5.6-sol",
+        "verifier_reasoning_effort": "high",
+        "reasoning": "Terra high for ordinary method-specific synthesis; escalate explicitly only on evidence",
+        "verification_scope": (
+            "research/source binding, deterministic quarter/year math, method integrity, "
+            "look-ahead and final probability coherence"
+        ),
+    },
 }
 
 

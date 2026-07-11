@@ -25,6 +25,7 @@ from app.api import (
     monitor,
     positions,
     research_cases,
+    valuations,
     watchlist,
 )
 from app.db.base import get_db
@@ -49,6 +50,7 @@ app.include_router(journal.router, prefix="/api")
 app.include_router(monitor.router, prefix="/api")
 app.include_router(positions.router, prefix="/api")
 app.include_router(research_cases.router, prefix="/api")
+app.include_router(valuations.router, prefix="/api")
 
 
 @app.get("/api/health")

@@ -6,24 +6,25 @@ retain completed detail.
 
 ## Current state
 
-P0, P1 and P2 are complete. Discover and typed-ticker adds create/reuse/reactivate
+P0 through P3 are complete. Discover and typed-ticker adds create/reuse/reactivate
 one visible case and one unclaimed initial job. A claimed worker now produces
 an immutable, source-bound `CompanyProfile`/`ResearchSnapshot`; a separate
 verifier owns final status, and the fixed company workspace renders that
-artifact. The first real pilot, ABS, is honestly `provisional` with eight named
-gaps rather than a generic or falsely verified memo.
+artifact. Valuation now turns a frozen Research snapshot and explicit human
+assumptions into deterministic quarter/F12M/cash-flow/price scenarios; a
+separate verifier owns final probabilities and status.
 
-Current delivery focus: **P3 valuation** — convert verified/provisional research
-drivers into explicit, deterministic quarter/year and price scenarios without
-blending investor methods or hiding uncertainty.
+Current delivery focus: **P4 portfolio** — verify the supported myfund
+integration path, preserve dated holdings/history, and aggregate only
+company-bound scenario artifacts without changing them.
 
 | Stage | Outcome | Exit gate | Status |
 |---|---|---|---|
 | P0 · Reset | Four binding docs, obsolete artifacts removed, reads side-effect free, memory non-destructive, worker-only claims | tests prove zero-write reads, proxy verbs, archive preservation, no orphan claim | complete |
 | P1 · Research vertical | one `Dodaj do Research` command creates/reuses a company and case and one executable initial job | candidate and ticker paths are idempotent; case appears immediately; one pilot reaches a verifier-labelled snapshot | complete |
 | P2 · Tailored research + sieves | common research spine, 2–3 real archetype packs, company overlay, primary-source plan, honest OBS/PA sieves | three comparable factor/coverage views; two representative companies render different relevant sections | complete |
-| P3 · Valuation | separate method packs, driver assumptions, deterministic quarter/year and price bridges | one industrial plus one non-industrial pilot reconcile and pass strict verification; sensitivity is labelled | next |
-| P4 · Portfolio | dated myfund/API snapshots, mappings, history, deterministic portfolio analytics and scenario aggregation | repeated sync updates positions; history/benchmark reconcile; portfolio review cites verified company snapshots | waiting for P3 |
+| P3 · Valuation | separate method packs, driver assumptions, deterministic quarter/year and price bridges | one industrial plus one non-industrial pilot reconcile and pass strict verification; sensitivity is labelled | complete |
+| P4 · Portfolio | dated myfund/API snapshots, mappings, history, deterministic portfolio analytics and scenario aggregation | repeated sync updates positions; history/benchmark reconcile; portfolio review cites verified company snapshots | next |
 | P5 · Calibration | official adjusted returns, historical availability, mixed/holdout cases and method calibration | replay is no-look-ahead, reproducible, benchmark-relative, and reports calibration limits | waiting for data |
 
 ## P0 acceptance
@@ -121,6 +122,34 @@ Codex chooses/explains drivers and probabilities; deterministic services own
 financial and price calculations. Preserve an immutable valuation snapshot and
 separate strict verification. Backtesting remains a calibration gate, not a
 marketing claim.
+
+## P3 completion evidence
+
+- Migration `0025` adds immutable, sequential `ValuationSnapshot` artifacts
+  bound to one Research snapshot, claimed run and exact `VerificationRun`.
+  Preview and reads are zero-write; queue inputs freeze the Research/source/
+  fact/company/price identities, method/template/engine versions, typed
+  assumptions, deterministic outputs and both fingerprints.
+- `valuation-engine-v2` rejects conflicting consumed facts, non-consecutive
+  quarters, look-ahead inputs and non-positive/non-finite prices. It treats
+  capex as a positive outlay, does not apply C/Z to non-positive EPS, and keeps
+  own-history reversion separate until a valid point-in-time series exists.
+- Only `malik_obs_v1` is ready. Areczeks and Elendix remain blocked with named
+  source gaps. Industrial/consumer and software/services use distinct driver
+  framing; no hidden blend or legacy scenario/AI path enters the canonical
+  valuation artifact.
+- SNT valuation/verification `1/3` binds Research snapshot 2 and excludes the
+  256.562 mln PLN discontinued-operation gain. Strict probabilities 40/45/15
+  yield a weighted 305.41 PLN versus frozen 384.60 PLN. ABS valuation/
+  verification `2/4` binds Research snapshot 1; probabilities 35/45/20 yield
+  78.11 PLN versus frozen 87.80 PLN. Both remain honestly `provisional` because
+  upstream Research and scalar lineage have named gaps.
+- The first independent code audit rejected mixed source-version facts,
+  invalid price handling, stale Research/UI binding, hidden event weight,
+  concurrent job risk and model-policy drift. The corrected vertical passed a
+  fresh independent approval, 585 backend tests, frontend production build,
+  skill validation, runtime/DB invariants and browser QA of list, SNT/ABS,
+  optional event preview, Polish gaps and Research-to-Valuation navigation.
 
 ## P4 design boundary
 

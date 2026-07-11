@@ -143,6 +143,21 @@ Probabilities should sum to approximately 100%. Show unweighted ranges beside
 probability-weighted values. A provisional scenario still shows the full
 computed picture and names the assumptions that replace missing evidence.
 
+The first canonical implementation is deliberately narrow. It uses an
+archetype-framed earnings/C-Z bridge for industrial/consumer and
+software/services companies: revenue growth, gross margin, operating-cost
+ratio, financial result, tax, cash conversion, positive capex spend and target
+C/Z produce next-quarter and F12M P&L, CFO, FCF, EPS and price. A non-positive
+F12M EPS has no C/Z price. An optional event must be mutually exclusive and
+show its one-off explicitly. The UI labels every starting value as a human
+assumption; it never promotes a seed to evidence.
+
+Own-history multiple reversion stays unavailable until a comparable,
+point-in-time series exists. Current raw prices and timestamp-frozen
+shares/market cap remain visible provisional limitations. This first bridge is
+not a DCF, unit-economics model, proof of Malik/OBS performance, or permission
+to blend the blocked Areczeks/Elendix packs.
+
 ## Backtest and learning gate
 
 Do not optimize strategy weights or publish performance from current serving

@@ -2,6 +2,7 @@
 
 /** Progressive company research workspace: one canonical brief, then evidence. */
 import { use, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   IconAlertTriangle,
   IconBrain,
@@ -258,6 +259,10 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
           history={researchWorkspace.history}
           archetypePack={researchWorkspace.archetype_pack}
         />
+        <section className="research-to-valuation">
+          <div><span className="snapshot-label">Następny etap</span><strong>Przetestuj jawne scenariusze wyniku i ceny</strong></div>
+          <Link className="btn accent" href={`/valuation/${ticker}`}>Przejdź do Valuation</Link>
+        </section>
         {dossier && hasDossierData(dossier) && (
           <details className="snapshot-legacy-entry">
             <summary>Starszy raport i narzędzia audytowe</summary>

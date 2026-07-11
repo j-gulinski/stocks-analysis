@@ -130,9 +130,10 @@ Codex worker -> claim + heartbeat -> collect/structure/calculate
              -> save immutable snapshot + terminal job status
 ```
 
-The first supported queue workflow is `stock-initial-research`, executed with
-the versioned `company-research` skill. Later replacement workflows cover
-company valuation, company review, and portfolio review.
+The supported artifact workflows are `stock-initial-research`, executed with
+the versioned `company-research` skill, and `stock-company-valuation`, executed
+with `company-valuation`. Later replacement workflows cover company review and
+portfolio review.
 Research verification is a two-step local protocol: a distinct verifier
 context stores a verdict bound to the exact draft and frozen-input fingerprint;
 only its `VerificationRun` can unlock immutable save. `verifier_worker_id` is
@@ -140,6 +141,24 @@ an audit identity inside this personal local workbench, not an authentication
 credential, so orchestration must enforce genuinely separate contexts.
 Workflow policy records requested role/model/reasoning and the actual host model
 when exposed. A drafting result never approves itself.
+
+Valuation preview loads only consumed immutable Facts inside the bound Research
+manifest and cutoff. Differing values or units for a consumed `(fact_key,
+period)` fail; identical duplicates resolve deterministically to the latest
+document version. The current raw price must be finite, positive, dated and
+scraped by `as_of`, and retains source/series/basis identity. Shares and market
+cap are timestamp-frozen Company scalars until immutable fact lineage exists,
+so they force a visible provisional gap. One company may have only one queued
+or running valuation; snapshot version is assigned at execution and checked
+again at verify/save.
+
+The valuation draft freezes `valuation-engine-v2`, method/template versions,
+typed human/evidence assumptions, deterministic outputs and input/calculation
+fingerprints. The worker proposes mechanisms and probabilities. A distinct
+Sol-high verifier owns exact final probabilities summing to 100; save
+recalculates the weighted output, binds the exact draft fingerprint, creates
+one `ValuationSnapshot`, terminalizes the run and clears its lease. Passing
+output with any named upstream or scalar-lineage gap is `provisional`.
 
 Route jobs by effort so analysis quality and usage limits stay balanced:
 

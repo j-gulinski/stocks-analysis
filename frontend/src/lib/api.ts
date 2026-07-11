@@ -46,6 +46,10 @@ import type {
   RefreshSummary,
   ScraperHealth,
   WorkflowStatus,
+  ValuationPreview,
+  ValuationQueueResult,
+  ValuationRequest,
+  ValuationWorkspace,
 } from "@/lib/types";
 
 export class ApiError extends Error {
@@ -136,6 +140,22 @@ export const updateResearchCase = (
   request<ResearchCase>(`/companies/${encodeURIComponent(ticker)}/research-case`, {
     method: "PATCH",
     body: JSON.stringify(patch),
+  });
+
+// ------------------------------------------------------ canonical valuation
+export const getValuationWorkspace = (researchCaseId: number) =>
+  request<ValuationWorkspace>(`/research-cases/${researchCaseId}/valuation-workspace`);
+
+export const previewValuation = (researchCaseId: number, payload: ValuationRequest) =>
+  request<ValuationPreview>(`/research-cases/${researchCaseId}/valuation-preview`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const queueValuation = (researchCaseId: number, payload: ValuationRequest) =>
+  request<ValuationQueueResult>(`/research-cases/${researchCaseId}/valuation-runs`, {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 
 export const getAssumptionSets = (ticker: string, purpose = "investment-research") =>

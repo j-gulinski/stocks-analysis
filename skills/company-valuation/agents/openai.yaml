@@ -1,0 +1,4 @@
+interface:
+  display_name: "Company Valuation"
+  short_description: "Build verified company valuation scenarios"
+  default_prompt: "Use $company-valuation to build and verify one source-bound company valuation from a frozen Research snapshot."

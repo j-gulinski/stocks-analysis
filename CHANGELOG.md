@@ -3,6 +3,36 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-12 · P3 immutable scenario valuation
+
+- Added migration `0025` and the canonical `ValuationSnapshot` vertical:
+  zero-write workspace/preview/history reads, typed assumptions, content-
+  idempotent serialized queueing, exact verification/save scripts and MCP
+  adapters, versioned Malik/OBS method and industrial/software templates.
+- Added `valuation-engine-v2`. It consumes only Research-manifest Facts known
+  by the cutoff, rejects conflicting consumed versions and invalid prices,
+  requires four consecutive quarters, treats capex as a positive outlay,
+  leaves loss-making C/Z scenarios unpriced and separates own-history
+  sensitivity. Final probabilities belong only to the strict verifier.
+- Added a calm Valuation list and company workspace with explicit editable
+  downside/base/upside assumptions, optional visible event path, deterministic
+  preview, Codex queue action, Polish limitations, frozen-input audit and
+  Research-to-Valuation navigation. Stale valuations never appear under a new
+  Research snapshot.
+- Kept Areczeks and Elendix blocked until dated source packs exist. Ordinary
+  valuation drafting requests Terra high, complex cases may explicitly
+  escalate to Sol high, and every final artifact requires an independent
+  Sol-high verifier.
+- Completed two real provisional pilots. SNT snapshot 1 / verification 3
+  excludes the 256.562 mln PLN discontinued gain and yields 305.41 PLN weighted
+  versus frozen 384.60 PLN at 40/45/15. ABS snapshot 2 / verification 4 yields
+  78.11 PLN versus 87.80 PLN at 35/45/20. These are scenario evidence, not
+  recommendations; upstream and scalar-lineage gaps remain visible.
+- The initial independent audit rejected six integrity/UI defects before any
+  pilot save. After corrections, a fresh verifier approved the implementation;
+  585 backend tests, frontend production build, skill validation, PostgreSQL
+  runtime checks and browser interaction pass.
+
 ## 2026-07-11 · P2 reproducible sieves and tailored research breadth
 
 - Replaced frontend-owned Discover definitions with three typed backend sieve

@@ -18,6 +18,9 @@ from app.api.schemas import (
     ResearchSnapshotOut,
     ResearchSnapshotSaveIn,
     ResearchSnapshotVerificationIn,
+    ValuationSnapshotOut,
+    ValuationSnapshotSaveIn,
+    ValuationSnapshotVerificationIn,
 )
 from app.db.base import SessionLocal
 from app.db.models import (
@@ -50,6 +53,12 @@ from app.services.research_artifacts import (
     save_research_snapshot as persist_research_snapshot,
     verify_research_snapshot as persist_research_verification,
 )
+from app.services.valuation_artifacts import (
+    ValuationArtifactError,
+    save_valuation_snapshot as persist_valuation_snapshot,
+    verify_valuation_snapshot as persist_valuation_verification,
+)
+from app.services.valuation_method_packs import list_method_packs
 
 
 class ToolInputError(ValueError):
@@ -165,6 +174,10 @@ def get_archetype_pack(arguments: dict[str, Any]) -> dict[str, Any]:
     if pack is None:
         raise ToolInputError(f"Unknown archetype '{archetype}'.")
     return {"ok": True, "archetype_pack": pack_payload(pack)}
+
+
+def get_valuation_method_packs(arguments: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {"ok": True, "method_packs": list_method_packs()}
 
 
 def get_company_dossier(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -501,6 +514,54 @@ def verify_research_snapshot(arguments: dict[str, Any]) -> dict[str, Any]:
                 "created_at": verification.created_at,
             },
         }
+    finally:
+        db.close()
+
+
+def save_valuation_snapshot(arguments: dict[str, Any]) -> dict[str, Any]:
+    case_id = arguments.get("case_id")
+    payload = arguments.get("payload")
+    if not isinstance(case_id, int) or not isinstance(payload, dict):
+        raise ToolInputError("case_id must be an integer and payload an object.")
+    try:
+        parsed = ValuationSnapshotSaveIn.model_validate(payload)
+    except ValidationError as exc:
+        raise ToolInputError(str(exc)) from exc
+    db = SessionLocal()
+    try:
+        try:
+            row = persist_valuation_snapshot(db, case_id=case_id, payload=parsed)
+        except ValuationArtifactError as exc:
+            raise ToolInputError(str(exc)) from exc
+        return {
+            "ok": True,
+            "valuation_snapshot": ValuationSnapshotOut.model_validate(row).model_dump(mode="json"),
+        }
+    finally:
+        db.close()
+
+
+def verify_valuation_snapshot(arguments: dict[str, Any]) -> dict[str, Any]:
+    case_id = arguments.get("case_id")
+    payload = arguments.get("payload")
+    if not isinstance(case_id, int) or not isinstance(payload, dict):
+        raise ToolInputError("case_id must be an integer and payload an object.")
+    try:
+        parsed = ValuationSnapshotVerificationIn.model_validate(payload)
+    except ValidationError as exc:
+        raise ToolInputError(str(exc)) from exc
+    db = SessionLocal()
+    try:
+        try:
+            row = persist_valuation_verification(db, case_id=case_id, payload=parsed)
+        except ValuationArtifactError as exc:
+            raise ToolInputError(str(exc)) from exc
+        return {"ok": True, "verification_run": {
+            "id": row.id, "agent_run_id": row.agent_run_id,
+            "model_role": row.model_role, "verifier_model": row.verifier_model,
+            "verdict": row.verdict, "checks": row.checks,
+            "summary": row.summary, "created_at": row.created_at,
+        }}
     finally:
         db.close()
 
