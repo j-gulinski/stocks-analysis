@@ -6,10 +6,15 @@ from sqlalchemy.orm import Session
 from app.api.schemas import (
     DiscoveryCandidateOut,
     DiscoveryOut,
+    DiscoverySieveOut,
 )
 from app.db.base import get_db
 from app.scrapers.biznesradar import ParseError
-from app.services.discovery import discover_candidates, stored_discovery_candidates
+from app.services.discovery import (
+    PARSER_VERSION,
+    discover_candidates,
+    stored_discovery_candidates,
+)
 
 router = APIRouter(prefix="/discovery", tags=["discovery"])
 
@@ -32,7 +37,8 @@ _RATING_RANK = {
     "B-": 1,
 }
 
-_RECALL_MIN_RATING = 5.0
+_FINANCIAL_MIN_RATING = 8.0
+_FINANCIAL_MIN_F_SCORE = 7
 
 
 def _sort_key(candidate) -> tuple:
@@ -85,13 +91,25 @@ def _rank_basis(candidate, rank: int, total: int) -> list[str]:
     ]
 
 
-def _discovery_out(
-    result, *, min_rating: float, min_f_score: int | None, limit: int
-) -> DiscoveryOut:
+def _discovery_out(result, *, limit: int) -> DiscoveryOut:
     selected = _select_candidates(
         result.candidates,
-        min_rating=min_rating,
-        min_f_score=min_f_score,
+        min_rating=_FINANCIAL_MIN_RATING,
+        min_f_score=_FINANCIAL_MIN_F_SCORE,
+    )
+    universe_count = len(result.candidates)
+    altman_count = sum(
+        item.rating is not None and item.rating_value is not None
+        for item in result.candidates
+    )
+    piotroski_count = sum(
+        item.piotroski_f_score is not None for item in result.candidates
+    )
+    joint_count = sum(
+        item.rating is not None
+        and item.rating_value is not None
+        and item.piotroski_f_score is not None
+        for item in result.candidates
     )
     candidates = []
     selected_page = selected[:limit]
@@ -132,7 +150,139 @@ def _discovery_out(
         source_note=result.source_note,
         source_version_id=result.source_version_id,
         candidates=candidates,
+        sieves=_sieves(
+            result,
+            universe_count=universe_count,
+            selected_count=len(selected),
+            altman_count=altman_count,
+            piotroski_count=piotroski_count,
+            joint_count=joint_count,
+        ),
     )
+
+
+def _pct(covered: int, total: int) -> float:
+    return round((covered / total) * 100, 1) if total else 0.0
+
+
+def _sieves(
+    result,
+    *,
+    universe_count: int,
+    selected_count: int,
+    altman_count: int,
+    piotroski_count: int,
+    joint_count: int,
+) -> list[DiscoverySieveOut]:
+    financial_gaps = []
+    if altman_count < universe_count:
+        financial_gaps.append(
+            f"Brak klasy lub wartości Altmana dla {universe_count - altman_count} spółek."
+        )
+    if piotroski_count < universe_count:
+        financial_gaps.append(
+            f"Brak F-Score Piotroskiego dla {universe_count - piotroski_count} spółek."
+        )
+    return [
+        DiscoverySieveOut(
+            id="financial_health_br_v1",
+            version="financial-health-br-v1",
+            title="Kondycja finansowa",
+            question="Które spółki łączą odporność finansową z poprawą jakości wyników?",
+            status="available",
+            universe_count=universe_count,
+            candidate_count=selected_count,
+            coverage_count=joint_count,
+            coverage_pct=_pct(joint_count, universe_count),
+            selection_rules=[
+                {
+                    "factor_id": "altman_em_score",
+                    "label": "Wartość Altman EM-Score",
+                    "operator": "gte",
+                    "threshold": _FINANCIAL_MIN_RATING,
+                },
+                {
+                    "factor_id": "piotroski_f_score",
+                    "label": "Piotroski F-Score",
+                    "operator": "gte",
+                    "threshold": _FINANCIAL_MIN_F_SCORE,
+                },
+            ],
+            factor_coverage=[
+                {
+                    "id": "altman_em_score",
+                    "label": "Kondycja finansowa (Altman EM-Score)",
+                    "covered_count": altman_count,
+                    "total_count": universe_count,
+                },
+                {
+                    "id": "piotroski_f_score",
+                    "label": "Jakość zmian w wynikach (Piotroski F-Score)",
+                    "covered_count": piotroski_count,
+                    "total_count": universe_count,
+                },
+            ],
+            source={
+                "name": "BiznesRadar",
+                "version": str(result.source_version_id),
+                "document_version_id": result.source_version_id,
+                "parser_version": PARSER_VERSION,
+                "as_of": result.fetched_at,
+            },
+            gaps=financial_gaps,
+        ),
+        DiscoverySieveOut(
+            id="obs_operating_improvement_v1",
+            version="obs-operating-improvement-v1",
+            title="Wyniki i katalizator",
+            question="Gdzie poprawa operacyjna może przełożyć się na kolejne kwartały?",
+            status="blocked",
+            universe_count=universe_count,
+            candidate_count=0,
+            coverage_count=0,
+            coverage_pct=0.0,
+            selection_rules=[],
+            factor_coverage=[
+                {"id": "revenue_driver", "label": "Trend i motor przychodów", "covered_count": 0, "total_count": universe_count},
+                {"id": "margin_leverage", "label": "Marża i dźwignia operacyjna", "covered_count": 0, "total_count": universe_count},
+                {"id": "core_result", "label": "Wynik bazowy bez zdarzeń jednorazowych", "covered_count": 0, "total_count": universe_count},
+                {"id": "cash_balance", "label": "Gotówka, kapitał obrotowy i zadłużenie", "covered_count": 0, "total_count": universe_count},
+                {"id": "valuation_history", "label": "Wycena względem własnej historii", "covered_count": 0, "total_count": universe_count},
+                {"id": "catalyst", "label": "Katalizator i ocena oczekiwań rynku", "covered_count": 0, "total_count": universe_count},
+            ],
+            source=None,
+            gaps=[
+                "Brak jednego wersjonowanego, rynkowego zestawu trendów wyników, przepływów i wyceny.",
+                "Katalizator i stopień uwzględnienia go w cenie wymagają osobnej, źródłowej oceny.",
+            ],
+        ),
+        DiscoverySieveOut(
+            id="pa_value_catalyst_v1",
+            version="pa-value-catalyst-v1",
+            title="Wartość i asymetria zdarzeń",
+            question="Gdzie wycena i konkretne zdarzenie tworzą mierzalną asymetrię?",
+            status="blocked",
+            universe_count=universe_count,
+            candidate_count=0,
+            coverage_count=0,
+            coverage_pct=0.0,
+            selection_rules=[],
+            factor_coverage=[
+                {"id": "value_quality", "label": "Wycena, rentowność i bilans", "covered_count": 0, "total_count": universe_count},
+                {"id": "normalized_result", "label": "Znormalizowany wynik i efekt bazy", "covered_count": 0, "total_count": universe_count},
+                {"id": "capital_allocation", "label": "Dywidenda, skup i alokacja kapitału", "covered_count": 0, "total_count": universe_count},
+                {"id": "owner_alignment", "label": "Ceny referencyjne właścicieli i wiarygodność zarządu", "covered_count": 0, "total_count": universe_count},
+                {"id": "event_economics", "label": "Ekonomika zdarzenia", "covered_count": 0, "total_count": universe_count},
+                {"id": "asymmetry", "label": "Mechanizm downside/upside i horyzont", "covered_count": 0, "total_count": universe_count},
+            ],
+            source=None,
+            gaps=[
+                "Brak wersjonowanego, rynkowego zestawu wyceny, jakości, bilansu i alokacji kapitału.",
+                "Brak zachowanych źródeł metod Areczeks/Elendix wystarczających do twardej selekcji.",
+                "Ekonomika zdarzeń i asymetria nie mogą być wywnioskowane z rankingu kondycji finansowej.",
+            ],
+        ),
+    ]
 
 
 def _parse_error(exc: ParseError) -> HTTPException:
@@ -147,8 +297,6 @@ def _parse_error(exc: ParseError) -> HTTPException:
 
 @router.get("", response_model=DiscoveryOut)
 def list_candidates(
-    min_rating: float = Query(default=_RECALL_MIN_RATING, ge=-1000, le=1000),
-    min_f_score: int | None = Query(default=None, ge=0, le=9),
     limit: int = Query(default=300, ge=1, le=300),
     db: Session = Depends(get_db),
 ) -> DiscoveryOut:
@@ -162,15 +310,11 @@ def list_candidates(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Brak zapisanego Discover. Najpierw uruchom jawne odświeżenie.",
         )
-    return _discovery_out(
-        result, min_rating=min_rating, min_f_score=min_f_score, limit=limit
-    )
+    return _discovery_out(result, limit=limit)
 
 
 @router.post("/refresh", response_model=DiscoveryOut)
 def refresh_candidates(
-    min_rating: float = Query(default=_RECALL_MIN_RATING, ge=-1000, le=1000),
-    min_f_score: int | None = Query(default=None, ge=0, le=9),
     limit: int = Query(default=300, ge=1, le=300),
     db: Session = Depends(get_db),
 ) -> DiscoveryOut:
@@ -179,6 +323,4 @@ def refresh_candidates(
         result = discover_candidates(db, force=True)
     except ParseError as exc:
         raise _parse_error(exc) from exc
-    return _discovery_out(
-        result, min_rating=min_rating, min_f_score=min_f_score, limit=limit
-    )
+    return _discovery_out(result, limit=limit)

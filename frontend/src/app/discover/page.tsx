@@ -19,45 +19,19 @@ import { LoadingMessages, SkeletonRows } from "@/components/Loading";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import type { DiscoveryCandidate, DiscoveryResult } from "@/lib/types";
 
-const FINANCIAL_CONDITION_MIN_SCORE = 8;
-const PIOTROSKI_MIN_SCORE = 7;
 const CANDIDATE_PAGE_SIZE = 12;
-
-const SIEVES = [
-  {
-    id: "financial-condition",
-    title: "Kondycja finansowa",
-    description: "Wstępna selekcja według odporności finansowej oraz dziewięciu testów rentowności, płynności i efektywności.",
-    factors: "Odporność bilansu · rentowność · płynność · efektywność",
-    available: true,
-  },
-  {
-    id: "obs-growth",
-    title: "Wzrost wyników · OBS",
-    description: "Ma szukać poprawy wyników, jakości zysku i katalizatora przy rozsądnej wycenie względem historii spółki.",
-    factors: "Wymaga normalizacji wyników, marż, prognoz i katalizatorów",
-    available: false,
-  },
-  {
-    id: "portal-opportunities",
-    title: "Jakość i asymetria · Portal Analiz",
-    description: "Ma łączyć jakość bilansu i przepływów z wyceną oraz policzalnym scenariuszem zdarzeń.",
-    factors: "Wymaga pełniejszych danych o gotówce, przepływach, wycenie i zdarzeniach",
-    available: false,
-  },
-] as const;
 
 function financialFactors(candidate: DiscoveryCandidate) {
   return [
     {
-      label: "Odporność finansowa",
+      label: "Altman EM-Score",
       value: fmtNumber(candidate.br_rating_value, 1),
-      note: `model Altmana${candidate.br_rating ? ` · klasa ${candidate.br_rating}` : ""}`,
+      note: `ryzyko problemów finansowych${candidate.br_rating ? ` · klasa ${candidate.br_rating}` : ""}`,
     },
     {
-      label: "Jakość zmian w wynikach",
+      label: "Piotroski F-Score",
       value: candidate.piotroski_f_score == null ? "brak" : `${candidate.piotroski_f_score}/9`,
-      note: "pozytywne sygnały Piotroskiego",
+      note: "zmiany rentowności, płynności i efektywności",
     },
   ];
 }
@@ -77,7 +51,7 @@ export default function DiscoverPage() {
     setError(null);
     try {
       const [discovery, cases] = await Promise.all([
-        getDiscovery(FINANCIAL_CONDITION_MIN_SCORE, PIOTROSKI_MIN_SCORE),
+        getDiscovery(),
         getResearchCases(),
       ]);
       setResult(discovery);
@@ -99,10 +73,7 @@ export default function DiscoverPage() {
     setError(null);
     setSuccess(null);
     try {
-      const refreshed = await refreshDiscovery(
-        FINANCIAL_CONDITION_MIN_SCORE,
-        PIOTROSKI_MIN_SCORE,
-      );
+      const refreshed = await refreshDiscovery();
       setResult(refreshed);
       setVisibleCount(CANDIDATE_PAGE_SIZE);
       setSuccess("Lista kandydatów została odświeżona ze źródła.");
@@ -143,6 +114,10 @@ export default function DiscoverPage() {
     }
   };
 
+  const activeSieve = result?.sieves.find(
+    (sieve) => sieve.id === "financial_health_br_v1" && sieve.status === "available",
+  ) ?? null;
+
   return (
     <main className="page-stack discover-page">
       <section className="page-header discovery-header">
@@ -158,33 +133,65 @@ export default function DiscoverPage() {
       </section>
 
       <section className="sieve-grid" aria-label="Dostępne sita inwestycyjne">
-        {SIEVES.map((sieve) => (
-          <article className={`sieve-card ${sieve.available ? "available" : "unavailable"}`} key={sieve.id}>
+        {loading && !result ? Array.from({ length: 3 }, (_, index) => (
+          <article className="sieve-card sieve-card-loading" key={index} aria-hidden="true">
+            <span className="skeleton" /><span className="skeleton" /><span className="skeleton" />
+          </article>
+        )) : result?.sieves.map((sieve) => {
+          const available = sieve.status === "available";
+          return (
+          <article className={`sieve-card ${available ? "available" : "unavailable"}`} key={sieve.id}>
             <header>
               <h2>{sieve.title}</h2>
-              <span className={`badge ${sieve.available ? "success" : "muted"}`}>
-                {sieve.available ? <IconCircleCheck size={13} /> : <IconLock size={13} />}
-                {sieve.available ? "Dostępne" : "Jeszcze niedostępne"}
+              <span className={`badge ${available ? "success" : "muted"}`}>
+                {available ? <IconCircleCheck size={13} /> : <IconLock size={13} />}
+                {available ? `Dostępne · ${sieve.candidate_count} kand.` : "Zablokowane"}
               </span>
             </header>
-            <p>{sieve.description}</p>
-            <small>{sieve.factors}</small>
+            <p className="sieve-question">{sieve.question}</p>
+            <div className="sieve-coverage">
+              <span>Pokrycie danych</span>
+              <strong>{sieve.coverage_count}/{sieve.universe_count} · {sieve.coverage_pct.toLocaleString("pl-PL", { maximumFractionDigits: 0 })}%</strong>
+              <div role="progressbar" aria-label={`Pokrycie danych sita ${sieve.title}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={sieve.coverage_pct}><span style={{ width: `${Math.min(100, sieve.coverage_pct)}%` }} /></div>
+            </div>
+            <dl className="sieve-factors">
+              {sieve.factor_coverage.slice(0, 3).map((factor) => (
+                <div key={factor.id}><dt>{factor.label}</dt><dd>{factor.covered_count}/{factor.total_count}</dd></div>
+              ))}
+            </dl>
+            {sieve.factor_coverage.length > 3 && (
+              <details className="sieve-gaps">
+                <summary>Pozostałe obszary ({sieve.factor_coverage.length - 3})</summary>
+                <dl className="sieve-factors">
+                  {sieve.factor_coverage.slice(3).map((factor) => (
+                    <div key={factor.id}><dt>{factor.label}</dt><dd>{factor.covered_count}/{factor.total_count}</dd></div>
+                  ))}
+                </dl>
+              </details>
+            )}
+            {sieve.gaps.length > 0 && (
+              <details className="sieve-gaps">
+                <summary>Braki danych ({sieve.gaps.length})</summary>
+                <ul>{sieve.gaps.map((gap) => <li key={gap}>{gap}</li>)}</ul>
+              </details>
+            )}
+            {sieve.source && <small>{sieve.source.name} · dane {fmtDate(sieve.source.as_of)}</small>}
           </article>
-        ))}
+        ); })}
       </section>
 
       {success && <div className="success-box" role="status">{success}</div>}
       {error && <div className="error-box" role="alert">{error}</div>}
 
-      {result && (
+      {result && activeSieve && (
         <section className="discovery-source-strip" aria-label="Stan aktywnego sita">
           <div>
             <IconDatabaseSearch size={17} />
             <span>
-              Kondycja finansowa · {result.result_count} kandydatów · dane {fmtDate(result.as_of)}
+              {activeSieve.title} · {activeSieve.candidate_count} kandydatów · dane {fmtDate(activeSieve.source?.as_of ?? result.as_of)}
             </span>
           </div>
-          <span className="badge neutral">BiznesRadar · raporty spółek</span>
+          <span className="badge neutral">{activeSieve.source?.name ?? result.source}</span>
         </section>
       )}
 
@@ -192,16 +199,24 @@ export default function DiscoverPage() {
         <div className="section-heading compact-heading">
           <div>
             <p className="section-label">Aktywne sito</p>
-            <h2 id="candidate-title">Kondycja finansowa</h2>
+            <h2 id="candidate-title">{activeSieve?.title ?? "Brak aktywnego sita"}</h2>
           </div>
           <p>To wstępna lista do dalszego poznania spółki, nie ocena inwestycyjna.</p>
         </div>
+
+        <p className="discovery-method-note">
+          Altman EM-Score szacuje kondycję finansową i ryzyko problemów; klasa AAA oznacza mocną klasyfikację w tym modelu. Piotroski F-Score to dziewięć testów zmian rentowności, płynności i efektywności. Żaden z nich nie jest werdyktem inwestycyjnym.
+        </p>
 
         {loading ? (
           <>
             <SkeletonRows rows={6} height={82} />
             <LoadingMessages messages={["Otwieram zapisaną listę kandydatów…", "Sprawdzam, które spółki są już w Research…"]} />
           </>
+        ) : !activeSieve ? (
+          <div className="empty-state">
+            Żadne sito nie ma jeszcze wystarczającego pokrycia danych, aby pokazać kandydatów.
+          </div>
         ) : !result?.candidates.length ? (
           <div className="empty-state">
             Brak zapisanej listy kandydatów. Użyj „Odśwież źródło”, aby pobrać aktualny zapis źródłowy.

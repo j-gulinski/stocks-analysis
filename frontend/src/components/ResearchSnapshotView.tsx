@@ -1,6 +1,6 @@
 "use client";
 
-/** Fixed renderer for the canonical research-snapshot-v1 artifact. */
+/** Fixed renderer for versioned canonical research-snapshot artifacts. */
 import {
   IconAlertTriangle,
   IconArrowRight,
@@ -14,6 +14,7 @@ import type {
   CompanyProfile,
   ResearchClaim,
   ResearchClaimKind,
+  ResearchArchetypePack,
   ResearchSnapshot,
   ResearchSnapshotHistory,
   ResearchSnapshotStatus,
@@ -90,12 +91,14 @@ export default function ResearchSnapshotView({
   profile,
   snapshot,
   history,
+  archetypePack,
 }: {
   ticker: string;
   companyName: string | null;
   profile: CompanyProfile;
   snapshot: ResearchSnapshot;
   history: ResearchSnapshotHistory[];
+  archetypePack: ResearchArchetypePack | null;
 }) {
   const sections = snapshot.sections;
   const drivers = profile.drivers.filter((item) =>
@@ -132,8 +135,11 @@ export default function ResearchSnapshotView({
       <aside className="snapshot-profile" aria-label="Profil badawczy spółki">
         <div>
           <span className="snapshot-label">Profil</span>
-          <strong>{ARCHETYPE_LABELS[profile.archetype]}</strong>
-          <small>pakiet {profile.archetype_version} · profil v{profile.version}</small>
+          <strong>{archetypePack?.label ?? ARCHETYPE_LABELS[profile.archetype]}</strong>
+          <small>
+            pakiet {archetypePack?.version ?? profile.archetype_version} · profil v{profile.version}
+            {archetypePack && ` · Zakres pakietu ${archetypePack.coverage_count}/${archetypePack.required_markers.length}`}
+          </small>
         </div>
         <div>
           <span className="snapshot-label">Segmenty</span>
@@ -245,6 +251,50 @@ export default function ResearchSnapshotView({
       <details className="snapshot-audit">
         <summary><IconDatabase size={15} /> Audyt źródeł i weryfikacji</summary>
         <div className="snapshot-audit-content">
+          {archetypePack && (
+            <section>
+              <h3>Zakres pakietu {archetypePack.label}</h3>
+              <div className="snapshot-pack-summary">
+                <strong>{archetypePack.coverage_count}/{archetypePack.required_markers.length}</strong>
+                <span>zakresu adresowane · {archetypePack.coverage_pct.toLocaleString("pl-PL", { maximumFractionDigits: 0 })}%</span>
+              </div>
+              <div className="snapshot-pack-groups">
+                <div>
+                  <span>Oparte na źródłach ({archetypePack.sourced_count})</span>
+                  <p>{archetypePack.required_markers.filter((marker) => marker.state === "sourced").map((marker) => marker.label).join(" · ") || "Brak"}</p>
+                </div>
+                <div>
+                  <span>Jawne założenia ({archetypePack.assumption_count})</span>
+                  <p>{archetypePack.required_markers.filter((marker) => marker.state === "assumption").map((marker) => marker.label).join(" · ") || "Brak"}</p>
+                </div>
+                <div>
+                  <span>Nazwane luki ({archetypePack.gap_count})</span>
+                  <p>{archetypePack.required_markers.filter((marker) => marker.state === "gap").map((marker) => marker.label).join(" · ") || "Brak"}</p>
+                </div>
+              </div>
+              {archetypePack.missing_markers.length > 0 && (
+                <details className="snapshot-pack-missing">
+                  <summary>Brakujące markery ({archetypePack.missing_markers.length})</summary>
+                  <ul>
+                    {archetypePack.required_markers.filter((marker) => marker.state === "missing").map((marker) => <li key={marker.id}>{marker.label}</li>)}
+                  </ul>
+                </details>
+              )}
+              <details className="snapshot-pack-missing">
+                <summary>Podstawa czynników i KPI</summary>
+                <ul>
+                  {[...profile.drivers, ...profile.kpis].filter((item) => item.focus_tags.length > 0).map((item) => (
+                    <li key={`${item.key}-${item.focus_tags[0]}`}>
+                      <strong>{item.label}:</strong>{" "}
+                      {item.source_document_version_ids.length > 0
+                        ? `dokumenty ${item.source_document_version_ids.join(", ")}`
+                        : `założenie — ${item.basis}`}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </section>
+          )}
           <section>
             <h3>Manifest źródeł</h3>
             {snapshot.source_manifest.length === 0 ? <EmptyLine>Snapshot nie zawiera manifestu źródeł.</EmptyLine> : snapshot.source_manifest.map((source) => (
@@ -284,7 +334,8 @@ export default function ResearchSnapshotView({
               <div><dt>Profil</dt><dd>{snapshot.company_profile_id}</dd></div>
               <div><dt>Verifier</dt><dd>{snapshot.verifier_result.verifier_model}</dd></div>
               <div><dt>Pokrycie twierdzeń</dt><dd>{snapshot.statement_provenance.length}</dd></div>
-              <div><dt>Fingerprint</dt><dd>{snapshot.input_fingerprint}</dd></div>
+              <div><dt>Input fingerprint</dt><dd>{snapshot.input_fingerprint}</dd></div>
+              <div><dt>Artifact fingerprint</dt><dd>{snapshot.artifact_fingerprint}</dd></div>
             </dl>
           </section>
         </div>

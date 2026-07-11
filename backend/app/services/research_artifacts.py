@@ -1,4 +1,4 @@
-"""Strict verification and atomic persistence for research-snapshot-v1."""
+"""Strict verification and atomic persistence for versioned research snapshots."""
 
 from __future__ import annotations
 
@@ -28,11 +28,27 @@ from app.db.models import (
     utcnow,
 )
 from app.services.agent_queue import clear_agent_lease
+from app.services.archetype_packs import (
+    get_pack,
+    known_marker_ids,
+)
 
 ALLOWED_WORKFLOWS = {"stock-initial-research", "stock-thesis-review"}
 SKILL = "company-research"
-SKILL_VERSION = "company-research-v1"
-CONTRACT_VERSION = "research-snapshot-v1"
+WRITE_CONTRACTS = {
+    "research-snapshot-v1": {
+        "skill_version": "company-research-v1",
+        "profile_schema_version": "company-profile-v1",
+        "strict_archetype_focus": False,
+        "archetype_contract_version": None,
+    },
+    "research-snapshot-v2": {
+        "skill_version": "company-research-v2",
+        "profile_schema_version": "company-profile-v2",
+        "strict_archetype_focus": True,
+        "archetype_contract_version": "archetype-packs-v1",
+    },
+}
 
 
 class ResearchArtifactError(ValueError):
@@ -205,10 +221,22 @@ def _validate_run(
             "Agent run inputs do not match the research case.", kind="conflict"
         )
     task = inputs.get("task") if isinstance(inputs.get("task"), dict) else {}
+    contract = WRITE_CONTRACTS.get(payload.contract_version)
     if (
-        task.get("skill") != SKILL
-        or task.get("skill_version") != SKILL_VERSION
+        contract is None
+        or task.get("skill") != SKILL
+        or task.get("skill_version") != contract["skill_version"]
         or task.get("output_contract_version") != payload.contract_version
+        or (
+            contract["strict_archetype_focus"]
+            and task.get("company_profile_schema_version")
+            != contract["profile_schema_version"]
+        )
+        or (
+            contract["strict_archetype_focus"]
+            and task.get("archetype_contract_version")
+            != contract["archetype_contract_version"]
+        )
     ):
         raise ResearchArtifactError(
             "Frozen job skill/version/output contract does not authorize this artifact.",
@@ -256,6 +284,89 @@ def _validate_contract(
         raise ResearchArtifactError("Business section references an unknown driver key.")
     if not set(payload.sections.performance.kpi_keys).issubset(kpi_keys):
         raise ResearchArtifactError("Performance section references an unknown KPI key.")
+
+    contract = WRITE_CONTRACTS[payload.contract_version]
+    if payload.profile.schema_version != contract["profile_schema_version"]:
+        raise ResearchArtifactError(
+            f"{payload.contract_version} requires {contract['profile_schema_version']}."
+        )
+    if not contract["strict_archetype_focus"]:
+        pack = None
+    else:
+        pack = get_pack(payload.profile.archetype)
+    if not contract["strict_archetype_focus"]:
+        pass
+    elif pack is None:  # Pydantic currently makes this defensive only.
+        raise ResearchArtifactError("Unknown company-profile archetype.")
+    elif payload.profile.archetype_version != pack.version:
+        raise ResearchArtifactError(
+            f"Archetype {pack.id} requires canonical pack version {pack.version}."
+        )
+    if contract["strict_archetype_focus"]:
+        assert pack is not None
+        allowed_focus = known_marker_ids(pack)
+    else:
+        allowed_focus = set()
+    evidence_focus: list[str] = []
+    for item in [*payload.profile.drivers, *payload.profile.kpis]:
+        if not contract["strict_archetype_focus"]:
+            continue
+        if len(item.focus_tags) > 1:
+            raise ResearchArtifactError(
+                f"Profile item {item.key} may address at most one archetype marker."
+            )
+        if item.focus_tags:
+            marker = item.focus_tags[0]
+            if marker != item.key:
+                raise ResearchArtifactError(
+                    f"Profile item {item.key} must use the same focus tag as its key."
+                )
+            evidence_focus.append(marker)
+    if len(evidence_focus) != len(set(evidence_focus)):
+        raise ResearchArtifactError(
+            "Each archetype marker may map to only one driver or KPI."
+        )
+
+    gap_focus: list[str] = []
+    for gap in payload.gaps:
+        if not contract["strict_archetype_focus"]:
+            continue
+        if len(gap.focus_tags) > 1:
+            raise ResearchArtifactError(
+                f"Research gap {gap.topic} may address at most one archetype marker."
+            )
+        if gap.focus_tags:
+            marker = gap.focus_tags[0]
+            if marker != gap.topic:
+                raise ResearchArtifactError(
+                    f"Research gap {gap.topic} must use the same focus tag as its topic."
+                )
+            gap_focus.append(marker)
+    if len(gap_focus) != len(set(gap_focus)):
+        raise ResearchArtifactError(
+            "Each archetype marker may map to only one explicit gap."
+        )
+
+    evidence_set = set(evidence_focus)
+    gap_set = set(gap_focus)
+    overlap = evidence_set & gap_set
+    if overlap:
+        raise ResearchArtifactError(
+            "An archetype marker cannot be both evidence-covered and an explicit gap; "
+            f"overlap={sorted(overlap)}."
+        )
+    supplied_focus = evidence_set | gap_set
+    unknown_focus = supplied_focus - allowed_focus
+    if unknown_focus:
+        raise ResearchArtifactError(
+            f"Unknown focus tags for {pack.id}: {sorted(unknown_focus)}."
+        )
+    missing_focus = allowed_focus - supplied_focus
+    if missing_focus:
+        raise ResearchArtifactError(
+            "Every required archetype marker must be covered by a driver/KPI "
+            f"or an explicit gap; missing={sorted(missing_focus)}."
+        )
 
     expected_statements = _material_statements(payload)
     expected_paths = set(expected_statements)

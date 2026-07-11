@@ -240,6 +240,7 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
             profile={researchWorkspace.profile}
             snapshot={blockedSnapshot}
             history={researchWorkspace.history}
+            archetypePack={researchWorkspace.archetype_pack}
           />
         </details>
       </main>
@@ -255,6 +256,7 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
           profile={researchWorkspace.profile}
           snapshot={researchWorkspace.latest_snapshot}
           history={researchWorkspace.history}
+          archetypePack={researchWorkspace.archetype_pack}
         />
         {dossier && hasDossierData(dossier) && (
           <details className="snapshot-legacy-entry">

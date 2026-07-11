@@ -1,4 +1,4 @@
-"""Save one research-snapshot-v1 through the canonical worker save gate."""
+"""Save one versioned research snapshot through the canonical worker save gate."""
 
 from __future__ import annotations
 

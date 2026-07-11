@@ -9,8 +9,18 @@ Process exactly one claimed company job and leave a reproducible research
 artifact. The fixed UI schema is common; the archetype and company overlay make
 the content specific.
 
-Contract version: `company-research-v1`. Output contract:
-`research-snapshot-v1`.
+Contract version: `company-research-v2`. Output contract:
+`research-snapshot-v2`; profile schema: `company-profile-v2`; archetype registry:
+`archetype-packs-v1`. A worker must use the exact versions frozen in its job.
+
+### Frozen legacy v1 jobs
+
+If and only if the claimed job freezes `company-research-v1` and
+`research-snapshot-v1`, follow that legacy contract: use `company-profile-v1`,
+omit the v2 focus-marker/archetype-registry fields, and never submit a v2 draft.
+This path exists only so already queued work remains reproducible; new jobs use
+v2. All source, point-in-time, provenance, separate-verifier, and lease gates
+still apply.
 
 ## Preconditions
 
@@ -43,6 +53,13 @@ Contract version: `company-research-v1`. Output contract:
   collector/parser versions. After the bounded refresh finishes, freeze
   snapshot `as_of` at or after the latest cited `DocumentVersion.fetched_at`;
   no later evidence may enter the draft.
+- When the same run performs collection and analysis, its exact draft manifest,
+  cutoff, immutable document versions and server-derived fingerprint are the
+  post-collection freeze boundary. If a replacement run reuses collection from
+  a superseded run, its inputs must instead freeze the exact company identity,
+  source IDs/times/parser/content hashes, failed-source attempts, deterministic
+  dossier projection/hash, calculation payload/hash and archetype pack before
+  it is claimed. Never mutate a frozen row to repair a missing boundary.
 - Run the explicit bounded company refresh requested by the job. All HTTP must
   remain inside existing polite adapters.
 - Prefer primary issuer reports, ESPI/EBI/PAP, presentations and IR. Use
@@ -53,7 +70,16 @@ Contract version: `company-research-v1`. Output contract:
 
 ### 2. Propose the research profile
 
-Select one archetype from the current supported set and state the evidence:
+Select one archetype from the current supported set and load its canonical
+version/focus contract before drafting:
+
+```bash
+cd backend
+python3 scripts/codex_get_archetype_pack.py \
+  --archetype <archetype> --pretty
+```
+
+The equivalent MCP tool is `get_archetype_pack`. Supported packs are:
 
 - `industrial-consumer`
 - `bank-financial`
@@ -67,6 +93,15 @@ Do not silently force an unsupported archetype. Use the closest supported pack
 only as `provisional`, add a named `profile-confidence` gap, and list the
 closest alternatives/differences in the overlay questions. Use `needs-human`
 only when identity or integrity prevents a safe provisional profile.
+
+Use the returned canonical `version`. Address every required focus marker
+exactly once: either one marker-specific driver/KPI whose `key` equals its
+single `focus_tag`, or one explicit gap whose `topic` equals its single
+`focus_tag`. Never bundle markers, duplicate a marker, or mark the same marker
+as both evidence and gap. A driver/KPI with source-version IDs is sourced; one
+with only `basis` is a visible assumption, not evidence. Company-specific extra
+items may omit focus tags. Reject unknown tags and do not reuse the legacy ABS
+provisional version name for a new profile.
 
 Build a company overlay containing:
 
@@ -96,13 +131,17 @@ gap. Do not repeat the same conclusion across sections.
 ### 4. Validate and verify
 
 - Run deterministic schema, unit, period, currency, sign, freshness, identity,
-  and no-look-ahead checks first.
+  no-look-ahead, canonical-pack-version and focus-marker checks first.
 - Ask the strict verifier to audit source coverage, claim support, archetype
   choice, driver relevance, contradictions, gaps, and actionability.
 - Cover every displayed material statement with one exact
   `statement_provenance` path/text claim. Drivers and KPIs need source version
   IDs or an explicit basis. Workflow questions and named gaps remain visibly
   questions/gaps, never implicit facts.
+- Confirm that pack scope distinguishes sourced driver/KPI markers, explicit
+  assumptions, named gaps, and truly missing markers. A valid new draft has no
+  truly missing marker; ordinary unresolved markers force named gaps and
+  therefore a provisional result.
 - A complete result with ordinary source gaps is `provisional`; name each gap
   and still deliver the full snapshot. Use `needs-human` only for identity,
   access, fabrication, schema, look-ahead, or calculation-integrity failures.

@@ -127,6 +127,7 @@ class ResearchDriver(StrictResearchModel):
     unit: str | None = Field(default=None, max_length=40)
     source_document_version_ids: list[int] = Field(default_factory=list)
     basis: str | None = Field(default=None, max_length=2000)
+    focus_tags: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def require_driver_provenance(self):
@@ -142,6 +143,7 @@ class ResearchKpi(StrictResearchModel):
     rationale: str = Field(min_length=1, max_length=1000)
     source_document_version_ids: list[int] = Field(default_factory=list)
     basis: str | None = Field(default=None, max_length=2000)
+    focus_tags: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def require_kpi_provenance(self):
@@ -158,7 +160,7 @@ class CompanyOverlay(StrictResearchModel):
 
 
 class CompanyProfileIn(StrictResearchModel):
-    schema_version: Literal["company-profile-v1"] = "company-profile-v1"
+    schema_version: Literal["company-profile-v1", "company-profile-v2"] = "company-profile-v2"
     version: int = Field(ge=1)
     archetype: ResearchArchetype
     archetype_version: str = Field(min_length=1, max_length=40)
@@ -266,6 +268,7 @@ class ResearchGap(StrictResearchModel):
     topic: str = Field(min_length=1, max_length=200)
     description: str = Field(min_length=1, max_length=2000)
     impact: str = Field(min_length=1, max_length=1000)
+    focus_tags: list[str] = Field(default_factory=list)
 
 
 class ResearchNextCheck(StrictResearchModel):
@@ -290,7 +293,7 @@ class ResearchVerifierResult(StrictResearchModel):
 
 
 class ResearchSnapshotDraftIn(StrictResearchModel):
-    contract_version: Literal["research-snapshot-v1"] = "research-snapshot-v1"
+    contract_version: Literal["research-snapshot-v1", "research-snapshot-v2"] = "research-snapshot-v2"
     agent_run_id: int = Field(ge=1)
     lease_owner: str = Field(min_length=1, max_length=200)
     version: int = Field(ge=1)
@@ -329,7 +332,7 @@ class ResearchSnapshotOut(BaseModel):
     agent_run_id: int
     verification_run_id: int
     version: int
-    contract_version: Literal["research-snapshot-v1"]
+    contract_version: Literal["research-snapshot-v1", "research-snapshot-v2"]
     status: ResearchSnapshotStatus
     as_of: datetime
     input_fingerprint: str
@@ -353,11 +356,37 @@ class ResearchSnapshotHistoryOut(BaseModel):
     created_at: datetime
 
 
+class ArchetypeFocusMarkerOut(BaseModel):
+    id: str
+    label: str
+    covered: bool
+    state: Literal["sourced", "assumption", "gap", "missing"]
+
+
+class ArchetypePackOut(BaseModel):
+    id: str
+    version: str
+    label: str
+    required_markers: list[ArchetypeFocusMarkerOut]
+    covered_markers: list[str]
+    sourced_markers: list[str]
+    assumption_markers: list[str]
+    gap_markers: list[str]
+    missing_markers: list[str]
+    sourced_count: int
+    assumption_count: int
+    gap_count: int
+    missing_count: int
+    coverage_count: int
+    coverage_pct: float
+
+
 class ResearchCaseWorkspaceOut(BaseModel):
     research_case: ResearchCaseSummaryOut
     profile: CompanyProfileOut | None
     latest_snapshot: ResearchSnapshotOut | None
     history: list[ResearchSnapshotHistoryOut]
+    archetype_pack: ArchetypePackOut | None = None
 
 
 class ResearchCaseStepHistoryOut(BaseModel):
@@ -468,6 +497,44 @@ class DiscoveryCandidateOut(BaseModel):
     caveat: str
 
 
+class DiscoverySieveFactorCoverageOut(BaseModel):
+    id: str
+    label: str
+    covered_count: int
+    total_count: int
+
+
+class DiscoverySieveRuleOut(BaseModel):
+    factor_id: str
+    label: str
+    operator: Literal["gte"]
+    threshold: float
+
+
+class DiscoverySieveSourceOut(BaseModel):
+    name: str
+    version: str
+    document_version_id: int
+    parser_version: str
+    as_of: datetime
+
+
+class DiscoverySieveOut(BaseModel):
+    id: str
+    version: str
+    title: str
+    question: str
+    status: Literal["available", "blocked"]
+    universe_count: int
+    candidate_count: int
+    coverage_count: int
+    coverage_pct: float
+    selection_rules: list[DiscoverySieveRuleOut]
+    factor_coverage: list[DiscoverySieveFactorCoverageOut]
+    source: DiscoverySieveSourceOut | None = None
+    gaps: list[str]
+
+
 class DiscoveryOut(BaseModel):
     source: str
     source_url: str
@@ -477,6 +544,7 @@ class DiscoveryOut(BaseModel):
     source_note: str
     source_version_id: int
     candidates: list[DiscoveryCandidateOut]
+    sieves: list[DiscoverySieveOut]
 
 
 # ---------------------------------------------------------------- companies

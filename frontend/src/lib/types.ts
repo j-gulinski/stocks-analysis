@@ -25,6 +25,39 @@ export interface DiscoveryResult {
   source_note: string;
   source_version_id: number;
   candidates: DiscoveryCandidate[];
+  sieves: DiscoverySieve[];
+}
+
+export interface DiscoverySieve {
+  id: string;
+  version: string;
+  title: string;
+  question: string;
+  status: "available" | "blocked";
+  universe_count: number;
+  candidate_count: number;
+  coverage_count: number;
+  coverage_pct: number;
+  selection_rules: Array<{
+    factor_id: string;
+    label: string;
+    operator: "gte";
+    threshold: number;
+  }>;
+  factor_coverage: Array<{
+    id: string;
+    label: string;
+    covered_count: number;
+    total_count: number;
+  }>;
+  source: {
+    name: string;
+    version: string;
+    document_version_id: number;
+    parser_version: string;
+    as_of: string;
+  } | null;
+  gaps: string[];
 }
 
 export interface Company {
@@ -117,6 +150,7 @@ export interface ResearchDriver {
   unit: string | null;
   source_document_version_ids: number[];
   basis: string | null;
+  focus_tags: string[];
 }
 
 export interface ResearchKpi {
@@ -126,6 +160,7 @@ export interface ResearchKpi {
   rationale: string;
   source_document_version_ids: number[];
   basis: string | null;
+  focus_tags: string[];
 }
 
 export interface CompanyOverlay {
@@ -138,7 +173,7 @@ export interface CompanyOverlay {
 export interface CompanyProfile {
   id: number;
   research_case_id: number;
-  schema_version: "company-profile-v1";
+  schema_version: "company-profile-v1" | "company-profile-v2";
   version: number;
   archetype: ResearchArchetype;
   archetype_version: string;
@@ -219,6 +254,7 @@ export interface ResearchGap {
   topic: string;
   description: string;
   impact: string;
+  focus_tags: string[];
 }
 
 export interface ResearchNextCheck {
@@ -252,7 +288,7 @@ export interface ResearchSnapshot {
   agent_run_id: number;
   verification_run_id: number;
   version: number;
-  contract_version: "research-snapshot-v1";
+  contract_version: "research-snapshot-v1" | "research-snapshot-v2";
   status: ResearchSnapshotStatus;
   as_of: string;
   input_fingerprint: string;
@@ -281,6 +317,30 @@ export interface ResearchWorkspace {
   profile: CompanyProfile | null;
   latest_snapshot: ResearchSnapshot | null;
   history: ResearchSnapshotHistory[];
+  archetype_pack: ResearchArchetypePack | null;
+}
+
+export interface ResearchArchetypePack {
+  id: string;
+  version: string;
+  label: string;
+  required_markers: Array<{
+    id: string;
+    label: string;
+    covered: boolean;
+    state: "sourced" | "assumption" | "gap" | "missing";
+  }>;
+  sourced_markers: string[];
+  assumption_markers: string[];
+  covered_markers: string[];
+  gap_markers: string[];
+  missing_markers: string[];
+  sourced_count: number;
+  assumption_count: number;
+  gap_count: number;
+  missing_count: number;
+  coverage_count: number;
+  coverage_pct: number;
 }
 
 export interface ResearchCaseCreateResult {

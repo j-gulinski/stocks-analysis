@@ -3,6 +3,39 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-11 · P2 reproducible sieves and tailored research breadth
+
+- Replaced frontend-owned Discover definitions with three typed backend sieve
+  contracts. Financial-health v1 freezes Altman `>= 8` and Piotroski `>= 7`,
+  exposes exact rules/source/parser/coverage, and yields 45 candidates from
+  stored GPW version 31 (384 universe, 366 joint coverage). OBS and Portal
+  Analiz stay visibly blocked with zero candidates and named data/source gaps.
+- Added seven canonical, versioned archetype packs plus read-only CLI/MCP
+  lookup. New research jobs freeze v2 skill/snapshot/profile/pack versions;
+  every required marker maps exactly once to a matching sourced driver/KPI,
+  explicit assumption, or matching gap. Bundles, mismatches, duplicates,
+  evidence-gap overlap, unknown markers and missing scope are rejected.
+- Kept legacy v1 jobs executable through an explicit picker/skill path and
+  preserved the saved ABS provisional pack alias as read-only compatibility.
+  The Research audit separates sourced markers, assumptions, gaps and missing
+  scope and exposes driver/KPI source IDs or bases.
+- Simplified Discover to three concise comparison cards, collapsing secondary
+  factor groups and gaps. Candidate rows explain Altman and Piotroski in Polish
+  and retain one `Dodaj do Research` action.
+- Completed the real SNT second-archetype pilot as immutable
+  snapshot/profile/verification `2/2/2`. Run 28 independently reproduced the
+  exact source, dossier, calculation and archetype boundary before strict pass;
+  final status is `provisional` with three sourced industrial markers and four
+  exact marker gaps. Failed handoffs were rejected before save, and OPM run 22
+  remained queued and untouched.
+- Verified 569 backend tests, frontend production build, all three skill
+  validators, runtime/DB invariants, independent code approval and browser QA
+  of Discover, Research list, ABS/SNT differentiation and the v2 audit drawer.
+- One non-material provenance basis inside the immutable SNT snapshot still
+  names `research-snapshot-v1` while explaining that valuation is separate.
+  The stored contract and audit metadata are v2; correct the wording in the
+  next SNT snapshot rather than mutating history.
+
 ## 2026-07-11 · P1 immutable tailored Research vertical
 
 - Added versioned `CompanyProfile` and immutable `ResearchSnapshot` persistence

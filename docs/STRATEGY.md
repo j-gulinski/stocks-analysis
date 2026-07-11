@@ -43,6 +43,10 @@ must not leak into current-company prompts or point-in-time backtests.
 Status: first supported market-wide sieve.
 
 Inputs: BiznesRadar Altman EM-Score grade/value and Piotroski F-Score.
+The versioned selection rule is server-owned: Altman value `>= 8.0` and
+Piotroski F-Score `>= 7`. Request callers may paginate results but cannot
+change membership without a new sieve version. The API returns these thresholds
+with the immutable source-document and parser versions.
 
 - Altman EM-Score estimates financial condition/distress risk; a high grade is
   not “the best stock”.

@@ -1,5 +1,6 @@
 """Market discovery is one cached source pull, not hundreds of company scrapes."""
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from sqlalchemy import func, select
 
 from app.db.models import (
@@ -150,31 +151,29 @@ def test_discovery_refresh_is_explicit_and_reads_use_immutable_cache_without_job
     body = first.json()
     assert body["source"] == "BiznesRadar"
     assert body["universe_count"] == 5
-    assert body["result_count"] == 5
-    assert [row["ticker"] for row in body["candidates"]] == [
-        "DEK",
-        "SHD",
-        "RBW",
-        "VGO",
-        "XTB",
+    assert body["result_count"] == 0
+    assert body["candidates"] == []
+    assert body["sieves"][0]["selection_rules"] == [
+        {
+            "factor_id": "altman_em_score",
+            "label": "Wartość Altman EM-Score",
+            "operator": "gte",
+            "threshold": 8.0,
+        },
+        {
+            "factor_id": "piotroski_f_score",
+            "label": "Piotroski F-Score",
+            "operator": "gte",
+            "threshold": 7.0,
+        },
     ]
-    assert body["candidates"][0]["reasons"] == [
-        "Odporność finansowa: 8.6 (klasa AAA)",
-        "Jakość zmian w wynikach: 6/9 pozytywnych sygnałów",
-    ]
-    missing_f_score = next(row for row in body["candidates"] if row["ticker"] == "SHD")
-    assert "Brak danych o jakości zmian w wynikach" in missing_f_score["caveat"]
     assert db.scalar(select(func.count()).select_from(Company)) == 0
     assert db.scalar(select(func.count()).select_from(WatchlistItem)) == 0
 
     second = client.get("/api/discovery?min_rating=6.5&min_f_score=0")
     assert second.status_code == 200
-    assert [row["ticker"] for row in second.json()["candidates"]] == [
-        "DEK",
-        "RBW",
-        "VGO",
-        "XTB",
-    ]
+    assert second.json()["candidates"] == body["candidates"]
+    assert second.json()["sieves"][0]["candidate_count"] == 0
     assert len(calls) == 1
     assert db.scalar(select(func.count()).select_from(AgentRun)) == 0
     assert db.scalar(select(func.count()).select_from(FetchLog)) == 1
@@ -223,7 +222,10 @@ def test_explicit_discovery_refresh_explains_rank_without_scheduling_research(
     client, db, monkeypatch, no_sleep
 ):
     def fake_fetch(url, **_kwargs):
-        response = FakeResponse(load_fixture("br_market_rating.html"))
+        html = load_fixture("br_market_rating.html").replace(
+            "<td><span>6</span></td>", "<td><span>7</span></td>", 1
+        )
+        response = FakeResponse(html)
         response.url = url
         return response
 
@@ -234,7 +236,55 @@ def test_explicit_discovery_refresh_explains_rank_without_scheduling_research(
     body = response.json()
     dek = next(row for row in body["candidates"] if row["ticker"] == "DEK")
     assert dek["rank"] == 1
-    assert dek["rank_basis"][0] == "Pozycja 1/5 w sicie kondycji finansowej."
+    assert dek["rank_basis"][0] == "Pozycja 1/1 w sicie kondycji finansowej."
     assert "modelu Altmana: 8.6 (klasa AAA)" in dek["rank_basis"][2]
 
     assert db.scalar(select(func.count()).select_from(AgentRun)) == 0
+
+
+def test_three_sieves_report_market_wide_coverage_and_limit_does_not_change_count():
+    from app.api.discovery import _discovery_out
+    from app.scrapers.biznesradar import MarketCandidate
+
+    candidates = [
+        MarketCandidate(
+            ticker=f"T{index:03}",
+            br_slug=None,
+            name=None,
+            report_period="2026Q1",
+            rating="AAA",
+            rating_value=8.0 if index < 45 else 4.0,
+            piotroski_f_score=None if index >= 366 else 7,
+        )
+        for index in range(384)
+    ]
+    result = SimpleNamespace(
+        candidates=candidates,
+        source_url="https://example.test/rating",
+        fetched_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+        source_note="fixture",
+        source_version_id=31,
+    )
+
+    body = _discovery_out(result, limit=10)
+    assert body.result_count == 10
+    assert len(body.sieves) == 3
+    financial, obs, pa = body.sieves
+    assert financial.id == "financial_health_br_v1"
+    assert financial.universe_count == 384
+    assert financial.candidate_count == 45
+    assert financial.coverage_count == 366
+    assert financial.coverage_pct == 95.3
+    assert financial.source is not None
+    assert financial.source.document_version_id == body.source_version_id == 31
+    assert financial.source.version == "31"
+    assert financial.factor_coverage[1].covered_count == 366
+    assert [rule.threshold for rule in financial.selection_rules] == [8.0, 7.0]
+    assert "18 spółek" in financial.gaps[0]
+    for blocked in (obs, pa):
+        assert blocked.status == "blocked"
+        assert blocked.candidate_count == 0
+        assert blocked.coverage_count == 0
+        assert blocked.source is None
+        assert blocked.factor_coverage
+        assert blocked.gaps

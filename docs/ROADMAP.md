@@ -6,23 +6,23 @@ retain completed detail.
 
 ## Current state
 
-P0 and P1 are complete. Discover and typed-ticker adds create/reuse/reactivate
+P0, P1 and P2 are complete. Discover and typed-ticker adds create/reuse/reactivate
 one visible case and one unclaimed initial job. A claimed worker now produces
 an immutable, source-bound `CompanyProfile`/`ResearchSnapshot`; a separate
 verifier owns final status, and the fixed company workspace renders that
 artifact. The first real pilot, ABS, is honestly `provisional` with eight named
 gaps rather than a generic or falsely verified memo.
 
-Current delivery focus: **P2 tailored breadth** — prove a materially different
-second archetype/company and expand only the sieves whose market-wide inputs
-are stored and source-grounded.
+Current delivery focus: **P3 valuation** — convert verified/provisional research
+drivers into explicit, deterministic quarter/year and price scenarios without
+blending investor methods or hiding uncertainty.
 
 | Stage | Outcome | Exit gate | Status |
 |---|---|---|---|
 | P0 · Reset | Four binding docs, obsolete artifacts removed, reads side-effect free, memory non-destructive, worker-only claims | tests prove zero-write reads, proxy verbs, archive preservation, no orphan claim | complete |
 | P1 · Research vertical | one `Dodaj do Research` command creates/reuses a company and case and one executable initial job | candidate and ticker paths are idempotent; case appears immediately; one pilot reaches a verifier-labelled snapshot | complete |
-| P2 · Tailored research + sieves | common research spine, 2–3 real archetype packs, company overlay, primary-source plan, honest OBS/PA sieves | three comparable factor/coverage views; two representative companies render different relevant sections | next |
-| P3 · Valuation | separate method packs, driver assumptions, deterministic quarter/year and price bridges | one industrial plus one non-industrial pilot reconcile and pass strict verification; sensitivity is labelled | waiting for P2 |
+| P2 · Tailored research + sieves | common research spine, 2–3 real archetype packs, company overlay, primary-source plan, honest OBS/PA sieves | three comparable factor/coverage views; two representative companies render different relevant sections | complete |
+| P3 · Valuation | separate method packs, driver assumptions, deterministic quarter/year and price bridges | one industrial plus one non-industrial pilot reconcile and pass strict verification; sensitivity is labelled | next |
 | P4 · Portfolio | dated myfund/API snapshots, mappings, history, deterministic portfolio analytics and scenario aggregation | repeated sync updates positions; history/benchmark reconcile; portfolio review cites verified company snapshots | waiting for P3 |
 | P5 · Calibration | official adjusted returns, historical availability, mixed/holdout cases and method calibration | replay is no-look-ahead, reproducible, benchmark-relative, and reports calibration limits | waiting for data |
 
@@ -88,6 +88,32 @@ completeness.
   checks, skill validation, and browser interaction all pass. Browser QA opened
   ABS from Research, rendered all six sections, and exposed the collapsed source,
   statement-provenance and verifier audit.
+
+## P2 completion evidence
+
+- Discover serves three typed, comparable sieve contracts from the backend.
+  `financial_health_br_v1` owns reproducible Altman `>= 8` and Piotroski
+  `>= 7` rules over stored market version 31: 384 companies, 366 with both
+  inputs, and 45 candidates. OBS and Portal Analiz remain blocked with zero
+  candidates and explicit source/factor gaps.
+- Seven canonical archetype packs are available through the API, MCP and a
+  read-only script. V2 snapshots require one-to-one marker accounting and
+  distinguish sourced facts, assumptions, gaps and missing scope; legacy v1
+  jobs/ABS reads remain explicit and isolated.
+- ABS renders the provisional software/services pack with only 2/5 markers
+  addressed. SNT snapshot/profile/verification `2/2/2` renders the materially
+  different industrial/consumer pack with three sourced markers and four exact
+  marker gaps; all seven pack questions are accounted for without claiming
+  missing evidence.
+- SNT AgentRun 28 froze and independently reproduced company identity, source
+  versions 31 and 39–44, parser/content hashes, failed primary-source attempt,
+  deterministic dossier projection, calculation payload and archetype version.
+  The strict verifier passed all five checks; final status remains honestly
+  `provisional` because nine evidence gaps include a controlled issuer-IR 403.
+- 569 backend tests, frontend production build, skill validation, runtime
+  invariants and browser QA pass. Browser QA confirms the concise three-sieve
+  comparison, Research list state, different ABS/SNT content, v2 audit states,
+  exact manifest and verifier evidence.
 
 ## P3 design boundary
 

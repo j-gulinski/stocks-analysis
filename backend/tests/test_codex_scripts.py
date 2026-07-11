@@ -92,7 +92,16 @@ def test_initial_research_policy_and_picker_contract_are_executable():
             status="running",
             model_role="worker_standard",
             model="gpt-5.6-terra",
-            inputs={"ticker": "DEK", "research_case_id": 4},
+            inputs={
+                "ticker": "DEK",
+                "research_case_id": 4,
+                "task": {
+                    "skill_version": "company-research-v2",
+                    "output_contract_version": "research-snapshot-v2",
+                    "company_profile_schema_version": "company-profile-v2",
+                    "archetype_contract_version": "archetype-packs-v1",
+                },
+            },
             outputs={},
         )
     )
@@ -103,6 +112,28 @@ def test_initial_research_policy_and_picker_contract_are_executable():
     assert "bounded normal company refresh" in steps
     assert "structured snapshot" in steps
     assert "verifier_strict" in steps
+    assert "every required marker exactly once" in steps
+    assert contract["frozen_contract"]["output_contract_version"] == "research-snapshot-v2"
+
+    legacy = _execution_contract(
+        AgentRun(
+            id=18,
+            workflow="stock-initial-research",
+            status="running",
+            inputs={
+                "ticker": "ABS",
+                "research_case_id": 5,
+                "task": {
+                    "skill_version": "company-research-v1",
+                    "output_contract_version": "research-snapshot-v1",
+                },
+            },
+            outputs={},
+        )
+    )
+    legacy_steps = " ".join(legacy["steps"])
+    assert "company-profile-v1" in legacy_steps
+    assert "Do not submit a v2 draft" in legacy_steps
 
 
 def test_codex_save_analysis_applies_scenario_contract_before_database_write(

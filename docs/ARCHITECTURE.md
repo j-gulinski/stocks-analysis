@@ -90,6 +90,21 @@ Codex proposes the pack and company overlay from evidence. The user may confirm
 or override it. A strict schema validator and verifier gate every UI-visible
 snapshot.
 
+New research jobs freeze `company-research-v2`, `research-snapshot-v2`,
+`company-profile-v2`, and `archetype-packs-v1`. Each required marker maps
+one-to-one to a driver/KPI with the same key or to a named gap with the same
+topic. The workspace distinguishes sourced markers, explicit assumptions,
+gaps, and missing scope; addressed scope is not mislabeled as evidence.
+Previously frozen v1 jobs retain a separate legacy write path, and the saved
+ABS provisional pack alias is resolved only for reads.
+
+A run that collects its own evidence freezes the exact post-collection source
+manifest and cutoff in the draft before independent verification. A replacement
+run may reuse earlier collection only when its queued inputs already bind the
+company identity, immutable source versions and parser/content hashes, failed
+source attempts, deterministic dossier projection, calculation payload and
+archetype version. Frozen inputs are never edited to repair a handoff.
+
 ## Source architecture
 
 Priority is primary evidence first:

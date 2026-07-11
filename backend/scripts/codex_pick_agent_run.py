@@ -63,6 +63,11 @@ def _agent_row(db, agent: AgentRun) -> dict[str, Any]:
 
 def _execution_contract(agent: AgentRun) -> dict[str, Any]:
     ticker = (agent.inputs or {}).get("ticker")
+    frozen_task = (
+        (agent.inputs or {}).get("task")
+        if isinstance((agent.inputs or {}).get("task"), dict)
+        else {}
+    )
     base: dict[str, Any] = {
         "agent_run_id": agent.id,
         "workflow": agent.workflow,
@@ -79,9 +84,19 @@ def _execution_contract(agent: AgentRun) -> dict[str, Any]:
         ),
     }
     if agent.workflow == "stock-initial-research":
+        legacy_v1 = frozen_task.get("skill_version") == "company-research-v1"
+        contract_step = (
+            "Follow the frozen legacy v1 contract: research-snapshot-v1 with "
+            "company-profile-v1; focus tags and an archetype registry contract "
+            "were not required. Do not submit a v2 draft for this job."
+            if legacy_v1
+            else "Follow the frozen v2 research, profile and archetype-pack versions; "
+            "account for every required marker exactly once as sourced, assumption, or gap."
+        )
         return {
             **base,
             "skill": "company-research",
+            "frozen_contract": frozen_task,
             "verify_command": (
                 "cd backend && ./.venv/bin/python "
                 f"scripts/codex_verify_research_snapshot.py --case-id "
@@ -94,6 +109,7 @@ def _execution_contract(agent: AgentRun) -> dict[str, Any]:
             ),
             "steps": [
                 "Read docs/PRODUCT.md, docs/ARCHITECTURE.md and the claimed job's frozen inputs.",
+                contract_step,
                 f"Run one bounded normal company refresh for {ticker or 'the queued ticker'} through the existing polite collectors.",
                 "Load the stored dossier and evidence; preserve source conflicts and failed-source gaps.",
                 "Build a company-specific research profile, common research spine and first structured snapshot in Polish.",

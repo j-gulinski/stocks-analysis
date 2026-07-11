@@ -55,8 +55,10 @@ def test_research_lab_creates_one_idempotent_case_and_initial_job_from_discovery
     )
     assert run.inputs["source_document_version_id"] == source_version_id
     assert run.inputs["task"]["skill"] == "company-research"
-    assert run.inputs["task"]["skill_version"] == "company-research-v1"
-    assert run.inputs["task"]["output_contract_version"] == "research-snapshot-v1"
+    assert run.inputs["task"]["skill_version"] == "company-research-v2"
+    assert run.inputs["task"]["output_contract_version"] == "research-snapshot-v2"
+    assert run.inputs["task"]["company_profile_schema_version"] == "company-profile-v2"
+    assert run.inputs["task"]["archetype_contract_version"] == "archetype-packs-v1"
     assert run.inputs["task"]["required_verification"] == "verifier_strict"
     assert db.scalar(select(func.count()).select_from(WatchlistItem)) == 0
 

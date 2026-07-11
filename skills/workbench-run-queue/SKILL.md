@@ -22,7 +22,10 @@ The app persists requests; this skill owns the explicit execution boundary.
 4. Follow the claimed `execution_contract`, frozen inputs, requested skill,
    and model policy. For `stock-initial-research`, use `company-research`:
    bounded collection, common research spine, sector archetype, company
-   overlay, structured snapshot, and named evidence gaps.
+   overlay, and the exact contract frozen in the row. V2 jobs require the
+   canonical archetype-pack lookup and one-to-one focus-marker accounting;
+   frozen v1 jobs use the legacy v1 section of that skill and may not submit a
+   v2 artifact.
 5. Heartbeat during long work. Deterministic services own financial math. Run
    an independent strict verifier before exposing investment judgment.
 6. For company research, the separate verifier first records its verdict with

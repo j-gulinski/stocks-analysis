@@ -77,20 +77,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 // --------------------------------------------------------------- discovery
-export const getDiscovery = (
-  minRating = 5,
-  minFScore: number | null = null,
-) => {
-  const params = new URLSearchParams({ min_rating: String(minRating) });
-  if (minFScore != null) params.set("min_f_score", String(minFScore));
-  return request<DiscoveryResult>(`/discovery?${params}`);
-};
+export const getDiscovery = () => request<DiscoveryResult>("/discovery");
 
-export const refreshDiscovery = (minRating = 8, minFScore: number | null = 7) => {
-  const params = new URLSearchParams({ min_rating: String(minRating) });
-  if (minFScore != null) params.set("min_f_score", String(minFScore));
-  return request<DiscoveryResult>(`/discovery/refresh?${params}`, { method: "POST" });
-};
+export const refreshDiscovery = () =>
+  request<DiscoveryResult>("/discovery/refresh", { method: "POST" });
 
 // ---------------------------------------------------------- research cases
 export const getResearchCases = () => request<ResearchCaseSummary[]>("/research-cases");

@@ -52,6 +52,17 @@ TOOLS: dict[str, ToolSpec] = {
         },
         stock_tools.get_model_policy,
     ),
+    "get_archetype_pack": ToolSpec(
+        "get_archetype_pack",
+        "Return the canonical version and required Polish focus markers for one research archetype.",
+        {
+            "type": "object",
+            "properties": {"archetype": {"type": "string"}},
+            "required": ["archetype"],
+            "additionalProperties": False,
+        },
+        stock_tools.get_archetype_pack,
+    ),
     "get_company_dossier": ToolSpec(
         "get_company_dossier",
         "Return the deterministic company dossier used by the UI and Codex skills.",
@@ -187,7 +198,7 @@ TOOLS: dict[str, ToolSpec] = {
     ),
     "save_research_snapshot": ToolSpec(
         "save_research_snapshot",
-        "Validate and persist one immutable research-snapshot-v1 for a claimed run.",
+        "Validate and persist one immutable versioned research snapshot for a claimed run.",
         {
             "type": "object",
             "properties": {
@@ -201,7 +212,7 @@ TOOLS: dict[str, ToolSpec] = {
     ),
     "verify_research_snapshot": ToolSpec(
         "verify_research_snapshot",
-        "Persist an independent verdict bound to one exact research-snapshot-v1 draft.",
+        "Persist an independent verdict bound to one exact versioned research snapshot draft.",
         {
             "type": "object",
             "properties": {

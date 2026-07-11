@@ -33,6 +33,7 @@ from app.db.models import (
     utcnow,
 )
 from app.scrapers.biznesradar import MarketCandidate, ParseError, parse_market_rating
+from app.services.archetype_packs import coverage_payload
 from app.services.model_policy import default_model_for_workflow
 from app.services.research_artifacts import (
     ResearchArtifactError,
@@ -44,8 +45,10 @@ router = APIRouter(prefix="/research-cases", tags=["research-cases"])
 
 _PURPOSE = "investment-research"
 _WORKFLOW = "stock-initial-research"
-_SKILL_VERSION = "company-research-v1"
-_OUTPUT_CONTRACT_VERSION = "research-snapshot-v1"
+_SKILL_VERSION = "company-research-v2"
+_OUTPUT_CONTRACT_VERSION = "research-snapshot-v2"
+_PROFILE_SCHEMA_VERSION = "company-profile-v2"
+_ARCHETYPE_CONTRACT_VERSION = "archetype-packs-v1"
 
 
 @dataclass(frozen=True)
@@ -249,6 +252,8 @@ def _ensure_research_case(
                     "skill": "company-research",
                     "skill_version": _SKILL_VERSION,
                     "output_contract_version": _OUTPUT_CONTRACT_VERSION,
+                    "company_profile_schema_version": _PROFILE_SCHEMA_VERSION,
+                    "archetype_contract_version": _ARCHETYPE_CONTRACT_VERSION,
                     "objective": (
                         "Refresh one company, organize its evidence into a tailored "
                         "research profile and save a structured first snapshot."
@@ -328,10 +333,12 @@ def get_research_workspace(
         .order_by(CompanyProfile.version.desc(), CompanyProfile.id.desc())
         .limit(1)
     )
+    profile_out = CompanyProfileOut.model_validate(profile) if profile else None
+    snapshot_out = ResearchSnapshotOut.model_validate(latest) if latest else None
     return ResearchCaseWorkspaceOut(
         research_case=_summary(research_case, company, agent, latest),
-        profile=CompanyProfileOut.model_validate(profile) if profile else None,
-        latest_snapshot=ResearchSnapshotOut.model_validate(latest) if latest else None,
+        profile=profile_out,
+        latest_snapshot=snapshot_out,
         history=[
             ResearchSnapshotHistoryOut(
                 id=item.id,
@@ -343,6 +350,11 @@ def get_research_workspace(
             )
             for item in snapshots
         ],
+        archetype_pack=(
+            coverage_payload(profile_out, snapshot_out.gaps if snapshot_out else [])
+            if profile_out
+            else None
+        ),
     )
 
 

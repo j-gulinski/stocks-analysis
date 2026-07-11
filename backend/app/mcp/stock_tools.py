@@ -44,6 +44,7 @@ from app.services import (
 )
 from app.services.model_policy import default_model_for_workflow
 from app.services.agent_queue import clear_agent_lease
+from app.services.archetype_packs import get_pack, pack_payload
 from app.services.research_artifacts import (
     ResearchArtifactError,
     save_research_snapshot as persist_research_snapshot,
@@ -156,6 +157,14 @@ def get_watchlist(arguments: dict[str, Any] | None = None) -> dict[str, Any]:
 def get_model_policy(arguments: dict[str, Any]) -> dict[str, Any]:
     workflow = _require_text(arguments, "workflow")
     return {"ok": True, "policy": model_policy.get_model_policy(workflow)}
+
+
+def get_archetype_pack(arguments: dict[str, Any]) -> dict[str, Any]:
+    archetype = _require_text(arguments, "archetype")
+    pack = get_pack(archetype)
+    if pack is None:
+        raise ToolInputError(f"Unknown archetype '{archetype}'.")
+    return {"ok": True, "archetype_pack": pack_payload(pack)}
 
 
 def get_company_dossier(arguments: dict[str, Any]) -> dict[str, Any]:
