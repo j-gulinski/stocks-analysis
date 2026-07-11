@@ -27,6 +27,7 @@ import { ApiError } from "@/lib/api";
 import { hasDossierData } from "@/lib/dossier";
 import { useApi } from "@/lib/hooks";
 import { fmtDate, fmtMcap, fmtPln, relativeDate, staleDays } from "@/lib/format";
+import { friendlySourceStatus } from "@/lib/source-status";
 import { LoadingMessages, SkeletonCards } from "@/components/Loading";
 import InsightsPanel from "@/components/InsightsPanel";
 import InvestorMemo from "@/components/InvestorMemo";
@@ -289,7 +290,7 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
                 <div className="source-row" key={source}>
                   <span className={status.startsWith("ok") || status === "cached" ? "pos" : "neg"}>●</span>
                   <span className="secondary source-name">{source}</span>
-                  <span>{status}</span>
+                  <span>{friendlySourceStatus(status)}</span>
                 </div>
               ))}
             </div>
@@ -337,7 +338,7 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
         <details className="source-status source-status-collapsed" open={hasErrors}>
           <summary>Status źródeł <span className={`badge ${hasErrors ? "warning" : "success"}`}>{hasErrors ? "wymaga uwagi" : "OK"}</span></summary>
           <button className="btn icon source-close" aria-label="Ukryj status" onClick={() => setRefreshSummary(null)}><IconX size={13} /></button>
-          <div className="source-list">{entries.map(([source, status]) => { const ok = status.startsWith("ok") || status === "cached"; return <div className="source-row" key={source}><span className={ok ? "pos" : "neg"}>●</span><span className="secondary source-name">{source}</span><span className={ok ? "secondary" : "neg"}>{status}</span></div>; })}</div>
+          <div className="source-list">{entries.map(([source, status]) => { const ok = status.startsWith("ok") || status === "cached"; return <div className="source-row" key={source}><span className={ok ? "pos" : "neg"}>●</span><span className="secondary source-name">{source}</span><span className={ok ? "secondary" : "neg"}>{friendlySourceStatus(status)}</span></div>; })}</div>
         </details>
       )}
 

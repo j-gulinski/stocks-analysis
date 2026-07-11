@@ -3,6 +3,16 @@
 Durable decisions and completed slices only. `TASKS.md` owns current status;
 implementation detail lives in stage plans, validation notes, archives and git.
 
+## 2026-07-11 · System workflow and source-error consistency
+
+Completed the use-case audit follow-up for the System route. The page now leads
+with the normal session order (ESPI/model → one queue claim → diagnostics) and
+shows a spinner while service checks are loading. The same source-status
+formatter is used in Settings and the company refresh panel, so a GPW HTTP 500
+or network exhaustion is presented as a temporary source outage with the
+watermark preserved and a later retry, while the raw error remains in backend
+storage for diagnosis.
+
 ## 2026-07-11 · Primary workflow redesign, ESPI retry state and Sol pilot
 
 Redesigned the primary UI around the actual workflow: Discover explains source

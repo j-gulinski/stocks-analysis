@@ -140,7 +140,7 @@ rules: `docs/plan-research-platform.md` §3.0 and §9, plus `AGENTS.md`.
 
 ## Active bounded UX/Codex slices
 
-- [~] **UX.1 Primary workflow redesign:** Research uses a typical-path rail,
+- [x] **UX.1 Primary workflow redesign:** Research uses a typical-path rail,
   evidence-rich rows and one explicit next action; stock workspaces explain the
   current step before exposing secondary panels; Discover retains source-rank
   reasons and staged promotion.
@@ -155,6 +155,9 @@ rules: `docs/plan-research-platform.md` §3.0 and §9, plus `AGENTS.md`.
   requested orchestrator and ended `needs-human`; the local dossier/math passed
   bounded checks, while catalyst/backlog/governance primary-source completion
   and priced outcomes remain explicit gaps.
+- [x] **UX.1b System/source failure clarity:** Settings now leads with the
+  session path and loading spinner; ESPI/source failures use one actionable
+  retry-later formatter across Settings and the company source-status panel.
 
 ## RT roadmap — next required stages
 

@@ -14,6 +14,7 @@ import {
 } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
 import { relativeDate } from "@/lib/format";
+import { friendlySourceStatus } from "@/lib/source-status";
 import { DEFAULT_ORCHESTRATOR_MODEL, modelPolicyDescription, ORCHESTRATOR_MODELS } from "@/lib/model-policy";
 import { useState } from "react";
 
@@ -47,16 +48,9 @@ function StatusCard({
           {status === "ok" ? "OK" : status === "error" ? "błąd" : "Nie skonfigurowano"}
         </span>
       )}
+      {loading && <IconRefresh size={15} className="spin" aria-label="Sprawdzanie" />}
     </div>
   );
-}
-
-function friendlyEspiMessage(value: unknown): string {
-  const raw = String(value ?? "Niepełne pobranie ESPI.");
-  if (raw.includes("HTTP 500") || raw.includes("Giving up on")) {
-    return "GPW chwilowo nie odpowiada (HTTP 500). Watermark nie został przesunięty — spróbuj ponownie później.";
-  }
-  return raw;
 }
 
 export default function SettingsPage() {
@@ -83,7 +77,7 @@ export default function SettingsPage() {
         queue: true,
       });
       if (!result.ok) {
-        setSessionError(`ESPI wymaga uwagi: ${friendlyEspiMessage(result.espi_poll.incomplete_reason)}`);
+        setSessionError(`ESPI wymaga uwagi: ${friendlySourceStatus(String(result.espi_poll.incomplete_reason ?? "Niepełne pobranie ESPI."))}`);
       } else {
         setSessionInfo(result.agent_run ? `ESPI sprawdzone; utworzono zlecenie #${result.agent_run.id}.` : "ESPI sprawdzone; nie utworzono nowego zlecenia.");
       }
@@ -109,9 +103,21 @@ export default function SettingsPage() {
   };
 
   return (
-    <main>
-      <h1 style={{ fontSize: 19, marginBottom: 16 }}>Settings</h1>
+    <main className="settings-page">
+      <section className="settings-intro">
+        <div>
+          <p className="eyebrow">System</p>
+          <h1>Sprawdź sesję, potem diagnozuj źródła</h1>
+          <p>Codzienna ścieżka jest krótka: sprawdź ESPI, odbierz najwyżej jedno zlecenie, a dopiero potem analizuj stan usług.</p>
+        </div>
+        <ol className="settings-steps" aria-label="Typowa sesja">
+          <li className="active"><span>1</span><strong>Sesja</strong><small>ESPI + model</small></li>
+          <li><span>2</span><strong>Kolejka</strong><small>jedna próba</small></li>
+          <li><span>3</span><strong>Diagnoza</strong><small>źródła i budżet</small></li>
+        </ol>
+      </section>
       <div style={{ display: "grid", gap: 10 }}>
+        <p className="settings-section-label">Stan usług</p>
         <StatusCard
           title="Backend + baza danych"
           status={health.error ? "error" : health.data ? "ok" : null}
@@ -172,6 +178,7 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        <p className="settings-section-label">Diagnostyka i limity</p>
         <div className="card">
           <p style={{ fontWeight: 500, fontSize: 13, margin: "0 0 10px" }}>
             Źródła danych (ostatnie 24 h)

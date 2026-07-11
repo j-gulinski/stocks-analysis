@@ -1230,6 +1230,32 @@ textarea {
   select { min-width: 160px; }
 }
 
+.settings-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.8fr);
+  gap: 24px;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 18px 0 20px;
+  border-bottom: 0.5px solid var(--border);
+  h1 { font-size: clamp(24px, 3vw, 32px); }
+  p:not(.eyebrow) { max-width: 700px; margin-top: 6px; color: var(--text-secondary); font-size: 14px; line-height: 1.5; }
+}
+.settings-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  li { position: relative; display: grid; gap: 3px; padding-left: 27px; color: var(--text-muted); font-size: 12px; }
+  span { position: absolute; left: 0; top: 0; display: grid; place-items: center; width: 20px; height: 20px; border: 0.5px solid var(--border); border-radius: 50%; }
+  strong { color: var(--text-secondary); font-weight: 600; }
+  small { color: var(--text-muted); font-size: 11px; }
+  .active span { border-color: var(--border-accent); color: var(--text-accent); }
+}
+.settings-section-label { margin: 8px 0 0; color: var(--text-muted); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+
 .backtest-form {
   display: grid;
   grid-template-columns: 110px 136px 136px 132px 74px auto;
@@ -3081,6 +3107,7 @@ textarea {
   .queue-summary > div { min-width: max-content; }
   .queue-summary .btn { min-width: max-content; }
   .workflow-guide { grid-template-columns: 1fr; gap: 14px; }
+  .settings-intro { grid-template-columns: 1fr; gap: 14px; }
   .research-row-head { grid-template-columns: 1fr; }
   .research-row-status { justify-content: flex-start; }
   .research-row-grid { grid-template-columns: 1fr; gap: 12px; padding: 14px 48px 36px 0; }
