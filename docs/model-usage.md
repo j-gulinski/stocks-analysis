@@ -65,6 +65,8 @@ complete. The concrete host model must be reported honestly; a role such as
 
 | 2026-07-11 | CX.16d | identity resolution, deterministic cohort-card implementation, backtest execution and strict look-ahead review | analyst_deep / verifier_strict | High-complexity: Sol | high | GPT-5 current Codex host; exact deployment not exposed | stock-backtest-review and stock-verifier skills applied; no separate delegation tool exposed, so implementation and independent verification were sequential; no escalation | DIG/SUN/OPXS identities are primary-source resolved; DGN's five-year history is separated from the 2023 POS anchor; 365/730/1095-day cards expose only unavailable outcomes on the real store, SNT stays excluded, strict run 4 is `needs-human`, and no aggregate performance/false-positive/false-negative claim is accepted; focused tests green; browser client blocked localhost and was not counted as a visual pass |
 
+| 2026-07-11 | RT2.3 issuer-IR pilot | source-registry/parser implementation, live bounded ingestion, evidence-lineage review and tests | orchestrator / verifier_strict | High-complexity: Sol | high | GPT-5 current Codex host; exact deployment not exposed | scraper-doctor skill applied; one polite live request path per issuer; no separate delegation tool exposed, so implementation and verification were sequential; no model/provider call | ABS persisted one immutable issuer index and 30 unverified same-site link claims; SNT/OPM HTTP 403 are structured temporary gaps with no bypass; parser fixtures, cache/hard-stop tests and evidence version-created regression test green |
+
 ## Recording rules
 
 - Use the task ID from `TASKS.md`; split rows when materially different work

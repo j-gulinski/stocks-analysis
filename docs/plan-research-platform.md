@@ -44,6 +44,8 @@ Remaining architecture gaps are the reason for the RT order:
   dilution, segments and normalized one-offs;
 - current multiple reversion is sensitivity, not an operating-driver scenario;
 - issuer IR and primary ESPI/EBI facts need claim-level citations;
+- the bounded RT2.3 issuer-index pilot stores only same-site report links as
+  unverified claims; blocked issuer sites stay gaps and are never bypassed;
 - replay needs point-in-time availability, corporate actions, delistings,
   declared universe, frozen versions and mixed outcomes; current small-n work
   is diagnostic evidence only.

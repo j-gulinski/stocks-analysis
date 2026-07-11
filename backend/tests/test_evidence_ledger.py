@@ -93,6 +93,32 @@ def test_forced_identical_refresh_reuses_versions_and_facts(client, db, stub_fet
     assert _counts(db) == (6, 6, 200)
 
 
+def test_record_document_version_reports_first_insert_and_identical_reuse(db):
+    from app.db.models import Company
+
+    company = Company(ticker="NEW", name="NEW TEST")
+    db.add(company)
+    db.flush()
+    kwargs = {
+        "source_name": "issuer",
+        "source_type": "issuer_ir",
+        "scope_key": "reports-index",
+        "requested_url": "https://issuer.example/reports",
+        "effective_url": "https://issuer.example/reports",
+        "content": b"same bytes",
+        "text": "same bytes",
+        "response_status": 200,
+        "mime_type": "text/html",
+    }
+
+    first = evidence.record_document_version(db, company, **kwargs)
+    second = evidence.record_document_version(db, company, **kwargs)
+
+    assert first.version_created is True
+    assert second.version_created is False
+    assert first.version.id == second.version.id
+
+
 def test_changed_page_preserves_old_as_of_and_advances_serving_pointer(
     client, db, monkeypatch
 ):

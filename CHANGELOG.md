@@ -3,6 +3,20 @@
 Durable decisions and completed slices only. `TASKS.md` owns current status;
 implementation detail lives in stage plans, validation notes, archives and git.
 
+## 2026-07-11 · RT2.3 bounded issuer-IR evidence pilot
+
+Added a declarative three-company issuer-IR registry for SNT, ABS and OPM. Each
+fetch uses the shared polite HTTP client and 24-hour cache, records immutable
+raw document versions, and extracts at most 30 valid same-site report links as
+`unverified` text facts with locators. Fixture tests cover the three observed
+page shapes, malformed/external link rejection, hard-stop handling and cache
+reuse. The live pilot stored one parsed ABS version with 30 claims; Synektik and
+OPTeam returned HTTP 403 after bounded retries and remain explicit
+`temporarily_unavailable` gaps—no bypass or additional retry was attempted.
+Expected source failures now return structured status rather than aborting the
+batch. Evidence-version creation uses SQL `RETURNING`, fixing a false
+`version_created=false` result on real first inserts.
+
 ## 2026-07-11 · CX.16d honest cohort replay cards
 
 Resolved frozen-case market identities from primary issuer/regulator sources

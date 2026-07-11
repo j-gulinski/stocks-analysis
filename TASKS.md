@@ -32,7 +32,9 @@ Take the first unchecked item. Each item should be a bounded, verifiable slice.
    valid visual gate.
 10. [~] CX.16a–d — identity-resolved 1/2/3-year cards exist; numeric outcomes
     remain blocked by exact-anchor and point-in-time price/evidence gaps.
-11. [ ] RT2.3 — ledger-grade issuer/ESPI pilot, reusing CX.15a.
+11. [~] RT2.3 — bounded issuer-IR pilot now covers SNT/ABS/OPM; ABS stored 30
+    link claims, while SNT/OPM expose polite HTTP 403 source gaps. Detail/PDF
+    claim extraction remains open.
 12. RT stages in order; add CX.16e/f and CX.17 only when prerequisites exist.
 
 ## Completed work
@@ -201,8 +203,12 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
   lineage exist; legacy rows remain honestly unlinked until refreshed.
 - [~] RT2.3: ESPI/EBI detail ingestion now bridges stored reports into the
   immutable evidence ledger with source versions and unverified claim locators.
-  Pilot issuer IR coverage for 3–5 watchlist companies and broader claim
-  extraction remain open; the CX.15a watermark is shared by the poller.
+  A bounded issuer-IR registry now covers the three watchlist companies and
+  stores index pages plus same-site report links as immutable, unverified text
+  facts. The live pilot stored ABS (30 newest valid links); Synektik and OPTeam
+  returned polite-client HTTP 403 and remain explicit temporary gaps. Report
+  detail/PDF extraction and a fourth/fifth pilot remain open; the CX.15a
+  watermark is shared by the GPW poller.
 - [ ] RT2.4–RT2.5: source terms/quality notes and corporate-action-aware
   long-history market-data evaluation.
 

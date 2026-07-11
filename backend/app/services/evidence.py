@@ -130,7 +130,7 @@ def record_document_version(
         statement = statement.on_conflict_do_nothing(
             index_elements=["source_document_id", "content_hash"]
         )
-        created = db.execute(statement).rowcount == 1
+        created = db.execute(statement.returning(DocumentVersion.id)).scalar_one_or_none() is not None
         version = db.scalar(
             select(DocumentVersion).where(
                 DocumentVersion.source_document_id == document.id,
@@ -233,7 +233,7 @@ def record_market_document_version(
         statement = statement.on_conflict_do_nothing(
             index_elements=["source_document_id", "content_hash"]
         )
-        created = db.execute(statement).rowcount == 1
+        created = db.execute(statement.returning(DocumentVersion.id)).scalar_one_or_none() is not None
         version = db.scalar(
             select(DocumentVersion).where(
                 DocumentVersion.source_document_id == document.id,
@@ -315,6 +315,77 @@ def record_numeric_fact(
             index_elements=["source_version_id", "fact_hash"]
         )
         db.execute(statement)
+        fact = db.scalar(
+            select(Fact).where(
+                Fact.source_version_id == version.id,
+                Fact.fact_hash == fact_hash,
+            )
+        )
+    assert fact is not None
+    return fact
+
+
+def record_text_fact(
+    db: Session,
+    company: Company,
+    version: DocumentVersion,
+    *,
+    fact_type: str,
+    fact_key: str,
+    text: str,
+    locator: dict,
+    period: str | None = None,
+    effective_date=None,
+    verification_state: str = "unverified",
+    extractor_version: str,
+) -> Fact:
+    """Create one immutable sourced text claim without implying verification."""
+    normalized_text = " ".join(text.split())
+    fingerprint = json.dumps(
+        {
+            "fact_type": fact_type,
+            "fact_key": fact_key,
+            "text": normalized_text,
+            "period": period,
+            "effective_date": effective_date.isoformat() if effective_date else None,
+            "locator": locator,
+            "verification_state": verification_state,
+            "extractor_version": extractor_version,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    fact_hash = hashlib.sha256(fingerprint).hexdigest()
+    fact = db.scalar(
+        select(Fact).where(
+            Fact.source_version_id == version.id,
+            Fact.fact_hash == fact_hash,
+        )
+    )
+    if fact is None:
+        statement = _insert_for(db, Fact).values(
+            company_id=company.id,
+            company_ticker=company.ticker,
+            source_version_id=version.id,
+            fact_type=fact_type,
+            fact_key=fact_key,
+            fact_hash=fact_hash,
+            text_value=normalized_text,
+            period=period,
+            effective_date=effective_date,
+            known_at=version.fetched_at,
+            locator=locator,
+            extractor_version=extractor_version,
+            confidence=1.0,
+            verification_state=verification_state,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.execute(
+            statement.on_conflict_do_nothing(
+                index_elements=["source_version_id", "fact_hash"]
+            )
+        )
         fact = db.scalar(
             select(Fact).where(
                 Fact.source_version_id == version.id,
