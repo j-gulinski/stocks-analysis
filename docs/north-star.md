@@ -2,8 +2,14 @@
 
 This is the binding product direction. It captures the user's stated working
 method and the durable decisions from the live architecture, design, guardrails
-and Malik/OBS lens. It is a **research workflow**, not an investing
-recommendation or a promise that the system can select winners.
+and Malik/OBS lens. It is a **research and decision-support workflow**: inside
+the app Codex acts as an opinionated analyst — it reasons through every step
+(via the `stock-*` skills) and commits to a scored, probability-weighted
+scenario judgment — but the user makes every buy/sell/hold decision. It is not
+third-party investment advice, not autonomous trading, and not a promise that
+the system can select winners. The scored judgment is decision support for the
+user's own call, and its worth is measured by calibration against real
+outcomes. See `docs/plan-scored-scenario-judgment.md` for the planning brief.
 
 ## The outcome we are building
 
@@ -29,8 +35,9 @@ next check and what later proved right or wrong.
 Start from a transparent main-market GPW universe, normally excluding WIG20 and
 mWIG40. This is a **user preference and starting queue**, not a claim that large
 companies cannot be attractive. The expected first-pass list is roughly 350
-companies; obvious unsuitable cases and businesses outside the user's current
-circle of competence reduce the active learning queue toward roughly 200.
+companies (the live discovery snapshot currently returns ~384 raw rows before
+these exclusions); obvious unsuitable cases and businesses outside the user's
+current circle of competence reduce the active learning queue toward roughly 200.
 
 Preferences must be editable and never silently become facts or permanent
 exclusions:
@@ -55,9 +62,12 @@ exclusions:
 4. **Resolve qualitative evidence.** Review primary reports/ESPI/EBI first,
    then use forum threads and conferences as labelled leads. Codex gathers,
    summarizes and points out gaps; it never turns a forum opinion into a fact.
-5. **Make the price-aware thesis.** State why results may improve or weaken,
-   what is or is not priced in, catalyst, counter-thesis, risks, falsifiers,
-   valuation range and next evidence check. A multiple alone is never enough.
+5. **Make the price-aware thesis and scored scenario read.** State why results
+   may improve or weaken, what is or is not priced in, catalyst, counter-thesis,
+   risks, falsifiers, valuation range and next evidence check. Codex commits to
+   multiple scenario outcomes — each with a probability and its modelled effect
+   on C/Z, other markers, price and future potential — plus an overall
+   conviction score and confidence. A multiple alone is never enough.
 6. **Record the human decision.** The journal stores the user's buy/sell/hold/
    no-action decision, price, confidence and rationale. The app provides
    decision support, never an instruction to trade.
@@ -67,18 +77,27 @@ exclusions:
 
 ## Codex's job
 
-Codex is an evidence-grounded research operator and independent critic:
+Codex is an evidence-grounded research operator, scored analyst and independent
+critic. It runs the full judgment pipeline through the `stock-*` skills —
+explore → collect → aggregate/group/value → explore outcomes → score — using
+Codex reasoning at every step:
 
 - order the queue, collect permitted stored/source evidence, extract facts and
   identify missing primary evidence;
 - draft structured case notes and challenge the user's thesis with explicit
   counter-evidence;
+- commit to a scored, probability-weighted read: multiple scenario outcomes,
+  each with a probability and its modelled effect on C/Z, other markers, price
+  and future potential, plus an overall conviction score and confidence
+  (contract in `docs/plan-scored-scenario-judgment.md`);
 - require a separate strict verifier before any UI result is marked verified;
+  the verifier owns the final scored fields;
 - retain sources, timestamps, assumptions and model/run metadata.
 
-Codex does **not** replace business judgment, silently widen the universe,
-auto-add positions, execute trades, invent valuation inputs or present an
-unverified draft as an approved conclusion.
+Codex does **not** replace the user's final decision, silently widen the
+universe, auto-add positions, execute trades, invent deterministic markers or
+valuation inputs, or present an unverified draft as an approved conclusion. The
+score is an opinion to inform the human, never an instruction to trade.
 
 ## Product priorities and acceptance test
 
@@ -92,10 +111,12 @@ generic agent machinery:
 5. honest feedback on what changed and what the user learned.
 
 Every feature must answer: **does this help the user understand a company,
-make a dated and reversible decision, or re-evaluate it after new evidence?**
-If not, it is secondary. Success is a repeated quarterly habit and a more
-useful company memory—not a high model score, a prettier screener or an
-automated portfolio.
+sharpen Codex's scored scenario judgment, make a dated and reversible decision,
+or re-evaluate it after new evidence?** If not, it is secondary. Success is a
+repeated quarterly habit, a more useful company memory, and a scored judgment
+that stays honest over time—not a score chased for its own sake, a prettier
+screener or an automated portfolio. The scored scenario read earns trust only
+by being calibrated against what actually happens.
 
 ## Relationship to existing strategy material
 

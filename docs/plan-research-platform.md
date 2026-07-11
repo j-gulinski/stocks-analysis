@@ -189,13 +189,12 @@ currency/scope/sign/share validation, deterministic score/math, `known_at <=
 as_of`, source-as-data prompt boundary, bounded retries/budget, frozen input
 snapshot, versioned skill and eval regression gate.
 
-Routing is cost-aware, not strongest-everywhere. GPT-5.3 high is reserved for
-testing/mechanical work; Luna medium handles basic implementation; Terra high
-is the default implementation tier; Sol high handles material
-synthesis/adjudication and strict verification; Sol ultra is exceptional only.
-Use the stronger suitable model at its full appropriate reasoning level; do not
-lower model quality or reasoning merely to optimize an assumed budget limit.
-Record actual model, reasoning, role and any substitution/escalation.
+Routing is cost-aware, not strongest-everywhere; the binding ladder lives in
+`AGENTS.md` §Operating policy and the `docs/model-usage.md` ledger (do not
+restate it here). Use the stronger suitable model at its full appropriate
+reasoning level; do not lower model quality or reasoning merely to optimize an
+assumed budget limit. Record actual model, reasoning, role and any
+substitution/escalation.
 
 The default local loop is session-triggered:
 

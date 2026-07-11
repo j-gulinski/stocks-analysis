@@ -14,11 +14,11 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import {
-  addToWatchlist,
   getDossier,
   getWatchlist,
   refreshCompany,
   removeFromWatchlist,
+  queueAgentRun,
 } from "@/lib/api";
 import { LoadingMessages, SkeletonRows } from "@/components/Loading";
 import { hasDossierData } from "@/lib/dossier";
@@ -160,19 +160,13 @@ export default function ResearchQueuePage() {
     setAdding(true);
     setError(null);
     try {
-      const created = await addToWatchlist(ticker);
+      const queued = await queueAgentRun({
+        workflow: "stock-initial-research", ticker, trigger: "ticker-search",
+        model_role: "worker_standard",
+        inputs: { ticker, task: { skill: "workbench-run-queue", objective: "Refresh this ticker and create its first verifier-gated research read.", watchlist_policy: "do not add automatically", required_verification: "verifier_strict" } },
+      });
       setNewTicker("");
-      setRows((current) => [...current.filter((row) => row.ticker !== created.ticker), {
-        ticker: created.ticker,
-        name: created.name,
-        dossier: null,
-        refreshing: true,
-        riskLevel: created.risk_level,
-        firedFalsifiers: created.fired_falsifiers,
-        warningFalsifiers: created.warning_falsifiers,
-      }]);
-      setAdding(false);
-      await refresh(created.ticker, true);
+      setError(`Zaplanowano research #${queued.id} dla ${ticker}. Uruchom $workbench-run-queue, aby wykonać jedno zlecenie.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -212,7 +206,7 @@ export default function ResearchQueuePage() {
         </div>
         <form className="command-row" onSubmit={addTicker}>
           <input value={newTicker} onChange={(event) => setNewTicker(event.target.value)} placeholder="Ticker, np. DEC" aria-label="Ticker spółki" className="ticker-input" />
-          <button className="btn accent" type="submit" disabled={adding}><IconPlus size={14} /> Dodaj ticker</button>
+          <button className="btn accent" type="submit" disabled={adding}><IconPlus size={14} /> Zaplanuj research</button>
         </form>
       </section>
 

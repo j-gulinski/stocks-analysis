@@ -21,6 +21,9 @@ import type {
   DecisionJournalEntry,
   Dividend,
   DiscoveryResult,
+  DiscoveryTriagePromotion,
+  DiscoveryTriageReview,
+  UniversePolicy,
   Dossier,
   EvidenceDocument,
   Financials,
@@ -106,6 +109,12 @@ export const getForecastGrowthRanking = (limit = 30) =>
   request<ForecastGrowthRanking>(
     `/discovery/forecast-growth?limit=${encodeURIComponent(String(limit))}`,
   );
+export const listDiscoveryTriageReviews = (sourceVersionId: number) => request<DiscoveryTriageReview[]>(`/discovery/triage-reviews?source_version_id=${sourceVersionId}`);
+export const createDiscoveryTriageReview = (payload: Omit<DiscoveryTriageReview, "id" | "created_by" | "created_at">) => request<DiscoveryTriageReview>("/discovery/triage-reviews", { method: "POST", body: JSON.stringify(payload) });
+export const promoteDiscoveryTriageReview = (reviewId: number) =>
+  request<DiscoveryTriagePromotion>(`/discovery/triage-reviews/${reviewId}/promote`, { method: "POST" });
+export const getUniversePolicy = () => request<UniversePolicy>("/discovery/universe-policy");
+export const refreshUniversePolicy = () => request<{ memberships: unknown[] }>("/discovery/universe-policy/refresh", { method: "POST" });
 
 // ---------------------------------------------------------------- companies
 export const getDossier = (ticker: string) =>

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Workbench Actions"
+  short_description: "Run explicit Stock Workbench actions"
+  default_prompt: "Use $workbench-actions to run one explicit Stock Workbench flow."

@@ -38,6 +38,8 @@ transport + a validation guard (same shape as the thesis refiner).
 from __future__ import annotations
 
 import re
+import hashlib
+import json
 from dataclasses import dataclass, field, replace
 from math import isclose, isfinite
 
@@ -624,6 +626,45 @@ def priced_probability_mass(scenarios: list) -> float:
         ),
         4,
     )
+
+
+def scenario_set_fingerprint(scenario_set: dict) -> str:
+    """Stable identifier for the frozen deterministic scenario input."""
+    canonical = json.dumps(scenario_set, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def deterministic_impact(scenario_set: dict, scenario_set_id: str | None) -> dict:
+    """Expose only computed scenario values; absent markers stay explicit gaps."""
+    row = next(
+        (item for item in scenario_set.get("scenarios", []) if item.get("id") == scenario_set_id),
+        None,
+    )
+    if row is None:
+        return {
+            "scenario_set_id": scenario_set_id,
+            "status": "unavailable",
+            "data_gaps": ["Brak odpowiadającego deterministycznego wiersza scenariusza."],
+        }
+    target_price = row.get("target_price")
+    upside = row.get("implied_upside_pct")
+    gaps = [
+        "Pozostałe markery operacyjne wymagają zatwierdzonego mostu template.",
+    ]
+    if target_price is None:
+        gaps.append("Brak policzalnej ceny docelowej w scenariuszu deterministycznym.")
+    return {
+        "scenario_set_id": scenario_set_id,
+        "status": "calculated" if target_price is not None else "provisional",
+        "target_multiple": row.get("target_multiple"),
+        "price_impact": {
+            "current_price": scenario_set.get("current_price"),
+            "target_price": target_price,
+            "return_pct": upside,
+            "basis": "frozen deterministic scenario_set",
+        },
+        "data_gaps": gaps,
+    }
 
 
 def verify_scenario_simulation(scenario_set: dict) -> dict:

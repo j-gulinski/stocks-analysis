@@ -35,9 +35,14 @@ If inputs are missing, return `needs-human` or `fail`; do not infer.
    - Missing data is explicit in `data_gaps`, `missing_data`, or equivalent.
    - Quick/deep company analysis with `verification_status=pass` includes
      `prediction`, `potential`, `result_quality`, `research_resolution`, and a
-     verifier-owned `company_score` basis.
+     verifier-owned `company_score` basis. When a `codex_score_base` was
+     supplied, its frozen factors/caps remain in the input snapshot and the
+     final basis explains the permitted scenario/evidence adjustments.
    - `stock-result-verifier` passed for quick/deep company analysis, or its
      failed checks are included and the result is saved as rejected.
+   - A `scored-scenario-v1` analysis contains negative/base/positive outcomes
+     whose probabilities sum to approximately 100, with driver and assumption
+     provenance (`source_ids`) or an explicit evidence gap for each outcome.
 3. Role discipline:
    - Routine extraction/ranking used `worker_standard`.
    - Deep synthesis used `analyst_deep` only after inputs were gathered.

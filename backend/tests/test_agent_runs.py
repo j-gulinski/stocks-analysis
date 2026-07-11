@@ -615,6 +615,28 @@ def test_agent_run_lease_heartbeat_and_bounded_recovery(db):
     assert exhausted.finished_at is not None
 
 
+def test_queue_claim_skips_scheduled_work_until_it_is_due(db):
+    from app.db.models import AgentRun
+    from app.services.agent_queue import claim_agent_run
+
+    future = AgentRun(
+        workflow="stock-thesis-review", trigger="test", status="queued",
+        available_at=datetime.now(timezone.utc) + timedelta(days=1), inputs={}, outputs={},
+    )
+    due = AgentRun(
+        workflow="stock-quick-analysis", trigger="test", status="queued",
+        available_at=datetime.now(timezone.utc) - timedelta(seconds=1), inputs={}, outputs={},
+    )
+    db.add_all([future, due]); db.commit()
+
+    claimed = claim_agent_run(db, worker_id="worker-a")
+
+    assert claimed is not None
+    assert claimed.id == due.id
+    db.refresh(future)
+    assert future.status == "queued"
+
+
 def test_deep_analysis_pick_contract_requires_research_resolution(db):
     from app.db.models import AgentRun
     from scripts.codex_pick_agent_run import _execution_contract

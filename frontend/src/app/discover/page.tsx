@@ -1,7 +1,7 @@
 "use client";
 
 /** Deterministic, low-request entry into the research funnel. */
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   IconAlertTriangle,
@@ -11,10 +11,10 @@ import {
   IconRefresh,
   IconShieldCheck,
 } from "@tabler/icons-react";
-import { addToWatchlist, getDiscovery, getForecastGrowthRanking, listAgentRuns } from "@/lib/api";
+import { createDiscoveryTriageReview, getDiscovery, getForecastGrowthRanking, getUniversePolicy, listAgentRuns, promoteDiscoveryTriageReview, refreshUniversePolicy } from "@/lib/api";
 import { fmtDate, fmtPct } from "@/lib/format";
 import { LoadingMessages, SkeletonRows } from "@/components/Loading";
-import type { AgentRun, DiscoveryResult, ForecastGrowthRanking } from "@/lib/types";
+import type { AgentRun, DiscoveryResult, ForecastGrowthRanking, UniversePolicy } from "@/lib/types";
 
 const FORECAST_METRIC_LABELS: Record<string, string> = {
   revenue: "Przychody",
@@ -83,10 +83,14 @@ export default function DiscoverPage() {
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [starting, setStarting] = useState<string | null>(null);
+  const [triaging, setTriaging] = useState<string | null>(null);
+  const [pendingPromotion, setPendingPromotion] = useState<{ reviewId: number; ticker: string } | null>(null);
+  const [promoting, setPromoting] = useState(false);
+  const [triage, setTriage] = useState({ price: "", note: "", outcome: "revisit_later", nextDate: "", evidence: "" });
   const [visibleCount, setVisibleCount] = useState(15);
   const [evaluationRun, setEvaluationRun] = useState<AgentRun | null>(null);
   const [forecastRanking, setForecastRanking] = useState<ForecastGrowthRanking | null>(null);
+  const [universePolicy, setUniversePolicy] = useState<UniversePolicy | null>(null);
 
   const load = async (force = false, nextPreset = presetId) => {
     const preset = PRESETS.find((item) => item.id === nextPreset) ?? PRESETS[0];
@@ -99,6 +103,7 @@ export default function DiscoverPage() {
       ]);
       setResult(discovery);
       setForecastRanking(forecasts);
+      setUniversePolicy(await getUniversePolicy());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -137,23 +142,42 @@ export default function DiscoverPage() {
     void load(false, next);
   };
 
-  const startResearch = async (ticker: string) => {
-    setStarting(ticker);
+  const refreshPolicy = async () => {
+    setLoading(true); setError(null);
+    try { await refreshUniversePolicy(); setUniversePolicy(await getUniversePolicy()); }
+    catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+    finally { setLoading(false); }
+  };
+
+  const submitTriage = async (event: FormEvent, ticker: string) => {
+    event.preventDefault();
+    if (!result) return;
+    setTriaging(ticker);
     setError(null);
     try {
-      await addToWatchlist(ticker);
+      const saved = await createDiscoveryTriageReview({ source_document_version_id: result.source_version_id, ticker, review_price_pln: Number(triage.price), note: triage.note, outcome: triage.outcome as "skip_for_now" | "revisit_later" | "promote_to_case", next_review_date: triage.nextDate, evidence_reason: triage.evidence });
+      if (saved.outcome === "promote_to_case") setPendingPromotion({ reviewId: saved.id, ticker: saved.ticker });
+      setTriaging(null); setTriage({ price: "", note: "", outcome: "revisit_later", nextDate: "", evidence: "" });
     } catch (err) {
-      // A candidate already in Research should still open normally.
-      if (!(err instanceof Error) || !err.message.includes("already")) {
-        setError(err instanceof Error ? err.message : String(err));
-        setStarting(null);
-        return;
-      }
+      setError(err instanceof Error ? err.message : String(err)); setTriaging(null);
     }
-    router.push(`/stock/${ticker}`);
+  };
+
+  const promote = async () => {
+    if (!pendingPromotion) return;
+    setPromoting(true); setError(null);
+    try {
+      const promoted = await promoteDiscoveryTriageReview(pendingPromotion.reviewId);
+      router.push(`/stock/${promoted.company.ticker}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPromoting(false);
+    }
   };
 
   const evaluated = candidateEvaluations(evaluationRun);
+  const universeReasons = new Map(universePolicy?.rows.map((row) => [row.ticker, row]) ?? []);
   const evaluationOutput = recordField(evaluationRun?.outputs.output);
   const evaluationSummary = recordField(evaluationOutput?.summary);
   const evaluatedCount = typeof evaluationSummary?.evaluated_count === "number"
@@ -179,6 +203,13 @@ export default function DiscoverPage() {
         </button>
       </section>
 
+      <section className="discovery-note" aria-label="Polityka uniwersum">
+        <p><strong>Polityka uniwersum:</strong> domyślnie wyklucza {universePolicy?.default_exclusions.join(" i ") ?? "WIG20 i mWIG40"}; to odwracalna preferencja, nie ocena sektora ani spółki.</p>
+        {universePolicy?.memberships.some((item) => item.status === "missing")
+          ? <button className="btn" onClick={() => void refreshPolicy()} disabled={loading}>Pobierz aktualny skład GPW</button>
+          : <p>{universePolicy?.memberships.map((item) => `${item.index}: ${item.as_of ?? "b/d"}`).join(" · ")}</p>}
+      </section>
+
       <section className="discovery-source-strip" aria-label="Stan źródła">
         <div>
           <IconDatabaseSearch size={17} />
@@ -195,12 +226,12 @@ export default function DiscoverPage() {
         <div className="workflow-guide-copy">
           <p className="eyebrow">Typowa ścieżka</p>
           <h2>Najpierw wybierz kandydatów, potem odśwież tylko wybrane dossier</h2>
-          <p>Ranking jest źródłowym prescreenem. Kliknięcie „Rozpocznij analizę” jest jedyną akcją, która dodaje spółkę do Research.</p>
+          <p>Ranking jest źródłowym prescreenem. Najpierw zapisz odwracalny przegląd; promocja do Research wymaga osobnej, późniejszej decyzji.</p>
         </div>
         <ol className="workflow-guide-steps">
           <li className="active"><span>1</span><strong>Przesiej</strong><small>rating + F-Score</small></li>
           <li><span>2</span><strong>Sprawdź powód</strong><small>źródła i zastrzeżenia</small></li>
-          <li><span>3</span><strong>Rozpocznij</strong><small>jawne dossier</small></li>
+          <li><span>3</span><strong>Oznacz</strong><small>przegląd człowieka</small></li>
           <li><span>4</span><strong>Zweryfikuj</strong><small>raport Codex</small></li>
         </ol>
       </section>
@@ -322,6 +353,7 @@ export default function DiscoverPage() {
         <div className="candidate-list" aria-live="polite">
           {result?.candidates.slice(0, visibleCount).map((candidate) => {
             const evaluation = evaluated.get(candidate.ticker);
+            const universeReason = universeReasons.get(candidate.ticker);
             return (
             <article className="candidate-row" key={candidate.ticker}>
               <div className="candidate-company">
@@ -355,21 +387,29 @@ export default function DiscoverPage() {
                 <span>
                   {evaluation
                     ? evaluationStatusLabel(evaluation.status)
-                    : candidate.caveat}
+                    : universeReason?.reason ?? candidate.caveat}
                 </span>
               </div>
               <div className="candidate-actions">
-                <button className="btn accent" onClick={() => void startResearch(candidate.ticker)} disabled={starting === candidate.ticker}>
-                  {starting === candidate.ticker ? (
-                    "Tworzę analizę…"
-                  ) : (
-                    <><IconPlus size={14} /> Rozpocznij analizę</>
-                  )}
-                </button>
+                <button className="btn accent" onClick={() => setTriaging(triaging === candidate.ticker ? null : candidate.ticker)}><IconPlus size={14} /> Zapisz triage</button>
                 <button className="btn icon" title="Otwórz istniejące dossier" aria-label={`Otwórz ${candidate.ticker}`} onClick={() => router.push(`/stock/${candidate.ticker}`)}>
                   <IconArrowRight size={16} />
                 </button>
               </div>
+              {triaging === candidate.ticker && <form className="candidate-triage-form" onSubmit={(event) => void submitTriage(event, candidate.ticker)}>
+                <input required type="number" min="0.01" step="0.01" placeholder="Cena przeglądu PLN" value={triage.price} onChange={(e) => setTriage({ ...triage, price: e.target.value })} />
+                <select value={triage.outcome} onChange={(e) => setTriage({ ...triage, outcome: e.target.value })}><option value="skip_for_now">Pomiń na razie</option><option value="revisit_later">Wróć później</option><option value="promote_to_case">Promuj do case</option></select>
+                <input required type="date" value={triage.nextDate} onChange={(e) => setTriage({ ...triage, nextDate: e.target.value })} />
+                <input required placeholder="Krótka notatka" value={triage.note} onChange={(e) => setTriage({ ...triage, note: e.target.value })} />
+                <input required placeholder="Powód oparty na źródle" value={triage.evidence} onChange={(e) => setTriage({ ...triage, evidence: e.target.value })} />
+                <button className="btn" type="submit">Zapisz wpis</button>
+              </form>}
+              {pendingPromotion?.ticker === candidate.ticker && <div className="candidate-triage-form">
+                <span>Wpis triage zapisany. Promocja utworzy spółkę, case oraz dwie ręcznie wykonywane pozycje kolejki: research teraz i review w terminie.</span>
+                <button className="btn accent" type="button" onClick={() => void promote()} disabled={promoting}>
+                  {promoting ? "Promuję…" : "Promuj do case"}
+                </button>
+              </div>}
             </article>
             );
           })}

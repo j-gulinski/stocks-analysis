@@ -11,7 +11,7 @@ import os
 import socket
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import AgentRun, utcnow
@@ -48,7 +48,11 @@ def claim_agent_run(
     worker_id = (worker_id or default_worker_id())[:160]
 
     for _ in range(3):
-        stmt = select(AgentRun.id).where(AgentRun.status == "queued")
+        now = utcnow()
+        stmt = select(AgentRun.id).where(
+            AgentRun.status == "queued",
+            or_(AgentRun.available_at.is_(None), AgentRun.available_at <= now),
+        )
         if agent_run_id is not None:
             stmt = stmt.where(AgentRun.id == agent_run_id)
         elif workflow:
@@ -65,7 +69,6 @@ def claim_agent_run(
                 )
             return None
 
-        now = utcnow()
         values: dict[str, object] = {
             "status": "running",
             "started_at": now,

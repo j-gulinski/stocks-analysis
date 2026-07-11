@@ -33,6 +33,7 @@ export interface DiscoveryResult {
   universe_count: number;
   result_count: number;
   source_note: string;
+  source_version_id: number;
   candidates: DiscoveryCandidate[];
   evaluation_job: {
     id: number;
@@ -50,6 +51,27 @@ export interface DiscoveryResult {
     tickers: string[];
     stale_after_days: number;
   } | null;
+}
+
+export interface DiscoveryTriageReview {
+  id: number; source_document_version_id: number; ticker: string; review_price_pln: number;
+  note: string; outcome: "skip_for_now" | "revisit_later" | "promote_to_case";
+  next_review_date: string; evidence_reason: string; created_by: string | null; created_at: string;
+}
+
+export interface DiscoveryTriagePromotion {
+  company: Company;
+  research_case: ResearchCase;
+  initial_research_run_id: number;
+  quarterly_review_run_id: number;
+  created_company: boolean;
+  created_case: boolean;
+}
+
+export interface UniversePolicy {
+  default_exclusions: string[];
+  memberships: Array<{ index: string; status: "ready" | "missing"; as_of?: string; source_version_id?: number }>;
+  rows: Array<{ ticker: string; included: boolean; reason: string; excluded_by: string[] }>;
 }
 
 export interface ForecastGrowthMetric {
@@ -141,6 +163,12 @@ export interface ResearchCase {
   current_step: ResearchCaseStep;
   as_of: string | null;
   blocked_reason: string | null;
+  promotion_triage_review_id: number | null;
+  promotion_review_price_pln: number | null;
+  promotion_note: string | null;
+  promotion_evidence_reason: string | null;
+  quarterly_review_due_on: string | null;
+  material_event_review_policy: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -949,6 +977,7 @@ export interface AgentRun {
   error: string | null;
   started_at: string | null;
   finished_at: string | null;
+  available_at: string | null;
   created_at: string;
   updated_at: string;
 }

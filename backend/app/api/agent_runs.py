@@ -34,6 +34,8 @@ ALLOWED_WORKFLOWS = {
     "stock-candidate-scout",
     "stock-backtest-review",
     "stock-verifier",
+    "stock-initial-research",
+    "stock-thesis-review",
 }
 
 
@@ -103,6 +105,7 @@ def queue_agent_run(payload: AgentRunCreateIn, db: Session = Depends(get_db)) ->
         model_role=payload.model_role,
         model=selected_model,
         orchestrator_model=payload.orchestrator_model or selected_model,
+        available_at=payload.available_at,
         inputs=inputs,
         outputs={},
     )

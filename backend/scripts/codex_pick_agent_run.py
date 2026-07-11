@@ -16,7 +16,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.db.base import SessionLocal
 from app.db.models import AgentRun, Company
@@ -54,6 +54,7 @@ def _agent_row(db, agent: AgentRun) -> dict[str, Any]:
         "lease_owner": agent.lease_owner,
         "heartbeat_at": agent.heartbeat_at,
         "lease_expires_at": agent.lease_expires_at,
+        "available_at": agent.available_at,
         "attempt_count": agent.attempt_count,
         "created_at": agent.created_at,
         "updated_at": agent.updated_at,
@@ -103,6 +104,18 @@ def _execution_contract(agent: AgentRun) -> dict[str, Any]:
                 "Treat market-cap sweet-spot fit as strategy context, not a company risk.",
                 "Run stock-result-verifier and stock-verifier before saving any verified status.",
                 "Save through save_analysis_run with this agent_run_id.",
+            ],
+        }
+    if agent.workflow == "stock-thesis-review":
+        return {
+            **base,
+            "skill": "stock-thesis-review",
+            "steps": [
+                "Read docs/project-guardrails.md and the frozen promotion/review inputs.",
+                f"Use get_company_dossier for {ticker or 'the queued ticker'} and compare it with the prior triage/journal context.",
+                "Review new primary evidence and material events; record an explicit gap when none is stored.",
+                "Update thesis/scenarios only from dated evidence, then run stock-result-verifier and stock-verifier.",
+                "Save through save_analysis_run with this agent_run_id; never make a trade instruction.",
             ],
         }
     if agent.workflow == "stock-pre-session-brief":
@@ -173,6 +186,9 @@ def _query_agents(db, *, status: str, workflow: str | None, limit: int) -> list[
         .order_by(AgentRun.created_at.asc(), AgentRun.id.asc())
         .limit(_bounded_limit(limit))
     )
+    if status == "queued":
+        from app.db.models import utcnow
+        stmt = stmt.where(or_(AgentRun.available_at.is_(None), AgentRun.available_at <= utcnow()))
     if workflow:
         stmt = stmt.where(AgentRun.workflow == workflow)
     return list(db.scalars(stmt))

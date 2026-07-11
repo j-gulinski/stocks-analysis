@@ -73,21 +73,46 @@ Take the first unchecked item. Each item should be a bounded, verifiable slice.
     links parse as discovery evidence without being promoted to report slugs;
     cached failed source versions are safely re-parsed after a parser upgrade
     and malformed source pages return a controlled 503 instead of an API 500.
-20. [ ] **NS.2 — Universe triage ledger.** Add a separate, append-only human
+20. [x] **SJ.0 — Scored-analysis output contract + schema.** `analysis_runs`
+    persist an explicit legacy/scored-output contract version. Existing analysis
+    JSON stays readable as `legacy`; no scoring, probability or valuation
+    behavior changes until the following slices add them. Next: SJ.1 scenario
+    probabilities and provenance.
+21. [x] **SJ.1 — Scenario probabilities and provenance.** Verified
+    `scored-scenario-v1` analyses now require mutually-exclusive
+    negative/base/positive outcomes with probabilities summing to ~100 and
+    non-empty driver/assumption `source_ids` or explicit gaps. Legacy analyses
+    remain readable; quantified impacts are deferred to SJ.2.
+22. [x] **SJ.2 — Frozen deterministic per-outcome impacts.** Each verified
+    scored outcome is bound to a fingerprinted `input_snapshot.scenario_set`;
+    Python verifies its copied target multiple/price/upside or explicit gaps.
+    Operating markers remain provisional until an approved template bridge can
+    calculate them.
+23. [x] **WBS.1 — Codex-only Workbench score base.** Refactored the existing
+    deterministic scoring module into a reusable, frozen analysis input with
+    growth/revenue/profit as the largest factor. It is returned only to MCP/CLI
+    Codex dossier reads, not the Dossier/UI contract; skills require the strict
+    verifier to preserve the input and own the final scored judgment.
+23. [x] **NS.2 — Universe triage ledger.** Added append-only human
     review record keyed by immutable discovery version + ticker: review price,
     short note, `skip_for_now`/`revisit_later`/`promote_to_case`, next-review
     date and evidence reason. Do not create a Company or change the watchlist
-    until the user explicitly promotes a row. Verify API/UI with a current
-    384-row discovery snapshot.
-21. [ ] **NS.3 — Transparent universe policy.** Add an evidence-dated GPW
+    until the user explicitly promotes a row. API/UI binds each review to the
+    immutable source version and validates that its ticker belongs to it.
+24. [x] **NS.3 — Transparent universe policy.** Added an evidence-dated GPW
     membership adapter for the user’s WIG20/mWIG40 default exclusions and
     reversible qualitative preferences. Show the source, as-of date and why a
     row is included/excluded; never infer a permanent “mine” from a sector.
-22. [ ] **NS.4 — Promotion and recurring review.** Promote one triage row into
-    a stored Company/ResearchCase only by explicit user action, carry the human
-    note/price forward, then schedule quarterly/material-event thesis review
-    and journal comparison. Keep primary evidence, forum leads and Codex work
-    visibly distinct.
+    Official GPW Benchmark snapshots are explicit UI refreshes and validate the
+    expected 20/40 portfolio sizes before becoming stored policy evidence.
+25. [x] **NS.4 — Promotion and recurring review.** An explicit second action
+    promotes only a `promote_to_case` immutable triage row into a Company and
+    ResearchCase, preserving review price/note/evidence provenance without
+    adding a watchlist item. It queues initial research now plus a
+    future-dated quarterly thesis review that remains unclaimable until due and
+    is still executed only by the user-run queue skill. Material-event review
+    remains an explicit `manual-after-stored-event` case policy; no event or
+    worker auto-starts Codex.
 
 ## Completed work
 

@@ -22,6 +22,9 @@ use a bounded worker pass, verify it, then save a structured result.
 2. Load the dossier:
    - Prefer MCP `get_company_dossier`.
    - If MCP is unavailable, run `cd backend && python3 scripts/codex_get_dossier.py TICKER`.
+   - Keep the returned top-level `codex_score_base` with the frozen
+     `input_snapshot`. It is the Workbench's transparent weighting base for
+     this analysis only, not a standalone Dossier/UI rating or trade signal.
    - If the script says the company is unknown or stale, tell the user what must
      be refreshed instead of inventing data.
 3. Draft the quick read using only the dossier and stored event reports:
@@ -62,7 +65,9 @@ The saved `output` object must contain:
 - `data_gaps`
 - `next_action`
 - `confidence`
-- `alignment_score` when supported by inputs
+- `company_score` / `alignment_score` when supported by inputs. The strict
+  verifier owns its final value and explains how the frozen `codex_score_base`,
+  research evidence and scenario upside/downside were combined.
 - `prediction`:
   - `direction`: `positive`, `neutral`, or `negative`
   - `horizon_days`

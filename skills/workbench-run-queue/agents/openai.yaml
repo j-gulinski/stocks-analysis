@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run Workbench Queue"
+  short_description: "Process one queued Workbench task"
+  default_prompt: "Use $workbench-run-queue to process exactly one queued Workbench task."

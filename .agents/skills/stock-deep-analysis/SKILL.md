@@ -11,18 +11,19 @@ structured result for the UI.
 
 ## Model routing
 
-- Use `gpt-5.3-codex-spark` as the default research and drafting model. It may
-  act as `orchestrator`, `worker_standard`, and `analyst_deep` while gathering
-  sources, resolving event context, formatting evidence, and synthesizing the
-  draft memo.
-- Let the 5.3 worker iterate until every material question is sourced or
+- Use `gpt-5.6-terra` at high reasoning as the default research and drafting
+  model. It may act as `orchestrator`, `worker_standard`, and `analyst_deep`
+  while gathering sources, resolving event context, formatting evidence, and
+  synthesizing the draft memo. Reserve `gpt-5.3-codex-spark` for purely
+  mechanical bounded sub-loops only.
+- Let the Terra worker iterate until every material question is sourced or
   explicitly recorded as a gap. Stop repeating searches that add no new
   primary evidence.
-- Use `verifier_strict` with the strongest model available on the current
-  Codex host, at high reasoning, after the merged draft. The verifier reads the
-  frozen dossier/source manifest independently and owns the final
+- Use `gpt-5.6-sol` at high reasoning as the independent `verifier_strict`
+  pass after the merged draft. The verifier reads the frozen dossier/source
+  manifest independently and owns the final
   `prediction`, `confidence`, `result_quality`, and verification status.
-- Never mark a 5.3 draft verified without that separate strongest-model pass.
+- Never mark a Terra draft verified without that separate Sol pass.
   Record both models and roles in `input_snapshot.model_trace`.
 
 ## Procedure
@@ -32,11 +33,15 @@ structured result for the UI.
    - If MCP is unavailable, use `cd backend && python3 scripts/codex_get_dossier.py TICKER`.
    - Add `--use-ai-refiners` only when the user accepts model-assisted refiners
      and the local configuration supports them.
+   - Freeze the returned top-level `codex_score_base` in `input_snapshot`. It
+     weights growth in revenue/profit first and records deterministic gaps and
+     caps; it is input to the verifier-owned final judgment, never a Dossier
+     rating or a trading instruction.
 2. Audit source freshness:
    - Identify stale financials, prices, forum sync, event reports, or missing
      scenario/backtest context.
    - Refresh only through app scripts/API/MCP tools, never by ad hoc scraping.
-3. Run a source-completion loop with `gpt-5.3-codex-spark`:
+3. Run a source-completion loop with `gpt-5.6-terra` at high reasoning:
    - Start from stored dossier, source documents and event reports.
    - When a material interpretation remains unexplained, browse primary
      sources in this order: issuer IR/reports, ESPI/EBI, GPW. Use secondary
@@ -67,21 +72,21 @@ structured result for the UI.
      material conclusions require stored issuer/ESPI/EBI/GPW evidence where
      available. Record `confirmed`, `partial`, or `not_found` plus sources and
      the remaining gap for each topic.
-4. Merge one draft memo with explicit evidence and dates. The 5.3 draft may
+4. Merge one draft memo with explicit evidence and dates. The Terra draft may
    propose prediction/confidence fields, but they are not authoritative.
-5. Run `stock-result-verifier` with the strongest configured model as a
+5. Run `stock-result-verifier` with `gpt-5.6-sol` at high reasoning as a
    feedback loop on the merged memo:
    - compare stated result causes, one-off risk, scenario validity and
      potential against the gathered dossier;
    - independently decide the final prediction direction, confidence and
      result-quality fields from frozen evidence and deterministic values;
-   - send only failed fields back to the 5.3 worker for one revision;
+   - send only failed fields back to the Terra worker for one revision;
    - escalate or save rejected if the second pass still fails.
-6. Verify with `stock-verifier`, still using the strongest configured model.
+6. Verify with `stock-verifier`, still using `gpt-5.6-sol` at high reasoning.
    This is a distinct source/schema/safety approval, not a prose polish pass.
 7. Save with MCP `save_analysis_run` using workflow `stock-deep-analysis`,
-   `model_role=verifier_strict`, and the final verifier model. Preserve the 5.3
-   research/draft pass and source manifest in `input_snapshot.model_trace`.
+   `model_role=verifier_strict`, and the final verifier model. Preserve the
+   Terra research/draft pass and source manifest in `input_snapshot.model_trace`.
    If MCP is unavailable, fall back to `codex_save_analysis.py`. Save rejected
    drafts too when they contain useful verifier notes.
 
@@ -93,6 +98,8 @@ The saved `output` object must contain:
   uncertainty preamble;
 - `company_score` — `{value, scale, basis}` owned by the verifier. Also copy
   `value` to the existing integer `alignment_score` field used by run storage.
+  Its `basis` must say how the frozen `codex_score_base`, source-grounded
+  catalyst/business evidence and probability-weighted scenarios were combined.
   Forum-author reputation and company size must not raise or lower this score
   by themselves;
 - `thesis`
@@ -111,6 +118,11 @@ The saved `output` object must contain:
     `finding`, `source_ids`/URLs, `as_of`, and `remaining_gap` when applicable;
   - do not repeat an already researched item as an imperative for the user;
 - `confidence`
+- `scenario_outcomes` when `analysis_contract_version=scored-scenario-v1`:
+  - negative, base and positive mutually-exclusive outcomes with
+    `probability_pct` summing to approximately 100;
+  - each outcome's `drivers` and `assumptions` is a non-empty list carrying
+    `source_ids`, or an explicit `gap` where primary evidence is unavailable;
 - `prediction`:
   - `direction`: `positive`, `neutral`, or `negative`
   - `horizon_days`

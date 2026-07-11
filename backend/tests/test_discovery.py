@@ -183,7 +183,7 @@ def test_discovery_api_fetches_once_then_uses_immutable_cache(
     assert len(calls) == 1
     assert second.json()["evaluation_job"]["id"] == first_job["id"]
     assert second.json()["evaluation_job"]["reused"] is True
-    assert db.scalar(select(func.count()).select_from(AgentRun)) == 1
+    assert db.scalar(select(func.count()).select_from(AgentRun)) == 6
     assert db.scalar(select(func.count()).select_from(FetchLog)) == 1
     assert db.scalar(select(func.count()).select_from(SourceDocument)) == 1
     version = db.scalar(select(DocumentVersion))
@@ -199,8 +199,86 @@ def test_discovery_api_fetches_once_then_uses_immutable_cache(
     assert db.scalar(select(func.count()).select_from(FetchLog)) == 2
     assert forced.json()["evaluation_job"]["id"] == first_job["id"]
     assert forced.json()["evaluation_job"]["reused"] is True
-    assert db.scalar(select(func.count()).select_from(AgentRun)) == 1
+    assert db.scalar(select(func.count()).select_from(AgentRun)) == 6
 
+
+def test_discovery_triage_review_is_append_only_and_never_creates_company(
+    client, db, monkeypatch, no_sleep
+):
+    def fake_fetch(url, **_kwargs):
+        response = FakeResponse(load_fixture("br_market_rating.html")); response.url = url
+        return response
+    monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
+    snapshot = client.get("/api/discovery").json()
+    payload = {
+        "source_document_version_id": snapshot["source_version_id"], "ticker": "DEK",
+        "review_price_pln": 52.5, "note": "Sprawdzić raport roczny.",
+        "outcome": "revisit_later", "next_review_date": "2026-10-01",
+        "evidence_reason": "Wysoki rating i F-Score są tylko prescreenem źródłowym.",
+    }
+    created = client.post("/api/discovery/triage-reviews", json=payload)
+    assert created.status_code == 201
+    assert created.json()["ticker"] == "DEK"
+    assert client.get(f"/api/discovery/triage-reviews?source_version_id={snapshot['source_version_id']}").json()[0]["id"] == created.json()["id"]
+    assert db.scalar(select(func.count()).select_from(Company)) == 0
+    assert db.scalar(select(func.count()).select_from(WatchlistItem)) == 0
+
+
+def test_explicit_promotion_carries_triage_context_and_queues_manual_research(
+    client, db, monkeypatch, no_sleep
+):
+    from app.db.models import ResearchCase
+
+    def fake_fetch(url, **_kwargs):
+        response = FakeResponse(load_fixture("br_market_rating.html")); response.url = url
+        return response
+
+    monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
+    snapshot = client.get("/api/discovery").json()
+    review = client.post("/api/discovery/triage-reviews", json={
+        "source_document_version_id": snapshot["source_version_id"], "ticker": "DEK",
+        "review_price_pln": 52.5, "note": "Sprawdzić raport roczny.",
+        "outcome": "promote_to_case", "next_review_date": "2026-10-01",
+        "evidence_reason": "Wysoki rating i F-Score to tylko prescreen źródłowy.",
+    })
+    assert review.status_code == 201
+
+    promoted = client.post(f"/api/discovery/triage-reviews/{review.json()['id']}/promote")
+
+    assert promoted.status_code == 201
+    body = promoted.json()
+    assert body["company"]["ticker"] == "DEK"
+    assert body["created_company"] is True
+    assert body["created_case"] is True
+    assert body["research_case"]["promotion_triage_review_id"] == review.json()["id"]
+    assert body["research_case"]["promotion_review_price_pln"] == 52.5
+    assert body["research_case"]["promotion_note"] == "Sprawdzić raport roczny."
+    assert body["research_case"]["quarterly_review_due_on"] == "2026-10-01"
+    assert body["research_case"]["material_event_review_policy"] == "manual-after-stored-event"
+    run = db.get(AgentRun, body["initial_research_run_id"])
+    assert run.workflow == "stock-deep-analysis"
+    assert run.status == "queued"
+    assert run.inputs["task"]["automation_policy"].startswith("user invokes")
+    assert db.scalar(select(func.count()).select_from(WatchlistItem)) == 0
+    assert db.scalar(select(func.count()).select_from(ResearchCase)) == 1
+    assert client.post(f"/api/discovery/triage-reviews/{review.json()['id']}/promote").status_code == 201
+
+
+def test_promotion_requires_the_explicit_triage_outcome(client, monkeypatch, no_sleep):
+    def fake_fetch(url, **_kwargs):
+        response = FakeResponse(load_fixture("br_market_rating.html")); response.url = url
+        return response
+
+    monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
+    snapshot = client.get("/api/discovery").json()
+    review = client.post("/api/discovery/triage-reviews", json={
+        "source_document_version_id": snapshot["source_version_id"], "ticker": "DEK",
+        "review_price_pln": 52.5, "note": "Zachowaj na później.",
+        "outcome": "revisit_later", "next_review_date": "2026-10-01",
+        "evidence_reason": "Triage nie jest jeszcze decyzją o researchu.",
+    })
+
+    assert client.post(f"/api/discovery/triage-reviews/{review.json()['id']}/promote").status_code == 422
 
 def test_changed_market_snapshot_queues_one_new_scout_job(
     client, db, monkeypatch, no_sleep
@@ -223,7 +301,7 @@ def test_changed_market_snapshot_queues_one_new_scout_job(
     assert first.json()["evaluation_job"]["id"] != second.json()["evaluation_job"]["id"]
     assert second.json()["evaluation_job"]["reused"] is False
     assert db.scalar(select(func.count()).select_from(DocumentVersion)) == 2
-    assert db.scalar(select(func.count()).select_from(AgentRun)) == 2
+    assert db.scalar(select(func.count()).select_from(AgentRun)) == 12
 
 
 def test_forced_discovery_explains_rank_and_queues_stale_stored_top_candidate(
@@ -269,17 +347,20 @@ def test_forced_discovery_explains_rank_and_queues_stale_stored_top_candidate(
     scheduled = body["scheduled_analysis"]
     assert scheduled == {
         "considered": 5,
-        "queued": 1,
+        "queued": 5,
         "skipped_recent": 0,
         "skipped_pending": 0,
-        "skipped_not_stored": 4,
-        "tickers": ["DEK"],
+        "skipped_not_stored": 0,
+        "tickers": ["DEK", "SHD", "RBW", "VGO", "XTB"],
         "stale_after_days": 7,
     }
     quick = db.scalar(
-        select(AgentRun).where(AgentRun.workflow == "stock-quick-analysis")
+        select(AgentRun).where(
+            AgentRun.workflow == "stock-initial-research",
+            AgentRun.inputs["ticker"].as_string() == "DEK",
+        )
     )
     assert quick is not None
-    assert quick.company_id == company.id
+    assert quick.company_id is None
     assert quick.inputs["candidate_rank"] == 1
     assert quick.inputs["task"]["required_verification"] == "verifier_strict"

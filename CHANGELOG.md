@@ -3,6 +3,148 @@
 Durable decisions and completed slices only. `TASKS.md` owns current status;
 implementation detail lives in stage plans, validation notes, archives and git.
 
+## 2026-07-11 · Continuous user-directed execution policy
+
+`AGENTS.md` now preserves the user's explicit instruction to continue from a
+verified bounded slice directly into the next eligible task. This is a Codex
+working-style rule, not a recurring worker: the app queue and any Codex run
+remain explicitly user-invoked.
+
+## 2026-07-11 · SJ.2 frozen deterministic scenario impacts
+
+Scored outcomes now persist a SHA-256 link to the frozen deterministic scenario
+set. The save contract checks every linked multiple, target price and upside
+against that snapshot, while unavailable price/operating markers remain
+explicit gaps. This reuses the proven scenario engine and does not let Codex
+invent a second projection calculation.
+
+## 2026-07-11 · SJ.1 verified scenario probabilities and provenance
+
+For verified `scored-scenario-v1` company analyses, the save contract now
+requires mutually-exclusive negative, base and positive outcomes whose
+probabilities total approximately 100. Every driver and assumption must retain
+non-empty source IDs or an explicit evidence gap. This is a strict persistence
+gate only: historical `legacy` analyses remain readable, and SJ.2 still owns
+quantified per-outcome marker/price impacts.
+
+## 2026-07-11 · NS.4 explicit triage promotion and manual review schedule
+
+Discover now keeps promotion deliberately separate from saving a triage note:
+only an explicit follow-up action on an immutable `promote_to_case` review
+creates the Company and ResearchCase. The case retains the review price, note,
+evidence reason and immutable review reference; it creates neither a watchlist
+entry nor a journal decision. Promotion queues one initial deep-research row
+for the user's one-shot Codex worker and adds a future-dated quarterly
+`stock-thesis-review` queue row. Queue claims now ignore rows before
+`available_at`, so a database schedule never wakes Codex or creates a polling
+loop. Material-event review is an explicit case policy after a stored event,
+not automatic event-to-model execution.
+
+## 2026-07-11 · WBS.1 Codex-only Workbench score base
+
+Refactored the existing deterministic scoring module into one reusable
+`codex_score_base` for Codex dossier reads. It prioritizes growth in revenue and
+profits (30), then profit durability (20), balance/cash (15), valuation versus
+own history (15), catalyst/business quality (15) and capital allocation (5),
+with transparent one-off and loss-plus-debt caps. The base is deliberately not
+a new Dossier/UI rating: MCP and CLI return it alongside the dossier only for a
+frozen Codex analysis input. The strict verifier retains it and owns the final
+score after source-backed research and probability-weighted scenarios. Updated
+the relevant analysis/verifier/action skills in the same change.
+
+## 2026-07-11 · NS.3 transparent GPW universe policy
+
+Discover now records dated WIG20/mWIG40 portfolios from the official GPW
+Benchmark endpoint as immutable source evidence. The policy UI exposes source
+versions/as-of dates, requires an explicit refresh and explains each candidate's
+default inclusion or exclusion via ticker/company-name identity only—never a
+sector label. Strict 20/40 constituent-count validation rejected a discovered
+wrong mWIG40 identifier before it could be accepted as policy evidence.
+
+## 2026-07-11 · Explicit initial-research queue flow
+
+Added `$workbench-run-queue`, a valid one-shot Codex skill that recovers leases,
+claims exactly one task and stops. A direct ticker search now schedules an
+initial-research row instead of auto-adding the company or refreshing inline;
+each new Discover source snapshot schedules bounded top-15 initial-research
+rows. The user explicitly invokes the skill to spend Codex subscription usage;
+no recurring automation or OpenAI API key is required.
+
+## 2026-07-11 · NS.2 universe triage ledger
+
+Added migration `0022` with an append-only `discovery_triage_reviews` ledger,
+keyed and indexed by immutable discovery source version plus ticker. Discover
+now records a human review price, note, outcome, next-review date and source
+reason without creating a `Company` or changing the watchlist. The API validates
+that every reviewed ticker appears in the cited parsed source snapshot.
+
+## 2026-07-11 · Explicit Workbench actions skill
+
+Added the repository-owned `workbench-actions` Codex skill as the canonical
+guide to explicit app lifecycle, company research, queueing and manual
+one-at-a-time worker flows. It prohibits creating or resuming recurring workers
+and explains the existing one-time session hook separately. `AGENTS.md` now
+requires the skill to be updated with every user-facing UI/API/MCP/CLI/queue
+capability change, keeping the flow documentation versioned with the app.
+
+## 2026-07-11 · SJ.0 scored-analysis output contract
+
+Added migration `0021` and `analysis_runs.output_contract_version` so saved
+analysis output is explicitly either `legacy` or the future
+`scored-scenario-v1` shape. Both the MCP and script save paths derive and
+persist that marker, while historical JSON remains fully readable and no
+probability, impact or conviction behavior changes in this slice. Contract and
+MCP regression tests cover the legacy and scored markers.
+
+## 2026-07-11 · CX.15g deep-analysis routing alignment
+
+The `stock-deep-analysis` operating skill now follows the settled CX.15g
+split: Terra high drafts and performs source completion, while an independent
+Sol high strict-verifier pass owns final judgment fields. GPT-5.3 remains
+limited to purely mechanical sub-loops. This removes stale Spark-as-default
+instructions that could otherwise override the executable queue model policy.
+
+## 2026-07-11 · North star evolves to scored scenario judgment + planning brief
+
+`docs/north-star.md` now frames the product as research **and decision-support**:
+inside the app Codex is an opinionated, scored analyst that reasons through every
+step (via the `stock-*` skills) and commits to a probability-weighted scenario
+read, while the user keeps every buy/sell/hold decision. The operating loop,
+Codex's-job and acceptance-test sections were updated so a researched company
+yields multiple mutually-exclusive scenarios — each with a probability and its
+modelled effect on C/Z, other markers, price and future potential — plus an
+overall 1–100 conviction score whose worth is measured by calibration, not
+magnitude. Added `docs/plan-scored-scenario-judgment.md` as a **planning input
+(requirements brief), not a work-package plan**, for a later Codex session to
+break into tasks: pipeline→skills→model-tier mapping, per-outcome + aggregate
+output contract (evolving `company_score`/`prediction`/`potential`/
+`scenario_validity`, with full refactor latitude), guardrail constraints
+(deterministic markers stay in Python; verifier owns final scored fields; not
+third-party advice), a calibration/feedback loop, and open questions. AGENTS.md
+read-on-demand links the brief. Decisions: human owns the decision; the score is
+an opinion, never a trade instruction; deterministic math stays in `services/`
+and the model projects only explicit-assumption deltas.
+
+Refinement (per user): the analysis must be **maximised, not deferred** — Codex
+always returns the full computed, verified scored read and labels evidence gaps
+*provisional/assumption-based* rather than terminating as a bare `needs-human`;
+blocked/`needs-human` is reserved for safety/integrity failures, and even then
+shows what was computed plus the reason. Deterministic base numbers still come
+only from real data. The brief now routes explore/collect to Terra (default) and
+analysis/scenario/verify to Sol high/ultra, matching the settled CX.15g ladder.
+
+Prepared `docs/handoff-next-stages.md` for the next Codex thread: scored-analysis
+sequenced FIRST (proposed SJ.0–SJ.6), then the north-star loop NS.2–NS.4; carries
+decisions, known issues, a doc-fix list and a ready-to-paste prompt. Ran a full
+docs staleness/duplication audit and applied safe fixes (README "Spark" →
+Terra/Sol; `plan-research-platform` routing prose → pointer; `north-star` ~384
+universe clause; brief self-fixes). Remaining doc fixes are listed in the handoff
+(deep-analysis skill still on `gpt-5.3-codex-spark`; dangling `PLAN §N` refs;
+README legacy `ANTHROPIC_API_KEY` block). SJ.4 will also add a `provisional` UI
+status to `project-guardrails.md`. Open: the scored-judgment direction is not yet
+ordered in `TASKS.md` (handoff-only, per user); middle-tier routing stays CX.15g
+(Luna·medium basic + Terra·high default), no script defaults changed.
+
 ## 2026-07-11 · NS.1 company-learning north star and DISC.0 recovery
 
 `docs/north-star.md` now makes the user's recurring GPW process the binding
