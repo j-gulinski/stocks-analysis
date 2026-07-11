@@ -17,7 +17,7 @@ if str(BACKEND_DIR) not in sys.path:
 from scripts.codex_common import add_json_flags, get_company, json_safe, run_main, write_json
 
 from app.db.base import SessionLocal
-from app.services import dossier as dossier_service
+from app.services import analysis_scoring, dossier as dossier_service
 
 
 def main() -> int:
@@ -41,7 +41,12 @@ def main() -> int:
         db.close()
 
     write_json(
-        {"ok": True, "ticker": args.ticker.upper(), "dossier": json_safe(dossier)},
+        {
+            "ok": True,
+            "ticker": args.ticker.upper(),
+            "dossier": json_safe(dossier),
+            "codex_score_base": analysis_scoring.build_codex_score_base(dossier),
+        },
         pretty=args.pretty,
     )
     return 0

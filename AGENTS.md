@@ -17,13 +17,23 @@ that serves it.
   task (§2 layout, §4 schema, §6 scrapers, §7 metrics/frontend, §8 AI,
   §9a deploy, §10 extension points).
 - `TASKS.md` — task breakdown, stable IDs ("do P1.3").
-- `docs/north-star.md` — **binding product outcome and user operating loop**;
-  read at the start of any product/workflow/discovery/UI change.
+- `docs/north-star.md` — **binding product outcome and user operating loop**
+  (Codex is a scored, scenario-based analyst; the human owns every decision);
+  read at the start of any product/workflow/discovery/UI change. The
+  scored-judgment requirements brief for Codex planning is
+  `docs/plan-scored-scenario-judgment.md`.
 - `docs/plan-research-platform.md` — **binding next-stage architecture and
   RT.0–RT.7 order**: evidence lineage, company templates, scenario v2,
   OpenAI/Codex orchestration, judge loop and honest backtesting.
 - `skills/workbench-research/SKILL.md` — local app operator/research workflow;
   use it for start/status/diagnosis or Codex-facilitated company research.
+- `skills/workbench-actions/SKILL.md` — canonical explicit user-triggered app
+  and manual-Codex-worker flows; use it when explaining or executing a
+  Workbench capability. Update it in the same change whenever a user-facing UI,
+  API/MCP, command, queue or analysis boundary changes.
+- `skills/workbench-run-queue/SKILL.md` — one-shot user-invoked queue executor;
+  use it to process exactly one scheduled initial-research or analysis row and
+  then stop.
 - `skills/scraper-doctor/SKILL.md` — **any scraper/data problem starts
   here**: diagnostic ladder + verified quirks ledger (BR slug/`,Q` redirect
   trap, robots rules, indicator label traps, price-chain order, storage
@@ -59,6 +69,10 @@ that serves it.
 - **Changelog discipline:** every change to code/schema/plan/config needs a
   `CHANGELOG.md` entry (date · scope · what + why + decisions). A diff
   without an entry is incomplete — enforced by `.githooks/pre-commit`.
+- **Capability-flow discipline:** user-facing Workbench capabilities must be
+  documented in `skills/workbench-actions/SKILL.md`. Update its flow table and
+  procedure in the same patch as an affected UI/API/MCP/CLI/queue change; do
+  not leave it describing planned or retired behavior.
 - **Implementation-phase migrations:** keep each schema slice to one forward
   Alembic migration. Do not add compatibility/follow-up migrations for a
   locally generated database during implementation; local DB state and data
@@ -172,6 +186,17 @@ Follow this sequence for every implementation task:
 6. Before completion, re-read the guardrails, update `CHANGELOG.md` and
    `TASKS.md` when required, record decisions/failures honestly, and confirm
    that the result advances the investment workflow.
+
+### Continuous execution loop
+
+When the user explicitly asks to continue until told to stop, treat each
+verified bounded slice as the start of the next one: update durable records,
+then immediately select the next eligible ordered task and repeat the required
+workflow. Do not hand back merely because one slice passed. Stop only when the
+live task list has no eligible work, an external authority/input is genuinely
+required, the user tells you to stop, or a safety/quality gate blocks progress.
+Never turn this instruction into a recurring host automation: execution remains
+within the active Codex task and all app/Codex queue work stays user-invoked.
 
 ### Delegation and judge loop
 

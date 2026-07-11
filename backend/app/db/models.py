@@ -81,6 +81,16 @@ class ResearchCase(Base):
     current_step: Mapped[str] = mapped_column(String(40), default="ingest")
     as_of: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     blocked_reason: Mapped[str | None] = mapped_column(Text)
+    # Optional provenance is set only by the explicit Discover promotion flow.
+    # A manual case remains valid without it.
+    promotion_triage_review_id: Mapped[int | None] = mapped_column(
+        ForeignKey("discovery_triage_reviews.id", ondelete="RESTRICT"), unique=True
+    )
+    promotion_review_price_pln: Mapped[float | None] = mapped_column(Numeric(14, 4))
+    promotion_note: Mapped[str | None] = mapped_column(String(1000))
+    promotion_evidence_reason: Mapped[str | None] = mapped_column(String(1000))
+    quarterly_review_due_on: Mapped[date | None] = mapped_column(Date)
+    material_event_review_policy: Mapped[str | None] = mapped_column(String(60))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -341,6 +351,28 @@ class WatchlistItem(Base):
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     company: Mapped[Company] = relationship()
+
+
+class DiscoveryTriageReview(Base):
+    """Append-only human triage decision for one immutable discovery snapshot."""
+
+    __tablename__ = "discovery_triage_reviews"
+    __table_args__ = (
+        Index("ix_discovery_triage_version_ticker", "source_document_version_id", "ticker"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_document_version_id: Mapped[int] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="RESTRICT"), index=True
+    )
+    ticker: Mapped[str] = mapped_column(String(20), index=True)
+    review_price_pln: Mapped[float] = mapped_column(Numeric(14, 4))
+    note: Mapped[str] = mapped_column(String(1000))
+    outcome: Mapped[str] = mapped_column(String(30))
+    next_review_date: Mapped[date] = mapped_column(Date)
+    evidence_reason: Mapped[str] = mapped_column(String(1000))
+    created_by: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class DecisionJournalEntry(Base):
@@ -774,6 +806,9 @@ class AgentRun(Base):
     lease_owner: Mapped[str | None] = mapped_column(String(160), index=True)
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    # A future review is durable but cannot be claimed before this timestamp.
+    # It never wakes Codex by itself; a user-invoked worker claims it once due.
+    available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -803,6 +838,9 @@ class AnalysisRun(Base):
     verification_status: Mapped[str] = mapped_column(String(30), default="pending")
     input_snapshot: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     output: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    output_contract_version: Mapped[str] = mapped_column(
+        String(40), default="legacy", server_default="legacy"
+    )
     verification: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     alignment_score: Mapped[int | None] = mapped_column(Integer)
     created_by: Mapped[str | None] = mapped_column(String(200))

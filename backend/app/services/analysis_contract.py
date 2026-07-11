@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services import scenarios
+from app.services import analysis_scoring, scenarios
 
 ANALYSIS_WORKFLOWS_REQUIRING_PREDICTION = {
     "stock-quick-analysis",
@@ -17,6 +17,8 @@ ANALYSIS_WORKFLOWS_REQUIRING_PREDICTION = {
 }
 VALID_PREDICTION_DIRECTIONS = {"positive", "neutral", "negative"}
 VALID_SCENARIO_VALIDITY = {"valid", "limited", "invalid"}
+LEGACY_OUTPUT_CONTRACT_VERSION = "legacy"
+SCORED_SCENARIO_OUTPUT_CONTRACT_VERSION = "scored-scenario-v1"
 SCENARIO_SIMULATION_WORKFLOW = "scenario-simulation"
 SCENARIO_VERIFIER_CHECKS = (
     "representative_archetypes",
@@ -27,11 +29,25 @@ SCENARIO_VERIFIER_CHECKS = (
 )
 
 
+def output_contract_version(output: dict[str, Any]) -> str:
+    """Return the persisted output shape without inferring new semantics.
+
+    SJ.0 introduces the version marker only. Later scored-judgment slices will
+    require and validate the new fields; old analyses remain readable as
+    ``legacy`` so their historical result is not rewritten or reinterpreted.
+    """
+    version = output.get("analysis_contract_version")
+    if version == SCORED_SCENARIO_OUTPUT_CONTRACT_VERSION:
+        return version
+    return LEGACY_OUTPUT_CONTRACT_VERSION
+
+
 def verified_analysis_contract_errors(
     *,
     workflow: str,
     verification_status: str,
     output: dict[str, Any],
+    input_snapshot: dict[str, Any] | None = None,
 ) -> list[str]:
     """Return deterministic contract errors for approved Codex analyses."""
     if workflow not in ANALYSIS_WORKFLOWS_REQUIRING_PREDICTION:
@@ -87,7 +103,108 @@ def verified_analysis_contract_errors(
         if warnings is not None and not _string_list(warnings):
             errors.append("output.result_quality.scenario_warnings must be a string list.")
 
+    if output_contract_version(output) == SCORED_SCENARIO_OUTPUT_CONTRACT_VERSION:
+        errors.extend(_scored_scenario_probability_errors(output))
+        errors.extend(_scored_scenario_impact_errors(output, input_snapshot or {}))
+        errors.extend(_conviction_score_errors(output, input_snapshot or {}))
+        delivery = output.get("delivery")
+        if not isinstance(delivery, dict) or delivery.get("status") not in {"verified", "provisional"} or not _string_list(delivery.get("data_gaps")):
+            errors.append("output.delivery requires status verified/provisional and explicit data_gaps.")
+
     return errors
+
+
+def _conviction_score_errors(output: dict[str, Any], input_snapshot: dict[str, Any]) -> list[str]:
+    base = input_snapshot.get("codex_score_base")
+    actual = output.get("conviction_score")
+    if not isinstance(base, dict) or not isinstance(actual, dict):
+        return ["input_snapshot.codex_score_base and output.conviction_score are required for verified scored analysis."]
+    expected = analysis_scoring.compute_conviction_score(base, output.get("scenario_outcomes") or [])
+    if actual != expected:
+        return ["output.conviction_score must match the frozen score base and deterministic scenario impacts."]
+    return []
+
+
+def _scored_scenario_impact_errors(output: dict[str, Any], input_snapshot: dict[str, Any]) -> list[str]:
+    scenario_set = input_snapshot.get("scenario_set")
+    if not isinstance(scenario_set, dict):
+        return ["input_snapshot.scenario_set is required for verified scored scenario impacts."]
+    fingerprint = scenarios.scenario_set_fingerprint(scenario_set)
+    if output.get("scenario_set_fingerprint") != fingerprint:
+        return ["output.scenario_set_fingerprint must match input_snapshot.scenario_set."]
+    errors: list[str] = []
+    for index, outcome in enumerate(output.get("scenario_outcomes", [])):
+        if not isinstance(outcome, dict):
+            continue
+        expected = scenarios.deterministic_impact(scenario_set, outcome.get("scenario_set_id"))
+        actual = outcome.get("deterministic_impact")
+        if actual != expected:
+            errors.append(f"output.scenario_outcomes[{index}].deterministic_impact must match the frozen scenario_set.")
+    return errors
+
+
+def _scored_scenario_probability_errors(output: dict[str, Any]) -> list[str]:
+    """Validate the SJ.1 probability/provenance slice of a scored analysis.
+
+    The later valuation slice owns numeric marker and price projections.  This
+    slice only makes the mutually-exclusive scenario probabilities auditable:
+    each scenario must say what evidence supports it or name an explicit gap.
+    """
+    errors: list[str] = []
+    outcomes = output.get("scenario_outcomes")
+    if not isinstance(outcomes, list) or len(outcomes) < 3:
+        return ["output.scenario_outcomes must contain at least negative, base and positive outcomes."]
+
+    ids: set[str] = set()
+    kinds: set[str] = set()
+    probability_total = 0.0
+    for index, outcome in enumerate(outcomes):
+        path = f"output.scenario_outcomes[{index}]"
+        if not isinstance(outcome, dict):
+            errors.append(f"{path} must be an object.")
+            continue
+        outcome_id = outcome.get("id")
+        if not isinstance(outcome_id, str) or not outcome_id.strip():
+            errors.append(f"{path}.id must be a non-empty string.")
+        elif outcome_id in ids:
+            errors.append(f"{path}.id must be unique.")
+        else:
+            ids.add(outcome_id)
+        kind = outcome.get("kind")
+        if kind not in {"negative", "base", "positive", "event"}:
+            errors.append(f"{path}.kind must be negative, base, positive, or event.")
+        else:
+            kinds.add(kind)
+        probability = outcome.get("probability_pct")
+        if not _number(probability) or probability < 0 or probability > 100:
+            errors.append(f"{path}.probability_pct must be a number from 0 to 100.")
+        else:
+            probability_total += float(probability)
+        _provenance_errors(errors, path, "drivers", outcome.get("drivers"))
+        _provenance_errors(errors, path, "assumptions", outcome.get("assumptions"))
+
+    if not {"negative", "base", "positive"}.issubset(kinds):
+        errors.append("output.scenario_outcomes must include negative, base and positive outcomes.")
+    if probability_total and not 99.5 <= probability_total <= 100.5:
+        errors.append("output.scenario_outcomes probability_pct values must sum to approximately 100.")
+    return errors
+
+
+def _provenance_errors(errors: list[str], path: str, field: str, value: Any) -> None:
+    if not isinstance(value, list) or not value:
+        errors.append(f"{path}.{field} must be a non-empty provenance list.")
+        return
+    for index, entry in enumerate(value):
+        item_path = f"{path}.{field}[{index}]"
+        if not isinstance(entry, dict):
+            errors.append(f"{item_path} must be an object with source_ids or gap.")
+            continue
+        source_ids = entry.get("source_ids")
+        gap = entry.get("gap")
+        has_sources = _nonempty_string_list(source_ids)
+        has_gap = isinstance(gap, str) and bool(gap.strip())
+        if not has_sources and not has_gap:
+            errors.append(f"{item_path} must include non-empty source_ids or an explicit gap.")
 
 
 def verified_scenario_simulation_contract_errors(

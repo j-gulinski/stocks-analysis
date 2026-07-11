@@ -74,10 +74,10 @@ buy/sell signal:
    Preview first, save a named forecast only when the assumptions are yours,
    then reload the dossier. The saved forecast becomes the preferred forward
    earnings input where the current engine supports it.
-5. Queue **Analiza Codex** after the deterministic set is coherent. Spark may
-   research and draft, but the strongest strict verifier owns final potential
-   interpretation, confidence, result quality and company score. Only a
-   current `pass` result may appear as verified in the prepared report.
+5. Queue **Analiza Codex** after the deterministic set is coherent. The Codex
+   worker (Terra) may research and draft, but the strict verifier (Sol) owns
+   final potential interpretation, confidence, result quality and company score.
+   Only a current `pass` result may appear as verified in the prepared report.
 6. After a new report or material event, refresh and compare again. Old model
    output remains audit history and must not silently replace the new dossier.
 

@@ -1,6 +1,6 @@
 """Pure tests for authoritative strategy-score arithmetic and vetoes."""
 
-from app.services.analysis_scoring import compute_alignment_score
+from app.services.analysis_scoring import build_codex_score_base, compute_alignment_score, compute_conviction_score
 
 
 def _item(item_id: str, verdict: str) -> dict:
@@ -33,8 +33,8 @@ def test_weighted_fail_is_server_computed():
             _item("catalyst", "spełnia"),
         ]
     }
-    # (12 + 15 + 10) / (12 + 15 + 15 + 10) = 71.15% -> 71
-    assert compute_alignment_score(verdict, _dossier()) == 71
+    # (10 + 15 + 7.5) / (10 + 10 + 15 + 7.5) = 76.47% -> 76.
+    assert compute_alignment_score(verdict, _dossier()) == 76
 
 
 def test_profit_quality_veto_caps_at_50():
@@ -74,8 +74,8 @@ def test_duplicate_ids_do_not_double_weight():
             _item("catalyst", "spełnia"),
         ]
     }
-    # Unique weights: (12 + 10) / (12 + 15 + 10) = 59.46 -> 59.
-    assert compute_alignment_score(verdict, _dossier()) == 59
+    # Unique weights: (10 + 7.5) / (10 + 10 + 7.5) = 63.64 -> 64.
+    assert compute_alignment_score(verdict, _dossier()) == 64
 
 
 def test_loss_and_net_debt_veto_caps_at_40():
@@ -97,3 +97,37 @@ def test_fewer_than_three_known_items_returns_none():
         ]
     }
     assert compute_alignment_score(verdict, _dossier()) is None
+
+
+def test_codex_score_base_prioritizes_growth_but_is_not_a_final_rating():
+    dossier = _dossier()
+    dossier["prescore"] = {
+        "checks": [
+            {"id": "revenue_growth", "verdict": "pass"},
+            {"id": "gross_margin_trend", "verdict": "pass"},
+            {"id": "operating_leverage", "verdict": "pass"},
+            {"id": "profit_quality", "verdict": "fail"},
+            {"id": "net_cash", "verdict": "pass"},
+            {"id": "pe_vs_history", "verdict": "pass"},
+        ]
+    }
+
+    base = build_codex_score_base(dossier)
+
+    assert base["factors"][0]["weight"] == 30
+    assert base["deterministic_signal"] <= 50
+    assert base["caps"] == [{"id": "one_off_profit", "maximum_score": 50}]
+    assert "not a standalone" in base["purpose"]
+
+
+def test_conviction_score_is_reproducible_and_respects_base_caps():
+    score = compute_conviction_score(
+        {"deterministic_signal": 90, "evidence_coverage_pct": 100, "caps": [{"maximum_score": 50}]},
+        [
+            {"probability_pct": 25, "deterministic_impact": {"price_impact": {"return_pct": -20}}},
+            {"probability_pct": 50, "deterministic_impact": {"price_impact": {"return_pct": 0}}},
+            {"probability_pct": 25, "deterministic_impact": {"price_impact": {"return_pct": 20}}},
+        ],
+    )
+    assert score["value"] == 50
+    assert score["basis"]["weighted_return_pct"] == 0

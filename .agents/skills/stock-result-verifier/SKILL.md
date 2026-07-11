@@ -13,7 +13,8 @@ instructions, let the analysis worker revise, then verify the corrected draft.
 
 ## Inputs to require
 
-- Company dossier from `get_company_dossier` or `codex_get_dossier.py`.
+- Company dossier plus the top-level `codex_score_base` from
+  `get_company_dossier` or `codex_get_dossier.py`.
 - Draft analysis output with `prediction`, `potential`, `result_quality`,
   `research_resolution`, `company_score`, `red_flags`, `data_gaps`, and
   `verify_next`/`next_action`.
@@ -43,7 +44,10 @@ For `verification_status=pass`, the draft must include:
 - `research_resolution` has explicit catalyst, backlog and
   management/governance outcomes with sources or an honest `not_found` gap.
 - `company_score` has a short evidence basis and is not influenced by forum
-  reputation or by the strategy's market-cap sweet spot alone.
+  reputation or by the strategy's market-cap sweet spot alone. Its basis must
+  preserve the frozen `codex_score_base` (growth is the largest 30-point input)
+  and explain any scenario/evidence adjustment; it must not present the base's
+  partial deterministic signal as the final score.
 
 ## Checks
 

@@ -68,6 +68,12 @@ class ResearchCaseOut(BaseModel):
     current_step: CaseStep
     as_of: datetime | None
     blocked_reason: str | None
+    promotion_triage_review_id: int | None
+    promotion_review_price_pln: float | None
+    promotion_note: str | None
+    promotion_evidence_reason: str | None
+    quarterly_review_due_on: date | None
+    material_event_review_policy: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -180,6 +186,39 @@ class DiscoveryCandidateOut(BaseModel):
     caveat: str
 
 
+class DiscoveryTriageReviewCreateIn(BaseModel):
+    source_document_version_id: int
+    ticker: str = Field(min_length=1, max_length=20)
+    review_price_pln: float = Field(gt=0)
+    note: str = Field(min_length=1, max_length=1000)
+    outcome: Literal["skip_for_now", "revisit_later", "promote_to_case"]
+    next_review_date: date
+    evidence_reason: str = Field(min_length=1, max_length=1000)
+
+
+class DiscoveryTriageReviewOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    source_document_version_id: int
+    ticker: str
+    review_price_pln: float
+    note: str
+    outcome: str
+    next_review_date: date
+    evidence_reason: str
+    created_by: str | None
+    created_at: datetime
+
+
+class DiscoveryTriagePromotionOut(BaseModel):
+    company: "CompanyOut"
+    research_case: ResearchCaseOut
+    initial_research_run_id: int
+    quarterly_review_run_id: int
+    created_company: bool
+    created_case: bool
+
+
 class DiscoveryEvaluationJobOut(BaseModel):
     id: int
     status: str
@@ -207,6 +246,7 @@ class DiscoveryOut(BaseModel):
     universe_count: int
     result_count: int
     source_note: str
+    source_version_id: int
     candidates: list[DiscoveryCandidateOut]
     evaluation_job: DiscoveryEvaluationJobOut | None = None
     scheduled_analysis: DiscoveryScheduleOut | None = None
@@ -772,6 +812,7 @@ class AgentRunOut(BaseModel):
     lease_owner: str | None
     heartbeat_at: datetime | None
     lease_expires_at: datetime | None
+    available_at: datetime | None
     attempt_count: int
     created_at: datetime
     updated_at: datetime
@@ -786,6 +827,7 @@ class AgentRunCreateIn(BaseModel):
     model_role: str | None = Field(default=None, max_length=40)
     model: str | None = Field(default=None, max_length=80)
     orchestrator_model: str | None = Field(default=None, max_length=80)
+    available_at: datetime | None = None
     inputs: dict = Field(default_factory=dict)
 
 
@@ -908,6 +950,7 @@ class AnalysisRunOut(BaseModel):
     verification_status: str
     input_snapshot: dict
     output: dict
+    output_contract_version: str
     verification: dict
     alignment_score: int | None
     created_by: str | None

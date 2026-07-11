@@ -29,6 +29,7 @@ from app.services import (
     agent_queue,
     agent_evaluation,
     analysis_contract,
+    analysis_scoring,
     backtest,
     dossier as dossier_service,
     codex_context,
@@ -109,6 +110,7 @@ def _agent_row(agent: AgentRun) -> dict[str, Any]:
         "lease_owner": agent.lease_owner,
         "heartbeat_at": agent.heartbeat_at,
         "lease_expires_at": agent.lease_expires_at,
+        "available_at": agent.available_at,
         "attempt_count": agent.attempt_count,
         "created_at": agent.created_at,
         "updated_at": agent.updated_at,
@@ -158,6 +160,7 @@ def get_company_dossier(arguments: dict[str, Any]) -> dict[str, Any]:
             "ok": True,
             "ticker": ticker,
             "dossier": ui_contract,
+            "codex_score_base": analysis_scoring.build_codex_score_base(ui_contract),
             "codex_context": codex_context.source_data_context(
                 "company-dossier", "issuer-data", "forum-opinions"
             ),
@@ -263,6 +266,7 @@ def save_analysis_run(arguments: dict[str, Any]) -> dict[str, Any]:
         workflow=workflow,
         verification_status=verification_status,
         output=output,
+        input_snapshot=_optional_dict(arguments, "input_snapshot"),
     )
     contract_errors += analysis_contract.verified_scenario_simulation_contract_errors(
         workflow=workflow,
@@ -316,6 +320,7 @@ def save_analysis_run(arguments: dict[str, Any]) -> dict[str, Any]:
             verification_status=verification_status,
             input_snapshot=input_snapshot,
             output=output,
+            output_contract_version=analysis_contract.output_contract_version(output),
             verification=verification,
             alignment_score=alignment_score,
             created_by=str(arguments.get("created_by") or "codex_mcp"),

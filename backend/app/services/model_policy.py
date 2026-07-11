@@ -35,6 +35,14 @@ _POLICIES: dict[str, dict[str, Any]] = {
         "reasoning": "high",
         "verification_scope": "cross-source thesis, scenarios, valuation and look-ahead",
     },
+    "stock-thesis-review": {
+        "draft_role": "analyst_deep",
+        "draft_model": "gpt-5.6-sol",
+        "draft_reasoning_effort": "high",
+        "required_verifier_role": "verifier_strict",
+        "reasoning": "high for thesis delta and point-in-time comparison",
+        "verification_scope": "new primary evidence, prior thesis/journal comparison and scenario updates",
+    },
     "stock-candidate-scout": {
         "draft_role": "worker_standard",
         "draft_model": "gpt-5.6-terra",

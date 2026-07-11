@@ -94,6 +94,7 @@ def main() -> int:
         workflow=workflow,
         verification_status=verification_status,
         output=output,
+        input_snapshot=input_snapshot,
     )
     contract_errors += analysis_contract.verified_scenario_simulation_contract_errors(
         workflow=workflow,
@@ -139,6 +140,7 @@ def main() -> int:
             verification_status=verification_status,
             input_snapshot=input_snapshot,
             output=output,
+            output_contract_version=analysis_contract.output_contract_version(output),
             verification=verification,
             alignment_score=alignment_score,
             created_by=args.created_by,
