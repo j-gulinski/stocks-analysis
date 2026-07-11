@@ -18,6 +18,10 @@ the same decisive source gaps and returned `needs-human`; Terra left an
 unsupported company score empty, while Sol produced richer prose but invented
 draft scores labelled as verifier-owned. Therefore stronger Sol is not treated
 as automatically safer when it also drafts the result it would verify.
+The benchmark also exposed that dossier reads called the market-data upsert.
+`build_dossier`, the Codex helper and MCP dossier tool now compose an in-memory
+market snapshot from stored rows without adding or flushing
+`CompanyMarketData`; refresh remains the only persistence path.
 
 ## 2026-07-11 · DISC.1 stored-consensus growth ranking
 

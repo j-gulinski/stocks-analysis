@@ -12,6 +12,7 @@ from app.db.models import (
     AssumptionSet,
     AnalysisRun,
     Company,
+    CompanyMarketData,
     Dividend,
     ForumIntelligence,
     Forecast,
@@ -472,14 +473,19 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
         dividend_yield_latest=dividend_yield_latest,
         price_age_days=price_age_days,
     )
-    market_row = market_data.upsert_company_market_data(
-        db, company, sector_group=company_insights.sector_group
+    existing_market_row = db.scalar(
+        select(CompanyMarketData).where(CompanyMarketData.company_id == company.id)
     )
-    db.flush()
+    computed_market = market_data.build_snapshot(
+        db,
+        company,
+        sector_group=company_insights.sector_group,
+        existing=existing_market_row,
+    )
     market_snapshot = {
-        "industry_type": market_row.industry_type,
-        "priority_values": market_row.priority_values,
-        "forecast_consensus": market_row.forecast_consensus,
+        "industry_type": computed_market["industry_type"],
+        "priority_values": computed_market["priority_values"],
+        "forecast_consensus": computed_market["forecast_consensus"],
         # Caveat for both the AI prompt (market_data flows verbatim into the
         # prompt, see services/prompts.py) and the frontend — kept as its own
         # sibling key, NOT inside forecast_consensus itself, because that dict
@@ -487,8 +493,8 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
         # `sorted(forecast_consensus.keys())` to build `forecast_years`; a
         # "note" key there would masquerade as a bogus year).
         "forecast_consensus_note": market_data.FORECAST_CONSENSUS_NOTE,
-        "advanced_metrics": market_row.advanced_metrics,
-        "dividend_coverage": market_row.dividend_coverage,
+        "advanced_metrics": computed_market["advanced_metrics"],
+        "dividend_coverage": computed_market["dividend_coverage"],
     }
 
     # Investment-thesis layer: synthesise the insights into an entry-point read

@@ -724,7 +724,9 @@ def test_candidate_pickup_consumes_frozen_discovery_shortlist(
 
 
 def test_codex_contract_scripts_return_json(client, db, monkeypatch, capsys):
-    from app.db.models import AgentRun, Company
+    from sqlalchemy import func, select
+
+    from app.db.models import AgentRun, Company, CompanyMarketData
     from scripts import (
         codex_candidate_scan,
         codex_complete_agent_run,
@@ -746,12 +748,15 @@ def test_codex_contract_scripts_return_json(client, db, monkeypatch, capsys):
     assert candidate["candidates"][0]["ticker"] == "DEC"
 
     monkeypatch.setattr("sys.argv", ["codex_get_dossier.py", "DEC"])
+    market_rows_before = db.scalar(select(func.count()).select_from(CompanyMarketData))
     assert codex_get_dossier.main() == 0
     dossier = json.loads(capsys.readouterr().out)
     assert dossier["ok"] is True
     assert dossier["ticker"] == "DEC"
     assert isinstance(dossier["dossier"], dict)
     assert "prescore" in dossier["dossier"]
+    db.expire_all()
+    assert db.scalar(select(func.count()).select_from(CompanyMarketData)) == market_rows_before
 
     monkeypatch.setattr(
         codex_poll_espi.espi,

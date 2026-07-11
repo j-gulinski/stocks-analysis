@@ -63,6 +63,8 @@ Take the first unchecked item. Each item should be a bounded, verifiable slice.
     reached the same safe `needs-human` conclusions. Terra avoided assigning an
     unsupported company score; Sol was richer but labelled self-created scores
     as verifier-owned, confirming the separated Terra-worker/Sol-verifier route.
+17. [x] **CX.15h — Read-only Codex dossier contract.** Dossier/MCP/script reads
+    build transient market snapshots and cannot create `CompanyMarketData`.
 
 ## Completed work
 
