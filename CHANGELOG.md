@@ -28,6 +28,10 @@ failed parse suppresses the older good snapshot and exposes both version IDs.
 Freshness now includes its evaluation/cutoff timestamps, profit-to-loss is an
 explicit capped penalty, and empty UI states distinguish stale, degraded and
 insufficient evidence.
+The cached market-rating parser now also derives each candidate's canonical
+BiznesRadar slug strictly from its `/notowania/{slug}` link. Display names are
+never accepted as URL identifiers, closing one prerequisite for a future
+permission-gated forecast collector without making any new source requests.
 
 ## 2026-07-11 · RT2.5 corporate-action-aware return gate
 

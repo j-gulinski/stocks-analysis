@@ -19,6 +19,8 @@ def test_market_rating_parser_keeps_source_fields_and_missing_values():
 
     assert [candidate.ticker for candidate in candidates] == ["DEK", "RBW", "VGO", "XTB", "SHD"]
     assert candidates[0].name == "DEKPOL"
+    assert candidates[0].br_slug == "DEKPOL"
+    assert candidates[1].br_slug == "RAINBOW"
     assert candidates[0].report_period == "2026Q1"
     assert candidates[0].rating == "AAA"
     assert candidates[0].rating_value == 8.6
@@ -34,6 +36,17 @@ def test_market_rating_parser_rejects_wrong_page():
         assert "No market-rating candidates" in str(exc)
     else:  # pragma: no cover - assertion clarity
         raise AssertionError("wrong page must not look like an empty universe")
+
+
+def test_market_rating_parser_requires_authoritative_profile_href():
+    html = load_fixture("br_market_rating.html").replace(
+        'href="/notowania/DEKPOL"',
+        'href="/firma/DEKPOL"',
+    )
+
+    candidates = parse_market_rating(html)
+
+    assert "DEK" not in [candidate.ticker for candidate in candidates]
 
 
 def test_discovery_api_fetches_once_then_uses_immutable_cache(

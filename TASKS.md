@@ -51,7 +51,7 @@ Take the first unchecked item. Each item should be a bounded, verifiable slice.
     ranking over fresh immutable consensus versions now exists in API/Discover.
     The 3-page pilot found no consensus for IFR/IMP/UNF and preserved that
     missingness, but verifier rejected and removed the unsafe collector. Next:
-    terms/robots approval, authoritative href slug, separate candidate storage,
+    explicit Premium automation permission, separate candidate storage,
     durable cursor/lock/retries and a true global HTTP-attempt budget. Keep
     revenue/EBITDA/EBIT/net-profit dimensions separate,
     expose forecast dates/analyst coverage/missingness and source evidence,
