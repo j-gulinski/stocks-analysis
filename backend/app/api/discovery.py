@@ -1,7 +1,7 @@
 """Market candidate discovery; source ranking stays distinct from strategy fit."""
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from app.api.schemas import (
 )
 from app.db.base import get_db
 from app.db.models import AgentRun, AnalysisRun, Company
+from app.scrapers.biznesradar import ParseError
 from app.services.discovery import discover_candidates
 from app.services.forecast_ranking import build_forecast_growth_ranking
 
@@ -297,7 +298,17 @@ def list_candidates(
     force: bool = Query(default=False),
     db: Session = Depends(get_db),
 ) -> DiscoveryOut:
-    result = discover_candidates(db, force=force)
+    try:
+        result = discover_candidates(db, force=force)
+    except ParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "BiznesRadar discovery wymaga uwagi: zapisany widok rankingu "
+                f"nie został rozpoznany ({exc}). Nie uruchamiaj kolejnych odświeżeń; "
+                "sprawdź stan źródła lub fixture parsera."
+            ),
+        ) from exc
     selected = _select_candidates(
         result.candidates,
         min_rating=min_rating,

@@ -38,6 +38,20 @@ def test_market_rating_parser_rejects_wrong_page():
         raise AssertionError("wrong page must not look like an empty universe")
 
 
+def test_discovery_returns_source_state_instead_of_server_error(client, monkeypatch, no_sleep):
+    def fake_fetch(url, **_kwargs):
+        response = FakeResponse("<html><h1>maintenance</h1></html>")
+        response.url = url
+        return response
+
+    monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
+
+    response = client.get("/api/discovery")
+
+    assert response.status_code == 503
+    assert "wymaga uwagi" in response.json()["detail"]
+
+
 def test_market_rating_parser_requires_authoritative_profile_href():
     html = load_fixture("br_market_rating.html").replace(
         'href="/notowania/DEKPOL"',
@@ -47,6 +61,55 @@ def test_market_rating_parser_requires_authoritative_profile_href():
     candidates = parse_market_rating(html)
 
     assert "DEK" not in [candidate.ticker for candidate in candidates]
+
+
+def test_market_rating_parser_accepts_current_rating_links_without_promoting_slug():
+    html = """
+    <table class="table table--accent-header">
+      <tr><th>Profil</th><th>Raport</th><th>Altman EM-Score</th><th>Piotroski F-Score</th></tr>
+      <tr><td><a href="/rating/IFR">IFR (IFSA)</a></td><td>2025/Q3</td><td>AAA ( 1 582,2 )</td><td>5</td></tr>
+      <tr><td><a href="/rating/ZAMET-INDUSTRY">ZMT (ZAMET)</a></td><td>2026/Q1</td><td>AAA ( 123,5 )</td><td>4</td></tr>
+    </table>
+    """
+
+    candidates = parse_market_rating(html)
+
+    assert [candidate.ticker for candidate in candidates] == ["IFR", "ZMT"]
+    assert [candidate.br_slug for candidate in candidates] == [None, None]
+    assert candidates[0].rating_value == 1582.2
+
+
+def test_discovery_reparses_cached_failed_snapshot_without_a_new_request(db, monkeypatch):
+    from app.services import evidence
+    from app.services.discovery import DISCOVERY_URL, discover_candidates
+
+    html = """
+    <table><tr><th>Profil</th><th>Raport</th><th>Altman EM-Score</th><th>Piotroski F-Score</th></tr>
+    <tr><td><a href="/rating/IFR">IFR (IFSA)</a></td><td>2025/Q3</td><td>AAA ( 1 582,2 )</td><td>5</td></tr></table>
+    """
+    recorded = evidence.record_market_document_version(
+        db,
+        market_key="__GPW__",
+        source_name="biznesradar",
+        source_type="market_rating",
+        scope_key="akcje_gpw",
+        requested_url=DISCOVERY_URL,
+        effective_url=DISCOVERY_URL,
+        content=html.encode(),
+        text=html,
+        response_status=200,
+        mime_type="text/html",
+        parser_version="biznesradar-market-rating@1",
+        fetched_at=datetime.now(timezone.utc),
+    )
+    evidence.mark_parse_result(recorded.version, success=False, error="old parser")
+    db.commit()
+    monkeypatch.setattr("app.services.discovery._get_page", lambda *_args, **_kwargs: None)
+
+    result = discover_candidates(db)
+
+    assert [candidate.ticker for candidate in result.candidates] == ["IFR"]
+    assert recorded.version.parse_status == "parsed"
 
 
 def test_discovery_api_fetches_once_then_uses_immutable_cache(

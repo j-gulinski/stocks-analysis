@@ -6,12 +6,19 @@ and controlled AI review/judge loops. The Malik / OBS strategy is the first
 investment lens, not the whole product. The live UI contract is `docs/design.md`;
 HTML mockups remain under `docs/design/`.
 
+**Product north star:** `docs/north-star.md` is the binding user workflow and
+decision test for every run. It takes precedence over feature convenience or
+dashboard breadth; `docs/plan-research-platform.md` specifies the architecture
+that serves it.
+
 ## Read on demand (don't preload everything)
 
 - `PLAN.md` — architecture & module specs; read the SECTION relevant to the
   task (§2 layout, §4 schema, §6 scrapers, §7 metrics/frontend, §8 AI,
   §9a deploy, §10 extension points).
 - `TASKS.md` — task breakdown, stable IDs ("do P1.3").
+- `docs/north-star.md` — **binding product outcome and user operating loop**;
+  read at the start of any product/workflow/discovery/UI change.
 - `docs/plan-research-platform.md` — **binding next-stage architecture and
   RT.0–RT.7 order**: evidence lineage, company templates, scenario v2,
   OpenAI/Codex orchestration, judge loop and honest backtesting.

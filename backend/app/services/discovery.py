@@ -14,7 +14,7 @@ from app.services.refresh import _get_page
 
 DISCOVERY_URL = f"{biznesradar.BASE_URL}/spolki-rating/akcje_gpw"
 MARKET_KEY = "__GPW__"
-PARSER_VERSION = "biznesradar-market-rating@1"
+PARSER_VERSION = "biznesradar-market-rating@2"
 
 
 @dataclass(frozen=True)
@@ -35,6 +35,19 @@ def _latest_parsed_version(db: Session) -> DocumentVersion | None:
             SourceDocument.company_ticker == MARKET_KEY,
             SourceDocument.source_type == "market_rating",
             DocumentVersion.parse_status == "parsed",
+        )
+        .order_by(DocumentVersion.fetched_at.desc(), DocumentVersion.id.desc())
+        .limit(1)
+    )
+
+
+def _latest_version(db: Session) -> DocumentVersion | None:
+    return db.scalar(
+        select(DocumentVersion)
+        .join(SourceDocument, DocumentVersion.source_document_id == SourceDocument.id)
+        .where(
+            SourceDocument.company_ticker == MARKET_KEY,
+            SourceDocument.source_type == "market_rating",
         )
         .order_by(DocumentVersion.fetched_at.desc(), DocumentVersion.id.desc())
         .limit(1)
@@ -74,7 +87,18 @@ def discover_candidates(db: Session, *, force: bool = False) -> DiscoveryResult:
         evidence.mark_parse_result(version, success=True)
         db.commit()
     else:
-        version = _latest_parsed_version(db)
+        # A parser upgrade can make the newest cached immutable page usable
+        # without another source request. Re-parse it before falling back to
+        # the older successful snapshot or forcing a fetch.
+        version = _latest_version(db)
+        if version is not None:
+            try:
+                biznesradar.parse_market_rating(version.raw_content)
+            except Exception:
+                version = _latest_parsed_version(db)
+            else:
+                evidence.mark_parse_result(version, success=True)
+                db.commit()
 
     if version is None:
         # A fresh fetch-log row may predate the evidence ledger.  Bypass that

@@ -3,6 +3,24 @@
 Durable decisions and completed slices only. `TASKS.md` owns current status;
 implementation detail lives in stage plans, validation notes, archives and git.
 
+## 2026-07-11 · NS.1 company-learning north star and DISC.0 recovery
+
+`docs/north-star.md` now makes the user's recurring GPW process the binding
+product direction: a bounded universe, dated human triage, business/report
+research, a price-aware thesis with falsifiers, journal and quarterly/event
+re-evaluation. Codex is an evidence operator and critic, never an autonomous
+trader. `AGENTS.md`, the research-platform plan and the live design contract
+link to this one canonical workflow so new work is judged by whether it helps
+the user understand, decide on and revisit a company.
+
+BiznesRadar changed the market-rating table links from `/notowania/{slug}` to
+`/rating/{ticker}`. The strict canonical-slug check consequently rejected all
+384 rows and Discover returned 500. The parser now accepts the new rating link
+as discovery-only evidence while leaving `br_slug` empty until separately
+resolved; it does not create unsafe report URLs. A parser upgrade reuses the
+already stored immutable page without another request, and an unsupported page
+now yields an actionable 503 source state rather than a server error.
+
 ## 2026-07-11 · CX.15g GPT-5.6 role routing
 
 Codex queue defaults now use executable GPT-5.6 model identifiers. Terra high

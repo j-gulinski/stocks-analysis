@@ -123,7 +123,10 @@ class MarketCandidate:
     """
 
     ticker: str
-    br_slug: str
+    # Only `/notowania/{slug}` is a verified canonical report slug. The newer
+    # `/rating/{ticker}` table links are useful discovery evidence but cannot
+    # be promoted into report/forecast URLs without a separate resolution.
+    br_slug: str | None
     name: str | None
     report_period: str
     rating: str | None
@@ -509,6 +512,7 @@ def parse_forecasts(html: str) -> ForecastTable:
 
 _CANDIDATE_NAME_RE = re.compile(r"^([A-Z0-9]{2,12})(?:\s*\(([^)]+)\))?$")
 _CANDIDATE_PROFILE_HREF_RE = re.compile(r"^/notowania/([A-Z0-9-]+)(?:[/?#]|$)", re.I)
+_CANDIDATE_RATING_HREF_RE = re.compile(r"^/rating/([A-Z0-9-]+)(?:[/?#]|$)", re.I)
 _CANDIDATE_PERIOD_RE = re.compile(r"\b((?:19|20)\d{2})\s*/\s*Q([1-4])\b")
 _CANDIDATE_RATING_RE = re.compile(
     r"\b(AAA|AA|A|BBB|BB|B|CCC|CC|C|D)([+-]?)\s*"
@@ -531,9 +535,9 @@ def parse_market_rating(html: str) -> list[MarketCandidate]:
         if len(cells) < 3:
             continue
         profile_link = cells[0].find("a")
-        profile_href_match = _CANDIDATE_PROFILE_HREF_RE.match(
-            str(profile_link.get("href") or "") if profile_link is not None else ""
-        )
+        href = str(profile_link.get("href") or "") if profile_link is not None else ""
+        profile_href_match = _CANDIDATE_PROFILE_HREF_RE.match(href)
+        rating_href_match = _CANDIDATE_RATING_HREF_RE.match(href)
         profile_text = (
             profile_link.get_text(" ", strip=True)
             if profile_link is not None
@@ -545,7 +549,7 @@ def parse_market_rating(html: str) -> list[MarketCandidate]:
         rating_match = _CANDIDATE_RATING_RE.search(row_text)
         if (
             profile_match is None
-            or profile_href_match is None
+            or (profile_href_match is None and rating_href_match is None)
             or period_match is None
             or rating_match is None
         ):
@@ -564,7 +568,7 @@ def parse_market_rating(html: str) -> list[MarketCandidate]:
         candidates.append(
             MarketCandidate(
                 ticker=ticker,
-                br_slug=profile_href_match.group(1).upper(),
+                br_slug=(profile_href_match.group(1).upper() if profile_href_match else None),
                 name=(profile_match.group(2) or "").strip() or None,
                 report_period=f"{period_match.group(1)}Q{period_match.group(2)}",
                 rating=rating,

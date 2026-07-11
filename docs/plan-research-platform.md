@@ -7,8 +7,10 @@ validation notes, learning notes and git.
 
 ## 1. Product north star
 
-Build a company-specific fundamental research workbench, not a ratio dashboard
-or automated buy/sell oracle. For every company the system should:
+`docs/north-star.md` is the binding user outcome and operating loop. This plan
+defines the architecture that serves it: a company-specific fundamental
+research workbench, not a ratio dashboard or automated buy/sell oracle. For
+every company the system should:
 
 1. gather statements, issuer disclosures, market data and qualitative leads;
 2. preserve source, publication time, fetch/version lineage and conflicts;

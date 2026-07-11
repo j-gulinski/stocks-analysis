@@ -65,6 +65,14 @@ Take the first unchecked item. Each item should be a bounded, verifiable slice.
     as verifier-owned, confirming the separated Terra-worker/Sol-verifier route.
 17. [x] **CX.15h — Read-only Codex dossier contract.** Dossier/MCP/script reads
     build transient market snapshots and cannot create `CompanyMarketData`.
+18. [x] **NS.1 — Binding company-learning north star.** `docs/north-star.md`
+    makes the user's GPW universe → triage → business → thesis → journal →
+    quarterly-review loop the acceptance test for product work; `AGENTS.md`,
+    architecture and live design point to the one canonical statement.
+19. [x] **DISC.0 — BiznesRadar rating-markup recovery.** Current `/rating/*`
+    links parse as discovery evidence without being promoted to report slugs;
+    cached failed source versions are safely re-parsed after a parser upgrade
+    and malformed source pages return a controlled 503 instead of an API 500.
 
 ## Completed work
 

@@ -6,7 +6,10 @@ remain under `docs/design/`.
 
 ## Workflow and composition
 
-`Discover → Research → Brief → Evidence/Financials → Scenarios → Review → Monitor/Journal`
+`Discover → quick human triage → Research case → Brief/Evidence/Financials → Scenarios → Review → Monitor/Journal`
+
+The workflow must implement the user company-learning loop in
+`docs/north-star.md`; a screen may not promote a source rank to a trade signal.
 
 - Use Polish domain labels and existing English navigation.
 - Show one canonical conclusion, then progressive disclosure for evidence,
