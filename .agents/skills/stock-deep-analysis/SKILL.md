@@ -85,8 +85,12 @@ structured result for the UI.
 6. Verify with `stock-verifier`, still using `gpt-5.6-sol` at high reasoning.
    This is a distinct source/schema/safety approval, not a prose polish pass.
 7. Save with MCP `save_analysis_run` using workflow `stock-deep-analysis`,
-   `model_role=verifier_strict`, and the final verifier model. Preserve the
-   Terra research/draft pass and source manifest in `input_snapshot.model_trace`.
+   `model_role=verifier_strict`, and the final verifier model. For a verified
+   scored read, include the verifier model plus passing `no_lookahead`,
+   `source_lineage` and fingerprinted `scenario_input_match` checks; the save
+   path records a `VerificationRun`. Alternatively save a draft first, then use
+   `mark_verification_result` with the same strict evidence. Preserve the Terra
+   research/draft pass and source manifest in `input_snapshot.model_trace`.
    If MCP is unavailable, fall back to `codex_save_analysis.py`. Save rejected
    drafts too when they contain useful verifier notes.
 
@@ -96,9 +100,10 @@ The saved `output` object must contain:
 
 - `executive_read` — at most two concise sentences; conclusion first, no long
   uncertainty preamble;
-- `company_score` — `{value, scale, basis}` owned by the verifier. Also copy
-  `value` to the existing integer `alignment_score` field used by run storage.
-  Its `basis` must say how the frozen `codex_score_base`, source-grounded
+- `conviction_score` — `{value, scale, basis}` recomputed from the frozen
+  input by Python and approved by the verifier. It is stored only in the scored
+  output; never copy it into the legacy Malik/alignment rating. Its `basis`
+  says how the frozen `codex_score_base`, source-grounded
   catalyst/business evidence and probability-weighted scenarios were combined.
   Forum-author reputation and company size must not raise or lower this score
   by themselves;
@@ -118,11 +123,17 @@ The saved `output` object must contain:
     `finding`, `source_ids`/URLs, `as_of`, and `remaining_gap` when applicable;
   - do not repeat an already researched item as an imperative for the user;
 - `confidence`
+- `delivery` — `{status: verified|provisional, data_gaps: [...]}`. Source gaps
+  make the complete read provisional; only integrity failures use
+  `needs-human`.
 - `scenario_outcomes` when `analysis_contract_version=scored-scenario-v1`:
   - negative, base and positive mutually-exclusive outcomes with
     `probability_pct` summing to approximately 100;
   - each outcome's `drivers` and `assumptions` is a non-empty list carrying
     `source_ids`, or an explicit `gap` where primary evidence is unavailable;
+  - do not attach an unpriced event/catalyst to a negative/base/positive
+    deterministic row. Keep it as a driver or explicit gap until an approved
+    deterministic event bridge exists;
 - `prediction`:
   - `direction`: `positive`, `neutral`, or `negative`
   - `horizon_days`

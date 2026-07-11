@@ -283,6 +283,61 @@ def test_mcp_save_analysis_run_rejects_pass_without_prediction(db):
     assert "output.prediction is required" in payload["error"]
 
 
+def test_mcp_strict_verification_cannot_approve_invalid_scored_draft(db):
+    from app.db.models import AnalysisRun, Company
+    from app.mcp.stock_workbench_server import handle_message
+
+    db.add(Company(ticker="SJD", name="Scored draft fixture"))
+    db.commit()
+    saved = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 55,
+            "method": "tools/call",
+            "params": {
+                "name": "save_analysis_run",
+                "arguments": {
+                    "ticker": "SJD",
+                    "workflow": "stock-deep-analysis",
+                    "model_role": "analyst_deep",
+                    "model": "fixture-analyst",
+                    "verification_status": "draft",
+                    "input_snapshot": {"company": {"ticker": "SJD"}},
+                    "output": {"analysis_contract_version": "scored-scenario-v1"},
+                },
+            },
+        }
+    )["result"]["structuredContent"]
+    assert saved["ok"] is True
+
+    verified = handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 56,
+            "method": "tools/call",
+            "params": {
+                "name": "mark_verification_result",
+                "arguments": {
+                    "analysis_run_id": saved["analysis_run_id"],
+                    "model_role": "verifier_strict",
+                    "verifier_model": "fixture-verifier",
+                    "verdict": "pass",
+                    "checks": {
+                        "no_lookahead": {"passed": True},
+                        "source_lineage": {"passed": True},
+                        "scenario_input_match": {"passed": True},
+                    },
+                },
+            },
+        }
+    )["result"]["structuredContent"]
+
+    assert verified["ok"] is False
+    assert "output.prediction is required" in verified["error"]
+    analysis = db.get(AnalysisRun, saved["analysis_run_id"])
+    assert analysis.verification_status == "draft"
+
+
 def _verified_scenario_simulation_payload(*, fingerprint="bridge:fixture"):
     scenario_set = {
         "engine": "deterministic",

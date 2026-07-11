@@ -35,7 +35,7 @@ from scripts.codex_common import (
 )
 
 from app.db.base import SessionLocal
-from app.db.models import AgentRun, AnalysisRun, utcnow
+from app.db.models import AgentRun, AnalysisRun, VerificationRun, utcnow
 from app.services.agent_queue import clear_agent_lease
 from app.services import analysis_contract
 
@@ -95,6 +95,7 @@ def main() -> int:
         verification_status=verification_status,
         output=output,
         input_snapshot=input_snapshot,
+        verification=verification,
     )
     contract_errors += analysis_contract.verified_scenario_simulation_contract_errors(
         workflow=workflow,
@@ -147,6 +148,22 @@ def main() -> int:
         )
         db.add(record)
         db.flush()
+        if (
+            analysis_contract.output_contract_version(output)
+            == analysis_contract.SCORED_SCENARIO_OUTPUT_CONTRACT_VERSION
+            and verification_status.lower() == "pass"
+        ):
+            db.add(
+                VerificationRun(
+                    agent_run_id=agent_run_id,
+                    analysis_run_id=record.id,
+                    model_role=verification["model_role"],
+                    verifier_model=verification["verifier_model"],
+                    verdict=verification["verdict"],
+                    checks=verification["checks"],
+                    summary=verification.get("summary"),
+                )
+            )
         agent = db.get(AgentRun, agent_run_id)
         if agent is not None:
             agent.status = _agent_status_from_verification(verification_status)

@@ -3,6 +3,29 @@
 Durable decisions and completed slices only. `TASKS.md` owns current status;
 implementation detail lives in stage plans, validation notes, archives and git.
 
+## 2026-07-11 · SJ.3/SJ.4/SJ.6 reproducible scored delivery
+
+Verified `scored-scenario-v1` analyses now persist a reproducible 1–100
+conviction score from the frozen Workbench score base, coverage and
+probability-weighted deterministic price return, preserving hard quality caps.
+Saving requires a `verifier_strict` pass and an explicit delivery status. Normal
+source gaps therefore produce a complete provisional analysis with named gaps;
+only integrity failures block it. The existing saved-analysis card presents the
+conviction score, status and scenario outcome returns as decision support,
+without changing the legacy alignment rating.
+
+The verifier gate also now runs when a saved draft is promoted, records direct
+strict passes in `VerificationRun`, binds every normal outcome to its matching
+frozen scenario ID, requires the verifier's scenario-set fingerprint, and
+prevents an unpriced event from borrowing a bullish/bearish/base return.
+
+## 2026-07-11 · Main-branch integration policy
+
+`main` is now the sole working and integration branch. Remote branches must be
+checked for ancestry first; unmerged work is reviewed against current `main`
+and selectively integrated only when it is still relevant and verified. This
+prevents duplicate merges and stale UI rewrites from replacing newer work.
+
 ## 2026-07-11 · Continuous user-directed execution policy
 
 `AGENTS.md` now preserves the user's explicit instruction to continue from a

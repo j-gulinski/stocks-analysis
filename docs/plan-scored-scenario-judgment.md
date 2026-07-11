@@ -143,6 +143,17 @@ caps it at 40. The final verifier-owned conviction score may use the base with
 source-grounded qualitative evidence and probability-weighted scenario
 outcomes, and must retain the base in its frozen input snapshot.
 
+### Implemented conviction-score rule v1
+
+For `scored-scenario-v1`, Python now computes the stored score from the frozen
+snapshot: 50% deterministic score-base signal, 25% score-base evidence
+coverage, and 25% probability-weighted deterministic price return mapped from
+-100…+100% to 0…100. Score-base caps remain hard caps. The strict verifier owns
+approval of that exact output; it cannot supply an arbitrary alternative
+number. The saved `delivery` object is `verified` or `provisional` with named
+gaps, and the existing analysis card exposes the score and outcomes as decision
+support only.
+
 ## Calibration (measurable feedback loop)
 
 - Persist each scenario set with `as_of`, predicted `probability_pct`, projected
@@ -159,14 +170,14 @@ outcomes, and must retain the base in its frozen input snapshot.
 
 1. Scenario cardinality — fixed (base/bull/bear) or variable per case? How are
    probabilities normalised and mutual-exclusivity enforced?
-2. Exact conviction-score formula and weights; how the Malik `prescore`/rubric
-   maps in, and whether the rubric needs rescaling to 0–100.
+2. Whether later calibration evidence should adjust the fixed v1 conviction
+   weights; retain the frozen v1 formula until honest replay evidence exists.
 3. Storage/schema changes and migration path from the current `output` shape
    (evolve vs full refactor) — and the same decision for the scenario engine.
 4. How much marker projection is deterministic (Python does the arithmetic from
    Codex's stated assumptions) vs model-stated, to keep numbers checkable.
-5. UI surface: how per-outcome possibilities + the overall score are shown
-   without implying a trade instruction.
+5. Whether the saved-analysis card needs a compact calibration history once
+   sufficient mature scenarios have accumulated.
 6. Calibration metric choice and how it feeds back into confidence.
 
 ## Direction-level acceptance

@@ -13,6 +13,7 @@ here instead of creating another phase file.
 | Evidence | Immutable event/source records | Claims need source, period, publication time, locator or an explicit gap. |
 | Codex workflow | Durable command table + supervised worker | The app queues and stores; Codex claims one item, researches, verifies and saves. |
 | Scenario approval | Validator before `SaveChanges()` | Mathematical consistency is not investment approval; strict verification and matching fingerprints are required. |
+| Scored judgment | Immutable command DTO + deterministic domain service | Freeze the score inputs, recompute the conviction score on save, and let the verifier approve it; a provisional result is complete evidence-labelled output, not an exception path. |
 | Source safety | Data object separate from executable command | Issuer, forum and event text is untrusted data and cannot override task/skill instructions. |
 | Parser recovery | Versioned deserializers + cached messages | A markup fix may safely re-parse an immutable failed snapshot; it should not trigger another source request or turn a discovery-only link into a canonical identifier. |
 | Replay | Point-in-time event sourcing | Never use later facts to score an earlier decision; small cohorts are diagnostic, not proof. |

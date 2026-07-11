@@ -88,7 +88,19 @@ Take the first unchecked item. Each item should be a bounded, verifiable slice.
     Python verifies its copied target multiple/price/upside or explicit gaps.
     Operating markers remain provisional until an approved template bridge can
     calculate them.
-23. [x] **WBS.1 — Codex-only Workbench score base.** Refactored the existing
+23. [x] **SJ.3 — Verifier-owned conviction score.** A reproducible 1–100
+    score now combines the frozen deterministic score base (50%), its evidence
+    coverage (25%) and probability-weighted deterministic price return (25%),
+    with base caps preserved. A saved verified scored read requires a separate
+    `verifier_strict` pass and cannot substitute the legacy alignment rating.
+24. [x] **SJ.4 — Complete provisional delivery.** Verified scored reads carry
+    `delivery.status` and explicit `data_gaps`; ordinary evidence gaps make a
+    complete read provisional, while only math/lineage/fabrication integrity
+    failures are `needs-human`.
+25. [x] **SJ.6 — Saved scored-analysis UI.** The existing analysis card shows
+    the conviction score, delivery status, scenario probabilities and frozen
+    deterministic price outcomes without turning them into a trade action.
+26. [x] **WBS.1 — Codex-only Workbench score base.** Refactored the existing
     deterministic scoring module into a reusable, frozen analysis input with
     growth/revenue/profit as the largest factor. It is returned only to MCP/CLI
     Codex dossier reads, not the Dossier/UI contract; skills require the strict

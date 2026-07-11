@@ -240,6 +240,13 @@ function ProviderNeutralAnalysisCard({ run }: { run: AnalysisRun }) {
   const redFlags = textList(output.red_flags ?? output.risks);
   const watchItems = textList(output.watch_items ?? output.action_plan);
   const dataGaps = textList(output.data_gaps ?? output.missing_data);
+  const delivery = recordField(output.delivery);
+  const conviction = recordField(output.conviction_score);
+  const scoredOutcomes = Array.isArray(output.scenario_outcomes)
+    ? output.scenario_outcomes.map(recordField).filter((item): item is Record<string, unknown> => item != null)
+    : [];
+  const deliveryGaps = textList(delivery?.data_gaps);
+  const convictionValue = numberField(conviction?.value);
   const verifyNext = textList(output.verify_next);
   const nextAction = textField(output.next_action);
   const verifierSummary = textField(verification.summary) || textField(verification.verdict);
@@ -264,7 +271,12 @@ function ProviderNeutralAnalysisCard({ run }: { run: AnalysisRun }) {
         </div>
       </div>
 
-      {run.alignment_score != null && (
+      {convictionValue != null ? (
+        <div className={`score ${scoreTone(convictionValue)}`} style={{ marginTop: 12 }}>
+          <span className="score-value">{convictionValue}</span>
+          <span className="score-label">conviction / 100 · {textField(delivery?.status) ?? "provisional"}</span>
+        </div>
+      ) : run.alignment_score != null && (
         <div className={`score ${scoreTone(run.alignment_score)}`} style={{ marginTop: 12 }}>
           <span className="score-value">{run.alignment_score}</span>
           <span className="score-label">alignment score</span>
@@ -272,6 +284,20 @@ function ProviderNeutralAnalysisCard({ run }: { run: AnalysisRun }) {
       )}
 
       <p style={{ marginTop: 12, fontWeight: 500, lineHeight: 1.5 }}>{summary}</p>
+
+      {scoredOutcomes.length > 0 && (
+        <div className="analysis-section">
+          <p className="analysis-title">Scored scenarios</p>
+          {scoredOutcomes.map((outcome, index) => {
+            const impact = recordField(outcome.deterministic_impact);
+            const price = recordField(impact?.price_impact);
+            return <p className="verify-item" key={`${textField(outcome.id) ?? index}`}>
+              {textField(outcome.kind) ?? "scenario"}: {numberField(outcome.probability_pct) ?? "?"}% · {fmtPct(numberField(price?.return_pct), { signed: true })}
+              {textField(impact?.status) === "provisional" ? " · provisional" : ""}
+            </p>;
+          })}
+        </div>
+      )}
 
       {hasContractFields && (
         <div className="analysis-contract" aria-label="Structured Codex analysis fields">
@@ -391,10 +417,10 @@ function ProviderNeutralAnalysisCard({ run }: { run: AnalysisRun }) {
         </div>
       )}
 
-      {dataGaps.length > 0 && (
+      {[...dataGaps, ...deliveryGaps].length > 0 && (
         <div className="analysis-section">
           <p className="analysis-title">Data gaps</p>
-          {dataGaps.map((gap, index) => (
+          {[...dataGaps, ...deliveryGaps].map((gap, index) => (
             <p className="verify-item" key={`${gap}-${index}`}>{gap}</p>
           ))}
         </div>

@@ -267,6 +267,7 @@ def save_analysis_run(arguments: dict[str, Any]) -> dict[str, Any]:
         verification_status=verification_status,
         output=output,
         input_snapshot=_optional_dict(arguments, "input_snapshot"),
+        verification=_optional_dict(arguments, "verification"),
     )
     contract_errors += analysis_contract.verified_scenario_simulation_contract_errors(
         workflow=workflow,
@@ -327,6 +328,25 @@ def save_analysis_run(arguments: dict[str, Any]) -> dict[str, Any]:
         )
         db.add(record)
         db.flush()
+        if (
+            analysis_contract.output_contract_version(output)
+            == analysis_contract.SCORED_SCENARIO_OUTPUT_CONTRACT_VERSION
+            and verification_status.lower() == "pass"
+        ):
+            # A direct strict save still needs an auditable verifier row. Draft
+            # saves use mark_verification_result later; both paths preserve the
+            # same independent-verifier evidence instead of a bare status flag.
+            db.add(
+                VerificationRun(
+                    agent_run_id=agent_run_id,
+                    analysis_run_id=record.id,
+                    model_role=verification["model_role"],
+                    verifier_model=verification["verifier_model"],
+                    verdict=verification["verdict"],
+                    checks=verification["checks"],
+                    summary=verification.get("summary"),
+                )
+            )
         agent = db.get(AgentRun, agent_run_id)
         if agent is not None:
             agent.status = _agent_status_from_verification(verification_status)
@@ -435,10 +455,27 @@ def mark_verification_result(arguments: dict[str, Any]) -> dict[str, Any]:
                         "checks": checks,
                     },
                 )
+                contract_errors += analysis_contract.verified_analysis_contract_errors(
+                    workflow=analysis.workflow,
+                    verification_status=verdict,
+                    output=analysis.output or {},
+                    input_snapshot=analysis.input_snapshot or {},
+                    verification={
+                        "model_role": model_role,
+                        "verifier_model": verifier_model,
+                        "verdict": verdict,
+                        "checks": checks,
+                    },
+                )
                 if contract_errors:
                     raise ToolInputError(" ".join(contract_errors))
                 analysis.verification_status = verdict
-                analysis.verification = checks
+                analysis.verification = {
+                    "model_role": model_role,
+                    "verifier_model": verifier_model,
+                    "verdict": verdict,
+                    "checks": checks,
+                }
                 analysis.status = _analysis_status_from_verification(verdict)
         if isinstance(agent_run_id, int):
             agent = db.get(AgentRun, agent_run_id)

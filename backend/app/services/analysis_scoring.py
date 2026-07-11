@@ -130,8 +130,12 @@ def compute_conviction_score(score_base: dict, scenario_outcomes: list[dict]) ->
     signal, coverage = score_base.get("deterministic_signal"), score_base.get("evidence_coverage_pct")
     if not _number(signal) or not _number(coverage):
         return {"value": None, "scale": 100, "status": "provisional", "reason": "Brak policzalnej bazy dowodowej."}
+    if not isinstance(scenario_outcomes, list):
+        return {"value": None, "scale": 100, "status": "provisional", "reason": "Brak kompletnej listy scenariuszy."}
     returns = []
     for outcome in scenario_outcomes:
+        if not isinstance(outcome, dict):
+            return {"value": None, "scale": 100, "status": "provisional", "reason": "Scenariusz ma nieprawidłową strukturę."}
         price = (outcome.get("deterministic_impact") or {}).get("price_impact") or {}
         if not _number(outcome.get("probability_pct")) or not _number(price.get("return_pct")):
             return {"value": None, "scale": 100, "status": "provisional", "reason": "Brak pełnego policzalnego wpływu cenowego."}

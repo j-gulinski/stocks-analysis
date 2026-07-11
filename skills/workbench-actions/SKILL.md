@@ -43,6 +43,10 @@ is processed.
    analysis-only weighting base (growth in revenue/profit first), not a Dossier
    card, recommendation or standalone rating. Freeze it with the analysis
    input and let the strict verifier own the final scored judgment.
+   A saved scored read displays its verifier-owned conviction score, scenario
+   probabilities and deterministic price outcomes in the existing analysis
+   card. `provisional` means named evidence gaps, not a hidden or suppressed
+   result; only integrity failures are `needs-human`.
 3. A ticker search and every new top-15 Discover entry schedule an
    `stock-initial-research` `agent_run`; it is not a model call. Report its
    status as `queued`, `running`, `verified`, `rejected` or `needs-human`.

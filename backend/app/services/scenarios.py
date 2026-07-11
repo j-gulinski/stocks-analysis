@@ -636,8 +636,11 @@ def scenario_set_fingerprint(scenario_set: dict) -> str:
 
 def deterministic_impact(scenario_set: dict, scenario_set_id: str | None) -> dict:
     """Expose only computed scenario values; absent markers stay explicit gaps."""
+    rows = scenario_set.get("scenarios")
+    if not isinstance(rows, list):
+        rows = []
     row = next(
-        (item for item in scenario_set.get("scenarios", []) if item.get("id") == scenario_set_id),
+        (item for item in rows if isinstance(item, dict) and item.get("id") == scenario_set_id),
         None,
     )
     if row is None:

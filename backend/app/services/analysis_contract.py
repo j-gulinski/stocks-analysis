@@ -27,6 +27,11 @@ SCENARIO_VERIFIER_CHECKS = (
     "source_lineage",
     "scenario_input_match",
 )
+SCORED_ANALYSIS_VERIFIER_CHECKS = (
+    "no_lookahead",
+    "source_lineage",
+    "scenario_input_match",
+)
 
 
 def output_contract_version(output: dict[str, Any]) -> str:
@@ -48,6 +53,7 @@ def verified_analysis_contract_errors(
     verification_status: str,
     output: dict[str, Any],
     input_snapshot: dict[str, Any] | None = None,
+    verification: dict[str, Any] | None = None,
 ) -> list[str]:
     """Return deterministic contract errors for approved Codex analyses."""
     if workflow not in ANALYSIS_WORKFLOWS_REQUIRING_PREDICTION:
@@ -107,9 +113,10 @@ def verified_analysis_contract_errors(
         errors.extend(_scored_scenario_probability_errors(output))
         errors.extend(_scored_scenario_impact_errors(output, input_snapshot or {}))
         errors.extend(_conviction_score_errors(output, input_snapshot or {}))
-        delivery = output.get("delivery")
-        if not isinstance(delivery, dict) or delivery.get("status") not in {"verified", "provisional"} or not _string_list(delivery.get("data_gaps")):
-            errors.append("output.delivery requires status verified/provisional and explicit data_gaps.")
+        errors.extend(_strict_scored_analysis_verification_errors(
+            verification or {}, input_snapshot or {}
+        ))
+        errors.extend(_scored_delivery_errors(output))
 
     return errors
 
@@ -136,11 +143,85 @@ def _scored_scenario_impact_errors(output: dict[str, Any], input_snapshot: dict[
     for index, outcome in enumerate(output.get("scenario_outcomes", [])):
         if not isinstance(outcome, dict):
             continue
-        expected = scenarios.deterministic_impact(scenario_set, outcome.get("scenario_set_id"))
+        kind = outcome.get("kind")
+        scenario_set_id = outcome.get("scenario_set_id")
+        if kind in {"negative", "base", "positive"} and scenario_set_id != kind:
+            errors.append(
+                f"output.scenario_outcomes[{index}].scenario_set_id must match its {kind} kind."
+            )
+        if kind == "event" and scenario_set_id is not None:
+            errors.append(
+                f"output.scenario_outcomes[{index}].scenario_set_id must be null for an unpriced event."
+            )
+        expected = scenarios.deterministic_impact(
+            scenario_set, None if kind == "event" else scenario_set_id
+        )
         actual = outcome.get("deterministic_impact")
         if actual != expected:
             errors.append(f"output.scenario_outcomes[{index}].deterministic_impact must match the frozen scenario_set.")
     return errors
+
+
+def _strict_scored_analysis_verification_errors(
+    verification: dict[str, Any], input_snapshot: dict[str, Any]
+) -> list[str]:
+    errors: list[str] = []
+    if verification.get("model_role") != "verifier_strict":
+        errors.append("verified scored analysis requires verifier_strict verdict pass.")
+    if verification.get("verdict") != "pass":
+        errors.append("verified scored analysis requires verifier_strict verdict pass.")
+    verifier_model = verification.get("verifier_model")
+    if not isinstance(verifier_model, str) or not verifier_model.strip():
+        errors.append("verification.verifier_model must identify the strict verifier.")
+    checks = verification.get("checks")
+    if not isinstance(checks, dict):
+        errors.append("verification.checks is required for verified scored analysis.")
+        return errors
+    for check_id in SCORED_ANALYSIS_VERIFIER_CHECKS:
+        if not _check_pass(checks.get(check_id)):
+            errors.append(f"verification.checks.{check_id} must pass.")
+    fingerprint = scenarios.scenario_set_fingerprint(input_snapshot.get("scenario_set", {}))
+    input_match = checks.get("scenario_input_match")
+    if not isinstance(input_match, dict) or input_match.get("fingerprint") != fingerprint:
+        errors.append(
+            "verification.checks.scenario_input_match must carry the frozen scenario-set fingerprint."
+        )
+    return errors
+
+
+def _scored_delivery_errors(output: dict[str, Any]) -> list[str]:
+    delivery = output.get("delivery")
+    if not isinstance(delivery, dict) or delivery.get("status") not in {"verified", "provisional"}:
+        return ["output.delivery requires status verified/provisional and explicit data_gaps."]
+    data_gaps = delivery.get("data_gaps")
+    if not _string_list(data_gaps):
+        return ["output.delivery.data_gaps must be a string list."]
+    required_gaps: set[str] = set()
+    outcomes = output.get("scenario_outcomes")
+    if isinstance(outcomes, list):
+        for outcome in outcomes:
+            if not isinstance(outcome, dict):
+                continue
+            impact = outcome.get("deterministic_impact")
+            if isinstance(impact, dict):
+                required_gaps.update(item for item in impact.get("data_gaps", []) if isinstance(item, str))
+            for field in ("drivers", "assumptions"):
+                entries = outcome.get(field)
+                if isinstance(entries, list):
+                    required_gaps.update(
+                        entry["gap"]
+                        for entry in entries
+                        if isinstance(entry, dict) and isinstance(entry.get("gap"), str)
+                    )
+    delivered_gaps = set(data_gaps)
+    if required_gaps and delivery["status"] != "provisional":
+        return ["output.delivery.status must be provisional while scored outcomes contain data gaps."]
+    if delivery["status"] == "provisional" and not delivered_gaps:
+        return ["output.delivery.data_gaps must be non-empty for provisional delivery."]
+    missing = required_gaps - delivered_gaps
+    if missing:
+        return ["output.delivery.data_gaps must include every scored outcome data gap."]
+    return []
 
 
 def _scored_scenario_probability_errors(output: dict[str, Any]) -> list[str]:

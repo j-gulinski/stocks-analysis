@@ -198,6 +198,16 @@ required, the user tells you to stop, or a safety/quality gate blocks progress.
 Never turn this instruction into a recurring host automation: execution remains
 within the active Codex task and all app/Codex queue work stays user-invoked.
 
+### Main-branch integration
+
+`main` is the working and integration branch. Before incorporating a remote
+branch, fetch it and check whether its commits are already ancestors of
+`origin/main`; do not re-merge duplicate work. For a branch that is not
+merged, review its diff against current `main`, selectively integrate only
+verified, still-relevant changes, then test and document the result. Do not
+merge a stale or overlapping feature branch wholesale, and never delete a
+remote branch without the user's explicit approval.
+
 ### Delegation and judge loop
 
 - For medium or high-complexity work, use a manager → bounded workers →

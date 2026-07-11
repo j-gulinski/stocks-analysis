@@ -6,8 +6,9 @@ description: Verify a Stock Analysis Workbench company result-quality and potent
 # Stock result verifier
 
 Act as `verifier_strict` for result quality and valuation potential. The normal
-automated outcome is `pass` or `fail`; use `needs-human` only when a source gap
-or governance judgment cannot be resolved from stored data. This skill is also
+automated outcome is `pass` or `fail`; ordinary source or governance gaps must
+produce a complete `provisional` scored read with explicit gaps. Use
+`needs-human` only for an integrity/safety failure. This skill is also
 the feedback loop: compare the draft with gathered evidence, produce correction
 instructions, let the analysis worker revise, then verify the corrected draft.
 
@@ -20,8 +21,9 @@ instructions, let the analysis worker revise, then verify the corrected draft.
   `verify_next`/`next_action`.
 - Workflow, model role, model, and intended `verification_status`.
 
-If the dossier is missing, stale, or not source-backed, return `needs-human`.
-If the draft is missing required structured fields, return `fail`.
+If the dossier is missing, stale, or not source-backed, return a provisional
+read with its gap named. If the draft is missing required structured fields,
+return `fail`.
 
 ## Required output fields for approved analysis
 
@@ -79,7 +81,9 @@ For `verification_status=pass`, the draft must include:
    - No direct buy/sell instruction.
    - Forum claims remain labelled as opinions unless confirmed by stored
      reports.
-   - Any unresolved material source gap goes to `needs-human`, not `pass`.
+  - Any unresolved material source gap remains visible in `delivery.data_gaps`
+    and makes the complete read `provisional`; it is not a reason to suppress
+    the analysis.
    - Company size/sweet-spot mismatch is strategy-fit context, not an
      investment risk. Reject drafts that list it under `risks`/`red_flags`
      without a separate sourced liquidity or market-structure issue.
@@ -121,8 +125,8 @@ Run at most two correction loops before escalation:
   wording matches deterministic data, and result-quality risks are surfaced.
 - `fail`: missing schema, unsupported cause/potential claim, bullish wording on
   downside-only scenarios, hidden one-off risk, or invented numbers.
-- `needs-human`: required source data is absent or a governance/source-quality
-  question cannot be resolved automatically.
+- `needs-human`: deterministic math, snapshot lineage, fabrication or another
+  safety/integrity check cannot be resolved automatically.
 
 ## Output contract
 

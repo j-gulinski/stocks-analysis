@@ -85,8 +85,31 @@ def _verified_scored_output() -> dict:
     snapshot = {"scenario_set": scenario_set, "codex_score_base": {"deterministic_signal": 70, "evidence_coverage_pct": 100, "caps": []}}
     from app.services import analysis_scoring
     output["conviction_score"] = analysis_scoring.compute_conviction_score(snapshot["codex_score_base"], output["scenario_outcomes"])
-    output["delivery"] = {"status": "provisional", "data_gaps": ["Operating marker bridge unavailable."]}
+    output["delivery"] = {
+        "status": "provisional",
+        "data_gaps": [
+            "Pozostałe markery operacyjne wymagają zatwierdzonego mostu template.",
+        ],
+    }
     return output, snapshot
+
+
+def _strict_scored_verification(snapshot: dict) -> dict:
+    from app.services import scenarios
+
+    return {
+        "model_role": "verifier_strict",
+        "verifier_model": "fixture-verifier",
+        "verdict": "pass",
+        "checks": {
+            "no_lookahead": {"passed": True},
+            "source_lineage": {"passed": True},
+            "scenario_input_match": {
+                "passed": True,
+                "fingerprint": scenarios.scenario_set_fingerprint(snapshot["scenario_set"]),
+            },
+        },
+    }
 
 
 def test_scored_contract_requires_normalized_probabilities_and_provenance():
@@ -94,15 +117,115 @@ def test_scored_contract_requires_normalized_probabilities_and_provenance():
 
     output, snapshot = _verified_scored_output()
     assert verified_analysis_contract_errors(
-        workflow="stock-deep-analysis", verification_status="pass", output=output, input_snapshot=snapshot
+        workflow="stock-deep-analysis", verification_status="pass", output=output, input_snapshot=snapshot,
+        verification=_strict_scored_verification(snapshot),
     ) == []
 
     invalid, snapshot = _verified_scored_output()
     invalid["scenario_outcomes"][2]["probability_pct"] = 40
     invalid["scenario_outcomes"][0]["drivers"] = [{"claim": "unsupported"}]
     errors = verified_analysis_contract_errors(
-        workflow="stock-deep-analysis", verification_status="pass", output=invalid, input_snapshot=snapshot
+        workflow="stock-deep-analysis", verification_status="pass", output=invalid, input_snapshot=snapshot,
+        verification=_strict_scored_verification(snapshot),
     )
 
     assert any("sum to approximately 100" in error for error in errors)
     assert any("source_ids or an explicit gap" in error for error in errors)
+
+
+def test_scored_contract_requires_strict_verdict_and_explicit_delivery():
+    from app.services.analysis_contract import verified_analysis_contract_errors
+
+    output, snapshot = _verified_scored_output()
+    output.pop("delivery")
+    errors = verified_analysis_contract_errors(
+        workflow="stock-deep-analysis",
+        verification_status="pass",
+        output=output,
+        input_snapshot=snapshot,
+        verification={"model_role": "worker_standard", "verdict": "pass"},
+    )
+
+    assert "verifier_strict verdict pass" in " ".join(errors)
+    assert "output.delivery requires status verified/provisional" in " ".join(errors)
+
+
+def test_scored_contract_binds_outcome_kind_and_delivery_gaps():
+    from app.services.analysis_contract import verified_analysis_contract_errors
+
+    output, snapshot = _verified_scored_output()
+    output["scenario_outcomes"][0]["scenario_set_id"] = "positive"
+    output["delivery"] = {"status": "verified", "data_gaps": []}
+    errors = verified_analysis_contract_errors(
+        workflow="stock-deep-analysis",
+        verification_status="pass",
+        output=output,
+        input_snapshot=snapshot,
+        verification=_strict_scored_verification(snapshot),
+    )
+
+    assert "scenario_set_id must match its negative kind" in " ".join(errors)
+    assert "delivery.status must be provisional" in " ".join(errors)
+
+
+def test_scored_contract_rejects_unfingerprinted_or_priced_event_outcomes():
+    from app.services.analysis_contract import verified_analysis_contract_errors
+
+    output, snapshot = _verified_scored_output()
+    output["scenario_outcomes"][0]["kind"] = "event"
+    output["scenario_outcomes"][0]["scenario_set_id"] = "positive"
+    verification = _strict_scored_verification(snapshot)
+    verification["checks"]["scenario_input_match"] = True
+    errors = verified_analysis_contract_errors(
+        workflow="stock-deep-analysis",
+        verification_status="pass",
+        output=output,
+        input_snapshot=snapshot,
+        verification=verification,
+    )
+
+    rendered = " ".join(errors)
+    assert "scenario_input_match must carry the frozen scenario-set fingerprint" in rendered
+    assert "scenario_set_id must be null for an unpriced event" in rendered
+
+
+def test_scored_contract_handles_malformed_outcomes_without_raising():
+    from app.services.analysis_contract import verified_analysis_contract_errors
+
+    output, snapshot = _verified_scored_output()
+    output["scenario_outcomes"] = "not a list"
+    errors = verified_analysis_contract_errors(
+        workflow="stock-deep-analysis",
+        verification_status="pass",
+        output=output,
+        input_snapshot=snapshot,
+        verification=_strict_scored_verification(snapshot),
+    )
+
+    assert "scenario_outcomes must contain" in " ".join(errors)
+
+
+def test_mcp_scored_direct_pass_records_verifier_without_overwriting_alignment(db):
+    from app.db.models import AnalysisRun, Company, VerificationRun
+    from app.mcp.stock_tools import save_analysis_run
+
+    db.add(Company(ticker="SJV", name="Scored verifier fixture"))
+    db.commit()
+    output, snapshot = _verified_scored_output()
+    result = save_analysis_run(
+        {
+            "ticker": "SJV",
+            "workflow": "stock-deep-analysis",
+            "model_role": "verifier_strict",
+            "model": "fixture-verifier",
+            "verification_status": "pass",
+            "input_snapshot": snapshot,
+            "output": output,
+            "verification": _strict_scored_verification(snapshot),
+        }
+    )
+
+    record = db.get(AnalysisRun, result["analysis_run_id"])
+    assert record.alignment_score is None
+    verifier = db.query(VerificationRun).filter_by(analysis_run_id=record.id).one()
+    assert verifier.model_role == "verifier_strict"
