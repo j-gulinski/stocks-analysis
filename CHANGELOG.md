@@ -23,6 +23,11 @@ The controlled ABS/SNT comparison also corrected an earlier assumption: the
 table layout is public, but consensus values were empty anonymously and present
 after Premium login. Fresh Premium versions 25/26 now back every displayed
 ranking fact; anonymous empty versions cannot inherit older mutable values.
+Post-publication strict review also made the newest fetch authoritative: a newer
+failed parse suppresses the older good snapshot and exposes both version IDs.
+Freshness now includes its evaluation/cutoff timestamps, profit-to-loss is an
+explicit capped penalty, and empty UI states distinguish stale, degraded and
+insufficient evidence.
 
 ## 2026-07-11 · RT2.5 corporate-action-aware return gate
 

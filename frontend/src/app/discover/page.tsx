@@ -230,6 +230,10 @@ export default function DiscoverPage() {
                         ? "turnaround"
                         : value.transition === "loss_narrowing"
                           ? "mniejsza strata"
+                          : value.transition === "loss_onset"
+                            ? "wejście w stratę"
+                            : value.transition === "flat_zero"
+                              ? "bez wyniku"
                           : value.transition === "deterioration"
                             ? "pogorszenie"
                             : fmtPct(value.growth_pct, { signed: true })}
@@ -248,7 +252,11 @@ export default function DiscoverPage() {
           </div>
         ) : (
           <div className="info-box">
-            Brak co najmniej dwóch lat konsensusu z wymaganym pokryciem. Collector będzie uzupełniał uniwersum partiami.
+            {forecastRanking?.degraded_count
+              ? `Najnowsze pobranie nie przeszło walidacji dla ${forecastRanking.degraded_count} spółek; starsze dane nie są pokazywane jako aktualne.`
+              : forecastRanking?.stale_count
+                ? `${forecastRanking.stale_count} zapisanych konsensusów jest starszych niż ${forecastRanking.fresh_after_days} dni.`
+                : `Brak co najmniej dwóch sąsiednich lat konsensusu z wymaganym pokryciem (${forecastRanking?.insufficient_count ?? 0} spółek).`}
           </div>
         )}
         {forecastRanking && (

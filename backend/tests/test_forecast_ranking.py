@@ -67,6 +67,8 @@ def test_forecast_growth_ranking_orders_one_fresh_adjacent_snapshot(client, db):
     assert payload["ranked_count"] == 2
     assert payload["insufficient_count"] == 1
     assert payload["analyst_count_available"] is False
+    assert payload["evaluated_at"]
+    assert payload["freshness_cutoff_at"]
     assert payload["candidates"][0]["metrics"]["revenue"]["growth_pct"] == 40.0
     assert payload["candidates"][0]["metric_coverage"] == 3
     assert payload["candidates"][0]["source_version_id"] is not None
@@ -125,3 +127,58 @@ def test_forecast_transitions_and_non_finite_values_are_not_ranked(db):
     assert result["candidates"] == []
     assert _finite_float(float("nan")) is None
     assert _finite_float(float("inf")) is None
+
+
+def test_newer_failed_version_blocks_older_good_snapshot(db):
+    from datetime import timedelta
+
+    from app.db.models import Company, SourceDocument
+    from app.services import evidence
+    from app.services.forecast_ranking import build_forecast_growth_ranking
+
+    _add_company(db, "FAIL", (100, 120), (10, 12))
+    document = db.query(SourceDocument).filter_by(scope_key="consensus").one()
+    company = db.get(Company, document.company_id)
+    failed = evidence.record_document_version(
+        db,
+        company,
+        source_name="biznesradar",
+        source_type="analyst_forecast",
+        scope_key="consensus",
+        requested_url=document.canonical_url,
+        effective_url=document.canonical_url,
+        content=b"newer-failed",
+        text="broken",
+        response_status=200,
+        mime_type="text/html",
+        fetched_at=datetime(2026, 7, 11, tzinfo=timezone.utc) + timedelta(minutes=1),
+    )
+    evidence.mark_parse_result(failed.version, success=False, error="fixture failure")
+    db.commit()
+
+    result = build_forecast_growth_ranking(
+        db,
+        now=datetime(2026, 7, 11, 1, tzinfo=timezone.utc),
+    )
+
+    assert result["candidates"] == []
+    assert result["degraded_count"] == 1
+    assert result["degraded_sources"][0]["latest_version_id"] == failed.version.id
+    assert result["degraded_sources"][0]["last_good_version_id"] is not None
+
+
+def test_profit_loss_onset_is_explicitly_penalized_and_zero_is_flat(db):
+    from app.services.forecast_ranking import build_forecast_growth_ranking
+
+    _add_company(db, "CROSS", (100, 120), (10, -5), net_income=(0, 0))
+    db.commit()
+
+    row = build_forecast_growth_ranking(
+        db,
+        now=datetime(2026, 7, 11, tzinfo=timezone.utc),
+    )["candidates"][0]
+
+    assert row["metrics"]["operating_profit"]["transition"] == "loss_onset"
+    assert row["metrics"]["operating_profit"]["growth_pct"] == -150.0
+    assert row["metrics"]["net_income"]["transition"] == "flat_zero"
+    assert row["composite_growth_pct"] == -40.0

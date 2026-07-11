@@ -57,7 +57,7 @@ export interface ForecastGrowthMetric {
   second_value: number | null;
   growth_pct: number | null;
   turnaround: boolean;
-  transition: "normal" | "turnaround" | "loss_narrowing" | "deterioration" | "unknown";
+  transition: "normal" | "turnaround" | "loss_narrowing" | "loss_onset" | "flat_zero" | "deterioration" | "unknown";
 }
 
 export interface ForecastGrowthCandidate {
@@ -85,7 +85,17 @@ export interface ForecastGrowthRanking {
   ranked_count: number;
   insufficient_count: number;
   stale_count: number;
+  degraded_count: number;
+  degraded_sources: Array<{
+    ticker: string;
+    latest_version_id: number;
+    latest_parse_status: string;
+    latest_parse_error: string | null;
+    last_good_version_id: number | null;
+  }>;
   fresh_after_days: number;
+  evaluated_at: string;
+  freshness_cutoff_at: string;
   analyst_count_available: boolean;
   caveats: string[];
   candidates: ForecastGrowthCandidate[];

@@ -38,11 +38,23 @@ def build_forecast_growth_ranking(
     ranked: list[dict[str, Any]] = []
     insufficient = 0
     stale = 0
+    degraded: list[dict[str, Any]] = []
     for company, document in documents:
-        version = _latest_parsed_version(db, document.id)
-        if version is None:
+        latest_version = _latest_version(db, document.id)
+        if latest_version is None:
             insufficient += 1
             continue
+        if latest_version.parse_status != "parsed":
+            last_good = _latest_parsed_version(db, document.id)
+            degraded.append({
+                "ticker": company.ticker,
+                "latest_version_id": latest_version.id,
+                "latest_parse_status": latest_version.parse_status,
+                "latest_parse_error": latest_version.parse_error,
+                "last_good_version_id": last_good.id if last_good else None,
+            })
+            continue
+        version = latest_version
         fetched_at = _aware_utc(version.fetched_at)
         if fetched_at < cutoff_now - timedelta(days=MAX_SOURCE_AGE_DAYS):
             stale += 1
@@ -75,13 +87,18 @@ def build_forecast_growth_ranking(
         "ranked_count": len(ranked),
         "insufficient_count": insufficient,
         "stale_count": stale,
+        "degraded_count": len(degraded),
+        "degraded_sources": degraded,
         "fresh_after_days": MAX_SOURCE_AGE_DAYS,
+        "evaluated_at": cutoff_now,
+        "freshness_cutoff_at": cutoff_now - timedelta(days=MAX_SOURCE_AGE_DAYS),
         "analyst_count_available": False,
         "caveats": [
             "BiznesRadar consensus includes only forecasts not older than six months.",
             "The page does not expose analyst count in the stored table; coverage remains unknown.",
             "Only adjacent current/future years from one fresh immutable source version are compared.",
             "Negative-to-positive is a turnaround; continuing losses never enter percentage ranking.",
+            "A forecast moving from profit to zero/loss is explicitly penalized at a capped -100% in the composite.",
             "This is a research shortlist, not an investment recommendation.",
         ],
         "candidates": ranked[: max(1, min(limit, 100))],
@@ -130,14 +147,20 @@ def _company_growth(
         growth = None
         transition = "unknown"
         if first is not None and second is not None:
-            if first > 0:
+            if first > 0 and second > 0:
                 growth = round((second / first - 1) * 100, 2)
                 valid_growth.append(max(-100.0, min(200.0, growth)))
                 transition = "normal"
+            elif first > 0 and second <= 0:
+                growth = round((second / first - 1) * 100, 2)
+                valid_growth.append(-100.0)
+                transition = "loss_onset"
             elif first <= 0 < second:
                 transition = "turnaround"
             elif first < second <= 0:
                 transition = "loss_narrowing"
+            elif first == 0 and second == 0:
+                transition = "flat_zero"
             else:
                 transition = "deterioration"
         metrics[metric] = {
@@ -176,6 +199,15 @@ def _latest_parsed_version(db: Session, document_id: int) -> DocumentVersion | N
             DocumentVersion.source_document_id == document_id,
             DocumentVersion.parse_status == "parsed",
         )
+        .order_by(DocumentVersion.fetched_at.desc(), DocumentVersion.id.desc())
+        .limit(1)
+    )
+
+
+def _latest_version(db: Session, document_id: int) -> DocumentVersion | None:
+    return db.scalar(
+        select(DocumentVersion)
+        .where(DocumentVersion.source_document_id == document_id)
         .order_by(DocumentVersion.fetched_at.desc(), DocumentVersion.id.desc())
         .limit(1)
     )
