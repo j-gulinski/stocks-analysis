@@ -3,6 +3,27 @@
 Durable decisions and completed slices only. `TASKS.md` owns current status;
 implementation detail lives in stage plans, validation notes, archives and git.
 
+## 2026-07-11 · RT2.5 corporate-action-aware return gate
+
+Price rows now record `source_name` and an explicit `adjustment_status`
+plus `series_key` and `basis_version` (migration `0020`). Database constraints
+limit the vocabulary and forbid eligible rows without complete provenance.
+Existing history remains honestly `unknown`; new
+BiznesRadar history/profile rows are `raw_unverified`, because the current
+adapter has not proved split/dividend adjustment semantics. Deterministic
+backtests, agent evaluations and frozen-cohort cards now admit only exactly
+matching source/series/version rows declared `split_adjusted` or `total_return`
+and expose both endpoint identities in results. Agent-evaluation base prices
+must have been learned by the analysis's exact `created_at`. Mixed price-return
+and total-return aggregates are stratified and never pooled.
+Missing same-series future endpoints carry a machine-readable reason and force
+`needs-human`; frozen cohort cards preserve full base/future identity instead
+of reducing it to a return number. Eligible provenance must also be non-empty,
+not merely non-null.
+This intentionally removes unsupported return calculations until an official
+or licensed long-history adapter proves GPW coverage, corporate actions, terms
+and point-in-time availability.
+
 ## 2026-07-11 · RT2.4 source-quality notes
 
 Added one deterministic source-class registry for allowed use, investment-

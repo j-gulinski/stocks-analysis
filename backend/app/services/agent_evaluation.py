@@ -20,6 +20,7 @@ from app.db.models import (
     Company,
     Price,
 )
+from app.services.market_returns import RETURN_ELIGIBLE_ADJUSTMENTS, series_identity
 
 DEFAULT_OUTCOME_WINDOWS = (30, 90, 180, 365)
 DEFAULT_POSITIVE_HURDLE_PCT = 10.0
@@ -107,6 +108,7 @@ def run_agent_evaluation(
         if summary["observation_count"] == 0
         or summary["data_quality"]["unknown_predictions"] > 0
         or summary["data_quality"]["missing_price_windows"] > 0
+        or summary["data_quality"]["mixed_return_bases"]
         else "pending"
     )
     if run is not None:
@@ -177,7 +179,7 @@ def _build_observation(
 ) -> dict[str, Any]:
     as_of = analysis.created_at.date()
     prediction = _extract_prediction(analysis.output or {})
-    outcome = _outcome_windows(db, company.id, as_of, windows)
+    outcome = _outcome_windows(db, company.id, analysis.created_at, windows)
     score = _score_prediction(prediction, outcome)
     return {
         "ticker": company.ticker,
@@ -292,19 +294,39 @@ def _is_hit(direction: str, return_pct: float) -> bool:
 def _outcome_windows(
     db: Session,
     company_id: int,
-    as_of: date,
+    known_at: datetime,
     windows: list[int],
 ) -> dict[str, Any]:
-    base = _price_on_or_before(db, company_id, as_of)
+    as_of = known_at.date()
+    base = _price_on_or_before(db, company_id, as_of, known_at=known_at)
     result: dict[str, Any] = {
+        "base_price_id": base.id if base else None,
         "base_price": float(base.close) if base else None,
         "base_price_date": base.date if base else None,
+        "base_scraped_at": base.scraped_at if base else None,
+        "source_name": base.source_name if base else None,
+        "series_key": base.series_key if base else None,
+        "adjustment_status": base.adjustment_status if base else None,
+        "basis_version": base.basis_version if base else None,
         "windows": {},
     }
     for days in windows:
         target = as_of + timedelta(days=days)
-        future = _price_on_or_after(db, company_id, target)
-        if base is None or future is None or float(base.close) == 0:
+        future = _price_on_or_after(
+            db,
+            company_id,
+            target,
+            adjustment_status=base.adjustment_status if base else None,
+            source_name=base.source_name if base else None,
+            series_key=base.series_key if base else None,
+            basis_version=base.basis_version if base else None,
+        )
+        if (
+            base is None
+            or future is None
+            or float(base.close) == 0
+            or series_identity(base) != series_identity(future)
+        ):
             result["windows"][str(days)] = {
                 "target_date": target,
                 "price_date": future.date if future else None,
@@ -318,24 +340,68 @@ def _outcome_windows(
             "target_date": target,
             "price_date": future.date,
             "price": future_close,
+            "price_id": future.id,
+            "scraped_at": future.scraped_at,
+            "source_name": future.source_name,
+            "series_key": future.series_key,
+            "adjustment_status": future.adjustment_status,
+            "basis_version": future.basis_version,
             "return_pct": round((future_close / base_close - 1) * 100, 2),
         }
     return result
 
 
-def _price_on_or_before(db: Session, company_id: int, value: date) -> Price | None:
+def _price_on_or_before(
+    db: Session,
+    company_id: int,
+    value: date,
+    *,
+    known_at: datetime,
+) -> Price | None:
     return db.scalar(
         select(Price)
-        .where(Price.company_id == company_id, Price.date <= value)
+        .where(
+            Price.company_id == company_id,
+            Price.date <= value,
+            Price.adjustment_status.in_(RETURN_ELIGIBLE_ADJUSTMENTS),
+            Price.source_name.is_not(None),
+            Price.series_key.is_not(None),
+            Price.basis_version.is_not(None),
+            Price.scraped_at.is_not(None),
+            Price.scraped_at <= known_at,
+        )
         .order_by(Price.date.desc())
         .limit(1)
     )
 
 
-def _price_on_or_after(db: Session, company_id: int, value: date) -> Price | None:
+def _price_on_or_after(
+    db: Session,
+    company_id: int,
+    value: date,
+    *,
+    adjustment_status: str | None,
+    source_name: str | None,
+    series_key: str | None,
+    basis_version: str | None,
+) -> Price | None:
+    if (
+        adjustment_status not in RETURN_ELIGIBLE_ADJUSTMENTS
+        or not source_name
+        or not series_key
+        or not basis_version
+    ):
+        return None
     return db.scalar(
         select(Price)
-        .where(Price.company_id == company_id, Price.date >= value)
+        .where(
+            Price.company_id == company_id,
+            Price.date >= value,
+            Price.adjustment_status == adjustment_status,
+            Price.source_name == source_name,
+            Price.series_key == series_key,
+            Price.basis_version == basis_version,
+        )
         .order_by(Price.date.asc())
         .limit(1)
     )
@@ -347,40 +413,83 @@ def _summarize(observations: list[dict[str, Any]]) -> dict[str, Any]:
     hits = 0
     missing = 0
     unknown = 0
+    by_basis: dict[str, dict[str, int]] = {}
     for observation in observations:
         direction = observation["prediction"]["direction"]
         prediction_counts[direction] = prediction_counts.get(direction, 0) + 1
         if direction == "unknown":
             unknown += 1
         score = observation["score"]
+        basis = str(observation["outcome"].get("adjustment_status") or "missing")
+        basis_row = by_basis.setdefault(
+            basis,
+            {"scored_windows": 0, "hit_windows": 0, "missing_windows": 0},
+        )
         scored += score["scored_windows"]
         hits += score["hit_windows"]
         missing += score["missing_windows"]
-    warnings = _warnings(unknown, missing)
+        basis_row["scored_windows"] += score["scored_windows"]
+        basis_row["hit_windows"] += score["hit_windows"]
+        basis_row["missing_windows"] += score["missing_windows"]
+    eligible_bases = {
+        basis for basis in by_basis if basis in RETURN_ELIGIBLE_ADJUSTMENTS
+    }
+    mixed_return_bases = len(eligible_bases) > 1
+    basis_summary = {
+        basis: {
+            **row,
+            "hit_rate_pct": (
+                round(row["hit_windows"] / row["scored_windows"] * 100, 2)
+                if row["scored_windows"]
+                else None
+            ),
+        }
+        for basis, row in sorted(by_basis.items())
+    }
+    warnings = _warnings(unknown, missing, mixed_return_bases=mixed_return_bases)
     if not observations:
         warnings.insert(0, "No saved analysis runs matched the evaluation filters; no evidence was scored.")
     return {
         "observation_count": len(observations),
         "prediction_counts": prediction_counts,
-        "scored_windows": scored,
-        "hit_windows": hits,
-        "hit_rate_pct": round(hits / scored * 100, 2) if scored else None,
+        "scored_windows": None if mixed_return_bases else scored,
+        "hit_windows": None if mixed_return_bases else hits,
+        "hit_rate_pct": (
+            round(hits / scored * 100, 2)
+            if scored and not mixed_return_bases
+            else None
+        ),
+        "score_by_return_basis": basis_summary,
         "data_quality": {
             "unknown_predictions": unknown,
             "missing_price_windows": missing,
+            "mixed_return_bases": mixed_return_bases,
             "warnings": warnings,
         },
     }
 
 
-def _warnings(unknown_predictions: int, missing_price_windows: int) -> list[str]:
+def _warnings(
+    unknown_predictions: int,
+    missing_price_windows: int,
+    *,
+    mixed_return_bases: bool,
+) -> list[str]:
     warnings = []
     if unknown_predictions:
         warnings.append(
             "Some agent outputs lack structured direction/potential fields; prose is not inferred."
         )
     if missing_price_windows:
-        warnings.append("Some future price windows are missing from stored price history.")
+        warnings.append(
+            "Some outcome windows lack an explicitly split-adjusted or "
+            "total-return price pair."
+        )
+    if mixed_return_bases:
+        warnings.append(
+            "Split-adjusted price returns and total returns are stratified; "
+            "no combined hit rate is permitted."
+        )
     return warnings
 
 

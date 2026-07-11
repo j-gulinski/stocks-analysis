@@ -2,6 +2,19 @@ from datetime import date, datetime, timezone
 import json
 
 
+def _adjusted_price(**kwargs):
+    from app.db.models import Price
+
+    values = {
+        "source_name": "test_verified_prices",
+        "series_key": "test:verified:split:v1",
+        "adjustment_status": "split_adjusted",
+        "basis_version": "v1",
+    }
+    values.update(kwargs)
+    return Price(**values)
+
+
 def test_agent_evaluation_scores_structured_potential(db):
     from app.db.models import AnalysisRun, Company, Price
     from app.services import agent_evaluation
@@ -11,8 +24,8 @@ def test_agent_evaluation_scores_structured_potential(db):
     db.commit()
     db.add_all(
         [
-            Price(company_id=company.id, date=date(2024, 1, 2), close=100, volume=None),
-            Price(company_id=company.id, date=date(2024, 2, 1), close=116, volume=None),
+            _adjusted_price(company_id=company.id, date=date(2024, 1, 2), close=100, volume=None, scraped_at=datetime(2024, 1, 2, 8, 0, tzinfo=timezone.utc)),
+            _adjusted_price(company_id=company.id, date=date(2024, 2, 1), close=116, volume=None),
         ]
     )
     analysis = AnalysisRun(
@@ -60,7 +73,7 @@ def test_agent_evaluation_marks_missing_prediction_needs_human(client, db):
     company = Company(ticker="DEC", name="DECORA")
     db.add(company)
     db.commit()
-    db.add(Price(company_id=company.id, date=date(2024, 1, 2), close=50, volume=None))
+    db.add(_adjusted_price(company_id=company.id, date=date(2024, 1, 2), close=50, volume=None, scraped_at=datetime(2024, 1, 2, 8, 0, tzinfo=timezone.utc)))
     db.add(
         AnalysisRun(
             company_id=company.id,
@@ -113,6 +126,96 @@ def test_agent_evaluation_empty_cohort_needs_human(db):
     assert "No saved analysis runs matched" in result["summary"]["data_quality"]["warnings"][0]
 
 
+def test_agent_evaluation_does_not_mix_price_adjustment_bases(db):
+    from app.db.models import Company, Price
+    from app.services.agent_evaluation import _outcome_windows
+
+    company = Company(ticker="MIX", name="MIXED BASIS")
+    db.add(company)
+    db.flush()
+    db.add_all(
+        [
+            _adjusted_price(
+                company_id=company.id,
+                date=date(2024, 1, 2),
+                close=100,
+                scraped_at=datetime(2024, 1, 2, 8, 0, tzinfo=timezone.utc),
+            ),
+            _adjusted_price(
+                company_id=company.id,
+                date=date(2024, 2, 1),
+                close=116,
+                source_name="test_total_return",
+                series_key="test:total-return:v1",
+                adjustment_status="total_return",
+            ),
+        ]
+    )
+    db.commit()
+
+    outcome = _outcome_windows(
+        db,
+        company.id,
+        datetime(2024, 1, 2, 12, 0, tzinfo=timezone.utc),
+        [30],
+    )
+
+    assert outcome["adjustment_status"] == "split_adjusted"
+    assert outcome["windows"]["30"]["return_pct"] is None
+
+
+def test_agent_evaluation_excludes_base_price_learned_after_analysis(db):
+    from app.db.models import Company
+    from app.services.agent_evaluation import _outcome_windows
+
+    company = Company(ticker="LATE", name="LATE PRICE")
+    db.add(company)
+    db.flush()
+    db.add(
+        _adjusted_price(
+            company_id=company.id,
+            date=date(2024, 1, 2),
+            close=100,
+            scraped_at=datetime(2024, 1, 2, 11, 0, tzinfo=timezone.utc),
+        )
+    )
+    db.commit()
+
+    outcome = _outcome_windows(
+        db,
+        company.id,
+        datetime(2024, 1, 2, 10, 0, tzinfo=timezone.utc),
+        [30],
+    )
+
+    assert outcome["base_price"] is None
+    assert outcome["windows"]["30"]["return_pct"] is None
+
+
+def test_agent_evaluation_stratifies_mixed_return_bases():
+    from app.services.agent_evaluation import _summarize
+
+    observations = [
+        {
+            "prediction": {"direction": "positive"},
+            "outcome": {"adjustment_status": basis},
+            "score": {
+                "scored_windows": 1,
+                "hit_windows": hits,
+                "missing_windows": 0,
+            },
+        }
+        for basis, hits in (("split_adjusted", 1), ("total_return", 0))
+    ]
+
+    summary = _summarize(observations)
+
+    assert summary["data_quality"]["mixed_return_bases"] is True
+    assert summary["hit_rate_pct"] is None
+    assert summary["score_by_return_basis"]["split_adjusted"]["hit_rate_pct"] == 100.0
+    assert summary["score_by_return_basis"]["total_return"]["hit_rate_pct"] == 0.0
+
+
 def test_codex_evaluate_agent_runs_script_and_mcp(db, monkeypatch, capsys):
     from app.db.models import AnalysisRun, Company, Price
     from app.mcp.stock_workbench_server import handle_message
@@ -123,8 +226,8 @@ def test_codex_evaluate_agent_runs_script_and_mcp(db, monkeypatch, capsys):
     db.commit()
     db.add_all(
         [
-            Price(company_id=company.id, date=date(2024, 1, 2), close=200, volume=None),
-            Price(company_id=company.id, date=date(2024, 4, 1), close=196, volume=None),
+            _adjusted_price(company_id=company.id, date=date(2024, 1, 2), close=200, volume=None, scraped_at=datetime(2024, 1, 2, 8, 0, tzinfo=timezone.utc)),
+            _adjusted_price(company_id=company.id, date=date(2024, 4, 1), close=196, volume=None),
         ]
     )
     db.add(

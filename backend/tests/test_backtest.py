@@ -2,6 +2,19 @@
 from datetime import date, datetime, timezone
 
 
+def _adjusted_price(**kwargs):
+    from app.db.models import Price
+
+    values = {
+        "source_name": "test_verified_prices",
+        "series_key": "test:verified:split:v1",
+        "adjustment_status": "split_adjusted",
+        "basis_version": "v1",
+    }
+    values.update(kwargs)
+    return Price(**values)
+
+
 def _add_income_row(db, company_id: int, period: str, field_code: str, value: float, scraped_at):
     from app.db.models import ReportValue
 
@@ -30,13 +43,13 @@ def test_backtest_excludes_future_scraped_financial_rows_but_attaches_outcomes(d
 
     db.add_all(
         [
-            Price(
+            _adjusted_price(
                 company_id=company.id,
                 date=date(2024, 3, 31),
                 close=10.0,
                 scraped_at=datetime(2024, 3, 30, tzinfo=timezone.utc),
             ),
-            Price(company_id=company.id, date=date(2024, 5, 1), close=15.0),
+            _adjusted_price(company_id=company.id, date=date(2024, 5, 1), close=15.0),
         ]
     )
     _add_income_row(
@@ -97,13 +110,13 @@ def test_backtest_estimated_period_lag_is_opt_in_and_date_bounded(db):
     db.commit()
     db.add_all(
         [
-            Price(
+            _adjusted_price(
                 company_id=company.id,
                 date=date(2024, 4, 28),
                 close=10.0,
                 scraped_at=datetime(2024, 4, 27, tzinfo=timezone.utc),
             ),
-            Price(
+            _adjusted_price(
                 company_id=company.id,
                 date=date(2024, 4, 29),
                 close=11.0,
@@ -170,7 +183,7 @@ def test_backtest_excludes_price_learned_after_observation_date(db):
     db.add(company)
     db.commit()
     db.add(
-        Price(
+        _adjusted_price(
             company_id=company.id,
             date=date(2024, 3, 31),
             close=10.0,
@@ -190,6 +203,39 @@ def test_backtest_excludes_price_learned_after_observation_date(db):
     )
 
     assert result["summary"]["observation_count"] == 0
+
+
+def test_backtest_excludes_price_with_unknown_corporate_action_basis(db):
+    from app.db.models import Company, Price
+    from app.services import backtest
+
+    company = Company(ticker="RAW", name="RAW PRICE", sector="test")
+    db.add(company)
+    db.flush()
+    db.add(
+        Price(
+            company_id=company.id,
+            date=date(2024, 3, 31),
+            close=10.0,
+            adjustment_status="raw_unverified",
+            scraped_at=datetime(2024, 3, 30, tzinfo=timezone.utc),
+        )
+    )
+    db.commit()
+
+    result = backtest.run_strategy_backtest(
+        db,
+        strategy="malik_v1",
+        from_date=date(2024, 3, 31),
+        to_date=date(2024, 3, 31),
+        tickers=["RAW"],
+        outcome_windows=[30],
+        persist=False,
+    )
+
+    assert result["summary"]["observation_count"] == 0
+    assert result["verification_status"] == "needs-human"
+    assert "split-adjusted" in result["summary"]["data_quality"]["warnings"][0]
     assert result["verification_status"] == "needs-human"
     assert "No point-in-time observations" in result["summary"]["data_quality"][
         "warnings"
@@ -227,6 +273,66 @@ def test_backtest_one_off_signal_includes_discontinued_result():
     ) == 477.7
 
 
+def test_backtest_stratifies_mixed_return_bases():
+    from app.services import backtest
+
+    observations = [
+        {
+            "signal": {"label": "positive"},
+            "outcome": {
+                "adjustment_status": basis,
+                "windows": {"30": {"return_pct": value}},
+            },
+        }
+        for basis, value in (("split_adjusted", 10.0), ("total_return", 15.0))
+    ]
+
+    summary = backtest._summarize(
+        observations,
+        [30],
+        backtest.FINANCIAL_AVAILABILITY_SCRAPED_AT,
+        120,
+    )
+
+    assert summary["mixed_return_bases"] is True
+    assert summary["average_return_pct_by_window"]["30"] is None
+    assert summary["average_return_pct_by_basis_and_window"]["split_adjusted"]["30"] == 10.0
+    assert summary["average_return_pct_by_basis_and_window"]["total_return"]["30"] == 15.0
+
+
+def test_backtest_missing_matching_future_endpoint_needs_human(db):
+    from app.db.models import Company
+    from app.services import backtest
+
+    company = Company(ticker="END", name="ENDPOINT TEST", sector="test")
+    db.add(company)
+    db.flush()
+    db.add(
+        _adjusted_price(
+            company_id=company.id,
+            date=date(2024, 3, 31),
+            close=10,
+            scraped_at=datetime(2024, 3, 30, tzinfo=timezone.utc),
+        )
+    )
+    db.commit()
+
+    result = backtest.run_strategy_backtest(
+        db,
+        strategy="malik_v1",
+        from_date=date(2024, 3, 31),
+        to_date=date(2024, 3, 31),
+        tickers=["END"],
+        outcome_windows=[30],
+        persist=False,
+    )
+
+    window = result["observations"][0]["outcome"]["windows"]["30"]
+    assert window["reason"] == "no_matching_series_endpoint"
+    assert result["summary"]["missing_outcome_windows"] == 1
+    assert result["verification_status"] == "needs-human"
+
+
 def test_backtest_api_creates_lists_and_reads_detail(client, db):
     from app.db.models import Company, Price
 
@@ -234,7 +340,7 @@ def test_backtest_api_creates_lists_and_reads_detail(client, db):
     db.add(company)
     db.commit()
     db.add(
-        Price(
+        _adjusted_price(
             company_id=company.id,
             date=date(2024, 3, 31),
             close=20.0,

@@ -23,6 +23,10 @@ from app.db.models import (
     ReportValue,
 )
 from app.services import fields
+from app.services.market_returns import (
+    RETURN_ELIGIBLE_ADJUSTMENTS,
+    series_identity,
+)
 from app.services.metrics import compute_one_off_share, period_key, previous_year_period
 DEFAULT_OUTCOME_WINDOWS = (30, 90, 180, 365)
 DEFAULT_REPORT_LAG_DAYS = 120
@@ -78,6 +82,7 @@ def run_strategy_backtest(
         "report_lag_days": lag_days if policy == FINANCIAL_AVAILABILITY_ESTIMATED_LAG else None,
         "restatement_caveat": _restatement_caveat(policy),
         "scoring_policy": DETERMINISTIC_SCORING_POLICY,
+        "price_return_policy": "split_adjusted_or_total_return_only",
         "ai_refined_output_included": False,
         "known_inputs_policy": _known_inputs_policy(policy, lag_days),
     }
@@ -225,6 +230,7 @@ def _quarterly_observation_prices(
                 Price.company_id == company.id,
                 Price.date >= from_date,
                 Price.date <= to_date,
+                Price.adjustment_status.in_(RETURN_ELIGIBLE_ADJUSTMENTS),
             )
             .order_by(Price.date.asc())
         )
@@ -300,9 +306,14 @@ def _build_observation(
                 "restatement_caveat": _restatement_caveat(financial_availability_policy),
             },
             "price": {
+                "id": price.id,
                 "date": price.date,
                 "close": float(price.close),
                 "scraped_at": price.scraped_at,
+                "source_name": price.source_name,
+                "series_key": price.series_key,
+                "adjustment_status": price.adjustment_status,
+                "basis_version": price.basis_version,
             },
             "financials": {
                 "latest_income_period": latest_period,
@@ -488,20 +499,43 @@ def _outcomes(
     base_price: Price,
     windows: list[int],
 ) -> dict[str, Any]:
-    result: dict[str, Any] = {"base_price": float(base_price.close), "windows": {}}
+    result: dict[str, Any] = {
+        "base_price_id": base_price.id,
+        "base_price": float(base_price.close),
+        "base_price_date": base_price.date,
+        "base_scraped_at": base_price.scraped_at,
+        "source_name": base_price.source_name,
+        "series_key": base_price.series_key,
+        "adjustment_status": base_price.adjustment_status,
+        "basis_version": base_price.basis_version,
+        "windows": {},
+    }
+    identity = series_identity(base_price)
     for days in windows:
         target = date.fromordinal(base_price.date.toordinal() + days)
         future = db.scalar(
             select(Price)
-            .where(Price.company_id == company_id, Price.date >= target)
+            .where(
+                Price.company_id == company_id,
+                Price.date >= target,
+                Price.source_name == base_price.source_name,
+                Price.series_key == base_price.series_key,
+                Price.adjustment_status == base_price.adjustment_status,
+                Price.basis_version == base_price.basis_version,
+            )
             .order_by(Price.date.asc())
             .limit(1)
         )
-        if future is None:
+        if future is None or identity is None or series_identity(future) != identity:
             result["windows"][str(days)] = {
                 "target_date": target,
                 "price_date": None,
                 "return_pct": None,
+                "reason": (
+                    "ineligible_base_series"
+                    if identity is None
+                    else "no_matching_series_endpoint"
+                ),
             }
             continue
         return_pct = round((float(future.close) / float(base_price.close) - 1.0) * 100.0, 1)
@@ -509,7 +543,14 @@ def _outcomes(
             "target_date": target,
             "price_date": future.date,
             "price": float(future.close),
+            "price_id": future.id,
+            "scraped_at": future.scraped_at,
+            "source_name": future.source_name,
+            "series_key": future.series_key,
+            "adjustment_status": future.adjustment_status,
+            "basis_version": future.basis_version,
             "return_pct": return_pct,
+            "reason": None,
         }
     return result
 
@@ -522,25 +563,56 @@ def _summarize(
 ) -> dict[str, Any]:
     by_label: dict[str, int] = defaultdict(int)
     returns: dict[str, list[float]] = {str(window): [] for window in windows}
+    returns_by_basis: dict[str, dict[str, list[float]]] = {}
     for observation in observations:
         label = str(observation["signal"].get("label") or "unknown")
         by_label[label] += 1
+        basis = str(observation["outcome"].get("adjustment_status") or "missing")
+        basis_returns = returns_by_basis.setdefault(
+            basis, {str(window): [] for window in windows}
+        )
         for window in windows:
             value = observation["outcome"]["windows"][str(window)].get("return_pct")
             if value is not None:
                 returns[str(window)].append(float(value))
+                basis_returns[str(window)].append(float(value))
+    eligible_bases = {
+        basis for basis in returns_by_basis if basis in RETURN_ELIGIBLE_ADJUSTMENTS
+    }
+    mixed_return_bases = len(eligible_bases) > 1
     average_returns = {
-        window: round(sum(values) / len(values), 1) if values else None
+        window: (
+            round(sum(values) / len(values), 1)
+            if values and not mixed_return_bases
+            else None
+        )
         for window, values in returns.items()
     }
+    average_by_basis = {
+        basis: {
+            window: round(sum(values) / len(values), 1) if values else None
+            for window, values in values_by_window.items()
+        }
+        for basis, values_by_window in sorted(returns_by_basis.items())
+    }
+    missing_outcome_windows = sum(
+        1
+        for observation in observations
+        for row in observation["outcome"]["windows"].values()
+        if row.get("return_pct") is None
+    )
     return {
         "observation_count": len(observations),
         "signal_counts": dict(sorted(by_label.items())),
         "average_return_pct_by_window": average_returns,
+        "average_return_pct_by_basis_and_window": average_by_basis,
+        "mixed_return_bases": mixed_return_bases,
+        "missing_outcome_windows": missing_outcome_windows,
         "known_inputs_policy": _known_inputs_policy(
             financial_availability_policy, report_lag_days
         ),
         "scoring_policy": DETERMINISTIC_SCORING_POLICY,
+        "price_return_policy": "split_adjusted_or_total_return_only",
         "ai_refined_output_included": False,
         "data_quality": {
             "financial_availability_policy": financial_availability_policy,
@@ -553,7 +625,10 @@ def _summarize(
             "research_only": financial_availability_policy
             == FINANCIAL_AVAILABILITY_ESTIMATED_LAG,
             "warnings": _data_quality_warnings(
-                financial_availability_policy, observations
+                financial_availability_policy,
+                observations,
+                mixed_return_bases=mixed_return_bases,
+                missing_outcome_windows=missing_outcome_windows,
             ),
         },
     }
@@ -575,6 +650,21 @@ def _initial_verification_status(
         return "needs-human"
     if not observations:
         return "needs-human"
+    if any(
+        row.get("return_pct") is None
+        for observation in observations
+        for row in observation["outcome"]["windows"].values()
+    ):
+        return "needs-human"
+    if len(
+        {
+            observation["outcome"].get("adjustment_status")
+            for observation in observations
+            if observation["outcome"].get("adjustment_status")
+            in RETURN_ELIGIBLE_ADJUSTMENTS
+        }
+    ) > 1:
+        return "needs-human"
     if all(
         observation["signal"].get("label") == "insufficient_data"
         for observation in observations
@@ -586,6 +676,9 @@ def _initial_verification_status(
 def _data_quality_warnings(
     financial_availability_policy: str,
     observations: list[dict[str, Any]],
+    *,
+    mixed_return_bases: bool,
+    missing_outcome_windows: int,
 ) -> list[str]:
     warnings: list[str] = []
     if financial_availability_policy == FINANCIAL_AVAILABILITY_ESTIMATED_LAG:
@@ -596,14 +689,25 @@ def _data_quality_warnings(
         )
     if not observations:
         warnings.append(
-            "No point-in-time observations were admissible; stored price or "
-            "financial availability does not cover the requested period."
+            "No point-in-time observations were admissible; prices must be "
+            "known by the observation date and explicitly split-adjusted or "
+            "total-return, with matching financial coverage."
         )
     if all(
         observation["signal"].get("label") == "insufficient_data"
         for observation in observations
     ) and observations:
         warnings.append("All observations lack usable financial inputs.")
+    if mixed_return_bases:
+        warnings.append(
+            "Split-adjusted price returns and total returns are stratified; "
+            "no combined average is permitted."
+        )
+    if missing_outcome_windows:
+        warnings.append(
+            f"{missing_outcome_windows} outcome windows lack an endpoint from "
+            "the exact same verified price series."
+        )
     return warnings
 
 

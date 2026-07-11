@@ -66,6 +66,8 @@ def test_incremental_uses_br_archiwum_only(client, db, monkeypatch):
     prices = client.get("/api/companies/DEC/prices", params={"days": 5000}).json()
     assert prices[-1]["date"] == HISTORY_NEWEST.isoformat()
     assert prices[-1]["close"] == 24.80
+    assert prices[-1]["source_name"] == "biznesradar_history"
+    assert prices[-1]["adjustment_status"] == "raw_unverified"
 
 
 def test_br_profile_quote_fallback_when_history_unavailable(client, db, monkeypatch):
@@ -92,6 +94,8 @@ def test_br_profile_quote_fallback_when_history_unavailable(client, db, monkeypa
     stored = db.scalars(select(Price).where(Price.company_id == company.id)).all()
     assert len(stored) == 1
     assert stored[0].close == 24.5
+    assert stored[0].source_name == "biznesradar_profile"
+    assert stored[0].adjustment_status == "raw_unverified"
 
 
 def test_future_rows_are_purged(client, db, monkeypatch):

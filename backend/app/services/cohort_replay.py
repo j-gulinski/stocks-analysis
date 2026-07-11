@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Company, Price
 from app.services import backtest
+from app.services.market_returns import RETURN_ELIGIBLE_ADJUSTMENTS
 from app.services.strategies import cases
 
 DEFAULT_WINDOWS = (365, 730, 1095)
@@ -41,7 +42,8 @@ def build_frozen_cohort_review(
         },
         "known_inputs_policy": (
             "Exact case anchor plus a base Price row whose scraped_at is on or "
-            "before the price date; later prices are outcome-only."
+            "before the price date and whose adjustment basis is explicitly "
+            "split-adjusted or total-return; later prices are outcome-only."
         ),
         "signals": [],
         "outcomes": cards,
@@ -87,7 +89,10 @@ def _case_card(db: Session, case: cases.WorkedCase, windows: tuple[int, ...]) ->
         blocker = f"No local company/price history for {case.market_ticker}."
     elif base_price is None:
         admission_status = "blocked"
-        blocker = "No point-in-time-admissible base price near the exact anchor."
+        blocker = (
+            "No point-in-time-admissible, corporate-action-aware base price "
+            "near the exact anchor."
+        )
     else:
         admission_status = "measurable"
         blocker = None
@@ -105,9 +110,20 @@ def _case_card(db: Session, case: cases.WorkedCase, windows: tuple[int, ...]) ->
                 "days": window,
                 "target_date": outcome.get("target_date"),
                 "price_date": outcome.get("price_date"),
+                "price_id": outcome.get("price_id"),
+                "price": outcome.get("price"),
+                "scraped_at": outcome.get("scraped_at"),
+                "source_name": outcome.get("source_name"),
+                "series_key": outcome.get("series_key"),
+                "adjustment_status": outcome.get("adjustment_status"),
+                "basis_version": outcome.get("basis_version"),
                 "return_pct": outcome.get("return_pct"),
                 "status": "measured" if outcome.get("return_pct") is not None else "unavailable",
-                "reason": None if outcome.get("return_pct") is not None else blocker,
+                "reason": (
+                    None
+                    if outcome.get("return_pct") is not None
+                    else outcome.get("reason") or blocker or "outcome_endpoint_unavailable"
+                ),
             }
         )
     return {
@@ -128,8 +144,13 @@ def _case_card(db: Session, case: cases.WorkedCase, windows: tuple[int, ...]) ->
         "base_price": (
             {
                 "date": base_price.date,
+                "price_id": base_price.id,
                 "close": float(base_price.close),
                 "scraped_at": base_price.scraped_at,
+                "source_name": base_price.source_name,
+                "series_key": base_price.series_key,
+                "adjustment_status": base_price.adjustment_status,
+                "basis_version": base_price.basis_version,
             }
             if base_price is not None
             else None
@@ -163,6 +184,7 @@ def _admissible_base_price(
             Price.company_id == company.id,
             Price.date <= anchor,
             Price.date >= anchor - timedelta(days=7),
+            Price.adjustment_status.in_(RETURN_ELIGIBLE_ADJUSTMENTS),
         )
         .order_by(Price.date.desc())
         .limit(1)

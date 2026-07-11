@@ -42,6 +42,18 @@ Take the first unchecked item. Each item should be a bounded, verifiable slice.
     parser health and honest `review_required` terms status in API/UI. Next:
     verify source-specific terms before any redistribution/export feature.
 13. RT stages in order; add CX.16e/f and CX.17 only when prerequisites exist.
+14. [~] RT2.5 — price rows and replay engines now enforce explicit corporate-
+    action basis plus matching source/series/version; BR is `raw_unverified`
+    and cannot create returns. Mixed bases are stratified. Next:
+    evaluate an official/licensed GPW long-history source with split/dividend
+    coverage, terms and delistings.
+15. [ ] **DISC.1 — BiznesRadar Premium forecast-growth ranking.** Build a
+    bounded universe collector and deterministic two-year ranking for analyst
+    consensus growth. Keep revenue/EBIT/net-profit/EPS dimensions separate,
+    expose forecast dates/analyst coverage/missingness and source evidence,
+    label the result as a research shortlist, then offer refresh and queue
+    analysis actions. Do not crawl the full site until robots/terms, request
+    bounds and a small live pilot are verified.
 
 ## Completed work
 
@@ -221,7 +233,9 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
 - [~] RT2.4: deterministic quality notes, parse health and unverified terms
   status are visible in the grouped evidence UI. Source-specific legal terms
   verification remains open.
-- [ ] RT2.5: corporate-action-aware long-history market-data evaluation.
+- [~] RT2.5: schema and all deterministic replay paths reject unknown/raw price
+  adjustment status. Official/licensed long-history source evaluation remains
+  open; no current BR row is promoted to adjusted data.
 
 ### RT.3 — fundamental depth and company templates
 

@@ -930,6 +930,10 @@ def _refresh_prices(
                         company_id=company.id,
                         date=today,
                         close=fallback_price,
+                        source_name="biznesradar_profile",
+                        series_key=f"biznesradar:{company.ticker}:raw-close",
+                        basis_version="br-profile@1",
+                        adjustment_status="raw_unverified",
                         scraped_at=scraped_at,
                     )
                 )
@@ -958,6 +962,10 @@ def _refresh_prices(
                 date=bar.day,
                 close=bar.close,
                 volume=bar.volume,
+                source_name="biznesradar_history",
+                series_key=f"biznesradar:{company.ticker}:raw-close",
+                basis_version="br-price-history@1",
+                adjustment_status="raw_unverified",
                 scraped_at=scraped_at,
             )
         )

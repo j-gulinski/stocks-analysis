@@ -264,6 +264,10 @@ class PriceOut(BaseModel):
     date: date
     close: float
     volume: int | None
+    source_name: str | None
+    series_key: str | None
+    basis_version: str | None
+    adjustment_status: str
     scraped_at: datetime | None
 
 

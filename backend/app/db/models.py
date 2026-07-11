@@ -13,6 +13,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -205,6 +206,17 @@ class Price(Base):
     __tablename__ = "prices"
     __table_args__ = (
         UniqueConstraint("company_id", "date", name="uq_price_day"),
+        CheckConstraint(
+            "adjustment_status IN ('unknown', 'raw_unverified', 'split_adjusted', 'total_return')",
+            name="ck_prices_adjustment_status",
+        ),
+        CheckConstraint(
+            "adjustment_status NOT IN ('split_adjusted', 'total_return') OR "
+            "(source_name IS NOT NULL AND length(trim(source_name)) > 0 AND "
+            "series_key IS NOT NULL AND length(trim(series_key)) > 0 AND "
+            "basis_version IS NOT NULL AND length(trim(basis_version)) > 0)",
+            name="ck_prices_eligible_provenance",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -212,6 +224,12 @@ class Price(Base):
     date: Mapped[date] = mapped_column(Date)
     close: Mapped[float] = mapped_column(Numeric(12, 4))
     volume: Mapped[int | None] = mapped_column(BigInteger)
+    source_name: Mapped[str | None] = mapped_column(String(80))
+    series_key: Mapped[str | None] = mapped_column(String(160), index=True)
+    basis_version: Mapped[str | None] = mapped_column(String(80))
+    adjustment_status: Mapped[str] = mapped_column(
+        String(40), default="unknown", server_default="unknown", index=True
+    )
     scraped_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), index=True, default=utcnow
     )

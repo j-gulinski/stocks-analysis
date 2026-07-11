@@ -2,6 +2,18 @@
 from datetime import date, datetime, timezone
 
 
+def _adjusted_price(**kwargs):
+    from app.db.models import Price
+
+    return Price(
+        source_name="test_verified_prices",
+        series_key="test:verified:split:v1",
+        adjustment_status="split_adjusted",
+        basis_version="v1",
+        **kwargs,
+    )
+
+
 def test_frozen_cohort_resolves_identities_without_inventing_returns(db):
     from app.services.cohort_replay import build_frozen_cohort_review
 
@@ -35,13 +47,13 @@ def test_frozen_cohort_measures_only_admissible_exact_anchor_price(db):
     db.flush()
     db.add_all(
         [
-            Price(
+            _adjusted_price(
                 company_id=company.id,
                 date=date(2023, 3, 31),
                 close=6.0,
                 scraped_at=datetime(2023, 3, 31, 12, 0, tzinfo=timezone.utc),
             ),
-            Price(company_id=company.id, date=date(2024, 4, 1), close=3.0),
+            _adjusted_price(company_id=company.id, date=date(2024, 4, 1), close=3.0),
         ]
     )
     db.commit()
@@ -53,3 +65,8 @@ def test_frozen_cohort_measures_only_admissible_exact_anchor_price(db):
     assert sun["admission_status"] == "measurable"
     assert one_year["return_pct"] == -50.0
     assert one_year["status"] == "measured"
+    assert one_year["source_name"] == "test_verified_prices"
+    assert one_year["series_key"] == "test:verified:split:v1"
+    assert one_year["basis_version"] == "v1"
+    two_year = next(item for item in sun["horizons"] if item["days"] == 730)
+    assert two_year["reason"] == "no_matching_series_endpoint"
