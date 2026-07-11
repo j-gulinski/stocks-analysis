@@ -20,6 +20,10 @@ as discovery-only evidence while leaving `br_slug` empty until separately
 resolved; it does not create unsafe report URLs. A parser upgrade reuses the
 already stored immutable page without another request, and an unsupported page
 now yields an actionable 503 source state rather than a server error.
+The next North Star slices are explicitly ordered in `TASKS.md`: first a
+non-mutating human triage ledger, then a source-dated universe policy, then
+explicit promotion into a research case and recurring review. This prevents the
+new direction from becoming a document without a delivery path.
 
 ## 2026-07-11 · CX.15g GPT-5.6 role routing
 

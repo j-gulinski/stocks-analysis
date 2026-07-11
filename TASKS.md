@@ -73,6 +73,21 @@ Take the first unchecked item. Each item should be a bounded, verifiable slice.
     links parse as discovery evidence without being promoted to report slugs;
     cached failed source versions are safely re-parsed after a parser upgrade
     and malformed source pages return a controlled 503 instead of an API 500.
+20. [ ] **NS.2 — Universe triage ledger.** Add a separate, append-only human
+    review record keyed by immutable discovery version + ticker: review price,
+    short note, `skip_for_now`/`revisit_later`/`promote_to_case`, next-review
+    date and evidence reason. Do not create a Company or change the watchlist
+    until the user explicitly promotes a row. Verify API/UI with a current
+    384-row discovery snapshot.
+21. [ ] **NS.3 — Transparent universe policy.** Add an evidence-dated GPW
+    membership adapter for the user’s WIG20/mWIG40 default exclusions and
+    reversible qualitative preferences. Show the source, as-of date and why a
+    row is included/excluded; never infer a permanent “mine” from a sector.
+22. [ ] **NS.4 — Promotion and recurring review.** Promote one triage row into
+    a stored Company/ResearchCase only by explicit user action, carry the human
+    note/price forward, then schedule quarterly/material-event thesis review
+    and journal comparison. Keep primary evidence, forum leads and Codex work
+    visibly distinct.
 
 ## Completed work
 
