@@ -93,8 +93,8 @@ def test_discovery_api_fetches_once_then_uses_immutable_cache(
     job = db.get(AgentRun, first_job["id"])
     assert job is not None
     assert job.model_role == "worker_standard"
-    assert job.model == "gpt-5.3-codex-spark"
-    assert job.orchestrator_model == "gpt-5.3-codex-spark"
+    assert job.model == "gpt-5.6-terra"
+    assert job.orchestrator_model == "gpt-5.6-terra"
     assert job.idempotency_key.endswith(":recall-v1")
     assert job.inputs["policy"] == "recall-v1"
     assert job.inputs["evaluation_budget"] == 5

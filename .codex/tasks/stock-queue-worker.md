@@ -79,7 +79,7 @@ source of truth.
    python3 scripts/codex_save_analysis.py SNT \
      --workflow stock-quick-analysis \
      --model-role worker_standard \
-     --model gpt-5.3-codex-spark \
+     --model gpt-5.6-terra \
      --verification-status needs-human \
      --agent-run-id 123 \
      --input result.json \
@@ -94,7 +94,7 @@ source of truth.
    python3 scripts/codex_complete_agent_run.py \
      --agent-run-id 123 \
      --model-role worker_standard \
-     --model gpt-5.3-codex-spark \
+     --model gpt-5.6-terra \
      --verification-status needs-human \
      --input result.json \
      --pretty

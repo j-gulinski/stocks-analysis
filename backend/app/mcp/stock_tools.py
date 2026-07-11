@@ -34,6 +34,7 @@ from app.services import (
     codex_context,
     model_policy,
 )
+from app.services.model_policy import default_model_for_workflow
 from app.services.agent_queue import clear_agent_lease
 
 
@@ -199,14 +200,19 @@ def queue_agent_run(arguments: dict[str, Any]) -> dict[str, Any]:
         if ticker:
             company_id = _get_company(db, str(ticker)).id
             inputs = {**inputs, "ticker": str(ticker).upper()}
+        selected_model = (
+            arguments.get("model")
+            or arguments.get("orchestrator_model")
+            or default_model_for_workflow(workflow)
+        )
         agent = AgentRun(
             workflow=workflow,
             trigger=str(arguments.get("trigger") or "ui-request"),
             status="queued",
             company_id=company_id,
             model_role=arguments.get("model_role"),
-            model=arguments.get("model"),
-            orchestrator_model=arguments.get("orchestrator_model"),
+            model=selected_model,
+            orchestrator_model=arguments.get("orchestrator_model") or selected_model,
             inputs=inputs,
             outputs={},
         )

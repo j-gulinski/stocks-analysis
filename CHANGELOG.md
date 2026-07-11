@@ -3,6 +3,22 @@
 Durable decisions and completed slices only. `TASKS.md` owns current status;
 implementation detail lives in stage plans, validation notes, archives and git.
 
+## 2026-07-11 · CX.15g GPT-5.6 role routing
+
+Codex queue defaults now use executable GPT-5.6 model identifiers. Terra high
+is the default bounded worker, quick-analysis, pre-session and candidate-scout
+model; Sol high owns deep investment synthesis, financial scenarios and strict
+verification; Luna remains an explicit high-volume/basic option. User model
+selection still overrides the workflow default. This follows the official 5.6
+positioning (Terra balances intelligence and cost; Sol is frontier quality;
+Luna is efficient at volume) and removes non-executable labels such as
+`Sol high` from newly queued run metadata.
+A read-only SNT/ABS comparison supported the split: both Terra and Sol found
+the same decisive source gaps and returned `needs-human`; Terra left an
+unsupported company score empty, while Sol produced richer prose but invented
+draft scores labelled as verifier-owned. Therefore stronger Sol is not treated
+as automatically safer when it also drafts the result it would verify.
+
 ## 2026-07-11 · DISC.1 stored-consensus growth ranking
 
 Discover now includes a deterministic two-forecast-year ranking from locally

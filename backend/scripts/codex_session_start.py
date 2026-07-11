@@ -52,7 +52,7 @@ def main() -> int:
         description="Run the session preflight and claim one Codex queue item."
     )
     parser.add_argument("--trigger", default="session-start")
-    parser.add_argument("--orchestrator-model", default="gpt-5.6-luna")
+    parser.add_argument("--orchestrator-model", default="gpt-5.6-terra")
     add_json_flags(parser)
     args = parser.parse_args()
 

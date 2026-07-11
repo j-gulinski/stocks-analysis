@@ -58,6 +58,11 @@ Take the first unchecked item. Each item should be a bounded, verifiable slice.
     label the result as a research shortlist, then offer refresh and queue
     analysis actions. Do not crawl the full site until robots/terms, request
     bounds and a small live pilot are verified.
+16. [x] **CX.15g — GPT-5.6 worker routing evaluation.** Terra high is the
+    default worker; Sol high remains analyst/verifier. Frozen SNT/ABS runs
+    reached the same safe `needs-human` conclusions. Terra avoided assigning an
+    unsupported company score; Sol was richer but labelled self-created scores
+    as verifier-owned, confirming the separated Terra-worker/Sol-verifier route.
 
 ## Completed work
 

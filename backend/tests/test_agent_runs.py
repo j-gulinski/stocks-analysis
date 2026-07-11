@@ -144,6 +144,8 @@ def test_agent_run_queue_api_creates_and_filters_by_ticker(client, db):
     assert payload["workflow"] == "stock-quick-analysis"
     assert payload["status"] == "queued"
     assert payload["model_role"] == "worker_standard"
+    assert payload["model"] == "gpt-5.5"
+    assert payload["orchestrator_model"] == "gpt-5.5"
     assert payload["inputs"]["ticker"] == "SNT"
     assert payload["inputs"]["objective"] == "test quick read"
 

@@ -45,7 +45,10 @@ def test_mcp_model_policy_is_provider_free_and_role_explicit():
     policy = response["result"]["structuredContent"]["policy"]
     assert policy["status"] == "ready"
     assert policy["draft_role"] == "analyst_deep"
+    assert policy["draft_model"] == "gpt-5.6-sol"
+    assert policy["draft_reasoning_effort"] == "high"
     assert policy["required_verifier_role"] == "verifier_strict"
+    assert policy["verifier_model"] == "gpt-5.6-sol"
     assert policy["provider_mode"] == "codex-host"
     assert policy["api_key_required"] is False
     assert "not exposed" in policy["concrete_model_source"]
@@ -68,6 +71,16 @@ def test_mcp_unknown_model_policy_stays_needs_human():
     policy = response["result"]["structuredContent"]["policy"]
     assert policy["status"] == "needs-human"
     assert policy["draft_role"] is None
+
+
+def test_worker_model_policy_defaults_to_terra():
+    from app.services.model_policy import get_model_policy
+
+    policy = get_model_policy("stock-candidate-scout")
+
+    assert policy["draft_role"] == "worker_standard"
+    assert policy["draft_model"] == "gpt-5.6-terra"
+    assert policy["draft_reasoning_effort"] == "high"
 
 
 def test_mcp_run_backtest_schema_requires_date_boundaries():
@@ -115,6 +128,8 @@ def test_mcp_queue_claim_and_list_agent_run(db):
     queued_payload = queued["result"]["structuredContent"]
     assert queued_payload["ok"] is True
     assert queued_payload["agent_run"]["status"] == "queued"
+    assert queued_payload["agent_run"]["model"] == "gpt-5.6-terra"
+    assert queued_payload["agent_run"]["orchestrator_model"] == "gpt-5.6-terra"
 
     listed = handle_message(
         {

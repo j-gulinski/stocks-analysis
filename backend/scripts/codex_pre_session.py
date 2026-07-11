@@ -24,7 +24,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Fetch ESPI/EBI and queue a Codex brief.")
     parser.add_argument("--ticker", help="Optional single ticker scope.")
     parser.add_argument("--trigger", default="scheduled")
-    parser.add_argument("--orchestrator-model", default="gpt-5.5")
+    parser.add_argument("--orchestrator-model", default="gpt-5.6-terra")
     parser.add_argument(
         "--no-details",
         action="store_true",

@@ -47,7 +47,8 @@ Suggested scheduled-task prompt:
 
 The UI model selector is the source of the requested model for a row. If a row
 has no model selection, the scheduled worker may default to the configured
-orchestrator policy (currently Sol high for deep analysis); the app records the
+orchestrator policy (Terra high for workers, Sol high for deep analysis and
+strict verification); the app records the
 request but never claims the host's concrete deployment when it is not exposed.
 
 ## Operating boundary

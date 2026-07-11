@@ -6,28 +6,29 @@
  */
 export const ORCHESTRATOR_MODELS = [
   {
-    value: "Sol high",
+    value: "gpt-5.6-terra",
+    label: "GPT-5.6 Terra · high",
+    description: "Zalecany worker: mocna implementacja i synteza przy lepszej efektywności niż Sol.",
+  },
+  {
+    value: "gpt-5.6-sol",
     label: "Sol · high",
-    description: "Złożona analiza, scenariusze i niezależna weryfikacja.",
+    description: "Najwyższa jakość: głęboka analiza, scenariusze finansowe i ścisła weryfikacja.",
   },
   {
-    value: "Terra high",
-    label: "Terra · high",
-    description: "Standardowa implementacja i analiza o średniej złożoności.",
-  },
-  {
-    value: "GPT-5.3 high",
-    label: "GPT-5.3 · high",
-    description: "Testy, kontrola mechaniczna i krótsze zadania.",
-  },
-  {
-    value: "Luna medium",
-    label: "Luna · medium",
-    description: "Podstawowe, szybkie zadania i odczyty.",
+    value: "gpt-5.6-luna",
+    label: "GPT-5.6 Luna · medium",
+    description: "Proste i wysokonakładowe zadania; nie jako domyślny analityk inwestycyjny.",
   },
 ] as const;
 
 export const DEFAULT_ORCHESTRATOR_MODEL = ORCHESTRATOR_MODELS[0].value;
+
+export function defaultModelForWorkflow(workflow: string): string {
+  return workflow === "stock-deep-analysis"
+    ? "gpt-5.6-sol"
+    : DEFAULT_ORCHESTRATOR_MODEL;
+}
 
 export function modelPolicyDescription(value: string): string {
   return ORCHESTRATOR_MODELS.find((option) => option.value === value)?.description

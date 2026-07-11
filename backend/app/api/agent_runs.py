@@ -23,6 +23,7 @@ from app.db.base import get_db
 from app.db.models import AgentRun, AnalysisRun, Company, EventReport, utcnow
 from app.scrapers import espi
 from app.services.agent_queue import claim_agent_run
+from app.services.model_policy import default_model_for_workflow
 
 router = APIRouter(tags=["agent-runs"])
 
@@ -89,14 +90,19 @@ def queue_agent_run(payload: AgentRunCreateIn, db: Session = Depends(get_db)) ->
         company_id = company.id
         inputs = {**inputs, "ticker": company.ticker}
 
+    selected_model = (
+        payload.model
+        or payload.orchestrator_model
+        or default_model_for_workflow(workflow)
+    )
     agent = AgentRun(
         workflow=workflow,
         trigger=payload.trigger,
         status="queued",
         company_id=company_id,
         model_role=payload.model_role,
-        model=payload.model,
-        orchestrator_model=payload.orchestrator_model,
+        model=selected_model,
+        orchestrator_model=payload.orchestrator_model or selected_model,
         inputs=inputs,
         outputs={},
     )
@@ -132,13 +138,17 @@ def prepare_pre_session_brief(
         response.status_code = status.HTTP_200_OK
         return {"ok": False, "espi_poll": poll_result, "agent_run": None}
 
+    selected_model = payload.orchestrator_model or default_model_for_workflow(
+        "stock-pre-session-brief"
+    )
     agent = AgentRun(
         workflow="stock-pre-session-brief",
         trigger=payload.trigger,
         status="queued",
         company_id=company.id if company else None,
         model_role="orchestrator",
-        orchestrator_model=payload.orchestrator_model,
+        model=selected_model,
+        orchestrator_model=selected_model,
         inputs={
             "espi_poll": poll_result,
             "task": {

@@ -148,7 +148,9 @@ def _schedule_stale_analyses(db: Session, result) -> DiscoveryScheduleOut:
                 trigger="discovery-refresh",
                 status="queued",
                 company_id=company.id,
-                model_role="analyst_deep",
+                model_role="worker_standard",
+                model="gpt-5.6-terra",
+                orchestrator_model="gpt-5.6-terra",
                 idempotency_key=idempotency_key,
                 inputs={
                     "ticker": candidate.ticker,
@@ -220,8 +222,8 @@ def _ensure_evaluation_job(db: Session, result) -> DiscoveryEvaluationJobOut | N
         trigger="discovery-refresh",
         status="queued",
         model_role="worker_standard",
-        model="gpt-5.3-codex-spark",
-        orchestrator_model="gpt-5.3-codex-spark",
+        model="gpt-5.6-terra",
+        orchestrator_model="gpt-5.6-terra",
         idempotency_key=job_key,
         inputs={
             "job_key": job_key,

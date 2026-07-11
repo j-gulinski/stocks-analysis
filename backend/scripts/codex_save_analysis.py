@@ -9,7 +9,7 @@ Usage:
     python3 scripts/codex_save_analysis.py SNT \
       --workflow stock-quick-analysis \
       --model-role worker_standard \
-      --model gpt-5.5 \
+      --model gpt-5.6-terra \
       --verification-status pass \
       --input result.json
 """

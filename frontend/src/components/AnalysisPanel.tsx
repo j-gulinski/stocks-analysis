@@ -11,7 +11,7 @@ import {
 } from "@/lib/api";
 import { isCurrentVerifiedRun } from "@/lib/analysis";
 import { fmtDate, fmtPct, relativeDate, signClass } from "@/lib/format";
-import { DEFAULT_ORCHESTRATOR_MODEL, modelPolicyDescription, ORCHESTRATOR_MODELS } from "@/lib/model-policy";
+import { defaultModelForWorkflow, modelPolicyDescription, ORCHESTRATOR_MODELS } from "@/lib/model-policy";
 import { LoadingMessages } from "@/components/Loading";
 import type {
   AgentRun,
@@ -451,7 +451,7 @@ export default function AnalysisPanel({
   const [selectedAgentRunId, setSelectedAgentRunId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [queueing, setQueueing] = useState(false);
-  const [orchestratorModel, setOrchestratorModel] = useState<string>(DEFAULT_ORCHESTRATOR_MODEL);
+  const [orchestratorModel, setOrchestratorModel] = useState<string>(defaultModelForWorkflow("stock-deep-analysis"));
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
