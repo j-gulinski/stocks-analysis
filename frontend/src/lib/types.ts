@@ -714,6 +714,33 @@ export interface ScraperHealth {
   errors_24h: number;
 }
 
+export interface EvidenceDocument {
+  id: number;
+  source_name: string;
+  source_type: string;
+  scope_key: string;
+  canonical_url: string;
+  first_seen_at: string;
+  last_fetched_at: string;
+  latest_content_hash: string;
+  parser_version: string;
+  last_fetch_status: number | null;
+  version_count: number;
+  first_version_at: string | null;
+  latest_version_at: string | null;
+  latest_parse_status: string;
+  latest_parse_error: string | null;
+  quality: {
+    priority: number | null;
+    label: string;
+    allowed_use: string;
+    limitation: string;
+    terms_status: "review_required";
+    terms_note: string;
+    rate_policy: string;
+  };
+}
+
 export interface AiUsageHealth {
   day: string;
   limits: { runs: number; provider_attempts: number; tokens: number };

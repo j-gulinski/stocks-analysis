@@ -35,8 +35,13 @@ Take the first unchecked item. Each item should be a bounded, verifiable slice.
 11. [~] RT2.3 — bounded issuer-IR pilot now covers SNT/ABS/OPM; ABS stored 30
     link claims, while SNT/OPM expose polite HTTP 403 source gaps. Discovered
     PDFs now have bounded page extraction; the live 13-page ABS scan is stored
-    as `needs_ocr` with zero claims. Raw-binary storage/OCR remains open.
-12. RT stages in order; add CX.16e/f and CX.17 only when prerequisites exist.
+    as `needs_ocr` with zero claims. Manual public-host redirects, streamed byte
+    caps and parsed-index provenance are verifier-covered. Raw-binary
+    storage/OCR remains open.
+12. [~] RT2.4 — source classes now expose allowed use, limitation, priority,
+    parser health and honest `review_required` terms status in API/UI. Next:
+    verify source-specific terms before any redistribution/export feature.
+13. RT stages in order; add CX.16e/f and CX.17 only when prerequisites exist.
 
 ## Completed work
 
@@ -213,8 +218,10 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
   was a 13-page scan and is honestly `needs_ocr`; binary artifact storage/OCR
   and a fourth/fifth pilot remain open. The CX.15a watermark is shared by the
   GPW poller.
-- [ ] RT2.4–RT2.5: source terms/quality notes and corporate-action-aware
-  long-history market-data evaluation.
+- [~] RT2.4: deterministic quality notes, parse health and unverified terms
+  status are visible in the grouped evidence UI. Source-specific legal terms
+  verification remains open.
+- [ ] RT2.5: corporate-action-aware long-history market-data evaluation.
 
 ### RT.3 — fundamental depth and company templates
 

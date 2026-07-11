@@ -17,7 +17,7 @@ class StubSession:
         self.calls = 0
         self.headers: dict = {}
 
-    def get(self, url, timeout):
+    def get(self, url, timeout, **_kwargs):
         self.calls += 1
         outcome = self.outcomes.pop(0)
         if isinstance(outcome, Exception):

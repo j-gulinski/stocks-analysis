@@ -412,7 +412,7 @@ def latest_versions_as_of(
             .where(
                 DocumentVersion.source_document_id == document.id,
                 DocumentVersion.fetched_at <= as_of,
-                DocumentVersion.parse_status == "parsed",
+                DocumentVersion.parse_status.in_(("parsed", "partial")),
             )
             .order_by(DocumentVersion.fetched_at.desc(), DocumentVersion.id.desc())
             .limit(1)

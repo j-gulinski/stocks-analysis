@@ -74,6 +74,13 @@ class FakeResponse:
         if self.status_code >= 400:
             raise RuntimeError(f"HTTP {self.status_code}")
 
+    def iter_content(self, chunk_size: int = 8192):
+        for offset in range(0, len(self.content), chunk_size):
+            yield self.content[offset : offset + chunk_size]
+
+    def close(self) -> None:
+        pass
+
 
 @pytest.fixture()
 def no_sleep(monkeypatch):

@@ -4,8 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
+import ipaddress
 from io import BytesIO
 import re
+import socket
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -15,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import Company, Fact, FetchLog, SourceDocument
+from app.db.models import Company, DocumentVersion, Fact, FetchLog, SourceDocument
 from app.scrapers import http
 from app.services.evidence import (
     mark_parse_result,
@@ -29,6 +31,9 @@ MAX_LINKS_PER_INDEX = 30
 MAX_PDF_BYTES = 15 * 1024 * 1024
 MAX_PDF_PAGES = 200
 MAX_PAGE_CLAIMS = 30
+MAX_CLAIM_CHARS = 4000
+MAX_REDIRECTS = 3
+REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 
 ISSUER_IR_SOURCES = {
     "SNT": "https://synektik.com.pl/centrum-inwestora/raporty-biezace/",
@@ -252,24 +257,13 @@ def ingest_issuer_ir_report(
         raise ValueError("The bounded RT2.3 detail pilot currently accepts PDF reports only.")
 
     scope_key = f"report:{hashlib.sha256(report_url.encode('utf-8')).hexdigest()[:24]}"
-    if not force and _is_fresh(db, report_url):
-        document = db.scalar(
-            select(SourceDocument).where(
-                SourceDocument.company_ticker == ticker,
-                SourceDocument.source_type == "issuer_ir_report",
-                SourceDocument.scope_key == scope_key,
-            )
-        )
-        return {
-            "ok": True,
-            "ticker": ticker,
-            "status": "cached",
-            "source_url": report_url,
-            "document_id": document.id if document else None,
-        }
+    if not force:
+        cached = _cached_report_result(db, ticker, report_url, scope_key)
+        if cached is not None:
+            return cached
 
     try:
-        response = http.fetch(report_url)
+        response, effective_url = _fetch_report_response(ticker, report_url)
     except (http.FetchError, requests.RequestException) as exc:
         status_match = re.search(r"HTTP\s+(\d{3})", str(exc))
         status = int(status_match.group(1)) if status_match else None
@@ -283,29 +277,43 @@ def ingest_issuer_ir_report(
             "source_url": report_url,
             "error": str(exc),
         }
+    except ValueError as exc:
+        db.add(FetchLog(url=report_url, status=None))
+        db.commit()
+        return {
+            "ok": False,
+            "ticker": ticker,
+            "status": "rejected",
+            "source_url": report_url,
+            "error": str(exc),
+        }
     fetch_log = FetchLog(url=report_url, status=response.status_code)
     db.add(fetch_log)
-    response.raise_for_status()
-    effective_url = str(response.url or report_url)
-    if not _is_allowed_issuer_url(ticker, effective_url):
+    if response.status_code >= 400:
+        response.close()
+        db.commit()
+        return {
+            "ok": False,
+            "ticker": ticker,
+            "status": "source_not_found" if response.status_code in {404, 410} else "temporarily_unavailable",
+            "retry_later": response.status_code not in {404, 410},
+            "source_url": report_url,
+            "error": f"Issuer report returned HTTP {response.status_code}.",
+        }
+    try:
+        content = _read_bounded_content(response)
+    except ValueError as exc:
+        response.close()
         db.commit()
         return {
             "ok": False,
             "ticker": ticker,
             "status": "rejected",
             "source_url": report_url,
-            "error": "Report redirect left the registered issuer-IR host.",
+            "error": str(exc),
         }
-    content = response.content or b""
-    if len(content) > MAX_PDF_BYTES:
-        db.commit()
-        return {
-            "ok": False,
-            "ticker": ticker,
-            "status": "rejected",
-            "source_url": report_url,
-            "error": f"PDF exceeds {MAX_PDF_BYTES} byte pilot limit.",
-        }
+    finally:
+        response.close()
     if not content.startswith(b"%PDF"):
         db.commit()
         return {
@@ -334,7 +342,7 @@ def ingest_issuer_ir_report(
         text=extracted_text,
         response_status=response.status_code,
         mime_type="application/pdf",
-        parser_version="issuer-ir-pdf@1",
+        parser_version="issuer-ir-pdf@2",
         fetched_at=fetch_log.fetched_at,
     )
     recorded.document.title = source_fact.text_value
@@ -351,10 +359,9 @@ def ingest_issuer_ir_report(
             "error": parse_error,
         }
     if not extracted_text.strip():
-        mark_parse_result(
-            recorded.version,
-            success=False,
-            error="PDF contains no extractable text; bounded OCR is not configured.",
+        recorded.version.parse_status = "needs_ocr"
+        recorded.version.parse_error = (
+            "PDF contains no extractable text; bounded OCR is not configured."
         )
         fetch_log.document_version_id = recorded.version.id
         db.commit()
@@ -376,19 +383,34 @@ def ingest_issuer_ir_report(
             recorded.version,
             fact_type="issuer_ir_page",
             fact_key=f"issuer_ir.page.{page_number}",
-            text=page_text[:4000],
-            locator={"url": report_url, "page": page_number},
+            text=page_text[:MAX_CLAIM_CHARS],
+            locator={
+                "url": report_url,
+                "page": page_number,
+                "text_truncated": len(page_text) > MAX_CLAIM_CHARS,
+                "extracted_chars": min(len(page_text), MAX_CLAIM_CHARS),
+            },
             verification_state="unverified",
-            extractor_version="issuer-ir-pdf-pages@1",
+            extractor_version="issuer-ir-pdf-pages@2",
         )
         claim_count += 1
-    mark_parse_result(recorded.version, success=True)
+    partial = len(pages) > MAX_PAGE_CLAIMS or any(
+        len(page) > MAX_CLAIM_CHARS for page in pages[:MAX_PAGE_CLAIMS]
+    )
+    if partial:
+        recorded.version.parse_status = "partial"
+        recorded.version.parse_error = (
+            f"Extraction bounded to {MAX_PAGE_CLAIMS} pages and "
+            f"{MAX_CLAIM_CHARS} characters per page."
+        )
+    else:
+        mark_parse_result(recorded.version, success=True)
     fetch_log.document_version_id = recorded.version.id
     db.commit()
     return {
         "ok": True,
         "ticker": ticker,
-        "status": "fetched",
+        "status": "fetched_partial" if partial else "fetched",
         "source_url": report_url,
         "document_id": recorded.document.id,
         "document_version_id": recorded.version.id,
@@ -410,9 +432,15 @@ def extract_pdf_pages(content: bytes) -> list[str]:
 
 def _issuer_link_fact(db: Session, company: Company, report_url: str) -> Fact | None:
     facts = db.scalars(
-        select(Fact).where(
+        select(Fact)
+        .join(DocumentVersion, DocumentVersion.id == Fact.source_version_id)
+        .join(SourceDocument, SourceDocument.id == DocumentVersion.source_document_id)
+        .where(
             Fact.company_id == company.id,
             Fact.fact_type == "issuer_ir_link",
+            Fact.extractor_version == EXTRACTOR_VERSION,
+            DocumentVersion.parse_status == "parsed",
+            SourceDocument.source_type == "issuer_ir",
         )
     ).all()
     return next(
@@ -431,12 +459,110 @@ def _is_allowed_issuer_url(ticker: str, url: str) -> bool:
         return False
     parsed = urlparse(url)
     source = urlparse(source_url)
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
     return (
-        parsed.scheme in {"http", "https"}
+        parsed.scheme == "https"
         and parsed.hostname is not None
+        and port in {None, 443}
         and parsed.hostname.removeprefix("www.")
         == (source.hostname or "").removeprefix("www.")
     )
+
+
+def _host_resolves_public(url: str) -> bool:
+    hostname = urlparse(url).hostname
+    if hostname is None:
+        return False
+    try:
+        addresses = {
+            item[4][0]
+            for item in socket.getaddrinfo(hostname, 443, type=socket.SOCK_STREAM)
+        }
+    except socket.gaierror:
+        return False
+    return bool(addresses) and all(ipaddress.ip_address(value).is_global for value in addresses)
+
+
+def _fetch_report_response(ticker: str, report_url: str) -> tuple[requests.Response, str]:
+    current_url = report_url
+    for _hop in range(MAX_REDIRECTS + 1):
+        if not _is_allowed_issuer_url(ticker, current_url):
+            raise ValueError("Report URL or redirect left the registered issuer-IR host.")
+        if not _host_resolves_public(current_url):
+            raise ValueError("Registered issuer-IR host did not resolve only to public addresses.")
+        response = http.fetch(current_url, allow_redirects=False, stream=True)
+        if response.status_code not in REDIRECT_STATUSES:
+            return response, current_url
+        location = response.headers.get("location")
+        response.close()
+        if not location:
+            raise ValueError("Issuer report redirect did not include a Location header.")
+        current_url = urljoin(current_url, location)
+    raise ValueError(f"Issuer report exceeded {MAX_REDIRECTS} redirects.")
+
+
+def _read_bounded_content(response: requests.Response) -> bytes:
+    content_length = response.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_PDF_BYTES:
+                raise ValueError(f"PDF exceeds {MAX_PDF_BYTES} byte pilot limit.")
+        except ValueError as exc:
+            if "exceeds" in str(exc):
+                raise
+    chunks: list[bytes] = []
+    byte_count = 0
+    for chunk in response.iter_content(chunk_size=64 * 1024):
+        if not chunk:
+            continue
+        byte_count += len(chunk)
+        if byte_count > MAX_PDF_BYTES:
+            raise ValueError(f"PDF exceeds {MAX_PDF_BYTES} byte pilot limit.")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _cached_report_result(
+    db: Session, ticker: str, report_url: str, scope_key: str
+) -> dict | None:
+    if not _is_fresh(db, report_url):
+        return None
+    document = db.scalar(
+        select(SourceDocument).where(
+            SourceDocument.company_ticker == ticker,
+            SourceDocument.source_type == "issuer_ir_report",
+            SourceDocument.scope_key == scope_key,
+        )
+    )
+    if document is None:
+        return None
+    version = db.scalar(
+        select(DocumentVersion)
+        .where(DocumentVersion.source_document_id == document.id)
+        .order_by(DocumentVersion.fetched_at.desc(), DocumentVersion.id.desc())
+        .limit(1)
+    )
+    if version is None:
+        return None
+    statuses = {
+        "parsed": (True, "cached"),
+        "partial": (True, "cached_partial"),
+        "needs_ocr": (False, "needs_ocr"),
+        "failed": (False, "parse_failed"),
+    }
+    ok, status = statuses.get(version.parse_status, (False, version.parse_status))
+    return {
+        "ok": ok,
+        "ticker": ticker,
+        "status": status,
+        "source_url": report_url,
+        "document_id": document.id,
+        "document_version_id": version.id,
+        "error": version.parse_error,
+    }
 
 
 def _is_fresh(db: Session, url: str) -> bool:

@@ -2633,7 +2633,7 @@ textarea {
   display: grid;
   grid-template-columns: minmax(220px, 1.4fr) minmax(150px, 0.7fr) minmax(150px, 0.7fr) minmax(180px, 1fr) auto;
   gap: 10px;
-  align-items: end;
+  align-items: flex-end;
   padding: 12px 0;
   border-bottom: 0.5px solid var(--border);
 
@@ -2750,7 +2750,7 @@ textarea {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, auto);
   gap: 8px 20px;
-  align-items: end;
+  align-items: flex-end;
   margin-bottom: 16px;
   padding: 15px 16px;
   border: 0.5px solid var(--border-accent);
@@ -2760,7 +2760,7 @@ textarea {
   p:not(.eyebrow):not(.small) { max-width: 720px; margin-top: 5px; color: var(--text-secondary); font-size: 13px; line-height: 1.45; }
   .small { grid-column: 1 / -1; margin: 0; }
 }
-.codex-next-controls { display: flex; align-items: end; gap: 8px; label { display: grid; gap: 4px; color: var(--text-muted); font-size: 11px; } select { min-width: 170px; } }
+.codex-next-controls { display: flex; align-items: flex-end; gap: 8px; label { display: grid; gap: 4px; color: var(--text-muted); font-size: 11px; } select { min-width: 170px; } }
 
 .workspace-header {
   position: sticky;
@@ -2957,6 +2957,45 @@ textarea {
 }
 .report-chart { margin-top: 10px; }
 .audit-detail { margin-top: 14px; }
+
+.evidence-source-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  align-items: start;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.evidence-source-card {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-1);
+
+  h3, p { margin: 0; }
+  h3 { margin-top: 6px; font-size: 15px; }
+  p { overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; }
+  details { font-size: 12px; color: var(--text-secondary); }
+  summary { cursor: pointer; }
+  a { width: fit-content; font-size: 12px; }
+}
+
+.evidence-source-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.evidence-document-links {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+}
 
 .initial-refresh-workspace { max-width: 980px; margin-inline: auto; }
 .initial-refresh-header { position: static; }

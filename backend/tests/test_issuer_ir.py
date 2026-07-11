@@ -5,6 +5,50 @@ from sqlalchemy import func, select
 from tests.conftest import FakeResponse, load_fixture
 
 
+@pytest.fixture(autouse=True)
+def public_issuer_hosts(monkeypatch):
+    from app.scrapers import issuer_ir
+
+    monkeypatch.setattr(issuer_ir, "_host_resolves_public", lambda _url: True)
+
+
+def _seed_report_link(db, report_url: str):
+    from app.db.models import Company
+    from app.scrapers import issuer_ir
+    from app.services import evidence
+
+    company = Company(ticker="ABS", name="ASSECO BUSINESS SOLUTIONS SA")
+    db.add(company)
+    db.flush()
+    index = evidence.record_document_version(
+        db,
+        company,
+        source_name="ABS issuer IR",
+        source_type="issuer_ir",
+        scope_key="reports-index",
+        requested_url=issuer_ir.ISSUER_IR_SOURCES["ABS"],
+        effective_url=issuer_ir.ISSUER_IR_SOURCES["ABS"],
+        content=b"index",
+        text="index",
+        response_status=200,
+        mime_type="text/html",
+    )
+    evidence.mark_parse_result(index.version, success=True)
+    evidence.record_text_fact(
+        db,
+        company,
+        index.version,
+        fact_type="issuer_ir_link",
+        fact_key="issuer_ir.periodic_report.seed",
+        text="Seed report",
+        locator={"url": report_url},
+        verification_state="unverified",
+        extractor_version=issuer_ir.EXTRACTOR_VERSION,
+    )
+    db.commit()
+    return company
+
+
 @pytest.mark.parametrize(
     ("fixture", "base_url", "expected_title", "expected_count"),
     [
@@ -102,7 +146,7 @@ def test_ingest_issuer_ir_returns_temporary_state_on_polite_hard_stop(db, monkey
     monkeypatch.setattr(
         issuer_ir.http,
         "fetch",
-        lambda _url: (_ for _ in ()).throw(
+        lambda _url, **_kwargs: (_ for _ in ()).throw(
             issuer_ir.http.FetchBlockedError("Giving up after HTTP 403")
         ),
     )
@@ -184,7 +228,7 @@ def test_ingest_discovered_issuer_pdf_records_page_claims_and_cache(
         text="Sprawozdanie Rady Nadzorczej",
         locator={"url": report_url},
         verification_state="unverified",
-        extractor_version="test",
+        extractor_version=issuer_ir.EXTRACTOR_VERSION,
     )
     db.commit()
     response = FakeResponse("", 200)
@@ -195,7 +239,7 @@ def test_ingest_discovered_issuer_pdf_records_page_claims_and_cache(
     monkeypatch.setattr(
         issuer_ir.http,
         "fetch",
-        lambda _url: calls.append(_url) or response,
+        lambda _url, **_kwargs: calls.append(_url) or response,
     )
     monkeypatch.setattr(
         issuer_ir,
@@ -266,18 +310,25 @@ def test_ingest_issuer_pdf_rejects_cross_host_redirect(db, monkeypatch):
         text="Redirected report",
         locator={"url": report_url},
         verification_state="unverified",
-        extractor_version="test",
+        extractor_version=issuer_ir.EXTRACTOR_VERSION,
     )
+    evidence.mark_parse_result(index.version, success=True)
     db.commit()
-    response = FakeResponse("", 200)
-    response.url = "https://files.example/report.pdf"
-    response.content = b"%PDF-test"
-    monkeypatch.setattr(issuer_ir.http, "fetch", lambda _url: response)
+    response = FakeResponse("", 302)
+    response.url = report_url
+    response.headers["location"] = "https://files.example/report.pdf"
+    calls = []
+    monkeypatch.setattr(
+        issuer_ir.http,
+        "fetch",
+        lambda url, **_kwargs: calls.append(url) or response,
+    )
 
     result = issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
 
     assert result["status"] == "rejected"
     assert "redirect" in result["error"].lower()
+    assert calls == [report_url]
     assert not list(db.scalars(select(Fact).where(Fact.fact_type == "issuer_ir_page")))
 
 
@@ -312,13 +363,14 @@ def test_ingest_issuer_pdf_preserves_parse_failure_without_raising(db, monkeypat
         text="Broken report",
         locator={"url": report_url},
         verification_state="unverified",
-        extractor_version="test",
+        extractor_version=issuer_ir.EXTRACTOR_VERSION,
     )
+    evidence.mark_parse_result(index.version, success=True)
     db.commit()
     response = FakeResponse("", 200)
     response.url = report_url
     response.content = b"%PDF-broken"
-    monkeypatch.setattr(issuer_ir.http, "fetch", lambda _url: response)
+    monkeypatch.setattr(issuer_ir.http, "fetch", lambda _url, **_kwargs: response)
     monkeypatch.setattr(
         issuer_ir,
         "extract_pdf_pages",
@@ -338,3 +390,149 @@ def test_ingest_issuer_pdf_preserves_parse_failure_without_raising(db, monkeypat
     assert version.parse_status == "failed"
     assert "invalid xref" in version.parse_error
     assert not list(db.scalars(select(Fact).where(Fact.fact_type == "issuer_ir_page")))
+
+
+def test_scanned_pdf_keeps_needs_ocr_on_cached_retry(db, monkeypatch):
+    from app.db.models import DocumentVersion
+    from app.scrapers import issuer_ir
+
+    report_url = "https://assecobs.pl/reports/scanned.pdf"
+    _seed_report_link(db, report_url)
+    response = FakeResponse("", 200)
+    response.url = report_url
+    response.content = b"%PDF-scan"
+    calls = []
+    monkeypatch.setattr(
+        issuer_ir.http,
+        "fetch",
+        lambda url, **_kwargs: calls.append(url) or response,
+    )
+    monkeypatch.setattr(issuer_ir, "extract_pdf_pages", lambda _content: ["", ""])
+
+    first = issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+    second = issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+
+    assert first["status"] == second["status"] == "needs_ocr"
+    assert len(calls) == 1
+    assert db.get(DocumentVersion, first["document_version_id"]).parse_status == "needs_ocr"
+
+
+def test_oversized_pdf_is_stopped_from_content_length(db, monkeypatch):
+    from app.scrapers import issuer_ir
+
+    report_url = "https://assecobs.pl/reports/oversized.pdf"
+    _seed_report_link(db, report_url)
+    response = FakeResponse("", 200)
+    response.url = report_url
+    response.headers["content-length"] = str(issuer_ir.MAX_PDF_BYTES + 1)
+    response.iter_content = lambda **_kwargs: (_ for _ in ()).throw(
+        AssertionError("body must not be read")
+    )
+    monkeypatch.setattr(issuer_ir.http, "fetch", lambda _url, **_kwargs: response)
+
+    result = issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+
+    assert result["status"] == "rejected"
+    assert "exceeds" in result["error"]
+
+
+def test_chunked_pdf_is_stopped_at_byte_limit(db, monkeypatch):
+    from app.scrapers import issuer_ir
+
+    report_url = "https://assecobs.pl/reports/chunked.pdf"
+    _seed_report_link(db, report_url)
+    response = FakeResponse("", 200)
+    response.url = report_url
+    response.headers.pop("content-length", None)
+    response.iter_content = lambda **_kwargs: iter((b"1234", b"56"))
+    monkeypatch.setattr(issuer_ir, "MAX_PDF_BYTES", 5)
+    monkeypatch.setattr(issuer_ir.http, "fetch", lambda _url, **_kwargs: response)
+
+    result = issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+
+    assert result["status"] == "rejected"
+    assert "exceeds" in result["error"]
+
+
+def test_terminal_missing_report_is_structured(db, monkeypatch):
+    from app.scrapers import issuer_ir
+
+    report_url = "https://assecobs.pl/reports/missing.pdf"
+    _seed_report_link(db, report_url)
+    response = FakeResponse("", 404)
+    response.url = report_url
+    monkeypatch.setattr(issuer_ir.http, "fetch", lambda _url, **_kwargs: response)
+
+    result = issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+
+    assert result["status"] == "source_not_found"
+    assert result["retry_later"] is False
+
+
+def test_bounded_claim_extraction_is_durable_partial(db, monkeypatch):
+    from app.db.models import DocumentVersion, Fact
+    from app.scrapers import issuer_ir
+
+    report_url = "https://assecobs.pl/reports/long.pdf"
+    _seed_report_link(db, report_url)
+    response = FakeResponse("", 200)
+    response.url = report_url
+    response.content = b"%PDF-long"
+    monkeypatch.setattr(issuer_ir.http, "fetch", lambda _url, **_kwargs: response)
+    monkeypatch.setattr(
+        issuer_ir,
+        "extract_pdf_pages",
+        lambda _content: ["x" * (issuer_ir.MAX_CLAIM_CHARS + 1)]
+        + ["page"] * issuer_ir.MAX_PAGE_CLAIMS,
+    )
+
+    result = issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+
+    version = db.get(DocumentVersion, result["document_version_id"])
+    first_fact = db.scalar(
+        select(Fact).where(Fact.source_version_id == version.id).order_by(Fact.id)
+    )
+    assert result["status"] == "fetched_partial"
+    assert version.parse_status == "partial"
+    assert result["page_claim_count"] == issuer_ir.MAX_PAGE_CLAIMS
+    assert first_fact.locator["text_truncated"] is True
+
+
+def test_unrelated_source_fact_cannot_authorize_report_fetch(db):
+    from app.db.models import Company
+    from app.scrapers import issuer_ir
+    from app.services import evidence
+
+    report_url = "https://assecobs.pl/reports/unrelated.pdf"
+    company = Company(ticker="ABS", name="ASSECO BUSINESS SOLUTIONS SA")
+    db.add(company)
+    db.flush()
+    unrelated = evidence.record_document_version(
+        db,
+        company,
+        source_name="aggregator",
+        source_type="financial_report",
+        scope_key="income_q",
+        requested_url=report_url,
+        effective_url=report_url,
+        content=b"unrelated",
+        text="unrelated",
+        response_status=200,
+        mime_type="text/html",
+    )
+    evidence.mark_parse_result(unrelated.version, success=True)
+    evidence.record_text_fact(
+        db,
+        company,
+        unrelated.version,
+        fact_type="issuer_ir_link",
+        fact_key="issuer_ir.periodic_report.unrelated",
+        text="Unrelated",
+        locator={"url": report_url},
+        verification_state="unverified",
+        extractor_version=issuer_ir.EXTRACTOR_VERSION,
+    )
+    db.commit()
+
+    with pytest.raises(ValueError, match="not present"):
+        issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)

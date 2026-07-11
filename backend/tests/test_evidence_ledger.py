@@ -74,6 +74,9 @@ def test_refresh_creates_documents_facts_and_serving_lineage(client, db, stub_fe
     documents = client.get("/api/companies/DEC/evidence/documents").json()
     assert len(documents) == 6
     assert all(document["version_count"] == 1 for document in documents)
+    assert all(document["latest_parse_status"] == "parsed" for document in documents)
+    assert all(document["quality"]["terms_status"] == "review_required" for document in documents)
+    assert all(document["quality"]["limitation"] for document in documents)
     facts = client.get("/api/companies/DEC/evidence/facts").json()
     assert len(facts) == 200
     assert len(client.get(

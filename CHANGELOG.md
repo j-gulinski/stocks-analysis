@@ -3,6 +3,19 @@
 Durable decisions and completed slices only. `TASKS.md` owns current status;
 implementation detail lives in stage plans, validation notes, archives and git.
 
+## 2026-07-11 · RT2.4 source-quality notes
+
+Added one deterministic source-class registry for allowed use, investment-
+relevant limitations, source priority, unverified terms status and the shared
+polite-fetch policy. Evidence document responses now expose the latest parse
+status/error and the matching quality note. The stock audit view groups
+documents by source class and leads with “możesz użyć do” / “nie wnioskuj”,
+while scanned or failed documents remain visibly actionable. Exact reuse terms
+are deliberately `review_required`; the application does not infer legal
+permission from public accessibility. The touched stylesheet also uses the
+widely supported `flex-end` alignment form, removing the production-build
+autoprefixer warning.
+
 ## 2026-07-11 · RT2.3 bounded issuer-IR evidence pilot
 
 Added a declarative three-company issuer-IR registry for SNT, ABS and OPM. Each
@@ -27,6 +40,13 @@ single live ABS governance report was preserved as version 22; all 13 pages
 were scans without a text layer, so it correctly produced no claims. OCR and
 raw-binary/object storage remain an explicit follow-up rather than an implicit
 host dependency.
+
+An independent verifier then hardened the published pilot: redirects are now
+manual and each hop is host/public-IP validated before any request; PDF bodies
+stream with `Content-Length` and chunked hard stops; terminal HTTP errors are
+structured; cached failures preserve `needs_ocr`/`parse_failed`; and partial
+30-page/4000-character extraction is durable and visible. Only link facts from
+a successfully parsed issuer-index version may authorize a detail fetch.
 
 ## 2026-07-11 · CX.16d honest cohort replay cards
 

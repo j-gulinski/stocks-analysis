@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.db.base import get_db
 from app.db.models import Company, DataConflict, DocumentVersion, Fact, SourceDocument
 from app.services import evidence as evidence_service
+from app.services.source_quality import source_quality_note
 
 router = APIRouter(prefix="/companies", tags=["evidence"])
 
@@ -41,6 +42,12 @@ def list_documents(ticker: str, db: Session = Depends(get_db)) -> list[dict]:
                 func.max(DocumentVersion.fetched_at),
             ).where(DocumentVersion.source_document_id == document.id)
         ).one()
+        latest_version = db.scalar(
+            select(DocumentVersion)
+            .where(DocumentVersion.source_document_id == document.id)
+            .order_by(DocumentVersion.fetched_at.desc(), DocumentVersion.id.desc())
+            .limit(1)
+        )
         result.append(
             {
                 "id": document.id,
@@ -56,6 +63,11 @@ def list_documents(ticker: str, db: Session = Depends(get_db)) -> list[dict]:
                 "version_count": int(version_stats[0] or 0),
                 "first_version_at": version_stats[1],
                 "latest_version_at": version_stats[2],
+                "latest_parse_status": (
+                    latest_version.parse_status if latest_version else "missing"
+                ),
+                "latest_parse_error": latest_version.parse_error if latest_version else None,
+                "quality": source_quality_note(document.source_type),
             }
         )
     return result

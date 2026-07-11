@@ -76,6 +76,8 @@ def fetch(
     data: dict | None = None,
     session: requests.Session | None = None,
     timeout: int = DEFAULT_TIMEOUT_SECONDS,
+    allow_redirects: bool = True,
+    stream: bool = False,
 ) -> requests.Response:
     """Fetch `url` politely (GET by default). Returns the response for terminal
     statuses (200, 404, …).
@@ -89,10 +91,9 @@ def fetch(
     and repeated ordered query tuples. `method="POST"` with form-encoded `data`
     submits through the SAME
     politeness/backoff/UA path as a GET (used by the BiznesRadar premium login,
-    which POSTs to /login/). Redirects are followed (requests' default), so the
-    returned response is the final page. GET call sites without `params` are
-    unchanged — they still go through `sess.get(url, timeout=...)` exactly as
-    before.
+    which POSTs to /login/). Redirects are followed by default; bounded adapters
+    may disable them and request a streaming response so they can validate each
+    hop and stop reading at their own byte limit.
     """
     host = urlparse(url).netloc
     sess = session or requests.Session()
@@ -104,18 +105,37 @@ def fetch(
         try:
             if method == "GET":
                 if params is None:
-                    response = sess.get(url, timeout=timeout)
+                    response = sess.get(
+                        url,
+                        timeout=timeout,
+                        allow_redirects=allow_redirects,
+                        stream=stream,
+                    )
                 else:
-                    response = sess.get(url, params=params, timeout=timeout)
+                    response = sess.get(
+                        url,
+                        params=params,
+                        timeout=timeout,
+                        allow_redirects=allow_redirects,
+                        stream=stream,
+                    )
             else:
                 # Same throttled path, different verb — `data` is form-encoded.
-                response = sess.request(method, url, data=data, timeout=timeout)
+                response = sess.request(
+                    method,
+                    url,
+                    data=data,
+                    timeout=timeout,
+                    allow_redirects=allow_redirects,
+                    stream=stream,
+                )
         except requests.RequestException as exc:
             last_error = f"network error: {exc}"
         else:
             if response.status_code not in RETRYABLE_STATUSES:
                 return response
             last_error = f"HTTP {response.status_code}"
+            response.close()
 
         if attempt < MAX_ATTEMPTS:
             # 5 s, 10 s, ... on top of the regular politeness delay.

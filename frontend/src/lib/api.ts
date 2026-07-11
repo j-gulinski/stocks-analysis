@@ -22,6 +22,7 @@ import type {
   Dividend,
   DiscoveryResult,
   Dossier,
+  EvidenceDocument,
   Financials,
   Falsifier,
   Forecast,
@@ -103,6 +104,11 @@ export const getDiscovery = (
 // ---------------------------------------------------------------- companies
 export const getDossier = (ticker: string) =>
   request<Dossier>(`/companies/${encodeURIComponent(ticker)}`);
+
+export const getEvidenceDocuments = (ticker: string) =>
+  request<EvidenceDocument[]>(
+    `/companies/${encodeURIComponent(ticker)}/evidence/documents`,
+  );
 
 export const getResearchCase = (ticker: string, purpose = "investment-research") =>
   request<ResearchCase>(
