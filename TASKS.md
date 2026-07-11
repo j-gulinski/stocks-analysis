@@ -16,17 +16,21 @@ as a session diary.
 
 Take the first unchecked item. Each item should be a bounded, verifiable slice.
 
-1. UX.1 — Complete primary workflow redesign and accessibility/browser QA.
-2. CX.15e — ESPI temporary-unavailable state and user-selected Codex model metadata.
-3. CX.16a — Sol-high orchestrator pilot on OPM; primary-source completion remains open.
-3. [x] IL.1 — decision journal.
-4. [x] IL.2 + CX.15c — thesis-change diff and ESPI/queue actions.
-5. [x] IL.3 — falsifiers and thesis-at-risk ordering.
-6. [~] IL.4/IL.4a — read-only positions and myfund API-key/CSV import.
-7. IL.5 — UI alignment and screenshot QA.
-8. CX.16a–d — first mixed-outcome historical cohort replay.
-9. RT2.3 — ledger-grade issuer/ESPI pilot, reusing CX.15a.
-10. RT stages in order; add CX.16e/f and CX.17 only when prerequisites exist.
+1. [x] **CX.15f — Durable Codex queue worker.** Collector/API owns evidence and
+   idempotent queue creation; Codex scheduled task owns one leased analysis,
+   heartbeat, strict verification and terminal save. Next verification:
+   `cd backend && pytest -q` plus `./workbench doctor`.
+2. [x] UX.1 — Primary workflow redesign, loading states, model choice and browser QA.
+3. [x] CX.15e — ESPI temporary-unavailable state and user-selected Codex model metadata.
+4. [x] CX.16a — Sol-high orchestrator pilot on OPM; primary-source completion remains open.
+5. [x] IL.1 — decision journal.
+6. [x] IL.2 + CX.15c — thesis-change diff and ESPI/queue actions.
+7. [x] IL.3 — falsifiers and thesis-at-risk ordering.
+8. [~] IL.4/IL.4a — read-only positions and myfund API-key/CSV import.
+9. [ ] IL.5 — UI alignment and screenshot QA.
+10. CX.16a–d — first mixed-outcome historical cohort replay.
+11. RT2.3 — ledger-grade issuer/ESPI pilot, reusing CX.15a.
+12. RT stages in order; add CX.16e/f and CX.17 only when prerequisites exist.
 
 ## Completed work
 
@@ -89,6 +93,13 @@ matching operational skill; completed stage detail is archived.
     The documented command only polls and queues after complete ingestion;
     overlapping runs, queue claims, model calls and approvals remain outside
     the scheduled job.
+  - [x] **CX.15e** Add user-selected provider-free model metadata to queued
+    runs and explain the Codex-host boundary; no API key is required.
+  - [x] **CX.15f** Make Codex claims race-safe with a lease owner, heartbeat,
+    bounded recovery and terminal lease cleanup. The scheduled worker claims
+    at most one row and saves only a structured verifier-gated result; see
+    `.codex/tasks/stock-queue-worker.md` and
+    `docs/hosting-codex-automation.md`.
 - [~] **CX.16 Historical cohort replay.** Research-only precursor to RT6.6.
   - [x] **CX.16a** Freeze a mixed cohort: documented hit, documented miss,
     control candidate and excluded unverified placeholder are recorded in

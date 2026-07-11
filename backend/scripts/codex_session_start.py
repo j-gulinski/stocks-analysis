@@ -16,8 +16,9 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.db.base import SessionLocal
-from app.db.models import AgentRun, utcnow
+from app.db.models import AgentRun
 from app.mcp import stock_tools
+from app.services.agent_queue import claim_agent_run
 from scripts.codex_common import add_json_flags, run_main, write_json
 
 
@@ -27,19 +28,20 @@ def _claim_agent_run(agent_run_id: int) -> dict[str, Any]:
         agent = db.get(AgentRun, agent_run_id)
         if agent is None:
             return {"ok": False, "reason": f"unknown_agent_run:{agent_run_id}"}
-        if agent.status != "queued":
-            return {
-                "ok": False,
-                "reason": f"agent_run_not_queued:{agent.id}:{agent.status}",
-            }
-        agent.status = "running"
-        agent.started_at = utcnow()
-        db.commit()
+        claimed = claim_agent_run(
+            db,
+            agent_run_id=agent_run_id,
+            worker_id="codex:session-start",
+            model_role=agent.model_role or "orchestrator",
+            orchestrator_model=agent.orchestrator_model,
+        )
+        if claimed is None:
+            return {"ok": False, "reason": f"agent_run_not_queued:{agent.id}"}
         return {
             "ok": True,
-            "agent_run_id": agent.id,
-            "workflow": agent.workflow,
-            "status": agent.status,
+            "agent_run_id": claimed.id,
+            "workflow": claimed.workflow,
+            "status": claimed.status,
         }
     finally:
         db.close()

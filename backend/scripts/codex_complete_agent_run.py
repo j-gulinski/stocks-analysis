@@ -15,6 +15,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app.db.base import SessionLocal
 from app.db.models import AgentRun, utcnow
+from app.services.agent_queue import clear_agent_lease
 from scripts.codex_common import (
     ScriptError,
     add_json_flags,
@@ -80,6 +81,7 @@ def main() -> int:
         }
         agent.error = args.error
         agent.finished_at = utcnow()
+        clear_agent_lease(agent)
         db.commit()
         write_json(
             {

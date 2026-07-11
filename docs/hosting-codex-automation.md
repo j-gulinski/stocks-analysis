@@ -13,6 +13,43 @@ pass. The session-triggered local workflow is the default; see
 - Codex: supervised local operator/reviewer. Personal Codex credentials never
   live in the hosted app.
 
+## Local two-process flow
+
+The complete local flow is deliberately split at a durable database boundary:
+
+```mermaid
+flowchart LR
+  A[Workbench app / collector] --> B[Poll and ingest evidence]
+  B --> C[Idempotent agent_runs queue]
+  C --> D[Codex scheduled task]
+  D --> E[Atomic claim + lease]
+  E --> F[Skill research + source completion]
+  F --> G[Strict verifier]
+  G --> H[Save AnalysisRun and close lease]
+  H --> I[UI shows verified, draft or needs-human result]
+```
+
+The app can be one collector/API process. It should not silently invoke an AI
+subprocess: the Codex task is the explicit operator boundary, has no dependency
+on an OpenAI API key, and can use the model selected on the queue row. A
+scheduled Codex task is the preferred unattended worker; it should run every
+10–15 minutes, recover expired leases, claim at most one row, and stop on an
+empty queue.
+
+Suggested scheduled-task prompt:
+
+> In `/Users/jgulinski/Claude/Projects/stocks-analyzis`, read
+> `.codex/tasks/stock-queue-worker.md`. Run `./workbench doctor`, recover
+> expired agent leases, claim at most one queued run, follow its requested
+> workflow/model contract, heartbeat during long work, and save a structured
+> verifier-gated result with the same `agent_run_id`. If the queue is empty,
+> stop successfully. Never use an OpenAI API key or invent missing evidence.
+
+The UI model selector is the source of the requested model for a row. If a row
+has no model selection, the scheduled worker may default to the configured
+orchestrator policy (currently Sol high for deep analysis); the app records the
+request but never claims the host's concrete deployment when it is not exposed.
+
 ## Operating boundary
 
 Hosted jobs may fetch sources, persist evidence and create a review queue. They
@@ -57,10 +94,11 @@ use `get_company_dossier` and the matching stock skill, then save through
 of record and the Codex session remains the supervised worker/verifier.
 
 When MCP is unavailable, use the equivalent JSON scripts under
-`backend/scripts/`: `codex_pick_agent_run.py`, `codex_save_analysis.py` and
-`codex_mark_verification.py`. Both paths stop at the same durable claim and
-strict-verification boundaries; neither invokes a hosted model or reads an
-OpenAI key.
+`backend/scripts/`: `codex_pick_agent_run.py`,
+`codex_heartbeat_agent_run.py`, `codex_recover_agent_runs.py`,
+`codex_save_analysis.py` and `codex_mark_verification.py`. Both paths stop at
+the same durable claim and strict-verification boundaries; neither invokes a
+hosted model or reads an OpenAI key.
 
 ## Notifications
 

@@ -765,6 +765,10 @@ class AgentRunOut(BaseModel):
     error: str | None
     started_at: datetime | None
     finished_at: datetime | None
+    lease_owner: str | None
+    heartbeat_at: datetime | None
+    lease_expires_at: datetime | None
+    attempt_count: int
     created_at: datetime
     updated_at: datetime
 

@@ -196,11 +196,15 @@ Record actual model, reasoning, role and any substitution/escalation.
 The default local loop is session-triggered:
 
 ```text
-doctor/start → poll → ingest → queue → claim one
+collector doctor/start → poll → ingest → idempotent queue → Codex lease claim one
 → matching skill → strict verifier → save/reject/needs-human
 ```
 
 `workbench start` and the UI are idempotent and stop at the claim boundary.
+The app may remain a single collector/API process; Codex analysis runs in an
+explicit scheduled or supervised task. Queue claims use a lease and heartbeat,
+expired leases are requeued up to a bounded attempt count, and every terminal
+row must contain a verifier result or `needs-human` explanation.
 Periodic/hosted polling is opt-in and an RT.7 decision. MCP/plugin surfaces
 follow a stable CLI/API contract; do not document fictional commands.
 

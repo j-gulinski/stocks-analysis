@@ -3,6 +3,25 @@
 Durable decisions and completed slices only. `TASKS.md` owns current status;
 implementation detail lives in stage plans, validation notes, archives and git.
 
+## 2026-07-11 · CX.15f durable Codex worker boundary
+
+The collector/API remains responsible for source polling, evidence upserts and
+idempotent `agent_runs` creation. Codex now claims work through a compare-and-
+swap queue operation with `lease_owner`, `heartbeat_at`, `lease_expires_at` and
+`attempt_count` (migration `0019`), so overlapping scheduled tasks cannot both
+execute the same queued row. Added heartbeat and bounded recovery scripts;
+expired work is requeued up to three attempts and then becomes `needs-human`.
+Terminal save/verification paths clear the lease. The operational contract now
+documents the recommended local two-process flow and the single-app boundary:
+the app may collect and queue in one process, but analysis remains an explicit
+keyless Codex task with strict verifier-gated output. Focused queue tests and
+the local migration/runtime checks are green. A local Codex automation named
+`Stock Workbench — Codex queue worker` is enabled for this project every 15
+minutes on requested Sol high; it recovers leases, claims at most one row and
+honors the model metadata already selected on each queue item. A separate
+hourly `Stock Workbench — source collector` automation only polls/ingests and
+queues after complete ingestion; it never claims or invokes a model.
+
 ## 2026-07-11 · System workflow and source-error consistency
 
 Completed the use-case audit follow-up for the System route. The page now leads

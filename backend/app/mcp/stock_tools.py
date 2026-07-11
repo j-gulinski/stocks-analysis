@@ -26,6 +26,7 @@ from app.db.models import (
 )
 from app.scrapers import espi
 from app.services import (
+    agent_queue,
     agent_evaluation,
     analysis_contract,
     backtest,
@@ -33,6 +34,7 @@ from app.services import (
     codex_context,
     model_policy,
 )
+from app.services.agent_queue import clear_agent_lease
 
 
 class ToolInputError(ValueError):
@@ -103,6 +105,10 @@ def _agent_row(agent: AgentRun) -> dict[str, Any]:
         "error": agent.error,
         "started_at": agent.started_at,
         "finished_at": agent.finished_at,
+        "lease_owner": agent.lease_owner,
+        "heartbeat_at": agent.heartbeat_at,
+        "lease_expires_at": agent.lease_expires_at,
+        "attempt_count": agent.attempt_count,
         "created_at": agent.created_at,
         "updated_at": agent.updated_at,
     }
@@ -217,22 +223,22 @@ def claim_agent_run(arguments: dict[str, Any]) -> dict[str, Any]:
         raise ToolInputError("Required field 'agent_run_id' must be an integer.")
     db = SessionLocal()
     try:
-        agent = db.get(AgentRun, agent_run_id)
-        if agent is None:
-            raise ToolInputError(f"Unknown agent_run_id {agent_run_id}.")
-        if agent.status != "queued":
-            raise ToolInputError(
-                f"Agent run {agent_run_id} has status '{agent.status}', not 'queued'."
+        try:
+            agent = agent_queue.claim_agent_run(
+                db,
+                agent_run_id=agent_run_id,
+                worker_id=str(arguments["worker_id"]) if arguments.get("worker_id") else None,
+                model_role=str(arguments["model_role"]) if arguments.get("model_role") else None,
+                model=str(arguments["model"]) if arguments.get("model") else None,
+                orchestrator_model=(
+                    str(arguments["orchestrator_model"])
+                    if arguments.get("orchestrator_model")
+                    else None
+                ),
+                lease_minutes=int(arguments.get("lease_minutes") or 45),
             )
-        agent.status = "running"
-        agent.started_at = utcnow()
-        if arguments.get("model_role"):
-            agent.model_role = str(arguments["model_role"])
-        if arguments.get("model"):
-            agent.model = str(arguments["model"])
-        if arguments.get("orchestrator_model"):
-            agent.orchestrator_model = str(arguments["orchestrator_model"])
-        db.commit()
+        except agent_queue.AgentQueueError as exc:
+            raise ToolInputError(str(exc)) from exc
         return {"ok": True, "agent_run": _agent_row(agent)}
     finally:
         db.close()
@@ -324,6 +330,7 @@ def save_analysis_run(arguments: dict[str, Any]) -> dict[str, Any]:
                 "verification": verification,
             }
             agent.finished_at = utcnow()
+            clear_agent_lease(agent)
         db.commit()
         return {
             "ok": True,
@@ -370,6 +377,7 @@ def complete_agent_run(arguments: dict[str, Any]) -> dict[str, Any]:
         }
         agent.error = arguments.get("error")
         agent.finished_at = utcnow()
+        clear_agent_lease(agent)
         db.commit()
         return {
             "ok": True,
@@ -427,6 +435,7 @@ def mark_verification_result(arguments: dict[str, Any]) -> dict[str, Any]:
                 agent.outputs = {**(agent.outputs or {}), "verification": checks}
                 agent.status = _agent_status_from_verification(verdict)
                 agent.finished_at = utcnow()
+                clear_agent_lease(agent)
         db.commit()
         return {
             "ok": True,

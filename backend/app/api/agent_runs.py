@@ -22,6 +22,7 @@ from app.api.schemas import (
 from app.db.base import get_db
 from app.db.models import AgentRun, AnalysisRun, Company, EventReport, utcnow
 from app.scrapers import espi
+from app.services.agent_queue import claim_agent_run
 
 router = APIRouter(tags=["agent-runs"])
 
@@ -166,12 +167,7 @@ def process_one_agent_run(db: Session = Depends(get_db)) -> dict:
     The local UI can request one supervised attempt without creating a hidden
     worker or making a provider call. Codex owns the claimed run afterwards.
     """
-    agent = db.scalar(
-        select(AgentRun)
-        .where(AgentRun.status == "queued")
-        .order_by(AgentRun.created_at.asc(), AgentRun.id.asc())
-        .limit(1)
-    )
+    agent = claim_agent_run(db)
     if agent is None:
         return {
             "ok": True,
@@ -180,10 +176,6 @@ def process_one_agent_run(db: Session = Depends(get_db)) -> dict:
             "agent_run": None,
         }
 
-    agent.status = "running"
-    agent.started_at = utcnow()
-    db.commit()
-    db.refresh(agent)
     return {
         "ok": True,
         "attempted": True,

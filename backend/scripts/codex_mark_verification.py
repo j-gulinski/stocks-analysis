@@ -19,6 +19,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app.db.base import SessionLocal
 from app.db.models import AgentRun, AnalysisRun, VerificationRun, utcnow
+from app.services.agent_queue import clear_agent_lease
 from app.services import analysis_contract
 from scripts.codex_common import (
     ScriptError,
@@ -114,6 +115,7 @@ def main() -> int:
             agent.outputs = {**(agent.outputs or {}), "verification": checks}
             agent.status = _agent_status(verdict)
             agent.finished_at = utcnow()
+            clear_agent_lease(agent)
         db.commit()
         write_json(
             {

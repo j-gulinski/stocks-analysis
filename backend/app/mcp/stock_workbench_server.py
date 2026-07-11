@@ -123,6 +123,8 @@ TOOLS: dict[str, ToolSpec] = {
                 "model_role": {"type": "string"},
                 "model": {"type": "string"},
                 "orchestrator_model": {"type": "string"},
+                "worker_id": {"type": "string"},
+                "lease_minutes": {"type": "integer", "minimum": 5, "maximum": 240},
             },
             "required": ["agent_run_id"],
             "additionalProperties": False,

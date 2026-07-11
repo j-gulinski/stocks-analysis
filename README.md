@@ -51,8 +51,11 @@ No additional shell access or secret sharing is required. Selecting the local
 project gives Codex access to this folder; credentials stay in the gitignored
 `backend/.env` and diagnostics report only whether they are configured. A local
 scheduled Codex worker can also run `./workbench start` before claiming queued
-analyses, so you do not need to start the web app first. The Mac and the Codex
-local host still need to be awake and available when that job runs.
+analyses, so you do not need to start the web app first. The worker follows
+`.codex/tasks/stock-queue-worker.md`, claims one leased row and saves only a
+verifier-gated result; it does not hide an AI subprocess inside the web server.
+The Mac and the Codex local host still need to be awake and available when that
+job runs.
 
 ## Expected scenario workflow
 

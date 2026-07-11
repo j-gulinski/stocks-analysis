@@ -36,6 +36,7 @@ from scripts.codex_common import (
 
 from app.db.base import SessionLocal
 from app.db.models import AgentRun, AnalysisRun, utcnow
+from app.services.agent_queue import clear_agent_lease
 from app.services import analysis_contract
 
 
@@ -158,6 +159,7 @@ def main() -> int:
                 "verification": verification,
             }
             agent.finished_at = utcnow()
+            clear_agent_lease(agent)
         db.commit()
         write_json(
             {

@@ -1,5 +1,5 @@
 """Stage CX provider-neutral run storage and read API."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import io
 import json
 
@@ -179,6 +179,10 @@ def test_process_one_agent_run_claims_oldest_queue_item_and_stops_at_boundary(cl
     assert payload["attempted"] is True
     assert payload["agent_run"]["id"] == queued.id
     assert payload["agent_run"]["status"] == "running"
+    assert payload["agent_run"]["lease_owner"]
+    assert payload["agent_run"]["heartbeat_at"]
+    assert payload["agent_run"]["lease_expires_at"]
+    assert payload["agent_run"]["attempt_count"] == 1
     assert db.get(AgentRun, queued.id).status == "running"
 
 
@@ -550,6 +554,63 @@ def test_codex_pick_agent_run_claims_next_queue_item(db, monkeypatch, capsys):
     db.refresh(agent)
     assert agent.status == "running"
     assert agent.started_at is not None
+    assert agent.lease_owner is not None
+    assert agent.heartbeat_at is not None
+    assert agent.lease_expires_at is not None
+    assert agent.attempt_count == 1
+
+
+def test_agent_run_lease_heartbeat_and_bounded_recovery(db):
+    from app.db.models import AgentRun
+    from app.services.agent_queue import (
+        AgentQueueError,
+        claim_agent_run,
+        heartbeat_agent_run,
+        recover_expired_agent_runs,
+    )
+
+    first = AgentRun(
+        workflow="stock-quick-analysis",
+        trigger="test",
+        status="queued",
+        inputs={"ticker": "SNT"},
+        outputs={},
+    )
+    exhausted = AgentRun(
+        workflow="stock-deep-analysis",
+        trigger="test",
+        status="running",
+        attempt_count=3,
+        lease_owner="dead-worker",
+        lease_expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        inputs={"ticker": "OPM"},
+        outputs={},
+    )
+    db.add_all([first, exhausted])
+    db.commit()
+
+    claimed = claim_agent_run(db, agent_run_id=first.id, worker_id="worker-a")
+    assert claimed is not None
+    assert claimed.status == "running"
+    assert claimed.attempt_count == 1
+    old_expiry = claimed.lease_expires_at
+
+    with pytest.raises(AgentQueueError, match="another worker"):
+        heartbeat_agent_run(db, claimed.id, worker_id="worker-b")
+    refreshed = heartbeat_agent_run(db, claimed.id, worker_id="worker-a")
+    assert refreshed.lease_expires_at > old_expiry
+
+    refreshed.lease_expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    refreshed.updated_at = refreshed.lease_expires_at
+    db.commit()
+    recovered = recover_expired_agent_runs(db)
+    assert {row.id for row in recovered} == {claimed.id, exhausted.id}
+    db.refresh(claimed)
+    db.refresh(exhausted)
+    assert claimed.status == "queued"
+    assert claimed.lease_owner is None
+    assert exhausted.status == "needs-human"
+    assert exhausted.finished_at is not None
 
 
 def test_deep_analysis_pick_contract_requires_research_resolution(db):

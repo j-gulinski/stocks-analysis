@@ -19,7 +19,8 @@ if str(BACKEND_DIR) not in sys.path:
 from sqlalchemy import select
 
 from app.db.base import SessionLocal
-from app.db.models import AgentRun, Company, utcnow
+from app.db.models import AgentRun, Company
+from app.services.agent_queue import AgentQueueError, claim_agent_run
 from app.services.model_policy import get_model_policy
 from scripts.codex_common import ScriptError, add_json_flags, run_main, write_json
 
@@ -50,6 +51,10 @@ def _agent_row(db, agent: AgentRun) -> dict[str, Any]:
         "error": agent.error,
         "started_at": agent.started_at,
         "finished_at": agent.finished_at,
+        "lease_owner": agent.lease_owner,
+        "heartbeat_at": agent.heartbeat_at,
+        "lease_expires_at": agent.lease_expires_at,
+        "attempt_count": agent.attempt_count,
         "created_at": agent.created_at,
         "updated_at": agent.updated_at,
     }
@@ -185,6 +190,8 @@ def main() -> int:
     parser.add_argument("--model-role", help="Model role to record when claiming.")
     parser.add_argument("--model", help="Concrete model to record when claiming.")
     parser.add_argument("--orchestrator-model", help="Orchestrator model to record.")
+    parser.add_argument("--worker-id", help="Stable worker identity for the lease.")
+    parser.add_argument("--lease-minutes", type=int, default=45)
     add_json_flags(parser)
     args = parser.parse_args()
 
@@ -209,21 +216,18 @@ def main() -> int:
             )
 
         if selected is not None:
-            if selected.status != "queued":
-                raise ScriptError(
-                    f"Agent run {selected.id} has status '{selected.status}', not 'queued'.",
-                    code=2,
+            try:
+                selected = claim_agent_run(
+                    db,
+                    agent_run_id=selected.id,
+                    worker_id=args.worker_id,
+                    model_role=args.model_role,
+                    model=args.model,
+                    orchestrator_model=args.orchestrator_model,
+                    lease_minutes=args.lease_minutes,
                 )
-            selected.status = "running"
-            selected.started_at = utcnow()
-            if args.model_role:
-                selected.model_role = args.model_role
-            if args.model:
-                selected.model = args.model
-            if args.orchestrator_model:
-                selected.orchestrator_model = args.orchestrator_model
-            db.commit()
-            db.refresh(selected)
+            except AgentQueueError as exc:
+                raise ScriptError(str(exc), code=2) from exc
             write_json(
                 {
                     "ok": True,
