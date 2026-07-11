@@ -1,23 +1,11 @@
-"""Watchlist CRUD — the entry point of the whole workflow: add a ticker here,
-then refresh, browse and analyze it."""
+"""Optional watchlist membership over durable Research Lab company data."""
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, select, update
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import WatchlistAddIn, WatchlistItemOut
 from app.db.base import get_db
-from app.db.models import (
-    Analysis,
-    Company,
-    Dividend,
-    Forecast,
-    ForumTopic,
-    IndicatorValue,
-    Price,
-    ReportValue,
-    ThesisFalsifier,
-    WatchlistItem,
-)
+from app.db.models import Company, ThesisFalsifier, WatchlistItem
 from app.services.refresh import get_or_create_company
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
@@ -101,17 +89,7 @@ def remove_from_watchlist(ticker: str, db: Session = Depends(get_db)) -> None:
             detail=f"{ticker.upper()} is not on the watchlist.",
         )
 
-    # Product semantics: removing a ticker means "forget this analysis", not
-    # merely hiding it from the dashboard. Keep forum topics/posts as source
-    # archive, but detach them from the company; purge company-owned analytics.
-    company_id = company.id
-    db.execute(delete(Analysis).where(Analysis.company_id == company_id))
-    db.execute(delete(Forecast).where(Forecast.company_id == company_id))
-    db.execute(delete(Price).where(Price.company_id == company_id))
-    db.execute(delete(Dividend).where(Dividend.company_id == company_id))
-    db.execute(delete(IndicatorValue).where(IndicatorValue.company_id == company_id))
-    db.execute(delete(ReportValue).where(ReportValue.company_id == company_id))
-    db.execute(update(ForumTopic).where(ForumTopic.company_id == company_id).values(company_id=None))
+    # Watchlist is only a membership view. Research identity, immutable
+    # evidence and analysis history belong to the Research Lab and survive.
     db.delete(item)
-    db.delete(company)
     db.commit()

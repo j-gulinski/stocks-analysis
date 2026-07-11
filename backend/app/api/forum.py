@@ -12,6 +12,7 @@ from app.api.schemas import (
     ForumTopicOut,
     TopicLinkIn,
 )
+from app.config import get_settings
 from app.db.base import get_db
 from app.db.models import Company, ForumPost, ForumTopic
 from app.scrapers import portalanaliz
@@ -56,6 +57,24 @@ def sync_topic(
 
 @router.get("/forum/login-status")
 def login_status() -> dict:
+    """Report configuration only; a GET never attempts a remote login."""
+    settings = get_settings()
+    configured = bool(settings.pa_username and settings.pa_password)
+    return {
+        "ok": configured,
+        "status": "configured" if configured else "not_configured",
+        "detail": (
+            "PortalAnaliz credentials are configured; login is attempted only "
+            "by an explicit forum command."
+            if configured
+            else "PA_USERNAME / PA_PASSWORD not configured."
+        ),
+    }
+
+
+@router.post("/forum/login-status/check")
+def check_login_status() -> dict:
+    """Explicitly verify PortalAnaliz credentials with one polite login."""
     return forum_sync.check_login()
 
 

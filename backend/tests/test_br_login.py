@@ -139,6 +139,29 @@ def test_br_login_status_endpoint_without_credentials(client):
     assert "not configured" in body["detail"]
 
 
+def test_br_login_status_get_is_configuration_only(client, monkeypatch):
+    class Settings:
+        br_username = "private@example.com"
+        br_password = "secret"
+
+    monkeypatch.setattr("app.api.diagnostics.get_settings", lambda: Settings())
+    monkeypatch.setattr(
+        "app.api.diagnostics.refresh_service.check_br_login",
+        lambda: (_ for _ in ()).throw(AssertionError("GET attempted remote login")),
+    )
+
+    body = client.get("/api/diagnostics/br-login-status").json()
+
+    assert body == {
+        "ok": True,
+        "status": "configured",
+        "detail": (
+            "BiznesRadar credentials are configured; login is attempted only "
+            "by an explicit refresh or diagnostic command."
+        ),
+    }
+
+
 def test_refresh_login_summary_never_exposes_account_identifier(monkeypatch):
     class Settings:
         br_username = "private@example.com"

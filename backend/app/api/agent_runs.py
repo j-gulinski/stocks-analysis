@@ -17,12 +17,10 @@ from app.api.schemas import (
     EventReportOut,
     PreSessionBriefIn,
     PreSessionBriefOut,
-    QueueAttemptOut,
 )
 from app.db.base import get_db
-from app.db.models import AgentRun, AnalysisRun, Company, EventReport, utcnow
+from app.db.models import AgentRun, AnalysisRun, Company, EventReport
 from app.scrapers import espi
-from app.services.agent_queue import claim_agent_run
 from app.services.model_policy import default_model_for_workflow
 
 router = APIRouter(tags=["agent-runs"])
@@ -168,33 +166,6 @@ def prepare_pre_session_brief(
     db.add(agent)
     db.commit()
     return {"ok": True, "espi_poll": poll_result, "agent_run": agent}
-
-
-@router.post(
-    "/agent-runs/process-one",
-    response_model=QueueAttemptOut,
-)
-def process_one_agent_run(db: Session = Depends(get_db)) -> dict:
-    """Claim the oldest queued item and stop at the Codex execution boundary.
-
-    The local UI can request one supervised attempt without creating a hidden
-    worker or making a provider call. Codex owns the claimed run afterwards.
-    """
-    agent = claim_agent_run(db)
-    if agent is None:
-        return {
-            "ok": True,
-            "attempted": False,
-            "message": "Brak oczekujących zleceń w kolejce.",
-            "agent_run": None,
-        }
-
-    return {
-        "ok": True,
-        "attempted": True,
-        "message": "Zlecenie odebrane. Codex może teraz wykonać workflow i zapisać wynik po weryfikacji.",
-        "agent_run": agent,
-    }
 
 
 @router.get("/companies/{ticker}/analysis-runs", response_model=list[AnalysisRunOut])

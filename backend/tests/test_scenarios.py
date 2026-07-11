@@ -300,7 +300,7 @@ def test_missing_driver_labels_gap_no_fabrication():
 
 def test_missing_current_price_labels_gap_no_crash():
     """WP5 regression: found by cross-checking DEC's real fixture numbers (own
-    C/Z history + EPS known — docs/validation-thesis.md — but the fixture profile
+    C/Z history + EPS known, but the fixture profile
     carries NO price). Target price is computable, but with no current price to
     compare against the OLD code crashed formatting a `None` upside instead of
     labelling the gap. Must degrade honestly, never raise, never fabricate."""

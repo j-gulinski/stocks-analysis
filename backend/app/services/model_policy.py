@@ -11,12 +11,23 @@ from typing import Any
 
 
 _POLICIES: dict[str, dict[str, Any]] = {
+    "stock-initial-research": {
+        "draft_role": "worker_standard",
+        "draft_model": "gpt-5.6-terra",
+        "draft_reasoning_effort": "high",
+        "required_verifier_role": "verifier_strict",
+        "reasoning": "high for bounded source collection and company-specific structuring",
+        "verification_scope": (
+            "company identity, source freshness, tailored research structure, "
+            "claim grounding and explicit gaps"
+        ),
+    },
     "stock-pre-session-brief": {
         "draft_role": "worker_standard",
         "draft_model": "gpt-5.6-terra",
         "draft_reasoning_effort": "high",
         "required_verifier_role": "verifier_strict",
-        "reasoning": "high for material event interpretation; mechanical triage first",
+        "reasoning": "high for material event interpretation; mechanical classification first",
         "verification_scope": "material UI-visible claims and source chronology",
     },
     "stock-quick-analysis": {

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Company Research"
+  short_description: "Build a verified tailored company case"
+  default_prompt: "Use $company-research to collect and structure one company research case."

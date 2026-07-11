@@ -3,16 +3,6 @@
  * on purpose: one shape end to end, no mapping layer to maintain).
  */
 
-export interface WatchlistItem {
-  ticker: string;
-  name: string | null;
-  note: string | null;
-  added_at: string;
-  risk_level: "fired" | "warning" | "none";
-  fired_falsifiers: number;
-  warning_falsifiers: number;
-}
-
 export interface DiscoveryCandidate {
   ticker: string;
   name: string | null;
@@ -35,92 +25,6 @@ export interface DiscoveryResult {
   source_note: string;
   source_version_id: number;
   candidates: DiscoveryCandidate[];
-  evaluation_job: {
-    id: number;
-    status: string;
-    candidate_count: number;
-    evaluation_budget: number;
-    reused: boolean;
-  } | null;
-  scheduled_analysis: {
-    considered: number;
-    queued: number;
-    skipped_recent: number;
-    skipped_pending: number;
-    skipped_not_stored: number;
-    tickers: string[];
-    stale_after_days: number;
-  } | null;
-}
-
-export interface DiscoveryTriageReview {
-  id: number; source_document_version_id: number; ticker: string; review_price_pln: number;
-  note: string; outcome: "skip_for_now" | "revisit_later" | "promote_to_case";
-  next_review_date: string; evidence_reason: string; created_by: string | null; created_at: string;
-}
-
-export interface DiscoveryTriagePromotion {
-  company: Company;
-  research_case: ResearchCase;
-  initial_research_run_id: number;
-  quarterly_review_run_id: number;
-  created_company: boolean;
-  created_case: boolean;
-}
-
-export interface UniversePolicy {
-  default_exclusions: string[];
-  memberships: Array<{ index: string; status: "ready" | "missing"; as_of?: string; source_version_id?: number }>;
-  rows: Array<{ ticker: string; included: boolean; reason: string; excluded_by: string[] }>;
-}
-
-export interface ForecastGrowthMetric {
-  first_value: number | null;
-  second_value: number | null;
-  growth_pct: number | null;
-  turnaround: boolean;
-  transition: "normal" | "turnaround" | "loss_narrowing" | "loss_onset" | "flat_zero" | "deterioration" | "unknown";
-}
-
-export interface ForecastGrowthCandidate {
-  rank: number;
-  ticker: string;
-  name: string | null;
-  first_forecast_year: string;
-  second_forecast_year: string;
-  composite_growth_pct: number;
-  metric_coverage: number;
-  metrics: Record<string, ForecastGrowthMetric>;
-  analyst_count: number | null;
-  source: string;
-  source_version_id: number | null;
-  source_url: string;
-  fetched_at: string | null;
-  freshness_status: "fresh";
-}
-
-export interface ForecastGrowthRanking {
-  status: "research_shortlist";
-  method: string;
-  universe: string;
-  universe_count: number;
-  ranked_count: number;
-  insufficient_count: number;
-  stale_count: number;
-  degraded_count: number;
-  degraded_sources: Array<{
-    ticker: string;
-    latest_version_id: number;
-    latest_parse_status: string;
-    latest_parse_error: string | null;
-    last_good_version_id: number | null;
-  }>;
-  fresh_after_days: number;
-  evaluated_at: string;
-  freshness_cutoff_at: string;
-  analyst_count_available: boolean;
-  caveats: string[];
-  candidates: ForecastGrowthCandidate[];
 }
 
 export interface Company {
@@ -171,6 +75,31 @@ export interface ResearchCase {
   material_event_review_policy: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ResearchCaseSummary {
+  id: number;
+  company_id: number;
+  ticker: string;
+  name: string | null;
+  purpose: string;
+  state: ResearchCaseState;
+  current_step: ResearchCaseStep;
+  as_of: string | null;
+  blocked_reason: string | null;
+  created_at: string;
+  updated_at: string;
+  initial_research_run_id: number | null;
+  initial_research_status: string | null;
+}
+
+export interface ResearchCaseCreateResult {
+  research_case: ResearchCaseSummary;
+  agent_run: AgentRun;
+  created_company: boolean;
+  created_case: boolean;
+  reactivated_case: boolean;
+  created_job: boolean;
 }
 
 export interface ResearchCaseStepHistory {
@@ -859,7 +788,7 @@ export interface ForumSync {
 
 export interface LoginStatus {
   ok: boolean;
-  status: "ok" | "error" | "not_configured";
+  status: "ok" | "configured" | "error" | "not_configured";
   detail: string;
 }
 
@@ -1010,13 +939,6 @@ export interface AgentRunCreate {
 export interface PreSessionBriefResult {
   ok: boolean;
   espi_poll: Record<string, unknown>;
-  agent_run: AgentRun | null;
-}
-
-export interface QueueAttemptResult {
-  ok: boolean;
-  attempted: boolean;
-  message: string;
   agent_run: AgentRun | null;
 }
 

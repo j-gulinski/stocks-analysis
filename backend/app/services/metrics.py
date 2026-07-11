@@ -320,7 +320,7 @@ class MultipleHistoryStats:
     """Own-history distribution of a valuation multiple (C/Z, C/WK or EV/EBITDA).
 
     Generalises the former `PeHistoryStats`: the strategy compares a stock
-    against its OWN past multiple, not against the market (docs/strategy-malik.md
+    against its OWN past multiple, not against the market (docs/STRATEGY.md
     §Valuation doctrine). `n` is the count of usable (positive) observations —
     the scenario engine (stage SC) labels how deep the history is with it, and
     the valuation-confidence heuristic (WP4) keys on it. `n` defaults to 0 so the

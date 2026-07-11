@@ -1,0 +1,4 @@
+interface:
+  display_name: "Malik / OBS Strategy"
+  short_description: "Apply the Malik/OBS research lens"
+  default_prompt: "Use $strategy-malik-obs to evaluate this researched company with the Malik/OBS method."

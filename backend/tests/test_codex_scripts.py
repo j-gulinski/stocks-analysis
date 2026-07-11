@@ -73,6 +73,36 @@ def test_codex_pick_contract_includes_keyless_model_policy(db, monkeypatch, caps
     assert policy["api_key_required"] is False
 
 
+def test_initial_research_policy_and_picker_contract_are_executable():
+    from app.db.models import AgentRun
+    from app.services.model_policy import get_model_policy
+    from scripts.codex_pick_agent_run import _execution_contract
+
+    policy = get_model_policy("stock-initial-research")
+    assert policy["status"] == "ready"
+    assert policy["draft_role"] == "worker_standard"
+    assert policy["draft_model"] == "gpt-5.6-terra"
+    assert policy["draft_reasoning_effort"] == "high"
+    assert policy["required_verifier_role"] == "verifier_strict"
+
+    contract = _execution_contract(
+        AgentRun(
+            id=17,
+            workflow="stock-initial-research",
+            status="running",
+            model_role="worker_standard",
+            model="gpt-5.6-terra",
+            inputs={"ticker": "DEK", "research_case_id": 4},
+            outputs={},
+        )
+    )
+    steps = " ".join(contract["steps"])
+    assert contract["skill"] == "company-research"
+    assert "bounded normal company refresh" in steps
+    assert "structured snapshot" in steps
+    assert "verifier_strict" in steps
+
+
 def test_codex_save_analysis_applies_scenario_contract_before_database_write(
     db, monkeypatch
 ):

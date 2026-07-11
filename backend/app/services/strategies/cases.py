@@ -1,5 +1,4 @@
-"""Worked examples as structured, honest data — the seed of a future
-calibration set (stage TH extensibility; PLAN §10).
+"""Worked examples as structured, honest legacy calibration data.
 
 A `WorkedCase` is a *partial* snapshot of a real (or synthetic) situation:
 whatever inputs we can actually reconstruct, each labelled with where it came
@@ -62,7 +61,7 @@ class WorkedCase:
 # via `getattr(cases, "CORPUS", ())` — position in the file does not matter for
 # external access, but the entries must be built after their helper, so the
 # tuple is assigned at the end. See `_DGN_CASE` / `_SNT_CASE` and their honesty
-# notes (both are deliberately THIN — see docs/validation-thesis.md §Historia).
+# notes (both are deliberately thin historical evaluation fixtures).
 
 
 def build_case_insights(
@@ -130,9 +129,8 @@ def evaluate_case(profile: base.StrategyProfile, case: WorkedCase) -> dict:
 
 # --------------------------------------------------------- WP4 worked cases
 #
-# The corpus is recorded HONESTLY (docs/plan-stage-scenarios.md §"WP4b" +
-# §"Risks & honesty rules"; docs/strategy-malik.md §"Unverified / open
-# questions"). Two honesty invariants hold for EVERY case below:
+# The corpus follows the source and replay boundaries in docs/STRATEGY.md.
+# Two honesty invariants hold for EVERY case below:
 #
 #   1. No reconstructed fundamentals. The local ledger does not contain the
 #      immutable entry-era statements Malik acted on; current source access is
@@ -153,7 +151,7 @@ def evaluate_case(profile: base.StrategyProfile, case: WorkedCase) -> dict:
 #      to `scripts/validate_thesis.py <TICKER>` on a machine with egress.
 #
 # The corpus carries a documented **miss** (Suntech) alongside the wins so it is
-# not survivorship-biased (plan §"No survivorship bias").
+# not survivorship-biased.
 
 
 def _dgn_case() -> WorkedCase:
@@ -162,7 +160,7 @@ def _dgn_case() -> WorkedCase:
     his own analysis "+2500% w ciągu 5 lat", 2025-09-18 [DGN][AUT]). The source
     does not bind that five-year return to the 2023 flag, and the frequently-
     quoted "~20 PLN entry" is NOT sourced
-    and is deliberately absent (docs/strategy-malik.md §Unverified). We can name
+    and is deliberately absent (docs/STRATEGY.md). We can name
     the small-cap edge qualitatively but none of the entry-date fundamentals."""
     company = build_case_insights(
         size_code="small",  # Malik hunts small caps [SB]; DGN was a small cap.
@@ -219,7 +217,7 @@ def _dgn_case() -> WorkedCase:
                         "nie liczbowy [DGN]",
         },
         expected_read={"entry_quality": "insufficient_data"},
-        citation="docs/strategy-malik.md §Filozofia + §Unverified "
+        citation="docs/STRATEGY.md §Valuation method packs "
                  "(„DGN ~20 PLN” NIEzweryfikowane); anchors [DGN][AUT][SB]",
         gaps=[
             "Fundamenty z daty wejścia (przychody, marża brutto, C/Z, gotówka "
@@ -239,7 +237,7 @@ def _dgn_case() -> WorkedCase:
 def _snt_case() -> WorkedCase:
     """Synektik — included per WP4 scope but the "early catch" attribution to
     Malik is UNVERIFIED: no primary Malik document ties him to an early SNT call
-    (docs/strategy-malik.md §Unverified). SNT appears in the repo only as a
+    (docs/STRATEGY.md source boundary). SNT appears in the repo only as a
     scraper fixture (kalkulacyjny income layout, skills/scraper-doctor). This
     case therefore asserts NO Malik catch and carries the unverified flag first;
     it is a placeholder seed, not a validated success."""
@@ -274,7 +272,7 @@ def _snt_case() -> WorkedCase:
                        "kalkulacyjny) [skills/scraper-doctor/SKILL.md]",
         },
         expected_read={"entry_quality": "insufficient_data"},
-        citation="docs/strategy-malik.md §Unverified — „Synektik (SNT) 'early' "
+        citation="docs/STRATEGY.md — Synektik (SNT) 'early' "
                  "catch — UNVERIFIED”",
         gaps=[
             "Atrybucja do Malika NIEzweryfikowana — pozycja pozostaje jako "
@@ -292,7 +290,7 @@ def _optex_case() -> WorkedCase:
     pattern, and the corpus's one source of real ENTRY multiples. He bought it
     at trailing C/Z ~12 with forecast C/Z <10, a rising backlog and after a price
     drop — his "classic" trio (niska wycena + backlog + margines) [F][M1;
-    docs/strategy-malik.md zasada 8]. A US (NASDAQ) name held under his harder
+    docs/STRATEGY.md Malik/OBS margin-of-safety lens]. A US (NASDAQ) name held under his harder
     ~20% foreign-stock stop [F; digest §5]. The multiples are sourced; the
     repricing OUTCOME is not quantified in the sources, so this is an
     entry-pattern exemplar (`outcome=""`), not a documented hit — the own-history
@@ -338,7 +336,7 @@ def _optex_case() -> WorkedCase:
                       "spółek zagranicznych, inaczej niż na GPW [F; digest §5]",
         },
         expected_read={"entry_quality": "insufficient_data"},
-        citation="docs/strategy-malik.md zasada 8 („OPTEX: P/E~12, prog.<10, "
+        citation="docs/source-materials/obs.txt (OPTEX: P/E~12, prog.<10, "
                  "rosnący backlog”) [F][M1]; obs.txt (Portfel IKE, OPTEX Systems)",
         gaps=[
             "Tożsamość została potwierdzona jako OPXS (Nasdaq), ale dokładny "
@@ -401,7 +399,7 @@ def _suntech_case() -> WorkedCase:
                     "błędnych decyzji” [F; M1 §7]",
         },
         expected_read={"entry_quality": "insufficient_data"},
-        citation="docs/source-materials/Filozofia_inwestycyjna_OBS_Portfel_IKE.md "
+        citation="docs/source-materials/obs.txt "
                  "§7 (błędy poznawcze); obs.txt (Portfel IKE), wpisy o Suntechu",
         gaps=[
             "Mnożnik wejścia (C/Z) i własna historia C/Z nie są odtworzone "
@@ -424,7 +422,7 @@ def _suntech_case() -> WorkedCase:
 # still exposing `CORPUS` as a plain tuple to `cases.CORPUS` / `getattr(cases,
 # "CORPUS", ())`. All four entries evaluate to `insufficient_data` BY CONSTRUCTION
 # (0 computable indicators < the profile's min_key_indicators) — the honest
-# consequence of the data gaps (docs/validation-thesis.md), not an engine failure.
+# consequence of explicit data gaps, not an engine failure.
 # The corpus is DGN (hit) + OPTEX (entry-pattern, sourced multiples) + Suntech
 # (documented miss — bias guard) + SNT (unverified placeholder); the sourced
 # numbers on each land in the WP3b/WP4a fabrication allowed-set via

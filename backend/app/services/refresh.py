@@ -456,7 +456,10 @@ def refresh_company(
 
     if scope == "all":
         summary["forum"] = _sync_linked_forum_topics(db, company, force=force)
-        summary["forum_expectations"] = _refresh_forum_expectations(db, company)
+        # Refresh remains deterministic fetch/parse/upsert work. Forum
+        # interpretation belongs to a claimed AgentRun and its strict verifier,
+        # never to this synchronous HTTP request.
+        summary["forum_expectations"] = "pominięto (wykonuje kolejka Codex)"
 
     # Fetch-volume transparency: exactly how many HTTP requests this refresh
     # made (0 when everything came from the 24 h cache).

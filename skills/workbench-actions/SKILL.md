@@ -1,91 +1,58 @@
 ---
 name: workbench-actions
-description: Run explicit, user-triggered Stock Analysis Workbench actions and explain the available operator flows. Use when the user asks what the app can do, wants to start or stop it, inspect readiness, refresh or review a company, queue an analysis, or manually process one queued Codex task. Never use this skill to create or enable recurring workers.
+description: Run explicit user-triggered Stock Analysis Workbench actions and explain the current operator flows. Use when the user wants to start, stop, inspect, refresh Discover, add a company to Research, or execute one queued Codex job. Never create a recurring worker.
 ---
 
 # Workbench actions
 
-Treat every action as a deliberate user request. The app may perform its
-one-time session hook after `./workbench start`, but no Codex automation may be
-created, enabled or resumed from this skill. The user owns when a Codex analysis
-is processed.
+Use only explicit commands. Reading a screen never fetches a source, writes
+state, queues work, claims a lease, or calls a model.
 
-## Choose a flow
+## Current flows
 
-| User intent | Flow | Result |
+| User intent | Action | Durable result |
 |---|---|---|
-| “Is it ready?” | Readiness | Local dependencies, service health and stored source health only. |
-| “Open/start/stop it” | App lifecycle | Start, check or stop only workbench-owned local services. |
-| “Refresh/review COMPANY” | Company research | Update permitted evidence, inspect the dossier/scenarios and state gaps. |
-| “Search TICKER” | Initial research | Schedule one refresh-and-research row; invoke `$workbench-run-queue` to execute it. |
-| “Promote this triage” | Case promotion | Explicitly create a Company + ResearchCase, queue initial research and store a future quarterly review row. |
-| “Run the next queued analysis” | Manual Codex worker | Recover leases, claim exactly one row, follow its skill and save a verifier-gated result. |
-| “What changed before the session?” | One-time collection | Run the existing one-time pre-session flow only when explicitly requested. |
+| Check the app | `./workbench doctor` then `./workbench status` | Read-only health report |
+| Start or stop | `./workbench start` / `./workbench stop` | Local services only; no queue claim |
+| Refresh Discover | `POST /api/discovery/refresh` | One stored source snapshot; no research jobs |
+| Add a company | `POST /api/research-cases` with a ticker or frozen Discover version | One company, one active case, at most one initial-research job |
+| Run queued research | Invoke `$workbench-run-queue` | Exactly one claimed and completed job |
 
-## Readiness and lifecycle
+Research lists `ResearchCase` rows, not watchlist membership. Removing a
+watchlist item never deletes the company, evidence, case, analysis, or history.
 
-1. Run `./workbench doctor` first. It is read-only and never prints secrets.
-2. For a start/open request, run `./workbench start` (or `--open`), then
-   `./workbench status`; require backend health and frontend readiness.
-3. Explain that `start` may run the repository's **one-time session hook**. It
-   may collect permitted ESPI/EBI evidence and create/claim one durable row,
-   but it never performs the Codex analysis itself.
-4. For a stop request, run `./workbench stop`; it leaves Postgres running.
+## Lifecycle
 
-## Company research and queueing
+1. Run `./workbench doctor`; it must not print secret values.
+2. For a start/open request, run `./workbench start` (or `--open`) and then
+   `./workbench status`.
+3. `start` only starts the local services and migrations. It does not fetch
+   evidence, enqueue analysis, or claim Codex work.
+4. `./workbench stop` stops Workbench-owned backend/frontend processes and
+   leaves PostgreSQL running.
 
-1. Use the UI or established API/MCP path. Keep all source collection inside
-   existing app adapters and their politeness limits.
-2. Check freshness, source failures and deterministic scenario inputs before
-   interpreting results. Separate sourced facts, computed values, assumptions
-   and model judgment.
-   Codex dossier reads also carry a top-level `codex_score_base`: a reusable
-   analysis-only weighting base (growth in revenue/profit first), not a Dossier
-   card, recommendation or standalone rating. Freeze it with the analysis
-   input and let the strict verifier own the final scored judgment.
-   A saved scored read displays its verifier-owned conviction score, scenario
-   probabilities and deterministic price outcomes in the existing analysis
-   card. `provisional` means named evidence gaps, not a hidden or suppressed
-   result; only integrity failures are `needs-human`.
-3. A ticker search and every new top-15 Discover entry schedule an
-   `stock-initial-research` `agent_run`; it is not a model call. Report its
-   status as `queued`, `running`, `verified`, `rejected` or `needs-human`.
-4. Do not add a ticker to the watchlist, make a trade decision or treat forum
-   content as primary evidence without the user's explicit action and durable
-   source evidence.
-5. A promotion is a distinct click after the `promote_to_case` triage row is
-   saved. It copies the immutable review price/note/evidence into the case,
-   queues initial research and records a future-dated quarterly thesis-review
-   row. Future rows cannot be claimed before their date and never wake Codex;
-   material events require a separate explicit review action.
+## Discover and Research
 
-## Manual Codex worker
+1. Use stored Discover evidence for reads. Refresh the BiznesRadar snapshot
+   only when the user asks or presses the explicit refresh control.
+2. Add through `/api/research-cases`. Repeated requests reuse the case and its
+   stable initial job. Report the visible state honestly: waiting, collecting,
+   provisional, verified, rejected, or needs intervention.
+3. The financial-health sieve is a preliminary filter. Do not describe Altman
+   or Piotroski values as a recommendation. Keep OBS and Portal Analiz sieves
+   unavailable until their declared market-wide facts exist.
+4. The browser may enqueue one durable job after an add, but it never executes
+   or claims it. Do not add portfolio positions or make a trade decision.
 
-Use this flow only after the user explicitly asks to run a queued analysis.
+## One queued Codex job
 
-1. Read `docs/project-guardrails.md`, `.codex/tasks/stock-queue-worker.md`
-   and the skill named by the claimed row.
-2. Run `./workbench doctor`; stop and report the blocker if it fails.
-3. Recover expired leases, then atomically claim at most one row:
+Use `$workbench-run-queue` only after an explicit request. It recovers expired
+leases, claims at most one row, follows that row's skill/model contract,
+heartbeats, obtains independent strict verification, saves to the same
+`agent_run_id`, and stops. An empty queue is a successful no-op.
 
-   ```bash
-   cd backend
-   python3 scripts/codex_recover_agent_runs.py --pretty
-   python3 scripts/codex_pick_agent_run.py --claim --pretty
-   ```
+## Capability maintenance
 
-4. Stop successfully when the queue is empty. Do not poll sources or create
-   speculative work in that case.
-5. Follow the row's `execution_contract`, requested model and workflow skill.
-   Keep data source-grounded, heartbeat during long work, and use an
-   independent strict verifier before saving UI-visible investment output.
-6. Save or complete the same `agent_run_id` through the documented MCP or
-   fallback scripts. Preserve evidence, assumptions, verification status and
-   explicit gaps.
-
-## Capability-maintenance rule
-
-When a user-facing Workbench action changes—UI control, API/MCP action,
-`workbench` command, queue lifecycle or source/analysis boundary—update this
-skill in the same change. Keep the flow table truthful, add the normal
-`CHANGELOG.md` and `docs/model-usage.md` records, and verify the affected flow.
+When a user-visible UI, API, CLI, queue, source, or analysis boundary changes,
+update this skill in the same patch. Also update `CHANGELOG.md` and the concise
+model-usage ledger, then verify the affected API and browser outcome.

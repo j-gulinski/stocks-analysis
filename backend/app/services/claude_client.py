@@ -5,7 +5,7 @@ What this is
 `services/prompts.py` assembles the skill system prompt + the dossier/forum
 user turn (P5.5). This module makes the actual Claude call and turns the raw
 response into a typed `AnalysisResult` — the parsed verdict (the schema in
-PLAN §8 / `skill/SKILL.md`'s "Output contract") plus token counts for
+the typed analysis output contract plus token counts for
 logging/cost tracking.
 
 Relationship to `thesis_ai.py` / `scenarios_ai.py` / `valuation_ai.py`
@@ -222,7 +222,7 @@ _TOOLS = [
         "name": _TOOL_NAME,
         "description": (
             "Zapisz strukturalny werdykt analizy inwestycyjnej zgodnie z "
-            "przyjętym schematem (PLAN §8 / skill/SKILL.md 'Output contract')."
+            "przyjętym, wersjonowanym schematem analizy."
         ),
         "input_schema": _VERDICT_SCHEMA,
     }

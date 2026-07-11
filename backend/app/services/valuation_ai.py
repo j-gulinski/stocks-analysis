@@ -1,5 +1,8 @@
-"""AI valuation agent — stock-potential read on top of the scenario set (stage
-SC / WP4a — docs/plan-stage-scenarios.md §"WP4a").
+"""Legacy valuation decorator on top of the deterministic scenario set.
+
+The P3 replacement contract lives in ``docs/PRODUCT.md`` and
+``docs/ARCHITECTURE.md``. This remains serving code until that vertical has an
+equivalent verifier-gated snapshot.
 
 What this is
 -----------
@@ -51,7 +54,7 @@ from app.services.strategies import base, cases
 LOW, MEDIUM, HIGH = "low", "medium", "high"
 _VALID_LEVELS = frozenset({LOW, MEDIUM, HIGH})
 
-# Heuristic thresholds (plan §WP4a, amended). The LOW cutoff is the profile's own
+# Legacy heuristic thresholds. The LOW cutoff is the profile's own
 # `min_key_indicators` (3 for Malik); HIGH needs enough indicators AND enough
 # own-history observations for a stable median/quartiles. Fixed, mechanically
 # checkable, and asserted at all three levels in test_valuation_ai.py.
@@ -67,7 +70,7 @@ FRAMING = "To ocena potencjału — punkt wejścia w analizę, nie sygnał kupna
 # deliberately absent here. Convergence = these stop changing.
 _REFINABLE = ("potential_basis_label", "confidence_rationale", "narrative", "what_would_change")
 
-# Gitignored cache dir, separate from the thesis/scenarios refiners (plan §WP4a).
+# Gitignored cache dir, separate from the thesis/scenarios refiners.
 _DEFAULT_CACHE_DIR = Path(__file__).resolve().parents[2] / ".cache" / "valuation_ai"
 
 

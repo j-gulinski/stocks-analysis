@@ -170,45 +170,11 @@ def _pid_alive(pid: int | None) -> bool:
 
 
 def _start_session_hook() -> Check:
-    """Start one detached pre-session/queue attempt after app startup.
-
-    The hook is deliberately detached: source polling can take several polite
-    requests and must never make the local health gate look broken. A PID file
-    makes repeated ``workbench start`` calls idempotent while the same hook is
-    still running; a later invocation can retry once the process has exited.
-    """
-    existing_pid = _read_pid_file(SESSION_HOOK_PID)
-    if _pid_alive(existing_pid):
-        return Check("session hook", "pass", f"already running (pid {existing_pid})")
-    SESSION_HOOK_PID.unlink(missing_ok=True)
-
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    try:
-        log_handle = SESSION_HOOK_LOG.open("a", encoding="utf-8")
-        process = subprocess.Popen(
-            [
-                str(_python_executable()),
-                str(BACKEND / "scripts" / "codex_session_start.py"),
-                "--trigger",
-                "session-start",
-                "--pretty",
-            ],
-            cwd=BACKEND,
-            stdout=log_handle,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            text=True,
-        )
-    except OSError as exc:
-        return Check("session hook", "warn", f"could not start: {exc}")
-    finally:
-        if "log_handle" in locals():
-            log_handle.close()
-    SESSION_HOOK_PID.write_text(str(process.pid), encoding="utf-8")
+    """Keep app startup free of source polling and abandoned queue leases."""
     return Check(
         "session hook",
-        "pass",
-        f"started in background pid {process.pid}; log: {SESSION_HOOK_LOG}",
+        "info",
+        "disabled; an explicit executing Codex worker owns queue claims",
     )
 
 
@@ -474,8 +440,6 @@ def _start_postgres() -> Check:
 
 def start_services(open_browser: bool = False) -> list[Check]:
     checks: list[Check] = []
-    backend_before = _owned_status("backend", 8000)
-    frontend_before = _owned_status("frontend", 3000)
     postgres = _start_postgres()
     checks.append(postgres)
     if postgres.status == "fail":
@@ -516,11 +480,7 @@ def start_services(open_browser: bool = False) -> list[Check]:
     )
 
     if backend_ok and frontend_ok:
-        app_was_already_ready = backend_before["listening"] and frontend_before["listening"]
-        if app_was_already_ready:
-            checks.append(Check("session hook", "info", "skipped; workbench already ready"))
-        else:
-            checks.append(_start_session_hook())
+        checks.append(_start_session_hook())
 
     if open_browser and frontend_ok:
         opener = _run(["open", FRONTEND_URL])

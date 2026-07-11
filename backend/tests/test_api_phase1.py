@@ -56,7 +56,7 @@ def test_watchlist_crud(client):
     assert client.get("/api/companies/DEC").status_code == 200
 
     assert client.delete("/api/watchlist/DEC").status_code == 204
-    assert client.get("/api/companies/DEC").status_code == 404
+    assert client.get("/api/companies/DEC").status_code == 200
     assert client.delete("/api/watchlist/DEC").status_code == 404
 
     recreated = client.post("/api/watchlist", json={"ticker": "DEC"})
@@ -127,6 +127,25 @@ def test_refresh_and_read_endpoints(client, stub_fetch):
 
     prices = client.get("/api/companies/DEC/prices").json()
     assert prices[-1]["close"] == 24.80  # chronological, newest from BR archive
+
+
+def test_refresh_never_runs_forum_expectation_model_inline(
+    client, stub_fetch, monkeypatch
+):
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("forum interpretation must run only in a claimed AgentRun")
+
+    monkeypatch.setattr(
+        "app.services.refresh._refresh_forum_expectations",
+        forbidden,
+    )
+
+    response = client.post("/api/companies/DEC/refresh")
+
+    assert response.status_code == 200
+    assert response.json()["summary"]["forum_expectations"] == (
+        "pominięto (wykonuje kolejka Codex)"
+    )
 
 
 def test_refresh_reports_empty_forecast_consensus_columns(client, db, monkeypatch):

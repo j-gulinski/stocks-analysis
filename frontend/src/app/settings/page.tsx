@@ -1,7 +1,7 @@
 "use client";
 
-/** Settings — connection status checks only; secrets never leave the backend. */
-import { IconCheck, IconPlayerPlay, IconRefresh, IconX } from "@tabler/icons-react";
+/** Settings — stored configuration and service status; reads never log in. */
+import { IconCheck, IconRefresh, IconX } from "@tabler/icons-react";
 import {
   getAiUsage,
   getBrLoginStatus,
@@ -10,7 +10,6 @@ import {
   getScrapersHealth,
   getWorkflowStatus,
   preparePreSessionBrief,
-  processOneAgentRun,
 } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
 import { relativeDate } from "@/lib/format";
@@ -25,7 +24,7 @@ function StatusCard({
   loading,
 }: {
   title: string;
-  status: "ok" | "error" | "not_configured" | null;
+  status: "ok" | "configured" | "error" | "not_configured" | null;
   detail: string;
   loading: boolean;
 }) {
@@ -34,21 +33,31 @@ function StatusCard({
       <div>
         <p style={{ fontWeight: 500, fontSize: 13, margin: 0 }}>{title}</p>
         <p className="small muted" style={{ margin: "4px 0 0" }}>
-          {loading ? "Sprawdzanie…" : detail}
+          {loading ? "Wczytywanie…" : detail}
         </p>
       </div>
       {!loading && status != null && (
         <span
           className={`badge ${
-            status === "ok" ? "success" : status === "error" ? "danger" : "warning"
+            status === "ok" || status === "configured"
+              ? "success"
+              : status === "error"
+                ? "danger"
+                : "warning"
           }`}
         >
-          {status === "ok" && <IconCheck size={13} />}
+          {(status === "ok" || status === "configured") && <IconCheck size={13} />}
           {status === "error" && <IconX size={13} />}
-          {status === "ok" ? "OK" : status === "error" ? "błąd" : "Nie skonfigurowano"}
+          {status === "ok"
+            ? "OK"
+            : status === "configured"
+              ? "Skonfigurowano"
+              : status === "error"
+                ? "błąd"
+                : "Nie skonfigurowano"}
         </span>
       )}
-      {loading && <IconRefresh size={15} className="spin" aria-label="Sprawdzanie" />}
+      {loading && <IconRefresh size={15} className="spin" aria-label="Wczytywanie" />}
     </div>
   );
 }
@@ -88,33 +97,14 @@ export default function SettingsPage() {
     }
   };
 
-  const processOne = async () => {
-    setSessionAction("queue");
-    setSessionError(null);
-    setSessionInfo(null);
-    try {
-      const result = await processOneAgentRun();
-      setSessionInfo(result.message);
-    } catch (err) {
-      setSessionError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSessionAction(null);
-    }
-  };
-
   return (
     <main className="settings-page">
       <section className="settings-intro">
         <div>
           <p className="eyebrow">System</p>
-          <h1>Sprawdź sesję, potem diagnozuj źródła</h1>
-          <p>Codzienna ścieżka jest krótka: sprawdź ESPI, odbierz najwyżej jedno zlecenie, a dopiero potem analizuj stan usług.</p>
+          <h1>Stan źródeł i usług</h1>
+          <p>Strona odczytuje zapisaną konfigurację i stan usług — samo jej otwarcie nie loguje się do źródeł. Zdarzenia ESPI odświeżasz osobnym poleceniem.</p>
         </div>
-        <ol className="settings-steps" aria-label="Typowa sesja">
-          <li className="active"><span>1</span><strong>Sesja</strong><small>ESPI + model</small></li>
-          <li><span>2</span><strong>Kolejka</strong><small>jedna próba</small></li>
-          <li><span>3</span><strong>Diagnoza</strong><small>źródła i budżet</small></li>
-        </ol>
       </section>
       <div style={{ display: "grid", gap: 10 }}>
         <p className="settings-section-label">Stan usług</p>
@@ -125,24 +115,24 @@ export default function SettingsPage() {
           loading={health.loading}
         />
         <StatusCard
-          title="Logowanie BiznesRadar"
+          title="Konfiguracja BiznesRadar"
           status={biznesradar.data?.status ?? (biznesradar.error ? "error" : null)}
           detail={biznesradar.data?.detail ?? biznesradar.error ?? ""}
           loading={biznesradar.loading}
         />
         <StatusCard
-          title="Logowanie PortalAnaliz"
+          title="Konfiguracja PortalAnaliz"
           status={forum.data?.status ?? (forum.error ? "error" : null)}
           detail={forum.data?.detail ?? forum.error ?? ""}
           loading={forum.loading}
         />
         <StatusCard
-          title="Codex workflow queue"
+          title="Kolejka Codex"
           status={workflows.error ? "error" : workflows.data ? "ok" : null}
           detail={
             workflows.error ??
             (workflows.data
-              ? `${workflows.data.queued} queued · ${workflows.data.running} running · ${workflows.data.verified_24h} verified / 24 h`
+              ? `${workflows.data.queued} oczekuje · ${workflows.data.running} w toku · ${workflows.data.verified_24h} zweryfikowano / 24 h`
               : "")
           }
           loading={workflows.loading}
@@ -150,9 +140,9 @@ export default function SettingsPage() {
 
         <div className="card session-actions-card">
           <div>
-            <p style={{ fontWeight: 500, fontSize: 13, margin: 0 }}>Operacje sesyjne</p>
+            <p style={{ fontWeight: 500, fontSize: 13, margin: 0 }}>Odświeżenie zdarzeń</p>
             <p className="small muted" style={{ margin: "4px 0 12px" }}>
-              Jednorazowe sprawdzenie ESPI i przejęcie najwyżej jednego zlecenia. Dalszy workflow wykonuje Codex.
+              Jednorazowo pobiera nowe raporty ESPI i może zapisać zadanie do kolejki. Nie uruchamia analizy Codex.
             </p>
           </div>
           <div className="command-row">
@@ -165,10 +155,6 @@ export default function SettingsPage() {
             <button className="btn" onClick={() => void recheckEspi()} disabled={sessionAction != null}>
               <IconRefresh size={14} className={sessionAction === "espi" ? "spin" : ""} />
               {sessionAction === "espi" ? "Sprawdzam ESPI…" : "Sprawdź ESPI"}
-            </button>
-            <button className="btn accent" onClick={() => void processOne()} disabled={sessionAction != null}>
-              <IconPlayerPlay size={14} className={sessionAction === "queue" ? "spin" : ""} />
-              {sessionAction === "queue" ? "Odbieram zlecenie…" : "Wykonaj jedną próbę kolejki"}
             </button>
           </div>
           <p className="small muted" style={{ margin: "8px 0 0" }}>{modelPolicyDescription(orchestratorModel)} Wybór dotyczy żądanego orchestratora Codex; host nie ujawnia dokładnego deploymentu.</p>

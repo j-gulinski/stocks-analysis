@@ -1,4 +1,4 @@
-"""ORM models — the full schema from PLAN §4.
+"""Durable ORM model for evidence, research, analysis and portfolio state.
 
 Conventions:
 - Scraped series use a long/narrow format (one row per value) so new fields
@@ -81,8 +81,8 @@ class ResearchCase(Base):
     current_step: Mapped[str] = mapped_column(String(40), default="ingest")
     as_of: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     blocked_reason: Mapped[str | None] = mapped_column(Text)
-    # Optional provenance is set only by the explicit Discover promotion flow.
-    # A manual case remains valid without it.
+    # Legacy promotion provenance remains readable for pre-pivot cases. New
+    # Research Lab cases do not use the retired triage workflow.
     promotion_triage_review_id: Mapped[int | None] = mapped_column(
         ForeignKey("discovery_triage_reviews.id", ondelete="RESTRICT"), unique=True
     )

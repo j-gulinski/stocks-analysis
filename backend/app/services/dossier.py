@@ -499,8 +499,8 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
 
     # Investment-thesis layer: synthesise the insights into an entry-point read
     # (weighted pros/cons + "what to check next") for the Malik profile — the
-    # only registered strategy this stage. Pure composition ON TOP of the
-    # insights above; recomputes nothing (stage TH / docs/plan-stage-thesis.md).
+    # only registered legacy strategy. Pure composition on top of the insights
+    # above; it recomputes nothing.
     thesis_inputs = thesis.ThesisInputs(
         insights=company_insights,
         ttm=ttm_dict,

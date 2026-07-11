@@ -3,7 +3,7 @@
 Run this before an investing session (for example from Codex automation, cron,
 launchd, or a manual Codex command). It fetches GPW ESPI/EBI reports for the
 watchlist and queues a `stock-pre-session-brief` agent run for Codex/GPT to
-triage and verify.
+classify and verify.
 """
 from __future__ import annotations
 

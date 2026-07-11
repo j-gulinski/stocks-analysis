@@ -1,4 +1,4 @@
-"""Low-request market discovery: one BR universe pull, then local triage."""
+"""Low-request market discovery: one stored BiznesRadar universe snapshot."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -51,6 +51,37 @@ def _latest_version(db: Session) -> DocumentVersion | None:
         )
         .order_by(DocumentVersion.fetched_at.desc(), DocumentVersion.id.desc())
         .limit(1)
+    )
+
+
+def _result_from_version(
+    version: DocumentVersion, *, source_version_created: bool
+) -> DiscoveryResult:
+    return DiscoveryResult(
+        candidates=biznesradar.parse_market_rating(version.raw_content),
+        fetched_at=(
+            version.fetched_at.replace(tzinfo=timezone.utc)
+            if version.fetched_at.tzinfo is None
+            else version.fetched_at
+        ),
+        source_url=version.effective_url,
+        source_version_id=version.id,
+        source_version_created=source_version_created,
+        source_note=(
+            "Rating kondycji BiznesRadar (Altman EM-Score) i Piotroski F-Score "
+            "służą wyłącznie do wstępnej selekcji. Dopasowanie do strategii "
+            "powstaje dopiero po zbudowaniu dossier."
+        ),
+    )
+
+
+def stored_discovery_candidates(db: Session) -> DiscoveryResult | None:
+    """Read the latest successful snapshot without fetching or mutating state."""
+    version = _latest_parsed_version(db)
+    return (
+        _result_from_version(version, source_version_created=False)
+        if version is not None
+        else None
     )
 
 
@@ -132,20 +163,4 @@ def discover_candidates(db: Session, *, force: bool = False) -> DiscoveryResult:
         evidence.mark_parse_result(version, success=True)
         db.commit()
 
-    candidates = biznesradar.parse_market_rating(version.raw_content)
-    return DiscoveryResult(
-        candidates=candidates,
-        fetched_at=(
-            version.fetched_at.replace(tzinfo=timezone.utc)
-            if version.fetched_at.tzinfo is None
-            else version.fetched_at
-        ),
-        source_url=version.effective_url,
-        source_version_id=version.id,
-        source_version_created=version_created,
-        source_note=(
-            "Rating kondycji BiznesRadar (Altman EM-Score) i Piotroski F-Score "
-            "służą wyłącznie do wstępnej selekcji. Dopasowanie do strategii "
-            "powstaje dopiero po zbudowaniu dossier."
-        ),
-    )
+    return _result_from_version(version, source_version_created=version_created)

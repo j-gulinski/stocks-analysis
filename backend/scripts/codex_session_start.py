@@ -1,55 +1,26 @@
-"""Run one session-triggered pre-session brief and claim one queue item.
+"""Prepare one explicit pre-session brief without claiming its queue item.
 
-This is the detached hook used by ``./workbench start``. It deliberately stops
-at the durable queue boundary: Codex still performs the claimed workflow and
-must save a verifier-gated result through the normal scripts/MCP tools.
+The legacy script remains as a manual compatibility entry point. ``workbench
+start`` no longer invokes it, and only an executing picker/worker may acquire a
+lease for the queued workflow.
 """
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
-from typing import Any
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.db.base import SessionLocal
-from app.db.models import AgentRun
 from app.mcp import stock_tools
-from app.services.agent_queue import claim_agent_run
 from scripts.codex_common import add_json_flags, run_main, write_json
-
-
-def _claim_agent_run(agent_run_id: int) -> dict[str, Any]:
-    db = SessionLocal()
-    try:
-        agent = db.get(AgentRun, agent_run_id)
-        if agent is None:
-            return {"ok": False, "reason": f"unknown_agent_run:{agent_run_id}"}
-        claimed = claim_agent_run(
-            db,
-            agent_run_id=agent_run_id,
-            worker_id="codex:session-start",
-            model_role=agent.model_role or "orchestrator",
-            orchestrator_model=agent.orchestrator_model,
-        )
-        if claimed is None:
-            return {"ok": False, "reason": f"agent_run_not_queued:{agent.id}"}
-        return {
-            "ok": True,
-            "agent_run_id": claimed.id,
-            "workflow": claimed.workflow,
-            "status": claimed.status,
-        }
-    finally:
-        db.close()
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run the session preflight and claim one Codex queue item."
+        description="Prepare the session preflight; an executing worker claims it later."
     )
     parser.add_argument("--trigger", default="session-start")
     parser.add_argument("--orchestrator-model", default="gpt-5.6-terra")
@@ -64,10 +35,12 @@ def main() -> int:
             "queue": True,
         }
     )
-    agent_run = prepared.get("agent_run")
-    claim = _claim_agent_run(agent_run["id"]) if agent_run else None
-    result = {"ok": bool(prepared.get("ok") and claim and claim.get("ok")), **prepared}
-    result["queue_attempt"] = claim
+    result = {"ok": bool(prepared.get("ok")), **prepared}
+    result["queue_attempt"] = None
+    result["message"] = (
+        "Pre-session row prepared; no lease was claimed. Use an executing Codex "
+        "picker/worker to process it."
+    )
     write_json(result, pretty=args.pretty)
     return 0 if result["ok"] else 1
 

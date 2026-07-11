@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Any, Literal
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -76,6 +75,31 @@ class ResearchCaseOut(BaseModel):
     material_event_review_policy: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class ResearchLabCreateIn(BaseModel):
+    """Create or reopen the durable research identity for one ticker."""
+
+    ticker: str = Field(min_length=1, max_length=12)
+    source_document_version_id: int | None = Field(default=None, ge=1)
+
+
+class ResearchCaseSummaryOut(BaseModel):
+    """Compact Research Lab row with its one initial-research queue item."""
+
+    id: int
+    company_id: int
+    ticker: str
+    name: str | None
+    purpose: str
+    state: CaseState
+    current_step: CaseStep
+    as_of: datetime | None
+    blocked_reason: str | None
+    created_at: datetime
+    updated_at: datetime
+    initial_research_run_id: int | None
+    initial_research_status: str | None
 
 
 class ResearchCaseStepHistoryOut(BaseModel):
@@ -186,59 +210,6 @@ class DiscoveryCandidateOut(BaseModel):
     caveat: str
 
 
-class DiscoveryTriageReviewCreateIn(BaseModel):
-    source_document_version_id: int
-    ticker: str = Field(min_length=1, max_length=20)
-    review_price_pln: float = Field(gt=0)
-    note: str = Field(min_length=1, max_length=1000)
-    outcome: Literal["skip_for_now", "revisit_later", "promote_to_case"]
-    next_review_date: date
-    evidence_reason: str = Field(min_length=1, max_length=1000)
-
-
-class DiscoveryTriageReviewOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    source_document_version_id: int
-    ticker: str
-    review_price_pln: float
-    note: str
-    outcome: str
-    next_review_date: date
-    evidence_reason: str
-    created_by: str | None
-    created_at: datetime
-
-
-class DiscoveryTriagePromotionOut(BaseModel):
-    company: "CompanyOut"
-    research_case: ResearchCaseOut
-    initial_research_run_id: int
-    quarterly_review_run_id: int
-    created_company: bool
-    created_case: bool
-
-
-class DiscoveryEvaluationJobOut(BaseModel):
-    id: int
-    status: str
-    candidate_count: int
-    evaluation_budget: int
-    reused: bool
-
-
-class DiscoveryScheduleOut(BaseModel):
-    """Bounded quick-analysis scheduling after an explicit source refetch."""
-
-    considered: int
-    queued: int
-    skipped_recent: int
-    skipped_pending: int
-    skipped_not_stored: int
-    tickers: list[str]
-    stale_after_days: int
-
-
 class DiscoveryOut(BaseModel):
     source: str
     source_url: str
@@ -248,8 +219,6 @@ class DiscoveryOut(BaseModel):
     source_note: str
     source_version_id: int
     candidates: list[DiscoveryCandidateOut]
-    evaluation_job: DiscoveryEvaluationJobOut | None = None
-    scheduled_analysis: DiscoveryScheduleOut | None = None
 
 
 # ---------------------------------------------------------------- companies
@@ -847,13 +816,13 @@ class PreSessionBriefOut(BaseModel):
     agent_run: AgentRunOut | None
 
 
-class QueueAttemptOut(BaseModel):
-    """Result of one supervised queue claim; no model is executed here."""
-
-    ok: bool
-    attempted: bool
-    message: str
-    agent_run: AgentRunOut | None
+class ResearchLabCreateOut(BaseModel):
+    research_case: ResearchCaseSummaryOut
+    agent_run: AgentRunOut
+    created_company: bool
+    created_case: bool
+    reactivated_case: bool
+    created_job: bool
 
 
 class MonitorChangeOut(BaseModel):

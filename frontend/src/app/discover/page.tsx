@@ -1,455 +1,269 @@
 "use client";
 
-/** Deterministic, low-request entry into the research funnel. */
-import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+/** Compact, explainable entry to Research. Only evidence-backed sieves are active. */
+import { useCallback, useEffect, useState } from "react";
 import {
-  IconAlertTriangle,
-  IconArrowRight,
+  IconCircleCheck,
   IconDatabaseSearch,
+  IconLock,
   IconPlus,
   IconRefresh,
-  IconShieldCheck,
 } from "@tabler/icons-react";
-import { createDiscoveryTriageReview, getDiscovery, getForecastGrowthRanking, getUniversePolicy, listAgentRuns, promoteDiscoveryTriageReview, refreshUniversePolicy } from "@/lib/api";
-import { fmtDate, fmtPct } from "@/lib/format";
+import {
+  addResearchCase,
+  getDiscovery,
+  getResearchCases,
+  refreshDiscovery,
+} from "@/lib/api";
 import { LoadingMessages, SkeletonRows } from "@/components/Loading";
-import type { AgentRun, DiscoveryResult, ForecastGrowthRanking, UniversePolicy } from "@/lib/types";
+import { fmtDate, fmtNumber } from "@/lib/format";
+import type { DiscoveryCandidate, DiscoveryResult } from "@/lib/types";
 
-const FORECAST_METRIC_LABELS: Record<string, string> = {
-  revenue: "Przychody",
-  ebitda: "EBITDA",
-  operating_profit: "EBIT",
-  net_income: "Zysk netto",
-};
+const FINANCIAL_CONDITION_MIN_SCORE = 8;
+const PIOTROSKI_MIN_SCORE = 7;
+const CANDIDATE_PAGE_SIZE = 12;
 
-const PRESETS = [
-  { id: "broad", label: "Szeroki radar", minRating: 5, minFScore: null },
-  { id: "selective", label: "Selekcja jakościowa", minRating: 7, minFScore: 5 },
-  { id: "strict", label: "Wysoka jakość", minRating: 8, minFScore: 7 },
+const SIEVES = [
+  {
+    id: "financial-condition",
+    title: "Kondycja finansowa",
+    description: "Wstępna selekcja według odporności finansowej oraz dziewięciu testów rentowności, płynności i efektywności.",
+    factors: "Odporność bilansu · rentowność · płynność · efektywność",
+    available: true,
+  },
+  {
+    id: "obs-growth",
+    title: "Wzrost wyników · OBS",
+    description: "Ma szukać poprawy wyników, jakości zysku i katalizatora przy rozsądnej wycenie względem historii spółki.",
+    factors: "Wymaga normalizacji wyników, marż, prognoz i katalizatorów",
+    available: false,
+  },
+  {
+    id: "portal-opportunities",
+    title: "Jakość i asymetria · Portal Analiz",
+    description: "Ma łączyć jakość bilansu i przepływów z wyceną oraz policzalnym scenariuszem zdarzeń.",
+    factors: "Wymaga pełniejszych danych o gotówce, przepływach, wycenie i zdarzeniach",
+    available: false,
+  },
 ] as const;
 
-type CandidateEvaluation = {
-  score: number | null;
-  status: string | null;
-  nextStep: string | null;
-};
-
-function recordField(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
-
-function textField(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function candidateEvaluations(run: AgentRun | null): Map<string, CandidateEvaluation> {
-  const output = recordField(run?.outputs.output);
-  const rows = Array.isArray(output?.candidates) ? output.candidates : [];
-  const result = new Map<string, CandidateEvaluation>();
-  rows.forEach((value) => {
-    const row = recordField(value);
-    const ticker = textField(row?.ticker);
-    if (!ticker) return;
-    result.set(ticker, {
-      score: typeof row?.score === "number" && Number.isFinite(row.score) ? row.score : null,
-      status: textField(row?.status),
-      nextStep: textField(row?.recommended_next_step),
-    });
-  });
-  return result;
-}
-
-function evaluationStatusLabel(status: string | null): string {
-  if (status?.includes("ready-for-bounded-review")) return "gotowa do przeglądu dossier";
-  if (status?.includes("secondary")) return "druga partia odświeżenia";
-  if (status?.includes("refresh-candidate")) return "kandydat do kontrolowanego odświeżenia";
-  return "prescreen źródłowy";
-}
-
-function runStatusLabel(status: string): string {
-  if (status === "completed" || status === "verified") return "zakończona";
-  if (status === "running") return "w toku";
-  if (status === "queued") return "w kolejce";
-  if (status === "needs-human") return "wymaga decyzji";
-  if (status === "failed" || status === "rejected") return "odrzucona";
-  return status;
+function financialFactors(candidate: DiscoveryCandidate) {
+  return [
+    {
+      label: "Odporność finansowa",
+      value: fmtNumber(candidate.br_rating_value, 1),
+      note: `model Altmana${candidate.br_rating ? ` · klasa ${candidate.br_rating}` : ""}`,
+    },
+    {
+      label: "Jakość zmian w wynikach",
+      value: candidate.piotroski_f_score == null ? "brak" : `${candidate.piotroski_f_score}/9`,
+      note: "pozytywne sygnały Piotroskiego",
+    },
+  ];
 }
 
 export default function DiscoverPage() {
-  const router = useRouter();
-  const [presetId, setPresetId] = useState<(typeof PRESETS)[number]["id"]>("broad");
   const [result, setResult] = useState<DiscoveryResult | null>(null);
+  const [addedTickers, setAddedTickers] = useState<Set<string>>(new Set());
+  const [addingTickers, setAddingTickers] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(CANDIDATE_PAGE_SIZE);
   const [error, setError] = useState<string | null>(null);
-  const [triaging, setTriaging] = useState<string | null>(null);
-  const [pendingPromotion, setPendingPromotion] = useState<{ reviewId: number; ticker: string } | null>(null);
-  const [promoting, setPromoting] = useState(false);
-  const [triage, setTriage] = useState({ price: "", note: "", outcome: "revisit_later", nextDate: "", evidence: "" });
-  const [visibleCount, setVisibleCount] = useState(15);
-  const [evaluationRun, setEvaluationRun] = useState<AgentRun | null>(null);
-  const [forecastRanking, setForecastRanking] = useState<ForecastGrowthRanking | null>(null);
-  const [universePolicy, setUniversePolicy] = useState<UniversePolicy | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
-  const load = async (force = false, nextPreset = presetId) => {
-    const preset = PRESETS.find((item) => item.id === nextPreset) ?? PRESETS[0];
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [discovery, forecasts] = await Promise.all([
-        getDiscovery(preset.minRating, preset.minFScore, force),
-        getForecastGrowthRanking(15),
+      const [discovery, cases] = await Promise.all([
+        getDiscovery(FINANCIAL_CONDITION_MIN_SCORE, PIOTROSKI_MIN_SCORE),
+        getResearchCases(),
       ]);
       setResult(discovery);
-      setForecastRanking(forecasts);
-      setUniversePolicy(await getUniversePolicy());
+      setAddedTickers(new Set(cases.map((item) => item.ticker)));
+      setVisibleCount(CANDIDATE_PAGE_SIZE);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    void load(false, "broad");
-    // Initial source load only. Preset changes are explicit button actions.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const evaluationJobId = result?.evaluation_job?.id ?? null;
   useEffect(() => {
-    if (evaluationJobId == null) {
-      setEvaluationRun(null);
-      return;
-    }
-    let cancelled = false;
-    const pollEvaluation = async () => {
-      const rows = await listAgentRuns({ workflow: "stock-candidate-scout", limit: 8 });
-      if (!cancelled) setEvaluationRun(rows.find((run) => run.id === evaluationJobId) ?? null);
-    };
-    pollEvaluation().catch(() => undefined);
-    const pollId = window.setInterval(() => pollEvaluation().catch(() => undefined), 30_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(pollId);
-    };
-  }, [evaluationJobId]);
+    void load();
+  }, [load]);
 
-  const choosePreset = (next: (typeof PRESETS)[number]["id"]) => {
-    setPresetId(next);
-    setVisibleCount(15);
-    void load(false, next);
-  };
-
-  const refreshPolicy = async () => {
-    setLoading(true); setError(null);
-    try { await refreshUniversePolicy(); setUniversePolicy(await getUniversePolicy()); }
-    catch (err) { setError(err instanceof Error ? err.message : String(err)); }
-    finally { setLoading(false); }
-  };
-
-  const submitTriage = async (event: FormEvent, ticker: string) => {
-    event.preventDefault();
-    if (!result) return;
-    setTriaging(ticker);
+  const refresh = async () => {
+    setRefreshing(true);
     setError(null);
+    setSuccess(null);
     try {
-      const saved = await createDiscoveryTriageReview({ source_document_version_id: result.source_version_id, ticker, review_price_pln: Number(triage.price), note: triage.note, outcome: triage.outcome as "skip_for_now" | "revisit_later" | "promote_to_case", next_review_date: triage.nextDate, evidence_reason: triage.evidence });
-      if (saved.outcome === "promote_to_case") setPendingPromotion({ reviewId: saved.id, ticker: saved.ticker });
-      setTriaging(null); setTriage({ price: "", note: "", outcome: "revisit_later", nextDate: "", evidence: "" });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err)); setTriaging(null);
-    }
-  };
-
-  const promote = async () => {
-    if (!pendingPromotion) return;
-    setPromoting(true); setError(null);
-    try {
-      const promoted = await promoteDiscoveryTriageReview(pendingPromotion.reviewId);
-      router.push(`/stock/${promoted.company.ticker}`);
+      const refreshed = await refreshDiscovery(
+        FINANCIAL_CONDITION_MIN_SCORE,
+        PIOTROSKI_MIN_SCORE,
+      );
+      setResult(refreshed);
+      setVisibleCount(CANDIDATE_PAGE_SIZE);
+      setSuccess("Lista kandydatów została odświeżona ze źródła.");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setPromoting(false);
+      setRefreshing(false);
     }
   };
 
-  const evaluated = candidateEvaluations(evaluationRun);
-  const universeReasons = new Map(universePolicy?.rows.map((row) => [row.ticker, row]) ?? []);
-  const evaluationOutput = recordField(evaluationRun?.outputs.output);
-  const evaluationSummary = recordField(evaluationOutput?.summary);
-  const evaluatedCount = typeof evaluationSummary?.evaluated_count === "number"
-    ? evaluationSummary.evaluated_count
-    : evaluated.size;
-  const boundedBatch = Array.isArray(evaluationSummary?.bounded_refresh_batch)
-    ? evaluationSummary.bounded_refresh_batch.filter((item): item is string => typeof item === "string")
-    : [];
+  const addCandidate = async (ticker: string) => {
+    if (!result || addedTickers.has(ticker) || addingTickers.has(ticker)) return;
+
+    setAddingTickers((current) => new Set(current).add(ticker));
+    setError(null);
+    setSuccess(null);
+    try {
+      const response = await addResearchCase({
+        ticker,
+        source_document_version_id: result.source_version_id,
+      });
+      setAddedTickers((current) => new Set(current).add(ticker));
+      setSuccess(
+        response.created_case
+          ? `${ticker} dodano do Research. Możesz dodać kolejną spółkę.`
+          : response.reactivated_case
+            ? `${ticker} ponownie aktywowano w Research.`
+          : `${ticker} jest już w Research.`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAddingTickers((current) => {
+        const next = new Set(current);
+        next.delete(ticker);
+        return next;
+      });
+    }
+  };
 
   return (
     <main className="page-stack discover-page">
       <section className="page-header discovery-header">
         <div>
-          <p className="eyebrow">Początek procesu</p>
-          <h1>Pomysły do analizy</h1>
-          <p>
-            Przesiej rynek GPW jednym odczytem BiznesRadar. To lista kandydatów do
-            sprawdzenia, nie ranking inwestycyjny ani rekomendacja.
-          </p>
+          <p className="eyebrow">Discover</p>
+          <h1>Porównaj sita inwestycyjne</h1>
+          <p>Każde sito odpowiada na inne pytanie. Do Research trafiają wyłącznie spółki wybrane przez Ciebie.</p>
         </div>
-        <button className="btn" onClick={() => void load(true)} disabled={loading}>
-          <IconRefresh size={15} className={loading ? "spin" : ""} /> Odśwież źródło
+        <button className="btn" onClick={() => void refresh()} disabled={refreshing}>
+          <IconRefresh size={15} className={refreshing ? "spin" : ""} />
+          {refreshing ? "Odświeżam…" : "Odśwież źródło"}
         </button>
       </section>
 
-      <section className="discovery-note" aria-label="Polityka uniwersum">
-        <p><strong>Polityka uniwersum:</strong> domyślnie wyklucza {universePolicy?.default_exclusions.join(" i ") ?? "WIG20 i mWIG40"}; to odwracalna preferencja, nie ocena sektora ani spółki.</p>
-        {universePolicy?.memberships.some((item) => item.status === "missing")
-          ? <button className="btn" onClick={() => void refreshPolicy()} disabled={loading}>Pobierz aktualny skład GPW</button>
-          : <p>{universePolicy?.memberships.map((item) => `${item.index}: ${item.as_of ?? "b/d"}`).join(" · ")}</p>}
-      </section>
-
-      <section className="discovery-source-strip" aria-label="Stan źródła">
-        <div>
-          <IconDatabaseSearch size={17} />
-          <span>
-            {result
-              ? `${result.universe_count} spółek w źródle · stan na ${fmtDate(result.as_of)}`
-              : "Ładowanie rynku GPW"}
-          </span>
-        </div>
-        <span className="badge neutral">1 strona źródłowa · cache 24 h</span>
-      </section>
-
-      <section className="workflow-guide discovery-guide" aria-label="Typowa ścieżka odkrywania">
-        <div className="workflow-guide-copy">
-          <p className="eyebrow">Typowa ścieżka</p>
-          <h2>Najpierw wybierz kandydatów, potem odśwież tylko wybrane dossier</h2>
-          <p>Ranking jest źródłowym prescreenem. Najpierw zapisz odwracalny przegląd; promocja do Research wymaga osobnej, późniejszej decyzji.</p>
-        </div>
-        <ol className="workflow-guide-steps">
-          <li className="active"><span>1</span><strong>Przesiej</strong><small>rating + F-Score</small></li>
-          <li><span>2</span><strong>Sprawdź powód</strong><small>źródła i zastrzeżenia</small></li>
-          <li><span>3</span><strong>Oznacz</strong><small>przegląd człowieka</small></li>
-          <li><span>4</span><strong>Zweryfikuj</strong><small>raport Codex</small></li>
-        </ol>
-      </section>
-
-      <section className="forecast-ranking-section" aria-label="Ranking wzrostu prognoz analityków">
-        <div className="section-heading">
-          <div>
-            <p className="section-label">Konsensus analityków · 2 lata</p>
-            <h2>Najwyższa dynamika prognozowanych wyników</h2>
-          </div>
-          <p>Shortlista badawcza z zapisanych stron BiznesRadar — nie rekomendacja.</p>
-        </div>
-        {loading && !forecastRanking ? <SkeletonRows rows={3} height={72} /> : forecastRanking?.candidates.length ? (
-          <div className="forecast-ranking-table">
-            {forecastRanking.candidates.map((candidate) => (
-              <article className="forecast-ranking-row" key={candidate.ticker}>
-                <span className="forecast-rank">#{candidate.rank}</span>
-                <div>
-                  <strong>{candidate.ticker} · {candidate.name ?? "nazwa do potwierdzenia"}</strong>
-                  <small>{candidate.first_forecast_year} → {candidate.second_forecast_year} · {candidate.metric_coverage}/4 metryk</small>
-                </div>
-                <strong className={candidate.composite_growth_pct > 0 ? "pos" : candidate.composite_growth_pct < 0 ? "neg" : "secondary"}>{fmtPct(candidate.composite_growth_pct, { signed: true })}</strong>
-                <div className="forecast-metric-chips">
-                  {Object.entries(candidate.metrics).map(([metric, value]) => (
-                    <span className={value.growth_pct == null ? "badge muted" : "badge neutral"} key={metric}>
-                      {FORECAST_METRIC_LABELS[metric] ?? metric}: {value.transition === "turnaround"
-                        ? "turnaround"
-                        : value.transition === "loss_narrowing"
-                          ? "mniejsza strata"
-                          : value.transition === "loss_onset"
-                            ? "wejście w stratę"
-                            : value.transition === "flat_zero"
-                              ? "bez wyniku"
-                          : value.transition === "deterioration"
-                            ? "pogorszenie"
-                            : fmtPct(value.growth_pct, { signed: true })}
-                    </span>
-                  ))}
-                </div>
-                <div className="forecast-source-line">
-                  <span>
-                    analitycy: b/d · dane {fmtDate(candidate.fetched_at)}
-                    {candidate.source_version_id ? ` · wersja #${candidate.source_version_id}` : " · wersja źródła: brak"}
-                  </span>
-                  <a href={candidate.source_url} target="_blank" rel="noreferrer">źródło ↗</a>
-                </div>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <div className="info-box">
-            {forecastRanking?.degraded_count
-              ? `Najnowsze pobranie nie przeszło walidacji dla ${forecastRanking.degraded_count} spółek; starsze dane nie są pokazywane jako aktualne.`
-              : forecastRanking?.stale_count
-                ? `${forecastRanking.stale_count} zapisanych konsensusów jest starszych niż ${forecastRanking.fresh_after_days} dni.`
-                : `Brak co najmniej dwóch sąsiednich lat konsensusu z wymaganym pokryciem (${forecastRanking?.insufficient_count ?? 0} spółek).`}
-          </div>
-        )}
-        {forecastRanking && (
-          <details className="forecast-ranking-caveats">
-            <summary>Metoda i ograniczenia</summary>
-            <p>{forecastRanking.method}</p>
-            <ul>{forecastRanking.caveats.map((item) => <li key={item}>{item}</li>)}</ul>
-          </details>
-        )}
-      </section>
-
-      <section className="screening-controls" aria-label="Wybór sita">
-        <div>
-          <h2>Wybierz szerokość sita</h2>
-          <p>
-            Domyślny radar stawia na kompletność: brak F-Score pozostaje jawną
-            luką, ale nie usuwa pomysłu przed oceną Codex.
-          </p>
-        </div>
-        <div className="preset-row">
-          {PRESETS.map((preset) => (
-            <button
-              key={preset.id}
-              className={`preset-button ${presetId === preset.id ? "active" : ""}`}
-              onClick={() => choosePreset(preset.id)}
-              aria-pressed={presetId === preset.id}
-            >
-              <strong>{preset.label}</strong>
-              <span>
-                Rating ≥ {preset.minRating} · {preset.minFScore == null
-                  ? "bez minimum F-Score"
-                  : `F-Score ≥ ${preset.minFScore}`}
+      <section className="sieve-grid" aria-label="Dostępne sita inwestycyjne">
+        {SIEVES.map((sieve) => (
+          <article className={`sieve-card ${sieve.available ? "available" : "unavailable"}`} key={sieve.id}>
+            <header>
+              <h2>{sieve.title}</h2>
+              <span className={`badge ${sieve.available ? "success" : "muted"}`}>
+                {sieve.available ? <IconCircleCheck size={13} /> : <IconLock size={13} />}
+                {sieve.available ? "Dostępne" : "Jeszcze niedostępne"}
               </span>
-            </button>
-          ))}
-        </div>
+            </header>
+            <p>{sieve.description}</p>
+            <small>{sieve.factors}</small>
+          </article>
+        ))}
       </section>
 
-      {error && <div className="error-box">{error}</div>}
-
-      <section className="candidate-section">
-        <div className="section-heading">
-          <div>
-            <p className="section-label">Kandydaci</p>
-            <h2>{loading ? "Aktualizuję listę…" : `${result?.result_count ?? 0} wyników`}</h2>
-          </div>
-          <p>Sortowanie: rating źródłowy, następnie Piotroski F-Score.</p>
-        </div>
-
-        {evaluationRun && evaluationRun.status !== "queued" && (
-          <div className="candidate-evaluation-summary">
-            <span className={`badge ${evaluationRun.status === "completed" ? "success" : "accent"}`}>
-              Ocena Codex #{evaluationRun.id}: {runStatusLabel(evaluationRun.status)}
-            </span>
-            <span>{evaluatedCount} ocenionych na podstawie źródła</span>
-            {boundedBatch.length > 0 && <span>Następna partia: {boundedBatch.join(", ")}</span>}
-          </div>
-        )}
-
-        {loading ? (
-          <><SkeletonRows rows={5} height={96} /><LoadingMessages messages={["Ładuję ranking źródłowy…", "Sprawdzam powody wysokiej pozycji…"]} /></>
-        ) : (
-        <div className="candidate-list" aria-live="polite">
-          {result?.candidates.slice(0, visibleCount).map((candidate) => {
-            const evaluation = evaluated.get(candidate.ticker);
-            const universeReason = universeReasons.get(candidate.ticker);
-            return (
-            <article className="candidate-row" key={candidate.ticker}>
-              <div className="candidate-company">
-                <span className="ticker-mark">{candidate.ticker}</span>
-                <strong>{candidate.name ?? "Nazwa do potwierdzenia"}</strong>
-                <span>raport {candidate.report_period}</span>
-                {evaluation && (
-                  <span className="candidate-codex-score">
-                    ocena źródeł Codex {evaluation.score == null ? "b/d" : `${Math.round(evaluation.score)}/100`}
-                  </span>
-                )}
-              </div>
-              <div className="candidate-reasons">
-                <span className="candidate-label">Dlaczego wysoko · #{candidate.rank}</span>
-                <div>
-                  {candidate.reasons.slice(0, 2).map((reason) => (
-                    <span className="evidence-chip" key={reason}>
-                      <IconShieldCheck size={13} /> {reason}
-                    </span>
-                  ))}
-                </div>
-                <details className="candidate-rank-details">
-                  <summary>Pełne uzasadnienie rankingu</summary>
-                  <ul>
-                    {candidate.rank_basis.map((reason) => <li key={reason}>{reason}</li>)}
-                  </ul>
-                </details>
-              </div>
-              <div className="candidate-caveat">
-                <IconAlertTriangle size={15} />
-                <span>
-                  {evaluation
-                    ? evaluationStatusLabel(evaluation.status)
-                    : universeReason?.reason ?? candidate.caveat}
-                </span>
-              </div>
-              <div className="candidate-actions">
-                <button className="btn accent" onClick={() => setTriaging(triaging === candidate.ticker ? null : candidate.ticker)}><IconPlus size={14} /> Zapisz triage</button>
-                <button className="btn icon" title="Otwórz istniejące dossier" aria-label={`Otwórz ${candidate.ticker}`} onClick={() => router.push(`/stock/${candidate.ticker}`)}>
-                  <IconArrowRight size={16} />
-                </button>
-              </div>
-              {triaging === candidate.ticker && <form className="candidate-triage-form" onSubmit={(event) => void submitTriage(event, candidate.ticker)}>
-                <input required type="number" min="0.01" step="0.01" placeholder="Cena przeglądu PLN" value={triage.price} onChange={(e) => setTriage({ ...triage, price: e.target.value })} />
-                <select value={triage.outcome} onChange={(e) => setTriage({ ...triage, outcome: e.target.value })}><option value="skip_for_now">Pomiń na razie</option><option value="revisit_later">Wróć później</option><option value="promote_to_case">Promuj do case</option></select>
-                <input required type="date" value={triage.nextDate} onChange={(e) => setTriage({ ...triage, nextDate: e.target.value })} />
-                <input required placeholder="Krótka notatka" value={triage.note} onChange={(e) => setTriage({ ...triage, note: e.target.value })} />
-                <input required placeholder="Powód oparty na źródle" value={triage.evidence} onChange={(e) => setTriage({ ...triage, evidence: e.target.value })} />
-                <button className="btn" type="submit">Zapisz wpis</button>
-              </form>}
-              {pendingPromotion?.ticker === candidate.ticker && <div className="candidate-triage-form">
-                <span>Wpis triage zapisany. Promocja utworzy spółkę, case oraz dwie ręcznie wykonywane pozycje kolejki: research teraz i review w terminie.</span>
-                <button className="btn accent" type="button" onClick={() => void promote()} disabled={promoting}>
-                  {promoting ? "Promuję…" : "Promuj do case"}
-                </button>
-              </div>}
-            </article>
-            );
-          })}
-        </div>
-        )}
-        {result && visibleCount < result.candidates.length && (
-          <button className="btn show-more-candidates" onClick={() => setVisibleCount((count) => count + 15)}>
-            Pokaż kolejne ({result.candidates.length - visibleCount})
-          </button>
-        )}
-      </section>
+      {success && <div className="success-box" role="status">{success}</div>}
+      {error && <div className="error-box" role="alert">{error}</div>}
 
       {result && (
-        <div className="discovery-note">
-          <p>{result.source_note}</p>
-          {result.evaluation_job && (
-            <p>
-              Ocena Codex #{result.evaluation_job.id}: {runStatusLabel(evaluationRun?.status ?? result.evaluation_job.status)}
-              {(evaluationRun?.status ?? result.evaluation_job.status) === "queued"
-                ? " — czeka na uruchomienie workera"
-                : ""}
-              . Szeroki snapshot zachował {result.evaluation_job.candidate_count}
-              {" "}pomysłów; pierwsza partia oceny obejmuje maksymalnie{" "}
-              {result.evaluation_job.evaluation_budget} spółek.
-            </p>
-          )}
-          {result.scheduled_analysis && (
-            <p>
-              Po odświeżeniu źródła: zaplanowano {result.scheduled_analysis.queued} z {result.scheduled_analysis.considered}
-              {" "}najwyżej sklasyfikowanych analiz. Pominięto: {result.scheduled_analysis.skipped_recent} świeżych,
-              {" "}{result.scheduled_analysis.skipped_pending} już oczekujących i
-              {" "}{result.scheduled_analysis.skipped_not_stored} bez dossier w bazie.
-              Analiza jest uznawana za starą po {result.scheduled_analysis.stale_after_days} dniach.
-              {result.scheduled_analysis.tickers.length > 0 && (
-                <> Zaplanowane tickery: {result.scheduled_analysis.tickers.join(", ")}.</>
-              )}
-            </p>
-          )}
-        </div>
+        <section className="discovery-source-strip" aria-label="Stan aktywnego sita">
+          <div>
+            <IconDatabaseSearch size={17} />
+            <span>
+              Kondycja finansowa · {result.result_count} kandydatów · dane {fmtDate(result.as_of)}
+            </span>
+          </div>
+          <span className="badge neutral">BiznesRadar · raporty spółek</span>
+        </section>
       )}
+
+      <section className="candidate-section" aria-labelledby="candidate-title">
+        <div className="section-heading compact-heading">
+          <div>
+            <p className="section-label">Aktywne sito</p>
+            <h2 id="candidate-title">Kondycja finansowa</h2>
+          </div>
+          <p>To wstępna lista do dalszego poznania spółki, nie ocena inwestycyjna.</p>
+        </div>
+
+        {loading ? (
+          <>
+            <SkeletonRows rows={6} height={82} />
+            <LoadingMessages messages={["Otwieram zapisaną listę kandydatów…", "Sprawdzam, które spółki są już w Research…"]} />
+          </>
+        ) : !result?.candidates.length ? (
+          <div className="empty-state">
+            Brak zapisanej listy kandydatów. Użyj „Odśwież źródło”, aby pobrać aktualny zapis źródłowy.
+          </div>
+        ) : (
+          <div className="candidate-list" aria-live="polite">
+            {result.candidates.slice(0, visibleCount).map((candidate) => {
+              const added = addedTickers.has(candidate.ticker);
+              const adding = addingTickers.has(candidate.ticker);
+              return (
+                <article className="candidate-row" key={candidate.ticker}>
+                  <div className="candidate-company">
+                    <span className="ticker-mark">{candidate.ticker}</span>
+                    <div>
+                      <strong>{candidate.name ?? "Nazwa do uzupełnienia"}</strong>
+                      <small>Raport {candidate.report_period}</small>
+                    </div>
+                  </div>
+
+                  <div className="candidate-factor-list" aria-label={`Czynniki ${candidate.ticker}`}>
+                    {financialFactors(candidate).map((factor) => (
+                      <div className="candidate-factor" key={factor.label}>
+                        <span>{factor.label}</span>
+                        <strong>{factor.value}</strong>
+                        <small>{factor.note}</small>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="candidate-source-meta">
+                    <span className="badge muted">#{candidate.rank} w tym sicie</span>
+                  </div>
+
+                  <button
+                    className={`btn ${added ? "" : "accent"}`}
+                    type="button"
+                    onClick={() => void addCandidate(candidate.ticker)}
+                    disabled={added || adding}
+                    aria-label={
+                      added
+                        ? `${candidate.ticker} jest w Research`
+                        : `Dodaj ${candidate.ticker} do Research`
+                    }
+                  >
+                    {added ? <IconCircleCheck size={14} /> : <IconPlus size={14} />}
+                    {added ? "Dodano" : adding ? "Dodaję…" : "Dodaj do Research"}
+                  </button>
+                </article>
+              );
+            })}
+            {visibleCount < result.candidates.length && (
+              <button
+                className="btn candidate-more"
+                type="button"
+                onClick={() => setVisibleCount((current) => current + CANDIDATE_PAGE_SIZE)}
+              >
+                Pokaż kolejne · {result.candidates.length - visibleCount} pozostało
+              </button>
+            )}
+          </div>
+        )}
+      </section>
     </main>
   );
 }

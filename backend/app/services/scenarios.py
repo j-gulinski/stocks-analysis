@@ -1,4 +1,7 @@
-"""Scenario simulation engine (stage SC / WP3a — docs/plan-stage-scenarios.md).
+"""Legacy deterministic multiple-sensitivity scenario engine.
+
+The driver-based P3 replacement contract lives in ``docs/PRODUCT.md`` and
+``docs/ARCHITECTURE.md``.
 
 What this is
 -----------
@@ -8,7 +11,7 @@ valuation multiple toward its historical quartiles (Q1 / median / Q3), each
 carrying a probability, a target valuation, an expected repricing horizon, an
 implied upside, and a set-level probability-weighted expected value.
 
-What this is NOT (plan Non-goals, binding)
+What this is NOT
 -----------------------------------------
 - **Not** a stochastic Monte-Carlo — three deterministic multiple-reversion
   paths, not thousands of random draws.
@@ -22,7 +25,7 @@ What this is NOT (plan Non-goals, binding)
   and yields a `None` target; it never guesses a price (the fabrication guard in
   `test_scenarios.py` enforces this).
 
-Purity (plan acceptance #1). This module imports only `metrics` / `thesis` /
+Purity. This module imports only `metrics` / `thesis` /
 `strategies` + stdlib — no DB, no framework, no PyPI, and (deliberately) not
 `thesis_ai`, so it — and `test_scenarios.py` — run under the bare system Python
 in the sandbox. It therefore carries its OWN small number-extraction vocabulary

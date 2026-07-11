@@ -1,172 +1,103 @@
 "use client";
 
-/** Research queue: one next action per company, not a portfolio data dump. */
+/** Research is the durable list of company cases, not a separate watchlist. */
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
-  IconAlertTriangle,
   IconArrowRight,
-  IconCircleCheck,
   IconDatabaseOff,
   IconPlus,
-  IconRefresh,
-  IconTrash,
 } from "@tabler/icons-react";
-import {
-  getDossier,
-  getWatchlist,
-  refreshCompany,
-  removeFromWatchlist,
-  queueAgentRun,
-} from "@/lib/api";
+import { addResearchCase, getResearchCases } from "@/lib/api";
 import { LoadingMessages, SkeletonRows } from "@/components/Loading";
-import { hasDossierData } from "@/lib/dossier";
-import { fmtMcap, fmtPln, fmtPct, relativeDate, staleDays } from "@/lib/format";
-import type { Dossier } from "@/lib/types";
+import { relativeDate } from "@/lib/format";
+import type {
+  ResearchCaseState,
+  ResearchCaseStep,
+  ResearchCaseSummary,
+} from "@/lib/types";
 
-interface Row {
-  ticker: string;
-  name: string | null;
-  dossier: Dossier | null;
-  refreshing: boolean;
-  riskLevel: "fired" | "warning" | "none";
-  firedFalsifiers: number;
-  warningFalsifiers: number;
-}
+const CASE_STATE_LABELS: Record<ResearchCaseState, string> = {
+  new: "Nowy",
+  ingesting: "Zbieranie danych",
+  data_review: "Przegląd danych",
+  business_model: "Model biznesowy",
+  thesis: "Teza",
+  scenarios: "Scenariusze",
+  review: "Weryfikacja",
+  monitoring: "Monitoring",
+  blocked: "Zablokowany",
+  closed: "Zamknięty",
+};
 
-function confidenceLabel(level: string | undefined): string {
-  if (level === "high") return "wysoka";
-  if (level === "medium") return "średnia";
-  if (level === "low") return "niska";
-  return "nieustalona";
-}
+const CASE_STEP_LABELS: Record<ResearchCaseStep, string> = {
+  ingest: "zbieranie danych",
+  data_review: "przegląd danych",
+  business_model: "model biznesowy",
+  thesis: "teza",
+  scenarios: "scenariusze",
+  review: "weryfikacja",
+  monitoring: "monitoring",
+};
 
-function decisionRead(dossier: Dossier | null): string {
-  if (!dossier) return "Raport nie został jeszcze zbudowany.";
-  const userChecks = dossier.prescore.checks.filter((check) => check.id !== "small_cap");
-  const passed = userChecks.filter((check) => check.verdict === "pass").length;
-  return [
-    `Potencjał ${fmtPct(dossier.valuation?.potential.value_pct, { signed: true })}`,
-    `pewność ${confidenceLabel(dossier.valuation?.confidence.level)}`,
-    `sito ${passed}/${userChecks.length}`,
-  ].join(" · ");
-}
-
-function strategyFitOnly(value: string): boolean {
-  const normalized = value.toLocaleLowerCase("pl-PL");
-  return normalized.includes("sweet spot") || normalized.includes("przewaga informacyjna");
-}
-
-function compactRisk(row: Row): { label: string; value: string; clear: boolean } {
-  if (row.firedFalsifiers > 0) return { label: "Ryzyko tezy", value: `${row.firedFalsifiers} uruchomiony falsyfikator`, clear: false };
-  if (row.warningFalsifiers > 0) return { label: "Ryzyko tezy", value: `${row.warningFalsifiers} ostrzeżenie`, clear: false };
-  const dossier = row.dossier;
-  if (!dossier) return { label: "Stan danych", value: "Dossier czeka na odświeżenie", clear: false };
-  if (dossier.result_quality.is_material) {
-    return {
-      label: "Jakość wyniku",
-      value: dossier.result_quality.valuation_warning
-        ?? "Wynik raportowany zawiera działalność zaniechaną; wycena używa wyniku kontynuowanego.",
-      clear: false,
-    };
+function collectionStatus(status: string | null): { label: string; tone: string } {
+  if (status === "queued") return { label: "Research zaplanowany", tone: "accent" };
+  if (status === "running") return { label: "Research w toku", tone: "accent" };
+  if (status === "completed") return { label: "Szkic Research gotowy", tone: "neutral" };
+  if (status === "provisional") return { label: "Research prowizoryczny", tone: "neutral" };
+  if (status === "verified") return { label: "Research zweryfikowany", tone: "success" };
+  if (status === "needs-human") {
+    return { label: "Wymaga przeglądu", tone: "warning" };
   }
-  const missing = dossier.insights.missing[0];
-  if (missing) return { label: "Główna luka", value: missing.name, clear: false };
-  const concern = dossier.insights.concerns.find((item) => !strategyFitOnly(item));
-  if (concern) return { label: "Najważniejsze ryzyko", value: concern, clear: false };
-  return { label: "Najważniejsze ryzyko", value: "Brak krytycznego ryzyka w obecnym odczycie", clear: true };
+  if (status === "failed" || status === "rejected") {
+    return { label: "Research nieudany", tone: "danger" };
+  }
+  return { label: "Research jeszcze niezaplanowany", tone: "muted" };
 }
 
-function researchState(row: Row): { label: string; tone: string; next: string } {
-  if (row.refreshing) return { label: "Zbieranie danych", tone: "accent", next: "Poczekaj na zakończenie odświeżenia" };
-  if (row.riskLevel === "fired") return { label: "Teza zagrożona", tone: "danger", next: "Rozpatrz uruchomiony falsyfikator" };
-  if (row.riskLevel === "warning") return { label: "Ryzyko tezy", tone: "warning", next: "Sprawdź ostrzeżenie" };
-  if (!hasDossierData(row.dossier)) return { label: "Nowa", tone: "warning", next: "Zbierz dane źródłowe" };
-  if ((row.dossier?.insights.missing.length ?? 0) > 0) return { label: "Do weryfikacji", tone: "warning", next: "Rozwiąż najważniejszą lukę" };
-  return { label: "Teza robocza", tone: "neutral", next: "Przejrzyj tezę i scenariusze" };
-}
-
-export default function ResearchQueuePage() {
-  const router = useRouter();
-  const [rows, setRows] = useState<Row[]>([]);
+export default function ResearchPage() {
+  const [cases, setCases] = useState<ResearchCaseSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [newTicker, setNewTicker] = useState("");
   const [adding, setAdding] = useState(false);
+  const [newTicker, setNewTicker] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
-  const loadDossier = useCallback(async (ticker: string) => {
-    try {
-      return await getDossier(ticker);
-    } catch {
-      return null;
-    }
-  }, []);
-
-  const loadAll = useCallback(async () => {
+  const loadCases = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const items = await getWatchlist();
-      const dossiers = await Promise.all(items.map((item) => loadDossier(item.ticker)));
-      setRows(items.map((item, index) => ({
-        ticker: item.ticker,
-        name: item.name,
-        dossier: dossiers[index],
-        refreshing: false,
-        riskLevel: item.risk_level,
-        firedFalsifiers: item.fired_falsifiers,
-        warningFalsifiers: item.warning_falsifiers,
-      })));
+      setCases(await getResearchCases());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, [loadDossier]);
+  }, []);
 
-  useEffect(() => { void loadAll(); }, [loadAll]);
-
-  const setRefreshing = (ticker: string, refreshing: boolean) => {
-    setRows((current) => current.map((row) => row.ticker === ticker ? { ...row, refreshing } : row));
-  };
-
-  const refresh = async (ticker: string, force = false) => {
-    setRefreshing(ticker, true);
-    setError(null);
-    try {
-      const result = await refreshCompany(ticker, force);
-      const failed = Object.entries(result.summary).filter(([, status]) =>
-        !status.startsWith("ok") && status !== "cached" && !status.startsWith("pominięto"),
-      );
-      if (failed.length > 0) setError(`${ticker}: część źródeł wymaga uwagi (${failed.map(([key]) => key).join(", ")}).`);
-      const dossier = await loadDossier(ticker);
-      setRows((current) => current.map((row) => row.ticker === ticker ? {
-        ...row,
-        dossier,
-        name: dossier?.company.name ?? row.name,
-        refreshing: false,
-      } : row));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setRefreshing(ticker, false);
-    }
-  };
+  useEffect(() => {
+    void loadCases();
+  }, [loadCases]);
 
   const addTicker = async (event: React.FormEvent) => {
     event.preventDefault();
     const ticker = newTicker.trim().toUpperCase();
     if (!ticker) return;
+
     setAdding(true);
     setError(null);
+    setSuccess(null);
     try {
-      const queued = await queueAgentRun({
-        workflow: "stock-initial-research", ticker, trigger: "ticker-search",
-        model_role: "worker_standard",
-        inputs: { ticker, task: { skill: "workbench-run-queue", objective: "Refresh this ticker and create its first verifier-gated research read.", watchlist_policy: "do not add automatically", required_verification: "verifier_strict" } },
-      });
+      const result = await addResearchCase({ ticker });
       setNewTicker("");
-      setError(`Zaplanowano research #${queued.id} dla ${ticker}. Uruchom $workbench-run-queue, aby wykonać jedno zlecenie.`);
+      setSuccess(
+        result.created_case
+          ? `${ticker} dodano do Research. Zbieranie danych zostało zaplanowane.`
+          : result.reactivated_case
+            ? `${ticker} ponownie aktywowano w Research.`
+          : `${ticker} jest już w Research. Pokazuję istniejący przypadek.`,
+      );
+      await loadCases();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -174,131 +105,86 @@ export default function ResearchQueuePage() {
     }
   };
 
-  const remove = async (ticker: string) => {
-    if (!window.confirm(`Usunąć ${ticker} z aktywnych analiz?`)) return;
-    await removeFromWatchlist(ticker);
-    setRows((current) => current.filter((row) => row.ticker !== ticker));
-  };
-
-  const refreshAll = async () => {
-    for (const row of rows) {
-      // Sequential by design: one polite source pipeline at a time.
-      // eslint-disable-next-line no-await-in-loop
-      await refresh(row.ticker);
-    }
-  };
-
-  const ready = rows.filter((row) => hasDossierData(row.dossier)).length;
-  const needsEvidence = rows.filter((row) => !hasDossierData(row.dossier) || (row.dossier?.insights.missing.length ?? 0) > 0).length;
-  const stale = rows.filter((row) => {
-    const days = staleDays(row.dossier?.freshness.financials_scraped_at ?? null);
-    return days != null && days > 3;
-  }).length;
-  const anyRefreshing = rows.some((row) => row.refreshing);
+  const activeCount = cases.filter((item) => item.state !== "closed").length;
+  const collectingCount = cases.filter((item) =>
+    item.initial_research_status === "queued" || item.initial_research_status === "running"
+  ).length;
 
   return (
     <main className="page-stack research-page">
       <section className="page-header research-header">
         <div>
-          <p className="eyebrow">Aktywne przypadki</p>
-          <h1>Research</h1>
-          <p>Każda spółka ma jeden stan, główną lukę i następny krok. Pełne dane czekają w dossier.</p>
+          <p className="eyebrow">Research</p>
+          <h1>Przypadki badawcze</h1>
+          <p>Spółki, dla których zbierasz dowody, poznajesz biznes i budujesz własną tezę.</p>
         </div>
         <form className="command-row" onSubmit={addTicker}>
-          <input value={newTicker} onChange={(event) => setNewTicker(event.target.value)} placeholder="Ticker, np. DEC" aria-label="Ticker spółki" className="ticker-input" />
-          <button className="btn accent" type="submit" disabled={adding}><IconPlus size={14} /> Zaplanuj research</button>
+          <input
+            value={newTicker}
+            onChange={(event) => setNewTicker(event.target.value)}
+            placeholder="Ticker, np. SNT"
+            aria-label="Ticker spółki"
+            className="ticker-input"
+            maxLength={12}
+          />
+          <button className="btn accent" type="submit" disabled={adding}>
+            <IconPlus size={14} /> {adding ? "Dodaję…" : "Dodaj do Research"}
+          </button>
         </form>
       </section>
 
-      <section className="workflow-guide" aria-label="Typowa ścieżka analizy">
-        <div className="workflow-guide-copy">
-          <p className="eyebrow">Typowa ścieżka</p>
-          <h2>Wybierz jedną spółkę i wykonaj jej następny krok</h2>
-          <p>Nie musisz otwierać każdej zakładki. Kolejka pokazuje, co wymaga działania teraz.</p>
-        </div>
-        <ol className="workflow-guide-steps">
-          <li className="done"><span>1</span><strong>Odkryj</strong><small>źródłowy radar</small></li>
-          <li className="active"><span>2</span><strong>Zbierz dane</strong><small>dossier i świeżość</small></li>
-          <li><span>3</span><strong>Przeczytaj raport</strong><small>teza + ryzyka</small></li>
-          <li><span>4</span><strong>Zweryfikuj</strong><small>Codex + scenariusze</small></li>
-        </ol>
-      </section>
-
-      {error && <div className="error-box">{error}</div>}
+      {success && <div className="success-box" role="status">{success}</div>}
+      {error && <div className="error-box" role="alert">{error}</div>}
 
       {loading ? (
-        <><SkeletonRows rows={4} height={72} /><LoadingMessages messages={["Otwieram aktywne analizy…", "Sprawdzam następne kroki…"]} /></>
-      ) : rows.length === 0 ? (
+        <>
+          <SkeletonRows rows={4} height={72} />
+          <LoadingMessages messages={["Otwieram przypadki badawcze…", "Sprawdzam stan zbierania danych…"]} />
+        </>
+      ) : cases.length === 0 ? (
         <section className="empty-research">
           <IconDatabaseOff size={24} />
-          <h2>Brak aktywnych analiz</h2>
-          <p>Zacznij od transparentnego sita BiznesRadar albo dodaj znany ticker.</p>
-          <Link className="btn accent" href="/discover">Przejdź do Discover <IconArrowRight size={14} /></Link>
+          <h2>Brak przypadków badawczych</h2>
+          <p>Dodaj znany ticker lub wybierz spółkę z jednego z sit w Discover.</p>
+          <Link className="btn accent" href="/discover">
+            Przejdź do Discover <IconArrowRight size={14} />
+          </Link>
         </section>
       ) : (
         <>
-          <section className="queue-summary" aria-label="Stan kolejki">
-            <div><span>Aktywne</span><strong>{rows.length}</strong></div>
-            <div><span>Dossier gotowe</span><strong>{ready}</strong></div>
-            <div className={needsEvidence > 0 ? "warn" : ""}><span>Wymaga danych</span><strong>{needsEvidence}</strong></div>
-            <div className={stale > 0 ? "warn" : ""}><span>Nieaktualne</span><strong>{stale}</strong></div>
-            <button className="btn" onClick={() => void refreshAll()} disabled={anyRefreshing}><IconRefresh size={14} className={anyRefreshing ? "spin" : ""} /> {anyRefreshing ? "Odświeżam…" : "Odśwież dane"}</button>
+          <section className="research-summary" aria-label="Podsumowanie Research">
+            <span><strong>{activeCount}</strong> aktywnych przypadków</span>
+            {collectingCount > 0 && <span><strong>{collectingCount}</strong> oczekuje lub jest w toku</span>}
           </section>
 
-          <section className="research-list">
-            {rows.map((row) => {
-              const dossier = row.dossier;
-              const state = researchState(row);
-              const signals = dossier?.insights.key_indicators.slice(0, 2) ?? [];
-              const risk = compactRisk(row);
-              const scrapedAt = dossier?.freshness.financials_scraped_at ?? null;
-              const days = staleDays(scrapedAt);
+          <section className="research-case-list" aria-label="Przypadki badawcze">
+            {cases.map((item) => {
+              const job = collectionStatus(item.initial_research_status);
               return (
-                <article className="research-row" key={row.ticker}>
-                  <div className="research-row-head">
-                    <button className="research-company-link" onClick={() => router.push(`/stock/${row.ticker}`)} aria-label={`Otwórz analizę ${row.ticker}`}>
-                      <span className="ticker-mark">{row.ticker}</span>
-                      <span>
-                        <strong>{row.name ?? "Nazwa do uzupełnienia"}</strong>
-                        <small>{fmtPln(dossier?.ttm.price)} · {fmtMcap(dossier?.ttm.market_cap)}</small>
-                      </span>
-                    </button>
-                    <div className="research-row-status">
-                      <span className={`badge ${state.tone}`}>{state.label}</span>
-                      {row.refreshing && <span className="loading-inline"><span className="loading-spinner" /> odświeżam dane</span>}
-                      <small className={days != null && days > 3 ? "warn" : "muted"}>{relativeDate(scrapedAt)}</small>
+                <article className="research-case-row" key={item.id}>
+                  <div className="research-case-company">
+                    <span className="ticker-mark">{item.ticker}</span>
+                    <div>
+                      <strong>{item.name ?? "Nazwa do uzupełnienia"}</strong>
+                      <small>Aktualizacja {relativeDate(item.updated_at)}</small>
                     </div>
                   </div>
-                  <div className="research-row-grid">
-                    <div className="research-company">
-                      <span className="candidate-label">Teza i odczyt</span>
-                      <p>{decisionRead(dossier)}</p>
-                      {dossier?.thesis?.thesis_read && <p className="research-thesis">{dossier.thesis.thesis_read}</p>}
-                    </div>
-                    <div className="research-signals">
-                      <span className="candidate-label">Co mówi dossier</span>
-                      {signals.length > 0 ? signals.map((signal) => (
-                        <span key={signal.id}>
-                          <strong>{signal.name}: {signal.value}</strong>
-                          {signal.comment && <small>{signal.comment}</small>}
-                        </span>
-                      )) : <span>Po zebraniu danych pojawią się sygnały.</span>}
-                    </div>
-                    <div className={`research-gap ${risk.clear ? "clear" : ""}`}>
-                      <span className="candidate-label">{risk.label}</span>
-                      <span>{risk.clear ? <IconCircleCheck size={13} /> : <IconAlertTriangle size={13} />} {risk.value}</span>
-                    </div>
-                    <div className="research-next">
-                      <span className="candidate-label">Teraz</span>
-                      <button className="btn accent research-primary-action" onClick={() => router.push(`/stock/${row.ticker}`)}>
-                        <IconArrowRight size={14} /> {state.next}
-                      </button>
-                    </div>
+
+                  <div className="research-case-state">
+                    <span className={`badge ${item.state === "blocked" ? "warning" : "neutral"}`}>
+                      {CASE_STATE_LABELS[item.state]}
+                    </span>
+                    <small>Etap: {CASE_STEP_LABELS[item.current_step]}</small>
                   </div>
-                  <div className="research-maintenance">
-                    <button className="btn icon" title="Odśwież dane" aria-label={`Odśwież ${row.ticker}`} onClick={() => void refresh(row.ticker, true)} disabled={row.refreshing}><IconRefresh size={15} className={row.refreshing ? "spin" : ""} /></button>
-                    <button className="btn icon" title="Usuń analizę" aria-label={`Usuń ${row.ticker}`} onClick={() => void remove(row.ticker)}><IconTrash size={15} /></button>
+
+                  <div className="research-case-job">
+                    <span className={`badge ${job.tone}`}>{job.label}</span>
+                    {item.blocked_reason && <small className="warn">{item.blocked_reason}</small>}
                   </div>
+
+                  <Link className="btn research-case-open" href={`/stock/${item.ticker}`}>
+                    Otwórz research <IconArrowRight size={14} />
+                  </Link>
                 </article>
               );
             })}

@@ -1,5 +1,7 @@
-"""Optional iterative Claude-API refiner for the scenario set (stage SC / WP3b —
-docs/plan-stage-scenarios.md §"WP3b").
+"""Legacy optional model refiner for the deterministic scenario set.
+
+The P3 replacement contract lives in ``docs/PRODUCT.md`` and
+``docs/ARCHITECTURE.md``.
 
 `scenarios.build_scenario_set` produces a *deterministic* trio (negative / base /
 positive) off the company's own multiple history. This module can iterate a
@@ -43,7 +45,7 @@ from app.services.strategies import base, cases
 # negative/base/positive and ADD `event` scenarios — never invent a new kind.
 _VALID_KINDS = frozenset({"negative", "base", "positive", "event"})
 
-# Gitignored cache dir, separate from the thesis refiner's (plan §Non-goals).
+# Gitignored cache dir, separate from the thesis refiner's.
 _DEFAULT_CACHE_DIR = Path(__file__).resolve().parents[2] / ".cache" / "scenarios_ai"
 
 

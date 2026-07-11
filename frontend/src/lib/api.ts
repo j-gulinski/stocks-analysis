@@ -21,15 +21,11 @@ import type {
   DecisionJournalEntry,
   Dividend,
   DiscoveryResult,
-  DiscoveryTriagePromotion,
-  DiscoveryTriageReview,
-  UniversePolicy,
   Dossier,
   EvidenceDocument,
   Financials,
   Falsifier,
   Forecast,
-  ForecastGrowthRanking,
   ForecastAssumptions,
   ForumPage,
   ForumSync,
@@ -40,14 +36,14 @@ import type {
   PricePoint,
   Position,
   PreSessionBriefResult,
-  QueueAttemptResult,
   ResearchCase,
+  ResearchCaseCreateResult,
+  ResearchCaseSummary,
   ResearchCaseStepHistory,
   ResearchCaseState,
   ResearchCaseStep,
   RefreshSummary,
   ScraperHealth,
-  WatchlistItem,
   WorkflowStatus,
 } from "@/lib/types";
 
@@ -79,42 +75,32 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-// ---------------------------------------------------------------- watchlist
-export const getWatchlist = () => request<WatchlistItem[]>("/watchlist");
-
-export const addToWatchlist = (ticker: string, note?: string) =>
-  request<WatchlistItem>("/watchlist", {
-    method: "POST",
-    body: JSON.stringify({ ticker, note }),
-  });
-
-export const removeFromWatchlist = (ticker: string) =>
-  request<void>(`/watchlist/${encodeURIComponent(ticker)}`, { method: "DELETE" });
-
 // --------------------------------------------------------------- discovery
 export const getDiscovery = (
   minRating = 5,
   minFScore: number | null = null,
-  force = false,
 ) => {
-  const params = new URLSearchParams({
-    min_rating: String(minRating),
-    force: String(force),
-  });
+  const params = new URLSearchParams({ min_rating: String(minRating) });
   if (minFScore != null) params.set("min_f_score", String(minFScore));
   return request<DiscoveryResult>(`/discovery?${params}`);
 };
 
-export const getForecastGrowthRanking = (limit = 30) =>
-  request<ForecastGrowthRanking>(
-    `/discovery/forecast-growth?limit=${encodeURIComponent(String(limit))}`,
-  );
-export const listDiscoveryTriageReviews = (sourceVersionId: number) => request<DiscoveryTriageReview[]>(`/discovery/triage-reviews?source_version_id=${sourceVersionId}`);
-export const createDiscoveryTriageReview = (payload: Omit<DiscoveryTriageReview, "id" | "created_by" | "created_at">) => request<DiscoveryTriageReview>("/discovery/triage-reviews", { method: "POST", body: JSON.stringify(payload) });
-export const promoteDiscoveryTriageReview = (reviewId: number) =>
-  request<DiscoveryTriagePromotion>(`/discovery/triage-reviews/${reviewId}/promote`, { method: "POST" });
-export const getUniversePolicy = () => request<UniversePolicy>("/discovery/universe-policy");
-export const refreshUniversePolicy = () => request<{ memberships: unknown[] }>("/discovery/universe-policy/refresh", { method: "POST" });
+export const refreshDiscovery = (minRating = 8, minFScore: number | null = 7) => {
+  const params = new URLSearchParams({ min_rating: String(minRating) });
+  if (minFScore != null) params.set("min_f_score", String(minFScore));
+  return request<DiscoveryResult>(`/discovery/refresh?${params}`, { method: "POST" });
+};
+
+// ---------------------------------------------------------- research cases
+export const getResearchCases = () => request<ResearchCaseSummary[]>("/research-cases");
+
+export const addResearchCase = (payload: {
+  ticker: string;
+  source_document_version_id?: number | null;
+}) => request<ResearchCaseCreateResult>("/research-cases", {
+  method: "POST",
+  body: JSON.stringify(payload),
+});
 
 // ---------------------------------------------------------------- companies
 export const getDossier = (ticker: string) =>
@@ -325,9 +311,6 @@ export const preparePreSessionBrief = (payload: {
     method: "POST",
     body: JSON.stringify(payload),
   });
-
-export const processOneAgentRun = () =>
-  request<QueueAttemptResult>("/agent-runs/process-one", { method: "POST" });
 
 export const checkMonitor = (ticker: string) =>
   request<MonitorCheckResult>(

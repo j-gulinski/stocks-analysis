@@ -1,16 +1,13 @@
 """The Paweł Malik ("OBS") strategy expressed purely as data.
 
 Every weight, applicability and rule parameter below is cited to a section of
-`docs/strategy-malik.md` (the source-grounded spec, WP1) — **except** the two
+`docs/STRATEGY.md` and `skills/strategy-malik-obs/SKILL.md` — **except** the two
 profitability-context criteria tagged `GENERAL_FUNDAMENTALS` ("analiza
 fundamentalna (ogólna)"): ROE and net margin are *general fundamental analysis*,
-not Malik doctrine (the spec never mentions them), and are grounded in the stage
-goal — "[Malik's] philosophy plus general fundamental analysis"
-(`docs/plan-stage-thesis.md` §Goal) — NOT in a spec section. There is **no engine
+not sourced Malik doctrine. There is **no engine
 logic here** — this module only declares *what Malik weighs and how much*; the
 generic engine in `services/thesis.py` does the composing. Changing Malik's mind
-means editing numbers here, never touching the engine (that is the whole point
-of the strategy-as-data design, PLAN §10).
+means editing numbers here, never touching the generic engine.
 
 Weights are on a rough 1–3 scale mirroring the spec's evidence strength and the
 "Implications for the thesis engine" priorities:
@@ -30,12 +27,11 @@ from app.services.strategies.base import (
     VerifyGap,
 )
 
-_SPEC = "docs/strategy-malik.md"
+_SPEC = "docs/STRATEGY.md"
 
 # Principle-tag suffix for criteria that are NOT Malik doctrine but *general
-# fundamental analysis*. The stage goal is "[Malik's] philosophy plus general
-# fundamental analysis" (docs/plan-stage-thesis.md §Goal); these entries have no
-# citation in the spec (grep: 0 ROE / net-margin hits) and must never render as
+# fundamental analysis*. These entries have no source-backed Malik citation and
+# must never render as
 # Malik principles. Kept as a distinct, greppable namespace because the
 # `principle` tag flows verbatim into the UI pros/cons — honest attribution.
 GENERAL_FUNDAMENTALS = "analiza fundamentalna (ogólna)"
@@ -127,9 +123,8 @@ _CRITERIA: tuple[Criterion, ...] = (
         applies_to_sectors=frozenset({"biotech_med"}),
     ),
     # GENERAL FUNDAMENTALS (not Malik doctrine) — profitability-quality context.
-    # No citation in docs/strategy-malik.md (grep: 0 ROE / net-margin hits); these
-    # come from the stage goal's "[Malik's] philosophy plus general fundamental
-    # analysis" (docs/plan-stage-thesis.md §Goal). Tagged GENERAL_FUNDAMENTALS so
+    # No source-backed Malik rule makes ROE/net margin a standalone veto; these
+    # are Workbench general-fundamentals context. Tagged GENERAL_FUNDAMENTALS so
     # the UI never attributes them to Malik. roe is still read for finance names
     # (insights finance playbook), just under the honest general-fundamentals tag.
     Criterion(

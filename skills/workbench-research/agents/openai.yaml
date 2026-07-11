@@ -1,4 +1,0 @@
-interface:
-  display_name: "Workbench Research"
-  short_description: "Start and facilitate GPW research cases"
-  default_prompt: "Use $workbench-research to start the local app and inspect its research readiness."

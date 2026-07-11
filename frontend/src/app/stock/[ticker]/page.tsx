@@ -55,33 +55,6 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
-const TAB_GUIDANCE: Record<Tab, { eyebrow: string; title: string; description: string; next: string }> = {
-  Report: {
-    eyebrow: "Krok 1 · orientacja",
-    title: "Najpierw przeczytaj tezę i główne ryzyka",
-    description: "To jest kanoniczny ekran decyzji: co wiemy, co napędza wynik i co może obalić tezę.",
-    next: "Następnie sprawdź scenariusze",
-  },
-  Charts: {
-    eyebrow: "Krok 2 · scenariusze",
-    title: "Sprawdź, jaki wynik spółki musi się wydarzyć",
-    description: "Scenariusze pokazują zarówno potencjał wyceny, jak i operacyjny warunek pozytywny lub negatywny.",
-    next: "Następnie przejdź do źródeł",
-  },
-  Audit: {
-    eyebrow: "Krok 3 · dowody",
-    title: "Otwórz źródła tylko tam, gdzie jest luka",
-    description: "Surowe dane, sprawozdania i forum są warstwą audytową, nie kolejnym równoległym raportem.",
-    next: "Następnie zleć weryfikację Codex",
-  },
-  History: {
-    eyebrow: "Krok 4 · review",
-    title: "Zleć analizę i poczekaj na niezależny verifier",
-    description: "Wybierz model orchestratora. Dopiero zweryfikowany wynik może zastąpić tezę roboczą.",
-    next: "Po weryfikacji wróć do Raportu",
-  },
-};
-
 const CASE_STATE_LABELS: Record<ResearchCase["state"], string> = {
   new: "nowy",
   ingesting: "zbieranie danych",
@@ -110,7 +83,6 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
   const ticker = rawTicker.toUpperCase();
   const [tab, setTab] = useState<Tab>("Report");
   const [refreshing, setRefreshing] = useState(false);
-  const [autoRefreshStarted, setAutoRefreshStarted] = useState(false);
   const [refreshSummary, setRefreshSummary] = useState<Record<string, string> | null>(null);
   const [analysisRuns, setAnalysisRuns] = useState<AnalysisRun[] | null>(null);
   const [agentRuns, setAgentRuns] = useState<AgentRun[] | null>(null);
@@ -212,18 +184,9 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
     };
   }, [ticker]);
 
-  useEffect(() => {
-    if (loading || !dossier || hasDossierData(dossier) || refreshing || autoRefreshStarted) return;
-    setAutoRefreshStarted(true);
-    setRefreshing(true);
-    refreshCompany(ticker, true)
-      .then((result) => { setRefreshSummary(result.summary); reload(); })
-      .catch((err) => setRefreshSummary({ refresh: `error: ${err instanceof Error ? err.message : String(err)}` }))
-      .finally(() => setRefreshing(false));
-  }, [autoRefreshStarted, dossier, loading, refreshing, reload, ticker]);
-
   const handleRefresh = async () => {
     setRefreshing(true);
+    setRefreshSummary(null);
     try {
       const result = await refreshCompany(ticker, true);
       setRefreshSummary(result.summary);
@@ -235,7 +198,7 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
     }
   };
 
-  if (loading) return <div><SkeletonCards cards={4} /><LoadingMessages messages={[`Otwieram przypadek ${ticker}…`, "Porządkuję dowody i tezę…"]} /></div>;
+  if (loading) return <div><SkeletonCards cards={4} /><LoadingMessages messages={[`Wczytuję zapisane dane ${ticker}…`, "Otwieram ostatni zapisany stan researchu…"]} /></div>;
   if (error) return <div className="error-box">{error}</div>;
   if (!dossier) return null;
 
@@ -251,7 +214,7 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
   const latestDeepJob = agentRuns?.find((run) => run.workflow === "stock-deep-analysis") ?? null;
 
   if (!hasData) {
-    const preparing = refreshing || !autoRefreshStarted;
+    const preparing = refreshing;
     return (
       <main className="page-stack stock-workspace initial-refresh-workspace">
         <section className="stock-header workspace-header initial-refresh-header">
@@ -267,12 +230,12 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
         <section className="initial-refresh-panel" aria-live="polite">
           <IconRefresh size={24} className={preparing ? "spin" : ""} />
           <div>
-            <p className="eyebrow">Pierwsze uruchomienie spółki</p>
-            <h2>{preparing ? "Przygotowuję raport" : "Nie udało się zbudować raportu"}</h2>
+            <p className="eyebrow">Zapisany stan researchu</p>
+            <h2>{preparing ? "Pobieram dane na Twoje polecenie" : "Brak zapisanego dossier"}</h2>
             <p>
               {preparing
-                ? "Pobieram źródła, zapisuję pochodzenie faktów i buduję dossier. Zwykle trwa to kilkadziesiąt sekund."
-                : "Uruchom ponownie odświeżenie. Szczegóły błędów źródeł pojawią się poniżej."}
+                ? "Pobieram źródła, zapisuję pochodzenie faktów i buduję dossier. To jawna operacja, która może potrwać kilkadziesiąt sekund."
+                : "Otwarcie tej strony tylko odczytuje zapisane dane. Uruchom pobranie, gdy chcesz świadomie odświeżyć źródła i zbudować dossier."}
             </p>
           </div>
           <ol className="initial-refresh-steps">
@@ -282,7 +245,7 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
           </ol>
           {!preparing && (
             <button className="btn accent" onClick={() => void handleRefresh()}>
-              <IconRefresh size={14} /> Spróbuj ponownie
+              <IconRefresh size={14} /> {refreshSummary ? "Spróbuj ponownie" : "Pobierz dane"}
             </button>
           )}
           {refreshSummary && !preparing && (
@@ -317,7 +280,6 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
           <div>
             <span className="case-label">Przypadek badawczy</span>
             <p>Stan i etap są ręcznym kontekstem workflow; system nie przesuwa ich automatycznie.</p>
-            {researchCase.promotion_triage_review_id && <p className="small muted">Promowane z triage #{researchCase.promotion_triage_review_id}: {fmtPln(researchCase.promotion_review_price_pln)} · {researchCase.promotion_note}</p>}
             {researchCase.quarterly_review_due_on && <p className="small muted">Review kwartalny zaplanowany na {fmtDate(researchCase.quarterly_review_due_on)}. Codex wykona go tylko po ręcznym uruchomieniu kolejki; zdarzenie materialne wymaga osobnego, świadomego review.</p>}
           </div>
           <label>Stan<select value={caseStateDraft} onChange={(event) => setCaseStateDraft(event.target.value as ResearchCase["state"])}><option value="new">Nowy</option><option value="ingesting">Zbieranie danych</option><option value="data_review">Przegląd danych</option><option value="business_model">Model biznesowy</option><option value="thesis">Teza</option><option value="scenarios">Scenariusze</option><option value="review">Weryfikacja</option><option value="monitoring">Monitoring</option><option value="blocked">Zablokowany</option><option value="closed">Zamknięty</option></select></label>
@@ -344,15 +306,6 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
           <div className="source-list">{entries.map(([source, status]) => { const ok = status.startsWith("ok") || status === "cached"; return <div className="source-row" key={source}><span className={ok ? "pos" : "neg"}>●</span><span className="secondary source-name">{source}</span><span className={ok ? "secondary" : "neg"}>{friendlySourceStatus(status)}</span></div>; })}</div>
         </details>
       )}
-
-      <section className="stock-workflow-guide" aria-label="Typowy przebieg analizy">
-        <div>
-          <p className="eyebrow">{TAB_GUIDANCE[tab].eyebrow}</p>
-          <h2>{TAB_GUIDANCE[tab].title}</h2>
-          <p>{TAB_GUIDANCE[tab].description}</p>
-        </div>
-        <span className="badge muted">{TAB_GUIDANCE[tab].next}</span>
-      </section>
 
       <div className="tabs app-tabs workflow-tabs" role="tablist" aria-label="Etapy analizy">
         {TABS.map(({ id, label, icon: Icon }, index) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)} role="tab" aria-selected={tab === id}><span className="tab-step">{index + 1}</span><Icon size={13} /> {label}</button>)}

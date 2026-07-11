@@ -141,19 +141,24 @@ def ai_usage_health(db: Session = Depends(get_db)) -> dict:
 
 @router.get("/diagnostics/br-login-status")
 def br_login_status() -> dict:
-    """P1.9: verifies BR_USERNAME/BR_PASSWORD actually log in.
+    """Report configuration only; a GET never attempts a remote login."""
+    settings = get_settings()
+    configured = bool(settings.br_username and settings.br_password)
+    return {
+        "ok": configured,
+        "status": "configured" if configured else "not_configured",
+        "detail": (
+            "BiznesRadar credentials are configured; login is attempted only "
+            "by an explicit refresh or diagnostic command."
+            if configured
+            else "BR_USERNAME / BR_PASSWORD not configured."
+        ),
+    }
 
-    Mirrors /forum/login-status (app/api/forum.py). Deliberately NOT placed
-    at /companies/br-login-status: that single path segment would be caught
-    by companies.router's `GET /companies/{ticker}` dossier route (routers
-    are matched in registration order in app/main.py, and companies.router
-    is registered before diagnostics.router) — this path avoids the clash.
 
-    The login recipe is verified live (POST /login/ + 'account-settings'
-    marker — see app/scrapers/biznesradar.py BrClient), so a `false` result on
-    believed-correct credentials points at the credentials themselves
-    (BR_USERNAME is the account e-mail) or a site change.
-    """
+@router.post("/diagnostics/br-login-status/check")
+def check_br_login_status() -> dict:
+    """Explicitly verify BiznesRadar credentials with one polite login."""
     return refresh_service.check_br_login()
 
 

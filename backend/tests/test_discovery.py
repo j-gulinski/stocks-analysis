@@ -1,5 +1,5 @@
 """Market discovery is one cached source pull, not hundreds of company scrapes."""
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from sqlalchemy import func, select
 
 from app.db.models import (
@@ -38,8 +38,19 @@ def test_market_rating_parser_rejects_wrong_page():
         raise AssertionError("wrong page must not look like an empty universe")
 
 
-def test_discovery_returns_source_state_instead_of_server_error(client, monkeypatch, no_sleep):
+def test_retired_discovery_workflows_are_not_exposed(client):
+    assert client.get("/api/discovery/forecast-growth").status_code == 404
+    assert client.get("/api/discovery/universe-policy").status_code == 404
+    assert client.get("/api/discovery/triage-reviews").status_code == 404
+
+
+def test_discovery_read_never_fetches_and_explicit_refresh_reports_parse_failure(
+    client, monkeypatch, no_sleep
+):
+    calls: list[str] = []
+
     def fake_fetch(url, **_kwargs):
+        calls.append(url)
         response = FakeResponse("<html><h1>maintenance</h1></html>")
         response.url = url
         return response
@@ -48,8 +59,13 @@ def test_discovery_returns_source_state_instead_of_server_error(client, monkeypa
 
     response = client.get("/api/discovery")
 
-    assert response.status_code == 503
-    assert "wymaga uwagi" in response.json()["detail"]
+    assert response.status_code == 404
+    assert calls == []
+
+    refreshed = client.post("/api/discovery/refresh")
+    assert refreshed.status_code == 503
+    assert "wymaga uwagi" in refreshed.json()["detail"]
+    assert len(calls) == 1
 
 
 def test_market_rating_parser_requires_authoritative_profile_href():
@@ -112,7 +128,7 @@ def test_discovery_reparses_cached_failed_snapshot_without_a_new_request(db, mon
     assert recorded.version.parse_status == "parsed"
 
 
-def test_discovery_api_fetches_once_then_uses_immutable_cache(
+def test_discovery_refresh_is_explicit_and_reads_use_immutable_cache_without_jobs(
     client, db, monkeypatch, no_sleep
 ):
     calls: list[str] = []
@@ -125,7 +141,11 @@ def test_discovery_api_fetches_once_then_uses_immutable_cache(
 
     monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
 
-    first = client.get("/api/discovery")
+    missing = client.get("/api/discovery")
+    assert missing.status_code == 404
+    assert calls == []
+
+    first = client.post("/api/discovery/refresh")
     assert first.status_code == 200
     body = first.json()
     assert body["source"] == "BiznesRadar"
@@ -139,36 +159,11 @@ def test_discovery_api_fetches_once_then_uses_immutable_cache(
         "XTB",
     ]
     assert body["candidates"][0]["reasons"] == [
-        "Rating BR AAA (8.6)",
-        "Piotroski F-Score 6/9",
+        "Odporność finansowa: 8.6 (klasa AAA)",
+        "Jakość zmian w wynikach: 6/9 pozytywnych sygnałów",
     ]
     missing_f_score = next(row for row in body["candidates"] if row["ticker"] == "SHD")
-    assert "Brak Piotroski F-Score" in missing_f_score["caveat"]
-    first_job = body["evaluation_job"]
-    assert first_job == {
-        "id": first_job["id"],
-        "status": "queued",
-        "candidate_count": 5,
-        "evaluation_budget": 5,
-        "reused": False,
-    }
-
-    job = db.get(AgentRun, first_job["id"])
-    assert job is not None
-    assert job.model_role == "worker_standard"
-    assert job.model == "gpt-5.6-terra"
-    assert job.orchestrator_model == "gpt-5.6-terra"
-    assert job.idempotency_key.endswith(":recall-v1")
-    assert job.inputs["policy"] == "recall-v1"
-    assert job.inputs["evaluation_budget"] == 5
-    assert job.inputs["batch_size"] == 4
-    assert [row["ticker"] for row in job.inputs["candidates"]] == [
-        "DEK",
-        "SHD",
-        "RBW",
-        "VGO",
-        "XTB",
-    ]
+    assert "Brak danych o jakości zmian w wynikach" in missing_f_score["caveat"]
     assert db.scalar(select(func.count()).select_from(Company)) == 0
     assert db.scalar(select(func.count()).select_from(WatchlistItem)) == 0
 
@@ -181,9 +176,7 @@ def test_discovery_api_fetches_once_then_uses_immutable_cache(
         "XTB",
     ]
     assert len(calls) == 1
-    assert second.json()["evaluation_job"]["id"] == first_job["id"]
-    assert second.json()["evaluation_job"]["reused"] is True
-    assert db.scalar(select(func.count()).select_from(AgentRun)) == 6
+    assert db.scalar(select(func.count()).select_from(AgentRun)) == 0
     assert db.scalar(select(func.count()).select_from(FetchLog)) == 1
     assert db.scalar(select(func.count()).select_from(SourceDocument)) == 1
     version = db.scalar(select(DocumentVersion))
@@ -191,96 +184,19 @@ def test_discovery_api_fetches_once_then_uses_immutable_cache(
     assert version.parse_status == "parsed"
     assert "DEKPOL" in version.raw_content
 
-    forced = client.get("/api/discovery?force=true")
+    ignored_force = client.get("/api/discovery?force=true")
+    assert ignored_force.status_code == 200
+    assert len(calls) == 1
+
+    forced = client.post("/api/discovery/refresh")
     assert forced.status_code == 200
     assert len(calls) == 2
     # Identical bytes reuse the immutable version, while both fetches are logged.
     assert db.scalar(select(func.count()).select_from(DocumentVersion)) == 1
     assert db.scalar(select(func.count()).select_from(FetchLog)) == 2
-    assert forced.json()["evaluation_job"]["id"] == first_job["id"]
-    assert forced.json()["evaluation_job"]["reused"] is True
-    assert db.scalar(select(func.count()).select_from(AgentRun)) == 6
+    assert db.scalar(select(func.count()).select_from(AgentRun)) == 0
 
-
-def test_discovery_triage_review_is_append_only_and_never_creates_company(
-    client, db, monkeypatch, no_sleep
-):
-    def fake_fetch(url, **_kwargs):
-        response = FakeResponse(load_fixture("br_market_rating.html")); response.url = url
-        return response
-    monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
-    snapshot = client.get("/api/discovery").json()
-    payload = {
-        "source_document_version_id": snapshot["source_version_id"], "ticker": "DEK",
-        "review_price_pln": 52.5, "note": "Sprawdzić raport roczny.",
-        "outcome": "revisit_later", "next_review_date": "2026-10-01",
-        "evidence_reason": "Wysoki rating i F-Score są tylko prescreenem źródłowym.",
-    }
-    created = client.post("/api/discovery/triage-reviews", json=payload)
-    assert created.status_code == 201
-    assert created.json()["ticker"] == "DEK"
-    assert client.get(f"/api/discovery/triage-reviews?source_version_id={snapshot['source_version_id']}").json()[0]["id"] == created.json()["id"]
-    assert db.scalar(select(func.count()).select_from(Company)) == 0
-    assert db.scalar(select(func.count()).select_from(WatchlistItem)) == 0
-
-
-def test_explicit_promotion_carries_triage_context_and_queues_manual_research(
-    client, db, monkeypatch, no_sleep
-):
-    from app.db.models import ResearchCase
-
-    def fake_fetch(url, **_kwargs):
-        response = FakeResponse(load_fixture("br_market_rating.html")); response.url = url
-        return response
-
-    monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
-    snapshot = client.get("/api/discovery").json()
-    review = client.post("/api/discovery/triage-reviews", json={
-        "source_document_version_id": snapshot["source_version_id"], "ticker": "DEK",
-        "review_price_pln": 52.5, "note": "Sprawdzić raport roczny.",
-        "outcome": "promote_to_case", "next_review_date": "2026-10-01",
-        "evidence_reason": "Wysoki rating i F-Score to tylko prescreen źródłowy.",
-    })
-    assert review.status_code == 201
-
-    promoted = client.post(f"/api/discovery/triage-reviews/{review.json()['id']}/promote")
-
-    assert promoted.status_code == 201
-    body = promoted.json()
-    assert body["company"]["ticker"] == "DEK"
-    assert body["created_company"] is True
-    assert body["created_case"] is True
-    assert body["research_case"]["promotion_triage_review_id"] == review.json()["id"]
-    assert body["research_case"]["promotion_review_price_pln"] == 52.5
-    assert body["research_case"]["promotion_note"] == "Sprawdzić raport roczny."
-    assert body["research_case"]["quarterly_review_due_on"] == "2026-10-01"
-    assert body["research_case"]["material_event_review_policy"] == "manual-after-stored-event"
-    run = db.get(AgentRun, body["initial_research_run_id"])
-    assert run.workflow == "stock-deep-analysis"
-    assert run.status == "queued"
-    assert run.inputs["task"]["automation_policy"].startswith("user invokes")
-    assert db.scalar(select(func.count()).select_from(WatchlistItem)) == 0
-    assert db.scalar(select(func.count()).select_from(ResearchCase)) == 1
-    assert client.post(f"/api/discovery/triage-reviews/{review.json()['id']}/promote").status_code == 201
-
-
-def test_promotion_requires_the_explicit_triage_outcome(client, monkeypatch, no_sleep):
-    def fake_fetch(url, **_kwargs):
-        response = FakeResponse(load_fixture("br_market_rating.html")); response.url = url
-        return response
-
-    monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
-    snapshot = client.get("/api/discovery").json()
-    review = client.post("/api/discovery/triage-reviews", json={
-        "source_document_version_id": snapshot["source_version_id"], "ticker": "DEK",
-        "review_price_pln": 52.5, "note": "Zachowaj na później.",
-        "outcome": "revisit_later", "next_review_date": "2026-10-01",
-        "evidence_reason": "Triage nie jest jeszcze decyzją o researchu.",
-    })
-
-    assert client.post(f"/api/discovery/triage-reviews/{review.json()['id']}/promote").status_code == 422
-
-def test_changed_market_snapshot_queues_one_new_scout_job(
+def test_changed_market_snapshot_persists_without_scheduling_jobs(
     client, db, monkeypatch, no_sleep
 ):
     original = load_fixture("br_market_rating.html")
@@ -294,41 +210,18 @@ def test_changed_market_snapshot_queues_one_new_scout_job(
 
     monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
 
-    first = client.get("/api/discovery")
-    second = client.get("/api/discovery?force=true")
+    first = client.post("/api/discovery/refresh")
+    second = client.post("/api/discovery/refresh")
 
     assert first.status_code == second.status_code == 200
-    assert first.json()["evaluation_job"]["id"] != second.json()["evaluation_job"]["id"]
-    assert second.json()["evaluation_job"]["reused"] is False
+    assert first.json()["source_version_id"] != second.json()["source_version_id"]
     assert db.scalar(select(func.count()).select_from(DocumentVersion)) == 2
-    assert db.scalar(select(func.count()).select_from(AgentRun)) == 12
+    assert db.scalar(select(func.count()).select_from(AgentRun)) == 0
 
 
-def test_forced_discovery_explains_rank_and_queues_stale_stored_top_candidate(
+def test_explicit_discovery_refresh_explains_rank_without_scheduling_research(
     client, db, monkeypatch, no_sleep
 ):
-    from app.db.models import AnalysisRun, Company
-
-    company = Company(ticker="DEK", name="DEKPOL")
-    db.add(company)
-    db.commit()
-    db.add(
-        AnalysisRun(
-            company_id=company.id,
-            source="codex_skill",
-            workflow="stock-quick-analysis",
-            model_role="analyst_deep",
-            model="terra",
-            status="draft",
-            verification_status="needs-human",
-            input_snapshot={"company": {"ticker": "DEK"}},
-            output={"potential": {"value_pct": 10}},
-            verification={"verdict": "needs-human"},
-            created_at=datetime.now(timezone.utc) - timedelta(days=8),
-        )
-    )
-    db.commit()
-
     def fake_fetch(url, **_kwargs):
         response = FakeResponse(load_fixture("br_market_rating.html"))
         response.url = url
@@ -336,31 +229,12 @@ def test_forced_discovery_explains_rank_and_queues_stale_stored_top_candidate(
 
     monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
 
-    response = client.get("/api/discovery?force=true")
+    response = client.post("/api/discovery/refresh")
     assert response.status_code == 200
     body = response.json()
     dek = next(row for row in body["candidates"] if row["ticker"] == "DEK")
     assert dek["rank"] == 1
-    assert dek["rank_basis"][0] == "Pozycja źródłowa 1/5 w wybranym szerokim sicie."
-    assert "Rating BR AAA (8.6)" in dek["rank_basis"][2]
+    assert dek["rank_basis"][0] == "Pozycja 1/5 w sicie kondycji finansowej."
+    assert "modelu Altmana: 8.6 (klasa AAA)" in dek["rank_basis"][2]
 
-    scheduled = body["scheduled_analysis"]
-    assert scheduled == {
-        "considered": 5,
-        "queued": 5,
-        "skipped_recent": 0,
-        "skipped_pending": 0,
-        "skipped_not_stored": 0,
-        "tickers": ["DEK", "SHD", "RBW", "VGO", "XTB"],
-        "stale_after_days": 7,
-    }
-    quick = db.scalar(
-        select(AgentRun).where(
-            AgentRun.workflow == "stock-initial-research",
-            AgentRun.inputs["ticker"].as_string() == "DEK",
-        )
-    )
-    assert quick is not None
-    assert quick.company_id is None
-    assert quick.inputs["candidate_rank"] == 1
-    assert quick.inputs["task"]["required_verification"] == "verifier_strict"
+    assert db.scalar(select(func.count()).select_from(AgentRun)) == 0

@@ -1,5 +1,7 @@
-"""Optional iterative Claude-API refiner for the investment-thesis read
-(stage TH / WP2b — docs/plan-stage-thesis.md §"WP2b").
+"""Legacy optional model refiner for the investment-thesis read.
+
+The tailored P2 replacement contract lives in ``docs/PRODUCT.md`` and
+``docs/ARCHITECTURE.md``.
 
 What this is
 -----------

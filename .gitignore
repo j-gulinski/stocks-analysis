@@ -15,6 +15,7 @@ venv/
 node_modules/
 .next/
 out/
+*.tsbuildinfo
 
 # OS / editor
 .DS_Store
@@ -24,6 +25,7 @@ out/
 # Local databases and scratch
 *.sqlite3
 *.db
+tmp/
 
 # AI response cache (WP2b thesis refiner — never commit cached model output)
 .cache/

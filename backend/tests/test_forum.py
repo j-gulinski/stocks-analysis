@@ -191,6 +191,29 @@ def test_login_status_without_credentials(client):
     assert "not configured" in status_body["detail"]
 
 
+def test_login_status_get_is_configuration_only(client, monkeypatch):
+    class Settings:
+        pa_username = "private@example.com"
+        pa_password = "secret"
+
+    monkeypatch.setattr("app.api.forum.get_settings", lambda: Settings())
+    monkeypatch.setattr(
+        "app.api.forum.forum_sync.check_login",
+        lambda: (_ for _ in ()).throw(AssertionError("GET attempted remote login")),
+    )
+
+    body = client.get("/api/forum/login-status").json()
+
+    assert body == {
+        "ok": True,
+        "status": "configured",
+        "detail": (
+            "PortalAnaliz credentials are configured; login is attempted only "
+            "by an explicit forum command."
+        ),
+    }
+
+
 # ------------------------------------------------------------- content_text
 
 def test_content_text_stored_on_sync(client, fake_forum, db):
