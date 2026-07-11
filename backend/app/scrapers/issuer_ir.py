@@ -346,6 +346,15 @@ def ingest_issuer_ir_report(
         fetched_at=fetch_log.fetched_at,
     )
     recorded.document.title = source_fact.text_value
+    if not recorded.version_created and recorded.version.parse_status != "pending":
+        fetch_log.document_version_id = recorded.version.id
+        db.commit()
+        return _report_version_result(
+            ticker,
+            report_url,
+            recorded.document,
+            recorded.version,
+        )
     if parse_error is not None:
         mark_parse_result(recorded.version, success=False, error=parse_error[:1000])
         fetch_log.document_version_id = recorded.version.id
@@ -441,6 +450,9 @@ def _issuer_link_fact(db: Session, company: Company, report_url: str) -> Fact | 
             Fact.extractor_version == EXTRACTOR_VERSION,
             DocumentVersion.parse_status == "parsed",
             SourceDocument.source_type == "issuer_ir",
+            SourceDocument.scope_key == "reports-index",
+            SourceDocument.company_id == company.id,
+            SourceDocument.company_ticker == company.ticker,
         )
     ).all()
     return next(
@@ -483,7 +495,15 @@ def _host_resolves_public(url: str) -> bool:
         }
     except socket.gaierror:
         return False
-    return bool(addresses) and all(ipaddress.ip_address(value).is_global for value in addresses)
+    return _addresses_are_public(addresses)
+
+
+def _addresses_are_public(addresses: set[str]) -> bool:
+    return bool(addresses) and all(_address_is_public(value) for value in addresses)
+
+
+def _address_is_public(value: str) -> bool:
+    return ipaddress.ip_address(value).is_global
 
 
 def _fetch_report_response(ticker: str, report_url: str) -> tuple[requests.Response, str]:
@@ -494,6 +514,9 @@ def _fetch_report_response(ticker: str, report_url: str) -> tuple[requests.Respo
         if not _host_resolves_public(current_url):
             raise ValueError("Registered issuer-IR host did not resolve only to public addresses.")
         response = http.fetch(current_url, allow_redirects=False, stream=True)
+        if not _peer_is_public(response):
+            response.close()
+            raise ValueError("Issuer report connection peer is not a public address.")
         if response.status_code not in REDIRECT_STATUSES:
             return response, current_url
         location = response.headers.get("location")
@@ -502,6 +525,16 @@ def _fetch_report_response(ticker: str, report_url: str) -> tuple[requests.Respo
             raise ValueError("Issuer report redirect did not include a Location header.")
         current_url = urljoin(current_url, location)
     raise ValueError(f"Issuer report exceeded {MAX_REDIRECTS} redirects.")
+
+
+def _peer_is_public(response: requests.Response) -> bool:
+    """Validate the connected socket, not only a pre-request DNS answer."""
+    try:
+        connection = response.raw._connection  # requests/urllib3 transport state
+        peer = connection.sock.getpeername()[0]
+    except (AttributeError, OSError, TypeError):
+        return False
+    return _address_is_public(peer)
 
 
 def _read_bounded_content(response: requests.Response) -> bytes:
@@ -547,6 +580,15 @@ def _cached_report_result(
     )
     if version is None:
         return None
+    return _report_version_result(ticker, report_url, document, version)
+
+
+def _report_version_result(
+    ticker: str,
+    report_url: str,
+    document: SourceDocument,
+    version: DocumentVersion,
+) -> dict:
     statuses = {
         "parsed": (True, "cached"),
         "partial": (True, "cached_partial"),

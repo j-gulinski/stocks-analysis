@@ -42,11 +42,17 @@ raw-binary/object storage remain an explicit follow-up rather than an implicit
 host dependency.
 
 An independent verifier then hardened the published pilot: redirects are now
-manual and each hop is host/public-IP validated before any request; PDF bodies
+manual and each hop is host/public-IP validated before any request and against
+the connected peer address; PDF bodies
 stream with `Content-Length` and chunked hard stops; terminal HTTP errors are
 structured; cached failures preserve `needs_ocr`/`parse_failed`; and partial
 30-page/4000-character extraction is durable and visible. Only link facts from
 a successfully parsed issuer-index version may authorize a detail fetch.
+Reused immutable versions preserve their original parser and terminal status
+under forced refreshes, and authorization additionally requires the registered
+index scope/company identity. RT2.4 derives allowed use from parse health,
+treats every non-`parsed` document as requiring attention and surfaces the
+unverified terms status directly on each source card.
 
 ## 2026-07-11 · CX.16d honest cohort replay cards
 

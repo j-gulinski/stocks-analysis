@@ -10,6 +10,7 @@ def public_issuer_hosts(monkeypatch):
     from app.scrapers import issuer_ir
 
     monkeypatch.setattr(issuer_ir, "_host_resolves_public", lambda _url: True)
+    monkeypatch.setattr(issuer_ir, "_peer_is_public", lambda _response: True)
 
 
 def _seed_report_link(db, report_url: str):
@@ -536,3 +537,98 @@ def test_unrelated_source_fact_cannot_authorize_report_fetch(db):
 
     with pytest.raises(ValueError, match="not present"):
         issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+
+
+def test_wrong_issuer_scope_cannot_authorize_report_fetch(db):
+    from app.db.models import Company
+    from app.scrapers import issuer_ir
+    from app.services import evidence
+
+    report_url = "https://assecobs.pl/reports/wrong-scope.pdf"
+    company = Company(ticker="ABS", name="ASSECO BUSINESS SOLUTIONS SA")
+    db.add(company)
+    db.flush()
+    wrong_scope = evidence.record_document_version(
+        db,
+        company,
+        source_name="ABS issuer IR",
+        source_type="issuer_ir",
+        scope_key="other-index",
+        requested_url=issuer_ir.ISSUER_IR_SOURCES["ABS"],
+        effective_url=issuer_ir.ISSUER_IR_SOURCES["ABS"],
+        content=b"wrong scope",
+        text="wrong scope",
+        response_status=200,
+        mime_type="text/html",
+    )
+    evidence.mark_parse_result(wrong_scope.version, success=True)
+    evidence.record_text_fact(
+        db,
+        company,
+        wrong_scope.version,
+        fact_type="issuer_ir_link",
+        fact_key="issuer_ir.periodic_report.wrong_scope",
+        text="Wrong scope",
+        locator={"url": report_url},
+        verification_state="unverified",
+        extractor_version=issuer_ir.EXTRACTOR_VERSION,
+    )
+    db.commit()
+
+    with pytest.raises(ValueError, match="not present"):
+        issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+
+
+def test_forced_reprocessing_does_not_downgrade_parsed_version(db, monkeypatch):
+    from app.db.models import DocumentVersion
+    from app.scrapers import issuer_ir
+
+    report_url = "https://assecobs.pl/reports/stable.pdf"
+    _seed_report_link(db, report_url)
+    response = FakeResponse("", 200)
+    response.url = report_url
+    response.content = b"%PDF-stable"
+    monkeypatch.setattr(issuer_ir.http, "fetch", lambda _url, **_kwargs: response)
+    monkeypatch.setattr(issuer_ir, "extract_pdf_pages", lambda _content: ["Stable claim"])
+    first = issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+    version = db.get(DocumentVersion, first["document_version_id"])
+    assert version.parse_status == "parsed"
+    original_parser = version.parser_version
+
+    monkeypatch.setattr(issuer_ir, "extract_pdf_pages", lambda _content: [""])
+    second = issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url, force=True)
+
+    db.refresh(version)
+    assert second["status"] == "cached"
+    assert version.parse_status == "parsed"
+    assert version.parser_version == original_parser
+
+
+def test_actual_loopback_peer_is_rejected_before_body_read(db, monkeypatch):
+    from app.scrapers import issuer_ir
+
+    report_url = "https://assecobs.pl/reports/rebound.pdf"
+    _seed_report_link(db, report_url)
+    response = FakeResponse("", 200)
+    response.url = report_url
+    body_read = []
+    response.iter_content = lambda **_kwargs: body_read.append(True) or iter((b"%PDF",))
+    monkeypatch.setattr(issuer_ir.http, "fetch", lambda _url, **_kwargs: response)
+    monkeypatch.setattr(issuer_ir, "_peer_is_public", lambda _response: False)
+
+    result = issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+
+    assert result["status"] == "rejected"
+    assert "peer" in result["error"].lower()
+    assert body_read == []
+
+
+def test_network_target_checks_reject_private_or_mixed_addresses():
+    from app.scrapers import issuer_ir
+
+    assert issuer_ir._addresses_are_public({"8.8.8.8", "127.0.0.1"}) is False
+    assert issuer_ir._addresses_are_public({"169.254.1.1"}) is False
+    assert issuer_ir._addresses_are_public({"8.8.8.8"}) is True
+
+    assert issuer_ir._address_is_public("127.0.0.1") is False
+    assert issuer_ir._address_is_public("8.8.8.8") is True

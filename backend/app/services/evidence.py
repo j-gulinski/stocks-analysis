@@ -103,7 +103,6 @@ def record_document_version(
     document.last_fetched_at = fetched_at
     document.latest_content_hash = content_hash
     document.mime_type = mime_type
-    document.parser_version = parser_version
     document.last_fetch_status = response_status
 
     version = db.scalar(
@@ -138,6 +137,9 @@ def record_document_version(
             )
         )
     assert version is not None
+    # Re-fetching identical bytes must not claim they were parsed by a newer
+    # parser or mutate the immutable version's extraction state.
+    document.parser_version = parser_version if created else version.parser_version
     return RecordedDocument(document=document, version=version, version_created=created)
 
 

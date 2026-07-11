@@ -51,7 +51,7 @@ export default function EvidenceSourcesPanel({ ticker }: { ticker: string }) {
     <div className="evidence-source-grid">
       {groups.map(({ quality, documents }) => {
         const failedDocuments = documents.filter(
-          (document) => ["failed", "needs_ocr", "partial"].includes(document.latest_parse_status),
+          (document) => document.latest_parse_status !== "parsed",
         );
         const newest = [...documents].sort((left, right) =>
           (right.latest_version_at ?? "").localeCompare(left.latest_version_at ?? ""),
@@ -61,6 +61,7 @@ export default function EvidenceSourcesPanel({ ticker }: { ticker: string }) {
             <div className="spread">
               <div>
                 <span className="badge muted">priorytet {quality.priority ?? "?"}</span>
+                <span className="badge warning">warunki: do weryfikacji</span>
                 <h3>{quality.label}</h3>
               </div>
               <span className={failedDocuments.length ? "badge warning" : "badge success"}>

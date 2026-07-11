@@ -49,10 +49,10 @@ DEFAULT_SOURCE_QUALITY = {
 }
 
 
-def source_quality_note(source_type: str) -> dict:
+def source_quality_note(source_type: str, parse_status: str | None = None) -> dict:
     """Return a copy so API callers cannot mutate the registry."""
     note = SOURCE_QUALITY.get(source_type, DEFAULT_SOURCE_QUALITY)
-    return {
+    result = {
         **note,
         "terms_status": "review_required",
         "terms_note": (
@@ -61,3 +61,12 @@ def source_quality_note(source_type: str) -> dict:
         ),
         "rate_policy": "Wspólny klient HTTP: limity per domena, jitter, backoff i cache.",
     }
+    if source_type == "issuer_ir_report" and parse_status in {"failed", "needs_ocr", "pending", "missing"}:
+        result["allowed_use"] = (
+            "Wyłącznie jako referencja do dokumentu; brak używalnej wyekstrahowanej treści."
+        )
+    elif source_type == "issuer_ir_report" and parse_status == "partial":
+        result["allowed_use"] = (
+            "Częściowy dowód pierwotny wyłącznie w granicach zapisanych stron i lokatorów."
+        )
+    return result

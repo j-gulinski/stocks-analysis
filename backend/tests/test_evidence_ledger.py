@@ -122,6 +122,14 @@ def test_record_document_version_reports_first_insert_and_identical_reuse(db):
     assert first.version.id == second.version.id
 
 
+def test_issuer_report_quality_depends_on_parse_state():
+    from app.services.source_quality import source_quality_note
+
+    assert "Pierwotny dowód" in source_quality_note("issuer_ir_report", "parsed")["allowed_use"]
+    assert "referencja" in source_quality_note("issuer_ir_report", "needs_ocr")["allowed_use"]
+    assert "Częściowy" in source_quality_note("issuer_ir_report", "partial")["allowed_use"]
+
+
 def test_changed_page_preserves_old_as_of_and_advances_serving_pointer(
     client, db, monkeypatch
 ):

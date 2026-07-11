@@ -67,7 +67,10 @@ def list_documents(ticker: str, db: Session = Depends(get_db)) -> list[dict]:
                     latest_version.parse_status if latest_version else "missing"
                 ),
                 "latest_parse_error": latest_version.parse_error if latest_version else None,
-                "quality": source_quality_note(document.source_type),
+                "quality": source_quality_note(
+                    document.source_type,
+                    latest_version.parse_status if latest_version else "missing",
+                ),
             }
         )
     return result
