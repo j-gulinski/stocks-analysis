@@ -52,6 +52,45 @@ export interface DiscoveryResult {
   } | null;
 }
 
+export interface ForecastGrowthMetric {
+  first_value: number | null;
+  second_value: number | null;
+  growth_pct: number | null;
+  turnaround: boolean;
+  transition: "normal" | "turnaround" | "loss_narrowing" | "deterioration" | "unknown";
+}
+
+export interface ForecastGrowthCandidate {
+  rank: number;
+  ticker: string;
+  name: string | null;
+  first_forecast_year: string;
+  second_forecast_year: string;
+  composite_growth_pct: number;
+  metric_coverage: number;
+  metrics: Record<string, ForecastGrowthMetric>;
+  analyst_count: number | null;
+  source: string;
+  source_version_id: number | null;
+  source_url: string;
+  fetched_at: string | null;
+  freshness_status: "fresh";
+}
+
+export interface ForecastGrowthRanking {
+  status: "research_shortlist";
+  method: string;
+  universe: string;
+  universe_count: number;
+  ranked_count: number;
+  insufficient_count: number;
+  stale_count: number;
+  fresh_after_days: number;
+  analyst_count_available: boolean;
+  caveats: string[];
+  candidates: ForecastGrowthCandidate[];
+}
+
 export interface Company {
   ticker: string;
   name: string | null;

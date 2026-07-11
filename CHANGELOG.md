@@ -3,6 +3,27 @@
 Durable decisions and completed slices only. `TASKS.md` owns current status;
 implementation detail lives in stage plans, validation notes, archives and git.
 
+## 2026-07-11 · DISC.1 stored-consensus growth ranking
+
+Discover now includes a deterministic two-forecast-year ranking from locally
+stored BiznesRadar `/prognozy/{spółka}` consensus pages. It requires revenue
+plus at least one profit metric, displays revenue/EBITDA/EBIT/net-income growth
+separately, excludes zero/negative bases from percentage ranking, caps only the
+composite influence of outliers and exposes source/fetch time/missing analyst
+count. The result is explicitly a research shortlist and reads values
+directly from one fresh immutable evidence version; years must be current or
+future and adjacent, while units/extractor and finite values must match. A live
+three-page collector experiment observed three honest “brak kolumn
+konsensusu” results (IFR/IMP/UNF) from a 384-company universe. Independent
+review rejected that collector because page count was not a true HTTP-attempt
+budget and it lacked a durable cursor/lock, authoritative slug and terms
+approval. Its code was removed, the hourly automation remains ESPI-only, and no
+further market traversal is scheduled until those gates pass.
+The controlled ABS/SNT comparison also corrected an earlier assumption: the
+table layout is public, but consensus values were empty anonymously and present
+after Premium login. Fresh Premium versions 25/26 now back every displayed
+ranking fact; anonymous empty versions cannot inherit older mutable values.
+
 ## 2026-07-11 · RT2.5 corporate-action-aware return gate
 
 Price rows now record `source_name` and an explicit `adjustment_status`

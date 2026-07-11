@@ -236,3 +236,31 @@ def merge_premium_market_data(db: Session, company: Company, premium: dict) -> N
     ):
         flag_modified(record, field_name)
     db.flush()
+
+
+def replace_forecast_consensus(
+    db: Session,
+    company: Company,
+    forecast_consensus: dict,
+) -> None:
+    """Replace one page snapshot so removed or empty years cannot survive."""
+    record = db.scalar(
+        select(CompanyMarketData).where(CompanyMarketData.company_id == company.id)
+    )
+    if record is None:
+        record = CompanyMarketData(
+            company_id=company.id,
+            industry_type=classify_industry_type(company.sector),
+            priority_values={},
+            forecast_consensus={},
+            advanced_metrics={},
+            dividend_coverage={},
+        )
+        db.add(record)
+    record.forecast_consensus = forecast_consensus
+    priority = dict(record.priority_values or {})
+    priority["forecast_consensus"] = forecast_consensus
+    record.priority_values = priority
+    flag_modified(record, "forecast_consensus")
+    flag_modified(record, "priority_values")
+    db.flush()

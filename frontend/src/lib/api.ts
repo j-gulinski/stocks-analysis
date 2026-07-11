@@ -26,6 +26,7 @@ import type {
   Financials,
   Falsifier,
   Forecast,
+  ForecastGrowthRanking,
   ForecastAssumptions,
   ForumPage,
   ForumSync,
@@ -100,6 +101,11 @@ export const getDiscovery = (
   if (minFScore != null) params.set("min_f_score", String(minFScore));
   return request<DiscoveryResult>(`/discovery?${params}`);
 };
+
+export const getForecastGrowthRanking = (limit = 30) =>
+  request<ForecastGrowthRanking>(
+    `/discovery/forecast-growth?limit=${encodeURIComponent(String(limit))}`,
+  );
 
 // ---------------------------------------------------------------- companies
 export const getDossier = (ticker: string) =>

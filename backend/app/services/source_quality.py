@@ -39,6 +39,12 @@ SOURCE_QUALITY: dict[str, dict] = {
         "allowed_use": "Pierwotny dowód zdarzenia raportowanego przez emitenta.",
         "limitation": "Opis emitenta nie jest niezależną oceną skutku; interpretacja wymaga weryfikacji.",
     },
+    "analyst_forecast": {
+        "priority": 0,
+        "label": "Konsensus analityków BiznesRadar",
+        "allowed_use": "Porównanie kierunku i dynamiki prognoz jako trop do researchu.",
+        "limitation": "Nieznana liczba analityków; konsensus obejmuje tylko prognozy młodsze niż sześć miesięcy i wymaga weryfikacji w źródłach pierwotnych.",
+    },
 }
 
 DEFAULT_SOURCE_QUALITY = {

@@ -11,10 +11,17 @@ import {
   IconRefresh,
   IconShieldCheck,
 } from "@tabler/icons-react";
-import { addToWatchlist, getDiscovery, listAgentRuns } from "@/lib/api";
-import { fmtDate } from "@/lib/format";
+import { addToWatchlist, getDiscovery, getForecastGrowthRanking, listAgentRuns } from "@/lib/api";
+import { fmtDate, fmtPct } from "@/lib/format";
 import { LoadingMessages, SkeletonRows } from "@/components/Loading";
-import type { AgentRun, DiscoveryResult } from "@/lib/types";
+import type { AgentRun, DiscoveryResult, ForecastGrowthRanking } from "@/lib/types";
+
+const FORECAST_METRIC_LABELS: Record<string, string> = {
+  revenue: "Przychody",
+  ebitda: "EBITDA",
+  operating_profit: "EBIT",
+  net_income: "Zysk netto",
+};
 
 const PRESETS = [
   { id: "broad", label: "Szeroki radar", minRating: 5, minFScore: null },
@@ -79,13 +86,19 @@ export default function DiscoverPage() {
   const [starting, setStarting] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(15);
   const [evaluationRun, setEvaluationRun] = useState<AgentRun | null>(null);
+  const [forecastRanking, setForecastRanking] = useState<ForecastGrowthRanking | null>(null);
 
   const load = async (force = false, nextPreset = presetId) => {
     const preset = PRESETS.find((item) => item.id === nextPreset) ?? PRESETS[0];
     setLoading(true);
     setError(null);
     try {
-      setResult(await getDiscovery(preset.minRating, preset.minFScore, force));
+      const [discovery, forecasts] = await Promise.all([
+        getDiscovery(preset.minRating, preset.minFScore, force),
+        getForecastGrowthRanking(15),
+      ]);
+      setResult(discovery);
+      setForecastRanking(forecasts);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -190,6 +203,61 @@ export default function DiscoverPage() {
           <li><span>3</span><strong>Rozpocznij</strong><small>jawne dossier</small></li>
           <li><span>4</span><strong>Zweryfikuj</strong><small>raport Codex</small></li>
         </ol>
+      </section>
+
+      <section className="forecast-ranking-section" aria-label="Ranking wzrostu prognoz analityków">
+        <div className="section-heading">
+          <div>
+            <p className="section-label">Konsensus analityków · 2 lata</p>
+            <h2>Najwyższa dynamika prognozowanych wyników</h2>
+          </div>
+          <p>Shortlista badawcza z zapisanych stron BiznesRadar — nie rekomendacja.</p>
+        </div>
+        {loading && !forecastRanking ? <SkeletonRows rows={3} height={72} /> : forecastRanking?.candidates.length ? (
+          <div className="forecast-ranking-table">
+            {forecastRanking.candidates.map((candidate) => (
+              <article className="forecast-ranking-row" key={candidate.ticker}>
+                <span className="forecast-rank">#{candidate.rank}</span>
+                <div>
+                  <strong>{candidate.ticker} · {candidate.name ?? "nazwa do potwierdzenia"}</strong>
+                  <small>{candidate.first_forecast_year} → {candidate.second_forecast_year} · {candidate.metric_coverage}/4 metryk</small>
+                </div>
+                <strong className={candidate.composite_growth_pct > 0 ? "pos" : candidate.composite_growth_pct < 0 ? "neg" : "secondary"}>{fmtPct(candidate.composite_growth_pct, { signed: true })}</strong>
+                <div className="forecast-metric-chips">
+                  {Object.entries(candidate.metrics).map(([metric, value]) => (
+                    <span className={value.growth_pct == null ? "badge muted" : "badge neutral"} key={metric}>
+                      {FORECAST_METRIC_LABELS[metric] ?? metric}: {value.transition === "turnaround"
+                        ? "turnaround"
+                        : value.transition === "loss_narrowing"
+                          ? "mniejsza strata"
+                          : value.transition === "deterioration"
+                            ? "pogorszenie"
+                            : fmtPct(value.growth_pct, { signed: true })}
+                    </span>
+                  ))}
+                </div>
+                <div className="forecast-source-line">
+                  <span>
+                    analitycy: b/d · dane {fmtDate(candidate.fetched_at)}
+                    {candidate.source_version_id ? ` · wersja #${candidate.source_version_id}` : " · wersja źródła: brak"}
+                  </span>
+                  <a href={candidate.source_url} target="_blank" rel="noreferrer">źródło ↗</a>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="info-box">
+            Brak co najmniej dwóch lat konsensusu z wymaganym pokryciem. Collector będzie uzupełniał uniwersum partiami.
+          </div>
+        )}
+        {forecastRanking && (
+          <details className="forecast-ranking-caveats">
+            <summary>Metoda i ograniczenia</summary>
+            <p>{forecastRanking.method}</p>
+            <ul>{forecastRanking.caveats.map((item) => <li key={item}>{item}</li>)}</ul>
+          </details>
+        )}
       </section>
 
       <section className="screening-controls" aria-label="Wybór sita">

@@ -310,10 +310,10 @@ def parse_premium_market_data(html: str) -> PremiumMarketData:
 
 # -------------------------------------------------------------- forecasts
 #
-# /prognozy/{slug} — VERIFIED live-DOM 2026-07-09 (real browser capture; the
-# scraper sandbox cannot reach biznesradar.pl, so this shape is trusted, not
-# re-derived). The page is PUBLIC (no premium session needed) — it was
-# previously wrongly gated behind a premium BR session in refresh.py.
+# /prognozy/{slug} — VERIFIED live-DOM 2026-07-09 and live HTTP 2026-07-11.
+# The table structure is public, but consensus values are blank anonymously
+# and populated in an authenticated Premium session. Parsing remains the same;
+# collection must label whether Premium authentication was available.
 #
 # Structure: <div id="profile-forecast"> containing an <h3>, a div.tools
 # (JS-only view toggles, ignored) and a single

@@ -47,9 +47,13 @@ Take the first unchecked item. Each item should be a bounded, verifiable slice.
     and cannot create returns. Mixed bases are stratified. Next:
     evaluate an official/licensed GPW long-history source with split/dividend
     coverage, terms and delistings.
-15. [ ] **DISC.1 — BiznesRadar Premium forecast-growth ranking.** Build a
-    bounded universe collector and deterministic two-year ranking for analyst
-    consensus growth. Keep revenue/EBIT/net-profit/EPS dimensions separate,
+15. [~] **DISC.1 — BiznesRadar Premium forecast-growth ranking.** Deterministic
+    ranking over fresh immutable consensus versions now exists in API/Discover.
+    The 3-page pilot found no consensus for IFR/IMP/UNF and preserved that
+    missingness, but verifier rejected and removed the unsafe collector. Next:
+    terms/robots approval, authoritative href slug, separate candidate storage,
+    durable cursor/lock/retries and a true global HTTP-attempt budget. Keep
+    revenue/EBITDA/EBIT/net-profit dimensions separate,
     expose forecast dates/analyst coverage/missingness and source evidence,
     label the result as a research shortlist, then offer refresh and queue
     analysis actions. Do not crawl the full site until robots/terms, request

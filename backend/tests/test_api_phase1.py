@@ -129,7 +129,13 @@ def test_refresh_and_read_endpoints(client, stub_fetch):
     assert prices[-1]["close"] == 24.80  # chronological, newest from BR archive
 
 
-def test_refresh_reports_empty_forecast_consensus_columns(client, monkeypatch):
+def test_refresh_reports_empty_forecast_consensus_columns(client, db, monkeypatch):
+    from sqlalchemy import select
+    from app.db.models import CompanyMarketData
+
+    monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
+    assert client.post("/api/companies/DEC/refresh").status_code == 200
+
     def fetch_with_empty_forecasts(url, *, session=None, timeout=None):
         if url == "https://www.biznesradar.pl/prognozy/DEC":
             return FakeResponse(load_fixture("br_forecasts_empty_consensus.html"), 200)
@@ -137,12 +143,14 @@ def test_refresh_reports_empty_forecast_consensus_columns(client, monkeypatch):
 
     monkeypatch.setattr("app.scrapers.http.fetch", fetch_with_empty_forecasts)
 
-    summary = client.post("/api/companies/DEC/refresh").json()["summary"]
+    summary = client.post("/api/companies/DEC/refresh?force=true").json()["summary"]
 
     assert summary["forecasts"].startswith(
         "ok (kolumny konsensusu bez wartości: 2026, 2027, 2028)"
     )
     assert "O4K: capex_ttm, depreciation_ttm, ebitda_ttm" in summary["forecasts"]
+    market_row = db.scalar(select(CompanyMarketData))
+    assert market_row.forecast_consensus == {}
 
 
 def test_second_refresh_uses_cache(client, stub_fetch):

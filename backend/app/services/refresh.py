@@ -616,9 +616,13 @@ def _upsert_forecasts(
                 "source": "biznesradar_forecasts_o4k",
             }
 
-    premium_shaped = {"forecast_consensus": forecast_consensus, "advanced_metrics": ttm_metrics}
-    if forecast_consensus or ttm_metrics:
-        market_data.merge_premium_market_data(db, company, premium_shaped)
+    market_data.replace_forecast_consensus(db, company, forecast_consensus)
+    if ttm_metrics:
+        market_data.merge_premium_market_data(
+            db,
+            company,
+            {"advanced_metrics": ttm_metrics},
+        )
     return sorted(forecast_consensus.keys()), sorted(ttm_metrics.keys())
 
 
@@ -631,20 +635,16 @@ def _refresh_forecasts(
 ) -> None:
     """Analyst forecasts (/prognozy/{slug}).
 
-    VERIFIED live 2026-07-09: this page is PUBLIC (anonymous OK) — it was
-    previously wrongly gated behind a premium BR session in
-    `_refresh_premium_forecasts` (renamed here), which meant every refresh
-    without BR_USERNAME/BR_PASSWORD configured silently skipped it even
-    though no login is needed at all. Fetched anonymously through the same
-    slug/redirect discipline as every other report page (`_report_slug`),
-    with `session` still threaded through so an active premium session (if
-    any) reuses its cookies rather than a second anonymous round-trip.
+    VERIFIED live 2026-07-11: the table structure is public, but consensus
+    values are blank anonymously and populated by an authenticated Premium
+    session. We still fetch the anonymous shape when credentials are absent so
+    missingness is explicit; a collector that promises consensus coverage must
+    require and report successful Premium authentication.
 
     `_merge_premium_nodes` runs first (same as every other fetched BR page)
     so any ROIC/FCF/EV/dividend-coverage node BiznesRadar happens to render
-    on this page is still picked up — this IS "the premium path as a
-    secondary merge" for this page now; there is no separate paid variant of
-    /prognozy to fetch, the anonymous and logged-in HTML are the same table.
+    on this page is still picked up. The URL is identical for anonymous and
+    Premium sessions, while the value visibility differs.
     """
     url = biznesradar.page_url("forecasts", _report_slug(company))
     try:
@@ -658,14 +658,46 @@ def _refresh_forecasts(
         return
 
     _merge_premium_nodes(db, company, page.text)
+    recorded = _record_page_evidence(
+        db,
+        company,
+        page,
+        source_type="analyst_forecast",
+        scope_key="consensus",
+    )
     try:
         table = biznesradar.parse_forecasts(page.text)
     except biznesradar.ParseError as exc:
+        evidence.mark_parse_result(recorded.version, success=False, error=str(exc))
         logger.warning("forecasts parse failed for %s: %s", company.ticker, exc)
         summary["forecasts"] = f"error: {exc}"
         return
 
     consensus_years, ttm_keys = _upsert_forecasts(db, company, table)
+    for row in table.rows:
+        if row.metric is None:
+            continue
+        for column, value in zip(table.columns, row.values):
+            if column.kind != "konsensus" or value is None:
+                continue
+            evidence.record_numeric_fact(
+                db,
+                company,
+                recorded.version,
+                fact_type="analyst_forecast",
+                fact_key=f"forecast.{row.metric}",
+                value=value,
+                unit=_FORECAST_MONEY_UNITS.get(row.metric, ""),
+                period=column.label,
+                locator={
+                    "url": page.effective_url,
+                    "table": "profile-forecast",
+                    "row": row.label,
+                    "column": column.label,
+                },
+                extractor_version="biznesradar-forecasts@1",
+            )
+    evidence.mark_parse_result(recorded.version, success=True)
     consensus_columns = [c.label for c in table.columns if c.kind == "konsensus"]
     if consensus_years:
         detail = f"ok ({', '.join(consensus_years)} consensus)"

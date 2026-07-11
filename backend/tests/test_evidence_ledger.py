@@ -34,7 +34,7 @@ def _counts(db) -> tuple[int, int, int]:
 def test_refresh_creates_documents_facts_and_serving_lineage(client, db, stub_fetch):
     response = client.post("/api/companies/DEC/refresh")
     assert response.status_code == 200
-    assert _counts(db) == (6, 6, 200)
+    assert _counts(db) == (7, 7, 230)
 
     report_without_lineage = db.scalar(
         select(func.count())
@@ -69,16 +69,19 @@ def test_refresh_creates_documents_facts_and_serving_lineage(client, db, stub_fe
         .select_from(FetchLog)
         .where(FetchLog.document_version_id.is_not(None))
     )
-    assert linked_fetches == 6
+    assert linked_fetches == 7
 
     documents = client.get("/api/companies/DEC/evidence/documents").json()
-    assert len(documents) == 6
+    assert len(documents) == 7
     assert all(document["version_count"] == 1 for document in documents)
     assert all(document["latest_parse_status"] == "parsed" for document in documents)
     assert all(document["quality"]["terms_status"] == "review_required" for document in documents)
     assert all(document["quality"]["limitation"] for document in documents)
     facts = client.get("/api/companies/DEC/evidence/facts").json()
-    assert len(facts) == 200
+    assert len(facts) == 230
+    assert len(client.get(
+        "/api/companies/DEC/evidence/facts", params={"fact_type": "analyst_forecast"}
+    ).json()) == 30
     assert len(client.get(
         "/api/companies/DEC/evidence/facts", params={"fact_type": "indicator"}
     ).json()) == 60
@@ -93,7 +96,7 @@ def test_refresh_creates_documents_facts_and_serving_lineage(client, db, stub_fe
 def test_forced_identical_refresh_reuses_versions_and_facts(client, db, stub_fetch):
     assert client.post("/api/companies/DEC/refresh").status_code == 200
     assert client.post("/api/companies/DEC/refresh?force=true").status_code == 200
-    assert _counts(db) == (6, 6, 200)
+    assert _counts(db) == (7, 7, 230)
 
 
 def test_record_document_version_reports_first_insert_and_identical_reuse(db):
@@ -153,7 +156,7 @@ def test_changed_page_preserves_old_as_of_and_advances_serving_pointer(
     monkeypatch.setattr("app.scrapers.http.fetch", changed_fetch)
     assert client.post("/api/companies/DEC/refresh?force=true").status_code == 200
 
-    assert _counts(db) == (6, 7, 299)
+    assert _counts(db) == (7, 8, 329)
     current = db.scalar(
         select(ReportValue).where(
             ReportValue.statement == "income",
@@ -218,8 +221,8 @@ def test_failed_changed_page_is_retained_but_does_not_blank_serving_data(
         .where(ReportValue.statement == "income", ReportValue.freq == "Q")
     ) == 99
     # Failed raw version creates no facts and is excluded from as-of reads.
-    assert db.scalar(select(func.count()).select_from(Fact)) == 200
-    assert len(client.get("/api/companies/DEC/evidence/facts").json()) == 200
+    assert db.scalar(select(func.count()).select_from(Fact)) == 230
+    assert len(client.get("/api/companies/DEC/evidence/facts").json()) == 230
 
 
 def test_watchlist_removal_preserves_immutable_evidence(client, db, stub_fetch):

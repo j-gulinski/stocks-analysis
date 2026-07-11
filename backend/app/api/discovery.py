@@ -15,8 +15,17 @@ from app.api.schemas import (
 from app.db.base import get_db
 from app.db.models import AgentRun, AnalysisRun, Company
 from app.services.discovery import discover_candidates
+from app.services.forecast_ranking import build_forecast_growth_ranking
 
 router = APIRouter(prefix="/discovery", tags=["discovery"])
+
+
+@router.get("/forecast-growth")
+def forecast_growth_ranking(
+    limit: int = Query(default=30, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> dict:
+    return build_forecast_growth_ranking(db, limit=limit)
 
 _RATING_RANK = {
     "AAA": 16, "AA+": 15, "AA": 14, "AA-": 13,

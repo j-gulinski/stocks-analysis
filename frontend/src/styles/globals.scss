@@ -2371,6 +2371,45 @@ textarea {
   color: var(--text-primary);
 }
 
+.forecast-ranking-section {
+  padding: 20px 0;
+  border-block: 0.5px solid var(--border);
+}
+
+.forecast-ranking-table { display: grid; gap: 8px; }
+
+.forecast-ranking-row {
+  display: grid;
+  grid-template-columns: 42px minmax(210px, 1fr) auto minmax(320px, 1.4fr);
+  gap: 10px 16px;
+  align-items: center;
+  padding: 13px 15px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+
+  small { display: block; margin-top: 3px; color: var(--text-muted); }
+}
+
+.forecast-rank { color: var(--text-accent); font-variant-numeric: tabular-nums; }
+.forecast-metric-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.forecast-source-line {
+  grid-column: 2 / -1;
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.forecast-ranking-caveats { margin-top: 12px; color: var(--text-secondary); font-size: 12px; }
+
+@media (max-width: 900px) {
+  .forecast-ranking-row {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+  }
+  .forecast-metric-chips,
+  .forecast-source-line { grid-column: 2 / -1; }
+}
+
 .screening-controls {
   display: grid;
   grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.3fr);
