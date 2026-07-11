@@ -11,7 +11,14 @@ from typing import Any
 
 from sqlalchemy import select
 
-from app.api.schemas import DossierOut
+from pydantic import ValidationError
+
+from app.api.schemas import (
+    DossierOut,
+    ResearchSnapshotOut,
+    ResearchSnapshotSaveIn,
+    ResearchSnapshotVerificationIn,
+)
 from app.db.base import SessionLocal
 from app.db.models import (
     AgentRun,
@@ -37,6 +44,11 @@ from app.services import (
 )
 from app.services.model_policy import default_model_for_workflow
 from app.services.agent_queue import clear_agent_lease
+from app.services.research_artifacts import (
+    ResearchArtifactError,
+    save_research_snapshot as persist_research_snapshot,
+    verify_research_snapshot as persist_research_verification,
+)
 
 
 class ToolInputError(ValueError):
@@ -414,6 +426,71 @@ def complete_agent_run(arguments: dict[str, Any]) -> dict[str, Any]:
             "ok": True,
             "agent_run": _agent_row(agent),
             "verification_status": verification_status,
+        }
+    finally:
+        db.close()
+
+
+def save_research_snapshot(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Thin MCP adapter over the canonical research artifact save gate."""
+    case_id = arguments.get("case_id")
+    payload = arguments.get("payload")
+    if not isinstance(case_id, int):
+        raise ToolInputError("Required field 'case_id' must be an integer.")
+    if not isinstance(payload, dict):
+        raise ToolInputError("Required field 'payload' must be an object.")
+    try:
+        parsed = ResearchSnapshotSaveIn.model_validate(payload)
+    except ValidationError as exc:
+        raise ToolInputError(str(exc)) from exc
+    db = SessionLocal()
+    try:
+        try:
+            snapshot = persist_research_snapshot(db, case_id=case_id, payload=parsed)
+        except ResearchArtifactError as exc:
+            raise ToolInputError(str(exc)) from exc
+        return {
+            "ok": True,
+            "research_snapshot": ResearchSnapshotOut.model_validate(snapshot).model_dump(
+                mode="json"
+            ),
+        }
+    finally:
+        db.close()
+
+
+def verify_research_snapshot(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Record an independent verdict bound to the exact research draft."""
+    case_id = arguments.get("case_id")
+    payload = arguments.get("payload")
+    if not isinstance(case_id, int):
+        raise ToolInputError("Required field 'case_id' must be an integer.")
+    if not isinstance(payload, dict):
+        raise ToolInputError("Required field 'payload' must be an object.")
+    try:
+        parsed = ResearchSnapshotVerificationIn.model_validate(payload)
+    except ValidationError as exc:
+        raise ToolInputError(str(exc)) from exc
+    db = SessionLocal()
+    try:
+        try:
+            verification = persist_research_verification(
+                db, case_id=case_id, payload=parsed
+            )
+        except ResearchArtifactError as exc:
+            raise ToolInputError(str(exc)) from exc
+        return {
+            "ok": True,
+            "verification_run": {
+                "id": verification.id,
+                "agent_run_id": verification.agent_run_id,
+                "model_role": verification.model_role,
+                "verifier_model": verification.verifier_model,
+                "verdict": verification.verdict,
+                "checks": verification.checks,
+                "summary": verification.summary,
+                "created_at": verification.created_at,
+            },
         }
     finally:
         db.close()

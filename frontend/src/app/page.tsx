@@ -43,7 +43,7 @@ const CASE_STEP_LABELS: Record<ResearchCaseStep, string> = {
 function collectionStatus(status: string | null): { label: string; tone: string } {
   if (status === "queued") return { label: "Research zaplanowany", tone: "accent" };
   if (status === "running") return { label: "Research w toku", tone: "accent" };
-  if (status === "completed") return { label: "Szkic Research gotowy", tone: "neutral" };
+  if (status === "completed") return { label: "Zadanie zakończone · brak snapshotu", tone: "warning" };
   if (status === "provisional") return { label: "Research prowizoryczny", tone: "neutral" };
   if (status === "verified") return { label: "Research zweryfikowany", tone: "success" };
   if (status === "needs-human") {
@@ -159,7 +159,7 @@ export default function ResearchPage() {
 
           <section className="research-case-list" aria-label="Przypadki badawcze">
             {cases.map((item) => {
-              const job = collectionStatus(item.initial_research_status);
+              const job = collectionStatus(item.latest_snapshot_status ?? item.initial_research_status);
               return (
                 <article className="research-case-row" key={item.id}>
                   <div className="research-case-company">
@@ -179,6 +179,7 @@ export default function ResearchPage() {
 
                   <div className="research-case-job">
                     <span className={`badge ${job.tone}`}>{job.label}</span>
+                    {item.latest_snapshot_as_of && <small>Stan wiedzy {relativeDate(item.latest_snapshot_as_of)}</small>}
                     {item.blocked_reason && <small className="warn">{item.blocked_reason}</small>}
                   </div>
 

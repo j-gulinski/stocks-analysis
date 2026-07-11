@@ -118,6 +118,11 @@ Codex worker -> claim + heartbeat -> collect/structure/calculate
 The first supported queue workflow is `stock-initial-research`, executed with
 the versioned `company-research` skill. Later replacement workflows cover
 company valuation, company review, and portfolio review.
+Research verification is a two-step local protocol: a distinct verifier
+context stores a verdict bound to the exact draft and frozen-input fingerprint;
+only its `VerificationRun` can unlock immutable save. `verifier_worker_id` is
+an audit identity inside this personal local workbench, not an authentication
+credential, so orchestration must enforce genuinely separate contexts.
 Workflow policy records requested role/model/reasoning and the actual host model
 when exposed. A drafting result never approves itself.
 

@@ -6,21 +6,22 @@ retain completed detail.
 
 ## Current state
 
-P0 is complete: the product/docs were reset, reads are side-effect free,
-recurring project automations were removed, and company memory is
-non-destructive. The P1 entry slice is green: Discover and typed-ticker adds
-create/reuse/reactivate one visible case and one unclaimed initial job. P1 is
-still open because the typed `CompanyProfile`/`ResearchSnapshot`, save gate,
-tailored renderer, and first verifier-labelled pilot do not exist yet.
+P0 and P1 are complete. Discover and typed-ticker adds create/reuse/reactivate
+one visible case and one unclaimed initial job. A claimed worker now produces
+an immutable, source-bound `CompanyProfile`/`ResearchSnapshot`; a separate
+verifier owns final status, and the fixed company workspace renders that
+artifact. The first real pilot, ABS, is honestly `provisional` with eight named
+gaps rather than a generic or falsely verified memo.
 
-Current delivery focus: **finish P1's real research artifact**, then expand it
-into the P2 archetypes and evidence-backed sieves.
+Current delivery focus: **P2 tailored breadth** — prove a materially different
+second archetype/company and expand only the sieves whose market-wide inputs
+are stored and source-grounded.
 
 | Stage | Outcome | Exit gate | Status |
 |---|---|---|---|
 | P0 · Reset | Four binding docs, obsolete artifacts removed, reads side-effect free, memory non-destructive, worker-only claims | tests prove zero-write reads, proxy verbs, archive preservation, no orphan claim | complete |
-| P1 · Research vertical | one `Dodaj do Research` command creates/reuses a company and case and one executable initial job | candidate and ticker paths are idempotent; case appears immediately; one pilot reaches a verifier-labelled snapshot | in progress |
-| P2 · Tailored research + sieves | common research spine, 2–3 real archetype packs, company overlay, primary-source plan, honest OBS/PA sieves | three comparable factor/coverage views; two representative companies render different relevant sections | waiting for P1 |
+| P1 · Research vertical | one `Dodaj do Research` command creates/reuses a company and case and one executable initial job | candidate and ticker paths are idempotent; case appears immediately; one pilot reaches a verifier-labelled snapshot | complete |
+| P2 · Tailored research + sieves | common research spine, 2–3 real archetype packs, company overlay, primary-source plan, honest OBS/PA sieves | three comparable factor/coverage views; two representative companies render different relevant sections | next |
 | P3 · Valuation | separate method packs, driver assumptions, deterministic quarter/year and price bridges | one industrial plus one non-industrial pilot reconcile and pass strict verification; sensitivity is labelled | waiting for P2 |
 | P4 · Portfolio | dated myfund/API snapshots, mappings, history, deterministic portfolio analytics and scenario aggregation | repeated sync updates positions; history/benchmark reconcile; portfolio review cites verified company snapshots | waiting for P3 |
 | P5 · Calibration | official adjusted returns, historical availability, mixed/holdout cases and method calibration | replay is no-look-ahead, reproducible, benchmark-relative, and reports calibration limits | waiting for data |
@@ -69,6 +70,24 @@ contract, save adapter, fixed renderer, and one verified/provisional pilot. P2
 then broadens only from actual pilot needs, not every sector. Raw reports, OCR,
 ESPI/EBI, issuer IR, and forum leads are source-plan items with explicit
 completeness.
+
+## P1 completion evidence
+
+- Migration `0024` stores immutable, sequential company profiles and research
+  snapshots with one artifact per claimed run and one exact verifier record.
+- The server derives frozen-input/artifact fingerprints, checks lease ownership,
+  job/skill contract, company-bound source versions, fetch-time cutoff,
+  chronological history, and exact provenance for every displayed statement.
+- Independent verification is persisted before save and owns final status:
+  pass/no gaps is verified, pass/any gap is provisional, fail is rejected, and
+  needs-human remains blocked.
+- ABS AgentRun 21 completed through the real one-shot skill: snapshot/profile/
+  verification IDs `1/1/1`, nine cited source versions, eight named gaps,
+  provisional status, cleared lease, case monitoring. OPM remained queued.
+- 560 backend tests, the frontend production build, PostgreSQL migration/runtime
+  checks, skill validation, and browser interaction all pass. Browser QA opened
+  ABS from Research, rendered all six sections, and exposed the collapsed source,
+  statement-provenance and verifier audit.
 
 ## P3 design boundary
 

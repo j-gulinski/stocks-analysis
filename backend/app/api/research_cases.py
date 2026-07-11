@@ -10,22 +10,35 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
+    CompanyProfileOut,
+    ResearchCaseWorkspaceOut,
     ResearchCaseSummaryOut,
     ResearchLabCreateIn,
     ResearchLabCreateOut,
+    ResearchSnapshotHistoryOut,
+    ResearchSnapshotOut,
+    ResearchSnapshotSaveIn,
+    ResearchSnapshotVerificationIn,
 )
 from app.db.base import get_db
 from app.db.models import (
     AgentRun,
     Company,
+    CompanyProfile,
     DocumentVersion,
     ResearchCase,
     ResearchCaseStepHistory,
+    ResearchSnapshot,
     SourceDocument,
     utcnow,
 )
 from app.scrapers.biznesradar import MarketCandidate, ParseError, parse_market_rating
 from app.services.model_policy import default_model_for_workflow
+from app.services.research_artifacts import (
+    ResearchArtifactError,
+    save_research_snapshot,
+    verify_research_snapshot,
+)
 
 router = APIRouter(prefix="/research-cases", tags=["research-cases"])
 
@@ -87,7 +100,10 @@ def _initial_run_key(case_id: int) -> str:
 
 
 def _summary(
-    case: ResearchCase, company: Company, agent: AgentRun | None
+    case: ResearchCase,
+    company: Company,
+    agent: AgentRun | None,
+    latest_snapshot: ResearchSnapshot | None = None,
 ) -> ResearchCaseSummaryOut:
     return ResearchCaseSummaryOut(
         id=case.id,
@@ -103,6 +119,17 @@ def _summary(
         updated_at=case.updated_at,
         initial_research_run_id=agent.id if agent else None,
         initial_research_status=agent.status if agent else None,
+        latest_snapshot_status=latest_snapshot.status if latest_snapshot else None,
+        latest_snapshot_as_of=latest_snapshot.as_of if latest_snapshot else None,
+    )
+
+
+def _latest_snapshot(db: Session, case_id: int) -> ResearchSnapshot | None:
+    return db.scalar(
+        select(ResearchSnapshot)
+        .where(ResearchSnapshot.research_case_id == case_id)
+        .order_by(ResearchSnapshot.version.desc(), ResearchSnapshot.id.desc())
+        .limit(1)
     )
 
 
@@ -170,7 +197,7 @@ def _ensure_research_case(
     reactivated_case = not created_case and research_case.state == "closed"
     if reactivated_case:
         previous_step = research_case.current_step
-        if agent is not None and agent.status in {"completed", "verified"}:
+        if agent is not None and agent.status in {"completed", "provisional", "verified"}:
             research_case.state = "monitoring"
             research_case.current_step = "monitoring"
         elif agent is not None and agent.status in {
@@ -260,8 +287,107 @@ def list_research_cases(db: Session = Depends(get_db)) -> list[ResearchCaseSumma
                 AgentRun.idempotency_key == _initial_run_key(research_case.id)
             )
         )
-        result.append(_summary(research_case, company, agent))
+        result.append(
+            _summary(research_case, company, agent, _latest_snapshot(db, research_case.id))
+        )
     return result
+
+
+@router.get("/by-ticker/{ticker}", response_model=ResearchCaseWorkspaceOut)
+def get_research_workspace(
+    ticker: str, db: Session = Depends(get_db)
+) -> ResearchCaseWorkspaceOut:
+    """Read the canonical stored Research workspace without side effects."""
+    company = db.scalar(select(Company).where(Company.ticker == ticker.strip().upper()))
+    if company is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown company.")
+    research_case = db.scalar(
+        select(ResearchCase).where(
+            ResearchCase.company_id == company.id,
+            ResearchCase.purpose == _PURPOSE,
+        )
+    )
+    if research_case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Research case not found."
+        )
+    agent = db.scalar(
+        select(AgentRun).where(AgentRun.idempotency_key == _initial_run_key(research_case.id))
+    )
+    snapshots = list(
+        db.scalars(
+            select(ResearchSnapshot)
+            .where(ResearchSnapshot.research_case_id == research_case.id)
+            .order_by(ResearchSnapshot.version.desc(), ResearchSnapshot.id.desc())
+        )
+    )
+    latest = snapshots[0] if snapshots else None
+    profile = db.get(CompanyProfile, latest.company_profile_id) if latest else db.scalar(
+        select(CompanyProfile)
+        .where(CompanyProfile.research_case_id == research_case.id)
+        .order_by(CompanyProfile.version.desc(), CompanyProfile.id.desc())
+        .limit(1)
+    )
+    return ResearchCaseWorkspaceOut(
+        research_case=_summary(research_case, company, agent, latest),
+        profile=CompanyProfileOut.model_validate(profile) if profile else None,
+        latest_snapshot=ResearchSnapshotOut.model_validate(latest) if latest else None,
+        history=[
+            ResearchSnapshotHistoryOut(
+                id=item.id,
+                version=item.version,
+                status=item.status,
+                as_of=item.as_of,
+                profile_version=db.get(CompanyProfile, item.company_profile_id).version,
+                created_at=item.created_at,
+            )
+            for item in snapshots
+        ],
+    )
+
+
+@router.post("/{case_id}/snapshots", response_model=ResearchSnapshotOut)
+def create_research_snapshot(
+    case_id: int,
+    payload: ResearchSnapshotSaveIn,
+    db: Session = Depends(get_db),
+) -> ResearchSnapshot:
+    """Worker save adapter; validation/persistence is shared with CLI and MCP."""
+    try:
+        return save_research_snapshot(db, case_id=case_id, payload=payload)
+    except ResearchArtifactError as exc:
+        code = {
+            "not-found": status.HTTP_404_NOT_FOUND,
+            "conflict": status.HTTP_409_CONFLICT,
+        }.get(exc.kind, status.HTTP_422_UNPROCESSABLE_CONTENT)
+        raise HTTPException(status_code=code, detail=str(exc)) from exc
+
+
+@router.post("/{case_id}/snapshot-verifications", response_model=dict)
+def create_research_snapshot_verification(
+    case_id: int,
+    payload: ResearchSnapshotVerificationIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Independent verifier adapter; records a verdict but does not finish the job."""
+    try:
+        verification = verify_research_snapshot(db, case_id=case_id, payload=payload)
+    except ResearchArtifactError as exc:
+        code = {
+            "not-found": status.HTTP_404_NOT_FOUND,
+            "conflict": status.HTTP_409_CONFLICT,
+        }.get(exc.kind, status.HTTP_422_UNPROCESSABLE_CONTENT)
+        raise HTTPException(status_code=code, detail=str(exc)) from exc
+    return {
+        "id": verification.id,
+        "agent_run_id": verification.agent_run_id,
+        "model_role": verification.model_role,
+        "verifier_model": verification.verifier_model,
+        "verdict": verification.verdict,
+        "checks": verification.checks,
+        "summary": verification.summary,
+        "created_at": verification.created_at,
+    }
 
 
 @router.post("", response_model=ResearchLabCreateOut)

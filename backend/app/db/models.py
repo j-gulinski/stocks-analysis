@@ -97,6 +97,77 @@ class ResearchCase(Base):
     )
 
 
+class CompanyProfile(Base):
+    """Immutable, versioned research tailoring for one case."""
+
+    __tablename__ = "company_profiles"
+    __table_args__ = (
+        UniqueConstraint(
+            "research_case_id", "version", name="uq_company_profile_case_version"
+        ),
+        CheckConstraint("version > 0", name="ck_company_profile_positive_version"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    research_case_id: Mapped[int] = mapped_column(
+        ForeignKey("research_cases.id", ondelete="CASCADE"), index=True
+    )
+    version: Mapped[int] = mapped_column(Integer)
+    schema_version: Mapped[str] = mapped_column(String(40))
+    archetype: Mapped[str] = mapped_column(String(40), index=True)
+    archetype_version: Mapped[str] = mapped_column(String(40))
+    company_overlay: Mapped[dict] = mapped_column(JSONVariant)
+    drivers: Mapped[list] = mapped_column(JSONVariant)
+    kpis: Mapped[list] = mapped_column(JSONVariant)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ResearchSnapshot(Base):
+    """Canonical immutable UI artifact produced by one leased research run."""
+
+    __tablename__ = "research_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "research_case_id", "version", name="uq_research_snapshot_case_version"
+        ),
+        UniqueConstraint("agent_run_id", name="uq_research_snapshot_agent_run"),
+        CheckConstraint("version > 0", name="ck_research_snapshot_positive_version"),
+        CheckConstraint(
+            "status IN ('provisional', 'verified', 'rejected', 'needs-human')",
+            name="ck_research_snapshot_status",
+        ),
+        Index("ix_research_snapshots_case_created", "research_case_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    research_case_id: Mapped[int] = mapped_column(
+        ForeignKey("research_cases.id", ondelete="CASCADE"), index=True
+    )
+    company_profile_id: Mapped[int] = mapped_column(
+        ForeignKey("company_profiles.id", ondelete="RESTRICT"), index=True
+    )
+    agent_run_id: Mapped[int] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="RESTRICT"), index=True
+    )
+    verification_run_id: Mapped[int] = mapped_column(
+        ForeignKey("verification_runs.id", ondelete="RESTRICT"), unique=True, index=True
+    )
+    version: Mapped[int] = mapped_column(Integer)
+    contract_version: Mapped[str] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(30), index=True)
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    input_fingerprint: Mapped[str] = mapped_column(String(128))
+    artifact_fingerprint: Mapped[str] = mapped_column(String(64))
+    sections: Mapped[dict] = mapped_column(JSONVariant)
+    source_manifest: Mapped[list] = mapped_column(JSONVariant)
+    conflicts: Mapped[list] = mapped_column(JSONVariant)
+    gaps: Mapped[list] = mapped_column(JSONVariant)
+    next_checks: Mapped[list] = mapped_column(JSONVariant)
+    statement_provenance: Mapped[list] = mapped_column(JSONVariant)
+    verifier_result: Mapped[dict] = mapped_column(JSONVariant)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class AssumptionSet(Base):
     """Case-linked scenario inputs with explicit provenance per assumption."""
 

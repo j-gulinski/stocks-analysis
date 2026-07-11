@@ -98,6 +98,8 @@ def test_initial_research_policy_and_picker_contract_are_executable():
     )
     steps = " ".join(contract["steps"])
     assert contract["skill"] == "company-research"
+    assert "codex_verify_research_snapshot.py --case-id 4" in contract["verify_command"]
+    assert "codex_save_research_snapshot.py --case-id 4" in contract["save_command"]
     assert "bounded normal company refresh" in steps
     assert "structured snapshot" in steps
     assert "verifier_strict" in steps

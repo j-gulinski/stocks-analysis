@@ -91,6 +91,196 @@ export interface ResearchCaseSummary {
   updated_at: string;
   initial_research_run_id: number | null;
   initial_research_status: string | null;
+  latest_snapshot_status: ResearchSnapshotStatus | null;
+  latest_snapshot_as_of: string | null;
+}
+
+export type ResearchArchetype =
+  | "industrial-consumer"
+  | "bank-financial"
+  | "developer-real-estate"
+  | "software-services"
+  | "gaming-event"
+  | "energy-resources"
+  | "holding-biotech";
+
+export type ResearchSnapshotStatus =
+  | "provisional"
+  | "verified"
+  | "rejected"
+  | "needs-human";
+
+export interface ResearchDriver {
+  key: string;
+  label: string;
+  mechanism: string;
+  unit: string | null;
+  source_document_version_ids: number[];
+  basis: string | null;
+}
+
+export interface ResearchKpi {
+  key: string;
+  label: string;
+  unit: string | null;
+  rationale: string;
+  source_document_version_ids: number[];
+  basis: string | null;
+}
+
+export interface CompanyOverlay {
+  segments: string[];
+  competitors: string[];
+  source_questions: string[];
+  unusual_risks: string[];
+}
+
+export interface CompanyProfile {
+  id: number;
+  research_case_id: number;
+  schema_version: "company-profile-v1";
+  version: number;
+  archetype: ResearchArchetype;
+  archetype_version: string;
+  company_overlay: CompanyOverlay;
+  drivers: ResearchDriver[];
+  kpis: ResearchKpi[];
+  created_at: string;
+}
+
+export type ResearchClaimKind =
+  | "fact"
+  | "calculation"
+  | "assumption"
+  | "lead"
+  | "unknown";
+
+export interface ResearchClaim {
+  text: string;
+  kind: ResearchClaimKind;
+  source_document_version_ids: number[];
+  basis: string | null;
+}
+
+export interface ResearchSections {
+  brief: {
+    current_understanding: string;
+    freshness: string;
+    main_gap: string;
+    next_action: string;
+  };
+  business_and_drivers: {
+    business_model: string;
+    revenue_model: string;
+    driver_keys: string[];
+    claims: ResearchClaim[];
+  };
+  performance: {
+    summary: string;
+    result_bridge: string[];
+    kpi_keys: string[];
+    claims: ResearchClaim[];
+  };
+  evidence: {
+    summary: string;
+    primary_document_version_ids: number[];
+    claims: ResearchClaim[];
+  };
+  thesis: {
+    why_now: string;
+    counter_thesis: string;
+    catalysts: string[];
+    risks: string[];
+    governance: string;
+    falsifiers: string[];
+    next_checks: string[];
+    claims: ResearchClaim[];
+  };
+  history: {
+    changes_since_previous: string[];
+    prior_snapshot_id: number | null;
+    claims: ResearchClaim[];
+  };
+}
+
+export interface ResearchSourceManifestItem {
+  document_version_id: number;
+  role: "primary" | "normalized" | "context" | "lead";
+  purpose: string;
+}
+
+export interface ResearchConflict {
+  topic: string;
+  description: string;
+  document_version_ids: number[];
+}
+
+export interface ResearchGap {
+  topic: string;
+  description: string;
+  impact: string;
+}
+
+export interface ResearchNextCheck {
+  question: string;
+  suggested_source: string;
+}
+
+export interface ResearchVerifierResult {
+  model_role: "verifier_strict";
+  verifier_model: string;
+  verdict: "pass" | "fail" | "needs-human";
+  checks: {
+    schema_integrity: boolean;
+    source_integrity: boolean;
+    company_identity: boolean;
+    look_ahead: boolean;
+    math_integrity: boolean;
+  };
+  summary: string;
+}
+
+export interface ResearchStatementProvenance {
+  path: string;
+  claim: ResearchClaim;
+}
+
+export interface ResearchSnapshot {
+  id: number;
+  research_case_id: number;
+  company_profile_id: number;
+  agent_run_id: number;
+  verification_run_id: number;
+  version: number;
+  contract_version: "research-snapshot-v1";
+  status: ResearchSnapshotStatus;
+  as_of: string;
+  input_fingerprint: string;
+  artifact_fingerprint: string;
+  sections: ResearchSections;
+  source_manifest: ResearchSourceManifestItem[];
+  conflicts: ResearchConflict[];
+  gaps: ResearchGap[];
+  next_checks: ResearchNextCheck[];
+  statement_provenance: ResearchStatementProvenance[];
+  verifier_result: ResearchVerifierResult;
+  created_at: string;
+}
+
+export interface ResearchSnapshotHistory {
+  id: number;
+  version: number;
+  status: ResearchSnapshotStatus;
+  as_of: string;
+  profile_version: number;
+  created_at: string;
+}
+
+export interface ResearchWorkspace {
+  research_case: ResearchCaseSummary;
+  profile: CompanyProfile | null;
+  latest_snapshot: ResearchSnapshot | null;
+  history: ResearchSnapshotHistory[];
 }
 
 export interface ResearchCaseCreateResult {

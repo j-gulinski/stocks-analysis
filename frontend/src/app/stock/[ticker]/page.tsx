@@ -17,6 +17,7 @@ import {
   getDossier,
   getResearchCase,
   getResearchCaseHistory,
+  getResearchWorkspace,
   listAgentRuns,
   listAnalysisRuns,
   refreshCompany,
@@ -45,6 +46,7 @@ import DecisionJournalPanel from "@/components/DecisionJournalPanel";
 import FalsifiersPanel from "@/components/FalsifiersPanel";
 import PositionPanel from "@/components/PositionPanel";
 import EvidenceSourcesPanel from "@/components/EvidenceSourcesPanel";
+import ResearchSnapshotView from "@/components/ResearchSnapshotView";
 import type { AgentRun, AnalysisRun, ResearchCase, ResearchCaseStepHistory } from "@/lib/types";
 
 const TABS = [
@@ -95,7 +97,16 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
   const [savingCase, setSavingCase] = useState(false);
   const [caseUpdateError, setCaseUpdateError] = useState<string | null>(null);
   const [caseHistory, setCaseHistory] = useState<ResearchCaseStepHistory[]>([]);
+  const [showLegacyDossier, setShowLegacyDossier] = useState(false);
   const { data: dossier, error, loading, reload } = useApi(() => getDossier(ticker), [ticker]);
+  const { data: researchWorkspace, error: workspaceError, loading: workspaceLoading } = useApi(async () => {
+    try {
+      return await getResearchWorkspace(ticker);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null;
+      throw err;
+    }
+  }, [ticker]);
 
   useEffect(() => {
     let cancelled = false;
@@ -198,7 +209,64 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
     }
   };
 
-  if (loading) return <div><SkeletonCards cards={4} /><LoadingMessages messages={[`Wczytuję zapisane dane ${ticker}…`, "Otwieram ostatni zapisany stan researchu…"]} /></div>;
+  if (workspaceLoading || (loading && !researchWorkspace?.latest_snapshot)) return <div><SkeletonCards cards={4} /><LoadingMessages messages={[`Wczytuję zapisane dane ${ticker}…`, "Otwieram ostatni zapisany stan researchu…"]} /></div>;
+
+  if (workspaceError) return <div className="error-box">Nie można otworzyć workspace Research: {workspaceError}</div>;
+  if (researchWorkspace?.latest_snapshot && !researchWorkspace.profile) return <div className="error-box">Snapshot Research nie ma powiązanego profilu spółki. Wymagany jest przegląd integralności danych.</div>;
+
+  if (
+    researchWorkspace?.latest_snapshot &&
+    researchWorkspace.profile &&
+    ["rejected", "needs-human"].includes(researchWorkspace.latest_snapshot.status)
+  ) {
+    const blockedSnapshot = researchWorkspace.latest_snapshot;
+    return (
+      <main className="page-stack stock-workspace snapshot-workspace">
+        <section className="snapshot-blocked" role="alert">
+          <p className="eyebrow">Research snapshot · wersja {blockedSnapshot.version}</p>
+          <h1>{ticker}: wynik nie jest źródłem decyzji</h1>
+          <p>{blockedSnapshot.verifier_result.summary}</p>
+          {blockedSnapshot.gaps.length > 0 && (
+            <ul className="snapshot-list">
+              {blockedSnapshot.gaps.map((gap) => <li key={gap.topic}><strong>{gap.topic}:</strong> {gap.description}</li>)}
+            </ul>
+          )}
+        </section>
+        <details className="snapshot-rejected-audit">
+          <summary>Pokaż odrzucony artefakt wyłącznie do audytu</summary>
+          <ResearchSnapshotView
+            ticker={ticker}
+            companyName={researchWorkspace.research_case.name}
+            profile={researchWorkspace.profile}
+            snapshot={blockedSnapshot}
+            history={researchWorkspace.history}
+          />
+        </details>
+      </main>
+    );
+  }
+
+  if (researchWorkspace?.latest_snapshot && researchWorkspace.profile && !showLegacyDossier) {
+    return (
+      <main className="page-stack stock-workspace snapshot-workspace">
+        <ResearchSnapshotView
+          ticker={ticker}
+          companyName={researchWorkspace.research_case.name}
+          profile={researchWorkspace.profile}
+          snapshot={researchWorkspace.latest_snapshot}
+          history={researchWorkspace.history}
+        />
+        {dossier && hasDossierData(dossier) && (
+          <details className="snapshot-legacy-entry">
+            <summary>Starszy raport i narzędzia audytowe</summary>
+            <p>Ten widok korzysta z wcześniejszego dossier. Snapshot powyżej jest kanonicznym wynikiem Research.</p>
+            <button className="btn compact" onClick={() => setShowLegacyDossier(true)}>Otwórz starszy widok</button>
+          </details>
+        )}
+      </main>
+    );
+  }
+
   if (error) return <div className="error-box">{error}</div>;
   if (!dossier) return null;
 
@@ -266,6 +334,12 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
 
   return (
     <main className="page-stack stock-workspace">
+      {researchWorkspace?.latest_snapshot && researchWorkspace.profile && (
+        <section className="legacy-dossier-notice">
+          <div><strong>Widok starszego dossier</strong><span>Kanoniczny snapshot Research pozostaje bez zmian.</span></div>
+          <button className="btn compact" onClick={() => setShowLegacyDossier(false)}>Wróć do snapshotu</button>
+        </section>
+      )}
       <section className="stock-header workspace-header">
         <div className="stock-title">
           <div className="row wrap"><h1>{ticker}</h1>{company.name && <span className="company-title">{company.name}</span>}</div>

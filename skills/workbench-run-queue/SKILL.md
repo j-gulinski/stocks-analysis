@@ -25,6 +25,12 @@ The app persists requests; this skill owns the explicit execution boundary.
    overlay, structured snapshot, and named evidence gaps.
 5. Heartbeat during long work. Deterministic services own financial math. Run
    an independent strict verifier before exposing investment judgment.
-6. Save or fail the same `agent_run_id`, preserving source IDs/times,
-   assumptions, actual model metadata when available, verification status, and
-   gaps. Stop after this one row.
+6. For company research, the separate verifier first records its verdict with
+   `verify_research_snapshot` (or the matching JSON-in script) against the
+   exact draft. Add the returned `verification_run_id` to the unchanged draft,
+   then save through `save_research_snapshot` or
+   `backend/scripts/codex_save_research_snapshot.py`.
+   The strict gate creates the immutable artifact, terminal status and lease cleanup.
+   Never store this result through the generic analysis adapter.
+7. Preserve source IDs/times, assumptions, actual model metadata when
+   available, verification status, and gaps. Stop after this one row.

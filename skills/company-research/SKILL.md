@@ -9,9 +9,8 @@ Process exactly one claimed company job and leave a reproducible research
 artifact. The fixed UI schema is common; the archetype and company overlay make
 the content specific.
 
-Contract version: `company-research-v1`. Intended output contract:
-`research-snapshot-v1`; it is not considered implemented until the Roadmap P1
-schema/save/renderer gate exists.
+Contract version: `company-research-v1`. Output contract:
+`research-snapshot-v1`.
 
 ## Preconditions
 
@@ -39,9 +38,11 @@ schema/save/renderer gate exists.
 
 ### 1. Freeze and collect
 
-- Freeze `as_of`, company identity, queue inputs, existing evidence IDs, prior
-  research/valuation snapshot IDs, and collector/parser versions before
-  interpretation.
+- Before collection, freeze `collection_started_at`, company identity, queue
+  inputs, existing evidence IDs, prior research/valuation snapshot IDs, and
+  collector/parser versions. After the bounded refresh finishes, freeze
+  snapshot `as_of` at or after the latest cited `DocumentVersion.fetched_at`;
+  no later evidence may enter the draft.
 - Run the explicit bounded company refresh requested by the job. All HTTP must
   remain inside existing polite adapters.
 - Prefer primary issuer reports, ESPI/EBI/PAP, presentations and IR. Use
@@ -62,8 +63,10 @@ Select one archetype from the current supported set and state the evidence:
 - `energy-resources`
 - `holding-biotech`
 
-Do not force an unsupported archetype. Return `needs-confirmation` plus the
-closest candidates and differences when confidence is low.
+Do not silently force an unsupported archetype. Use the closest supported pack
+only as `provisional`, add a named `profile-confidence` gap, and list the
+closest alternatives/differences in the overlay questions. Use `needs-human`
+only when identity or integrity prevents a safe provisional profile.
 
 Build a company overlay containing:
 
@@ -96,6 +99,10 @@ gap. Do not repeat the same conclusion across sections.
   and no-look-ahead checks first.
 - Ask the strict verifier to audit source coverage, claim support, archetype
   choice, driver relevance, contradictions, gaps, and actionability.
+- Cover every displayed material statement with one exact
+  `statement_provenance` path/text claim. Drivers and KPIs need source version
+  IDs or an explicit basis. Workflow questions and named gaps remain visibly
+  questions/gaps, never implicit facts.
 - A complete result with ordinary source gaps is `provisional`; name each gap
   and still deliver the full snapshot. Use `needs-human` only for identity,
   access, fabrication, schema, look-ahead, or calculation-integrity failures.
@@ -103,17 +110,68 @@ gap. Do not repeat the same conclusion across sections.
 
 ### 5. Save and finish
 
-Save the same `agent_run_id` with a structured output shaped like:
+Build one strict draft for the same `agent_run_id` and exact `lease_owner`.
+Keep `version` sequential and reuse a profile version only when its content is
+identical. Do not supply `input_fingerprint`; the server derives it from the
+frozen job, `as_of`, and cited source-version set. Do not choose `status` in
+the draft; final status belongs to the independent verifier gate.
 
-```text
-research_snapshot:
-  version, as_of, company, profile, sections,
-  source_manifest, conflicts, gaps, verification_status
+First give the exact draft to the independent verifier context. That verifier,
+not the drafting worker, persists its verdict through:
+
+```bash
+cd backend
+python3 scripts/codex_verify_research_snapshot.py \
+  --case-id <research_case_id> --input <verification.json> --pretty
 ```
 
-Include requested/actual model metadata, skill version, frozen input IDs,
-latency/cost when exposed, verifier result, and next evidence checks. Heartbeat
-during long work, clear the lease on terminal save, and stop after this row.
+The verification input contains `verifier_worker_id`, the exact `draft`, and
+`verifier_result`. The verifier identity must differ from `lease_owner`. The
+adapter returns `verification_run.id` bound to the server-computed draft hash.
+It derives `verified` for a full pass with no gaps, `provisional` for a full
+pass with any named gap, `rejected` for `fail`, and `needs-human` for that
+verdict. The drafting worker cannot override this status.
+The drafting worker then adds only that `verification_run_id` to the unchanged
+draft and saves:
+
+Save through exactly one canonical adapter:
+
+```bash
+cd backend
+python3 scripts/codex_save_research_snapshot.py \
+  --case-id <research_case_id> --input <snapshot.json> --pretty
+```
+
+The equivalent MCP tools are `verify_research_snapshot` and
+`save_research_snapshot`. All adapters call the same domain services. Do not fall back to
+`save_analysis_run`, direct SQL, or a generic completion command.
+
+The payload has this fixed shape:
+
+```text
+contract_version, agent_run_id, lease_owner, version, as_of,
+profile, sections, source_manifest, conflicts, gaps, next_checks,
+statement_provenance, verification_run_id
+```
+
+The save gate accepts only a running, actively leased matching job. It verifies
+the frozen skill/version/output contract, lease ownership, company/case
+identity, cited `DocumentVersion` ownership and fetch time, exact statement
+provenance, chronological versions, and the independent verdict for this exact
+draft. A successful save creates the immutable snapshot, terminalizes the job,
+clears its lease, and advances or blocks the case. `verified` and `provisional`
+both require a strict pass and all integrity checks; `provisional` additionally
+requires named evidence gaps.
+
+This is a local single-user trust boundary: `verifier_worker_id` is an audit
+identity, not remote authentication. The orchestrator must launch the verifier
+in a genuinely separate agent/context and must never relabel the drafting
+worker to simulate independence.
+
+Preserve requested/actual model metadata, skill version, frozen input IDs,
+latency/cost when exposed, verifier result, and next evidence checks in the
+job/verifier records available to the adapter. Heartbeat during long work and
+stop after this row.
 
 Never add a position, execute a trade, make a buy/sell instruction, schedule a
 recurring worker, or claim a second job.

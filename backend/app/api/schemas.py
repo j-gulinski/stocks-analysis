@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # ---------------------------------------------------------------- watchlist
@@ -100,6 +100,264 @@ class ResearchCaseSummaryOut(BaseModel):
     updated_at: datetime
     initial_research_run_id: int | None
     initial_research_status: str | None
+    latest_snapshot_status: str | None = None
+    latest_snapshot_as_of: datetime | None = None
+
+
+ResearchArchetype = Literal[
+    "industrial-consumer",
+    "bank-financial",
+    "developer-real-estate",
+    "software-services",
+    "gaming-event",
+    "energy-resources",
+    "holding-biotech",
+]
+ResearchSnapshotStatus = Literal["provisional", "verified", "rejected", "needs-human"]
+
+
+class StrictResearchModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ResearchDriver(StrictResearchModel):
+    key: str = Field(min_length=1, max_length=80)
+    label: str = Field(min_length=1, max_length=160)
+    mechanism: str = Field(min_length=1, max_length=1000)
+    unit: str | None = Field(default=None, max_length=40)
+    source_document_version_ids: list[int] = Field(default_factory=list)
+    basis: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def require_driver_provenance(self):
+        if not self.source_document_version_ids and not self.basis:
+            raise ValueError("drivers require a document version or explicit basis")
+        return self
+
+
+class ResearchKpi(StrictResearchModel):
+    key: str = Field(min_length=1, max_length=80)
+    label: str = Field(min_length=1, max_length=160)
+    unit: str | None = Field(default=None, max_length=40)
+    rationale: str = Field(min_length=1, max_length=1000)
+    source_document_version_ids: list[int] = Field(default_factory=list)
+    basis: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def require_kpi_provenance(self):
+        if not self.source_document_version_ids and not self.basis:
+            raise ValueError("KPIs require a document version or explicit basis")
+        return self
+
+
+class CompanyOverlay(StrictResearchModel):
+    segments: list[str] = Field(default_factory=list)
+    competitors: list[str] = Field(default_factory=list)
+    source_questions: list[str] = Field(default_factory=list)
+    unusual_risks: list[str] = Field(default_factory=list)
+
+
+class CompanyProfileIn(StrictResearchModel):
+    schema_version: Literal["company-profile-v1"] = "company-profile-v1"
+    version: int = Field(ge=1)
+    archetype: ResearchArchetype
+    archetype_version: str = Field(min_length=1, max_length=40)
+    company_overlay: CompanyOverlay
+    drivers: list[ResearchDriver] = Field(min_length=1)
+    kpis: list[ResearchKpi] = Field(min_length=1)
+
+
+class CompanyProfileOut(CompanyProfileIn):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    research_case_id: int
+    created_at: datetime
+
+
+class ResearchClaim(StrictResearchModel):
+    text: str = Field(min_length=1, max_length=4000)
+    kind: Literal["fact", "calculation", "assumption", "lead", "unknown"]
+    source_document_version_ids: list[int] = Field(default_factory=list)
+    basis: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def require_claim_provenance(self):
+        if self.kind in {"fact", "lead"} and not self.source_document_version_ids:
+            raise ValueError("fact and lead claims require a document version")
+        if self.kind in {"calculation", "assumption", "unknown"} and not self.basis:
+            raise ValueError("calculation, assumption and unknown claims require a named basis")
+        return self
+
+
+class ResearchStatementProvenance(StrictResearchModel):
+    """Provenance for one exact displayed statement path in the fixed renderer."""
+
+    path: str = Field(pattern=r"^/", min_length=2, max_length=300)
+    claim: ResearchClaim
+
+
+class BriefSection(StrictResearchModel):
+    current_understanding: str = Field(min_length=1, max_length=4000)
+    freshness: str = Field(min_length=1, max_length=1000)
+    main_gap: str = Field(min_length=1, max_length=2000)
+    next_action: str = Field(min_length=1, max_length=2000)
+
+
+class BusinessAndDriversSection(StrictResearchModel):
+    business_model: str = Field(min_length=1, max_length=6000)
+    revenue_model: str = Field(min_length=1, max_length=4000)
+    driver_keys: list[str] = Field(min_length=1)
+    claims: list[ResearchClaim] = Field(default_factory=list)
+
+
+class PerformanceSection(StrictResearchModel):
+    summary: str = Field(min_length=1, max_length=6000)
+    result_bridge: list[str] = Field(default_factory=list)
+    kpi_keys: list[str] = Field(min_length=1)
+    claims: list[ResearchClaim] = Field(default_factory=list)
+
+
+class EvidenceSection(StrictResearchModel):
+    summary: str = Field(min_length=1, max_length=4000)
+    primary_document_version_ids: list[int] = Field(default_factory=list)
+    claims: list[ResearchClaim] = Field(default_factory=list)
+
+
+class ThesisSection(StrictResearchModel):
+    why_now: str = Field(min_length=1, max_length=4000)
+    counter_thesis: str = Field(min_length=1, max_length=4000)
+    catalysts: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    governance: str = Field(min_length=1, max_length=4000)
+    falsifiers: list[str] = Field(default_factory=list)
+    next_checks: list[str] = Field(default_factory=list)
+    claims: list[ResearchClaim] = Field(default_factory=list)
+
+
+class HistorySection(StrictResearchModel):
+    changes_since_previous: list[str] = Field(default_factory=list)
+    prior_snapshot_id: int | None = Field(default=None, ge=1)
+    claims: list[ResearchClaim] = Field(default_factory=list)
+
+
+class ResearchSections(StrictResearchModel):
+    brief: BriefSection
+    business_and_drivers: BusinessAndDriversSection
+    performance: PerformanceSection
+    evidence: EvidenceSection
+    thesis: ThesisSection
+    history: HistorySection
+
+
+class ResearchSourceManifestItem(StrictResearchModel):
+    document_version_id: int = Field(ge=1)
+    role: Literal["primary", "normalized", "context", "lead"]
+    purpose: str = Field(min_length=1, max_length=1000)
+
+
+class ResearchConflict(StrictResearchModel):
+    topic: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1, max_length=2000)
+    document_version_ids: list[int] = Field(min_length=2)
+
+
+class ResearchGap(StrictResearchModel):
+    topic: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1, max_length=2000)
+    impact: str = Field(min_length=1, max_length=1000)
+
+
+class ResearchNextCheck(StrictResearchModel):
+    question: str = Field(min_length=1, max_length=1000)
+    suggested_source: str = Field(min_length=1, max_length=500)
+
+
+class ResearchVerifierChecks(StrictResearchModel):
+    schema_integrity: bool
+    source_integrity: bool
+    company_identity: bool
+    look_ahead: bool
+    math_integrity: bool
+
+
+class ResearchVerifierResult(StrictResearchModel):
+    model_role: Literal["verifier_strict"] = "verifier_strict"
+    verifier_model: str = Field(min_length=1, max_length=80)
+    verdict: Literal["pass", "fail", "needs-human"]
+    checks: ResearchVerifierChecks
+    summary: str = Field(min_length=1, max_length=4000)
+
+
+class ResearchSnapshotDraftIn(StrictResearchModel):
+    contract_version: Literal["research-snapshot-v1"] = "research-snapshot-v1"
+    agent_run_id: int = Field(ge=1)
+    lease_owner: str = Field(min_length=1, max_length=200)
+    version: int = Field(ge=1)
+    as_of: datetime
+    profile: CompanyProfileIn
+    sections: ResearchSections
+    source_manifest: list[ResearchSourceManifestItem]
+    conflicts: list[ResearchConflict] = Field(default_factory=list)
+    gaps: list[ResearchGap] = Field(default_factory=list)
+    next_checks: list[ResearchNextCheck] = Field(default_factory=list)
+    statement_provenance: list[ResearchStatementProvenance]
+
+    @model_validator(mode="after")
+    def require_aware_as_of(self):
+        if self.as_of.tzinfo is None:
+            raise ValueError("as_of must include a timezone")
+        return self
+
+
+class ResearchSnapshotVerificationIn(StrictResearchModel):
+    verifier_worker_id: str = Field(min_length=1, max_length=200)
+    draft: ResearchSnapshotDraftIn
+    verifier_result: ResearchVerifierResult
+
+
+class ResearchSnapshotSaveIn(ResearchSnapshotDraftIn):
+    verification_run_id: int = Field(ge=1)
+
+
+class ResearchSnapshotOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    research_case_id: int
+    company_profile_id: int
+    agent_run_id: int
+    verification_run_id: int
+    version: int
+    contract_version: Literal["research-snapshot-v1"]
+    status: ResearchSnapshotStatus
+    as_of: datetime
+    input_fingerprint: str
+    artifact_fingerprint: str
+    sections: ResearchSections
+    source_manifest: list[ResearchSourceManifestItem]
+    conflicts: list[ResearchConflict]
+    gaps: list[ResearchGap]
+    next_checks: list[ResearchNextCheck]
+    statement_provenance: list[ResearchStatementProvenance]
+    verifier_result: ResearchVerifierResult
+    created_at: datetime
+
+
+class ResearchSnapshotHistoryOut(BaseModel):
+    id: int
+    version: int
+    status: ResearchSnapshotStatus
+    as_of: datetime
+    profile_version: int
+    created_at: datetime
+
+
+class ResearchCaseWorkspaceOut(BaseModel):
+    research_case: ResearchCaseSummaryOut
+    profile: CompanyProfileOut | None
+    latest_snapshot: ResearchSnapshotOut | None
+    history: list[ResearchSnapshotHistoryOut]
 
 
 class ResearchCaseStepHistoryOut(BaseModel):

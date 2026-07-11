@@ -185,6 +185,34 @@ TOOLS: dict[str, ToolSpec] = {
         },
         stock_tools.complete_agent_run,
     ),
+    "save_research_snapshot": ToolSpec(
+        "save_research_snapshot",
+        "Validate and persist one immutable research-snapshot-v1 for a claimed run.",
+        {
+            "type": "object",
+            "properties": {
+                "case_id": {"type": "integer", "minimum": 1},
+                "payload": {"type": "object"},
+            },
+            "required": ["case_id", "payload"],
+            "additionalProperties": False,
+        },
+        stock_tools.save_research_snapshot,
+    ),
+    "verify_research_snapshot": ToolSpec(
+        "verify_research_snapshot",
+        "Persist an independent verdict bound to one exact research-snapshot-v1 draft.",
+        {
+            "type": "object",
+            "properties": {
+                "case_id": {"type": "integer", "minimum": 1},
+                "payload": {"type": "object"},
+            },
+            "required": ["case_id", "payload"],
+            "additionalProperties": False,
+        },
+        stock_tools.verify_research_snapshot,
+    ),
     "mark_verification_result": ToolSpec(
         "mark_verification_result",
         "Attach verifier output to an agent or analysis run.",

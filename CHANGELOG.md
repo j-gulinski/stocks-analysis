@@ -3,6 +3,35 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-11 · P1 immutable tailored Research vertical
+
+- Added versioned `CompanyProfile` and immutable `ResearchSnapshot` persistence
+  in migration `0024`, with fixed six-section Polish content, seven supported
+  archetypes, typed drivers/KPIs/claims, source manifest, conflicts, gaps,
+  next checks, history and exact statement provenance.
+- Added read-only Research workspace/history and latest snapshot status APIs,
+  plus one shared HTTP/MCP/JSON verification-and-save boundary.
+- Split verification from save: a distinct verifier context records a verdict
+  bound to the exact draft and server-derived frozen-input fingerprint; save
+  accepts only that unchanged draft under the active lease. The verifier owns
+  final status and any named evidence gap forces `provisional` rather than
+  `verified`.
+- Enforced company/source identity, source fetch cutoff, future/no-look-ahead,
+  sequential versions, immediate history, exact replay/concurrency, frozen
+  skill/version/output contract and non-self-verification gates.
+- Replaced the company page's generic dossier-first presentation with the fixed
+  tailored Research workspace. Profile, drivers, KPIs and gaps are visible;
+  source IDs, statement provenance and verifier evidence stay in a collapsed
+  audit. The legacy dossier is explicitly secondary, and rejected/needs-human
+  artifacts are contained behind an audit-only warning.
+- Completed the real ABS one-shot pilot: snapshot/profile/verification `1/1/1`,
+  nine source versions, eight honest gaps, independent strict pass and final
+  `provisional` status. The case moved to monitoring and the lease cleared;
+  no second job or recurring worker ran.
+- Verified 560 backend tests, frontend production build, PostgreSQL migration,
+  skill validators and browser navigation from Research to the six-section ABS
+  artifact and its provenance/verifier audit.
+
 ## 2026-07-11 · Product reset toward a research second brain
 
 - Replaced overlapping north-star, design, architecture, scored-analysis,

@@ -82,14 +82,24 @@ def _execution_contract(agent: AgentRun) -> dict[str, Any]:
         return {
             **base,
             "skill": "company-research",
+            "verify_command": (
+                "cd backend && ./.venv/bin/python "
+                f"scripts/codex_verify_research_snapshot.py --case-id "
+                f"{(agent.inputs or {}).get('research_case_id')} --input <verification.json>"
+            ),
+            "save_command": (
+                "cd backend && ./.venv/bin/python "
+                f"scripts/codex_save_research_snapshot.py --case-id "
+                f"{(agent.inputs or {}).get('research_case_id')} --input <snapshot.json>"
+            ),
             "steps": [
                 "Read docs/PRODUCT.md, docs/ARCHITECTURE.md and the claimed job's frozen inputs.",
                 f"Run one bounded normal company refresh for {ticker or 'the queued ticker'} through the existing polite collectors.",
                 "Load the stored dossier and evidence; preserve source conflicts and failed-source gaps.",
                 "Build a company-specific research profile, common research spine and first structured snapshot in Polish.",
                 "Run deterministic identity, period, currency, freshness and schema checks.",
-                "Run an independent verifier_strict pass for source grounding, archetype choice, useful drivers and fabricated claims.",
-                "Save the structured snapshot with this agent_run_id, then complete only this claimed job.",
+                "Have an independent verifier_strict context persist its exact-draft verdict with a distinct worker identity.",
+                "Add that verification_run_id to the unchanged draft, save with this agent_run_id, then complete only this claimed job.",
             ],
         }
     if agent.workflow == "stock-quick-analysis":

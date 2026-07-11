@@ -42,6 +42,7 @@ import type {
   ResearchCaseStepHistory,
   ResearchCaseState,
   ResearchCaseStep,
+  ResearchWorkspace,
   RefreshSummary,
   ScraperHealth,
   WorkflowStatus,
@@ -93,6 +94,11 @@ export const refreshDiscovery = (minRating = 8, minFScore: number | null = 7) =>
 
 // ---------------------------------------------------------- research cases
 export const getResearchCases = () => request<ResearchCaseSummary[]>("/research-cases");
+
+export const getResearchWorkspace = (ticker: string) =>
+  request<ResearchWorkspace>(
+    `/research-cases/by-ticker/${encodeURIComponent(ticker)}`,
+  );
 
 export const addResearchCase = (payload: {
   ticker: string;
