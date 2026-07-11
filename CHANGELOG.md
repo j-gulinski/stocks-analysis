@@ -17,6 +17,17 @@ Expected source failures now return structured status rather than aborting the
 batch. Evidence-version creation uses SQL `RETURNING`, fixing a false
 `version_created=false` result on real first inserts.
 
+The detail pilot now accepts only PDF URLs previously discovered in that
+company's issuer index and registered host, rejects cross-host redirects,
+enforces 15 MB/200-page bounds and records page-level unverified claims with
+exact page locators. PDF parsing uses `pypdf`; malformed,
+encrypted and scanned documents become durable `parse_failed` or `needs_ocr`
+states instead of stopping the queue worker or creating unsupported claims. A
+single live ABS governance report was preserved as version 22; all 13 pages
+were scans without a text layer, so it correctly produced no claims. OCR and
+raw-binary/object storage remain an explicit follow-up rather than an implicit
+host dependency.
+
 ## 2026-07-11 · CX.16d honest cohort replay cards
 
 Resolved frozen-case market identities from primary issuer/regulator sources

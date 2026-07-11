@@ -4,11 +4,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
+from io import BytesIO
 import re
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 import requests
+from pypdf import PdfReader
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -24,6 +26,9 @@ from app.services.evidence import (
 PARSER_VERSION = "issuer-ir-index@2"
 EXTRACTOR_VERSION = "issuer-ir-links@2"
 MAX_LINKS_PER_INDEX = 30
+MAX_PDF_BYTES = 15 * 1024 * 1024
+MAX_PDF_PAGES = 200
+MAX_PAGE_CLAIMS = 30
 
 ISSUER_IR_SOURCES = {
     "SNT": "https://synektik.com.pl/centrum-inwestora/raporty-biezace/",
@@ -74,8 +79,14 @@ def parse_issuer_ir_index(html: str, *, base_url: str) -> ParsedIssuerIrIndex:
         if not REPORT_TERMS.search(context):
             continue
         absolute = urljoin(base_url, href)
-        target_host = urlparse(absolute).netloc.removeprefix("www.")
-        if target_host != source_host or '"' in absolute or "%22" in absolute.lower():
+        parsed_url = urlparse(absolute)
+        target_host = parsed_url.netloc.removeprefix("www.")
+        if (
+            parsed_url.scheme not in {"http", "https"}
+            or target_host != source_host
+            or '"' in absolute
+            or "%22" in absolute.lower()
+        ):
             continue
         if absolute in seen:
             continue
@@ -218,6 +229,214 @@ def ingest_issuer_ir_index(
             for link in parsed.links
         ],
     }
+
+
+def ingest_issuer_ir_report(
+    db: Session,
+    ticker: str,
+    report_url: str,
+    *,
+    force: bool = False,
+) -> dict:
+    """Fetch one previously discovered issuer PDF and store page-level claims."""
+    ticker = ticker.upper()
+    company = db.scalar(select(Company).where(Company.ticker == ticker))
+    if company is None:
+        raise ValueError(f"Unknown company {ticker}.")
+    source_fact = _issuer_link_fact(db, company, report_url)
+    if source_fact is None:
+        raise ValueError("Report URL is not present in this company's issuer-IR index evidence.")
+    if not _is_allowed_issuer_url(ticker, report_url):
+        raise ValueError("Report URL is outside the registered issuer-IR host.")
+    if not report_url.lower().split("?", 1)[0].endswith(".pdf"):
+        raise ValueError("The bounded RT2.3 detail pilot currently accepts PDF reports only.")
+
+    scope_key = f"report:{hashlib.sha256(report_url.encode('utf-8')).hexdigest()[:24]}"
+    if not force and _is_fresh(db, report_url):
+        document = db.scalar(
+            select(SourceDocument).where(
+                SourceDocument.company_ticker == ticker,
+                SourceDocument.source_type == "issuer_ir_report",
+                SourceDocument.scope_key == scope_key,
+            )
+        )
+        return {
+            "ok": True,
+            "ticker": ticker,
+            "status": "cached",
+            "source_url": report_url,
+            "document_id": document.id if document else None,
+        }
+
+    try:
+        response = http.fetch(report_url)
+    except (http.FetchError, requests.RequestException) as exc:
+        status_match = re.search(r"HTTP\s+(\d{3})", str(exc))
+        status = int(status_match.group(1)) if status_match else None
+        db.add(FetchLog(url=report_url, status=status))
+        db.commit()
+        return {
+            "ok": False,
+            "ticker": ticker,
+            "status": "temporarily_unavailable",
+            "retry_later": True,
+            "source_url": report_url,
+            "error": str(exc),
+        }
+    fetch_log = FetchLog(url=report_url, status=response.status_code)
+    db.add(fetch_log)
+    response.raise_for_status()
+    effective_url = str(response.url or report_url)
+    if not _is_allowed_issuer_url(ticker, effective_url):
+        db.commit()
+        return {
+            "ok": False,
+            "ticker": ticker,
+            "status": "rejected",
+            "source_url": report_url,
+            "error": "Report redirect left the registered issuer-IR host.",
+        }
+    content = response.content or b""
+    if len(content) > MAX_PDF_BYTES:
+        db.commit()
+        return {
+            "ok": False,
+            "ticker": ticker,
+            "status": "rejected",
+            "source_url": report_url,
+            "error": f"PDF exceeds {MAX_PDF_BYTES} byte pilot limit.",
+        }
+    if not content.startswith(b"%PDF"):
+        db.commit()
+        return {
+            "ok": False,
+            "ticker": ticker,
+            "status": "parse_failed",
+            "source_url": report_url,
+            "error": "Response is not a PDF document.",
+        }
+    parse_error: str | None = None
+    try:
+        pages = extract_pdf_pages(content)
+    except Exception as exc:  # PDF parsers must not be allowed to stop the queue worker.
+        pages = []
+        parse_error = f"{type(exc).__name__}: {exc}"
+    extracted_text = "\n\n".join(page for page in pages if page)
+    recorded = record_document_version(
+        db,
+        company,
+        source_name=f"{company.name or ticker} issuer IR",
+        source_type="issuer_ir_report",
+        scope_key=scope_key,
+        requested_url=report_url,
+        effective_url=effective_url,
+        content=content,
+        text=extracted_text,
+        response_status=response.status_code,
+        mime_type="application/pdf",
+        parser_version="issuer-ir-pdf@1",
+        fetched_at=fetch_log.fetched_at,
+    )
+    recorded.document.title = source_fact.text_value
+    if parse_error is not None:
+        mark_parse_result(recorded.version, success=False, error=parse_error[:1000])
+        fetch_log.document_version_id = recorded.version.id
+        db.commit()
+        return {
+            "ok": False,
+            "ticker": ticker,
+            "status": "parse_failed",
+            "source_url": report_url,
+            "document_version_id": recorded.version.id,
+            "error": parse_error,
+        }
+    if not extracted_text.strip():
+        mark_parse_result(
+            recorded.version,
+            success=False,
+            error="PDF contains no extractable text; bounded OCR is not configured.",
+        )
+        fetch_log.document_version_id = recorded.version.id
+        db.commit()
+        return {
+            "ok": False,
+            "ticker": ticker,
+            "status": "needs_ocr",
+            "source_url": report_url,
+            "document_version_id": recorded.version.id,
+            "page_count": len(pages),
+        }
+    claim_count = 0
+    for page_number, page_text in enumerate(pages[:MAX_PAGE_CLAIMS], start=1):
+        if not page_text.strip():
+            continue
+        record_text_fact(
+            db,
+            company,
+            recorded.version,
+            fact_type="issuer_ir_page",
+            fact_key=f"issuer_ir.page.{page_number}",
+            text=page_text[:4000],
+            locator={"url": report_url, "page": page_number},
+            verification_state="unverified",
+            extractor_version="issuer-ir-pdf-pages@1",
+        )
+        claim_count += 1
+    mark_parse_result(recorded.version, success=True)
+    fetch_log.document_version_id = recorded.version.id
+    db.commit()
+    return {
+        "ok": True,
+        "ticker": ticker,
+        "status": "fetched",
+        "source_url": report_url,
+        "document_id": recorded.document.id,
+        "document_version_id": recorded.version.id,
+        "version_created": recorded.version_created,
+        "page_count": len(pages),
+        "page_claim_count": claim_count,
+        "title": source_fact.text_value,
+    }
+
+
+def extract_pdf_pages(content: bytes) -> list[str]:
+    reader = PdfReader(BytesIO(content), strict=False)
+    if reader.is_encrypted and reader.decrypt("") == 0:
+        raise ValueError("Encrypted PDF cannot be read without a password.")
+    if len(reader.pages) > MAX_PDF_PAGES:
+        raise ValueError(f"PDF exceeds {MAX_PDF_PAGES} page pilot limit.")
+    return [_clean_text(page.extract_text() or "") for page in reader.pages]
+
+
+def _issuer_link_fact(db: Session, company: Company, report_url: str) -> Fact | None:
+    facts = db.scalars(
+        select(Fact).where(
+            Fact.company_id == company.id,
+            Fact.fact_type == "issuer_ir_link",
+        )
+    ).all()
+    return next(
+        (
+            fact
+            for fact in facts
+            if isinstance(fact.locator, dict) and fact.locator.get("url") == report_url
+        ),
+        None,
+    )
+
+
+def _is_allowed_issuer_url(ticker: str, url: str) -> bool:
+    source_url = ISSUER_IR_SOURCES.get(ticker)
+    if source_url is None:
+        return False
+    parsed = urlparse(url)
+    source = urlparse(source_url)
+    return (
+        parsed.scheme in {"http", "https"}
+        and parsed.hostname is not None
+        and parsed.hostname.removeprefix("www.")
+        == (source.hostname or "").removeprefix("www.")
+    )
 
 
 def _is_fresh(db: Session, url: str) -> bool:

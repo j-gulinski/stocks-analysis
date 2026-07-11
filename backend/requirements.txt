@@ -7,6 +7,7 @@ pydantic>=2.7
 pydantic-settings>=2.2
 requests>=2.32
 beautifulsoup4>=4.12
+pypdf>=5
 
 # Development / tests
 pytest>=8.0

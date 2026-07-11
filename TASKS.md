@@ -33,8 +33,9 @@ Take the first unchecked item. Each item should be a bounded, verifiable slice.
 10. [~] CX.16a–d — identity-resolved 1/2/3-year cards exist; numeric outcomes
     remain blocked by exact-anchor and point-in-time price/evidence gaps.
 11. [~] RT2.3 — bounded issuer-IR pilot now covers SNT/ABS/OPM; ABS stored 30
-    link claims, while SNT/OPM expose polite HTTP 403 source gaps. Detail/PDF
-    claim extraction remains open.
+    link claims, while SNT/OPM expose polite HTTP 403 source gaps. Discovered
+    PDFs now have bounded page extraction; the live 13-page ABS scan is stored
+    as `needs_ocr` with zero claims. Raw-binary storage/OCR remains open.
 12. RT stages in order; add CX.16e/f and CX.17 only when prerequisites exist.
 
 ## Completed work
@@ -207,8 +208,11 @@ complete. Do not deploy before RT.0–RT.6 prove the local workflow.
   stores index pages plus same-site report links as immutable, unverified text
   facts. The live pilot stored ABS (30 newest valid links); Synektik and OPTeam
   returned polite-client HTTP 403 and remain explicit temporary gaps. Report
-  detail/PDF extraction and a fourth/fifth pilot remain open; the CX.15a
-  watermark is shared by the GPW poller.
+  detail ingestion is allowlisted by discovered URL, bounded to 15 MB/200 pages
+  and emits unverified page claims with page locators. The first live ABS PDF
+  was a 13-page scan and is honestly `needs_ocr`; binary artifact storage/OCR
+  and a fourth/fifth pilot remain open. The CX.15a watermark is shared by the
+  GPW poller.
 - [ ] RT2.4–RT2.5: source terms/quality notes and corporate-action-aware
   long-history market-data evaluation.
 

@@ -134,3 +134,207 @@ def test_parse_issuer_ir_caps_links_and_rejects_external_or_malformed_urls():
     assert len(parsed.links) == MAX_LINKS_PER_INDEX
     assert all("other.example" not in link.url for link in parsed.links)
     assert all("%22" not in link.url for link in parsed.links)
+
+
+def test_extract_pdf_pages_reads_bounded_pdf():
+    from io import BytesIO
+    from pypdf import PdfWriter
+
+    from app.scrapers.issuer_ir import extract_pdf_pages
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=100, height=100)
+    output = BytesIO()
+    writer.write(output)
+
+    assert extract_pdf_pages(output.getvalue()) == [""]
+
+
+def test_ingest_discovered_issuer_pdf_records_page_claims_and_cache(
+    db, monkeypatch
+):
+    from app.db.models import Company, Fact, SourceDocument
+    from app.scrapers import issuer_ir
+    from app.services import evidence
+
+    report_url = "https://assecobs.pl/reports/governance.pdf"
+    company = Company(ticker="ABS", name="ASSECO BUSINESS SOLUTIONS SA")
+    db.add(company)
+    db.flush()
+    index = evidence.record_document_version(
+        db,
+        company,
+        source_name="ABS issuer IR",
+        source_type="issuer_ir",
+        scope_key="reports-index",
+        requested_url=issuer_ir.ISSUER_IR_SOURCES["ABS"],
+        effective_url=issuer_ir.ISSUER_IR_SOURCES["ABS"],
+        content=b"index",
+        text="index",
+        response_status=200,
+        mime_type="text/html",
+    )
+    evidence.mark_parse_result(index.version, success=True)
+    evidence.record_text_fact(
+        db,
+        company,
+        index.version,
+        fact_type="issuer_ir_link",
+        fact_key="issuer_ir.periodic_report.test",
+        text="Sprawozdanie Rady Nadzorczej",
+        locator={"url": report_url},
+        verification_state="unverified",
+        extractor_version="test",
+    )
+    db.commit()
+    response = FakeResponse("", 200)
+    response.url = report_url
+    response.content = b"%PDF-test"
+    response.headers = {"content-type": "application/pdf"}
+    calls = []
+    monkeypatch.setattr(
+        issuer_ir.http,
+        "fetch",
+        lambda _url: calls.append(_url) or response,
+    )
+    monkeypatch.setattr(
+        issuer_ir,
+        "extract_pdf_pages",
+        lambda _content: ["Page one governance claim", "Page two risk claim"],
+    )
+
+    result = issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+
+    assert result["ok"] is True
+    assert result["version_created"] is True
+    assert result["page_count"] == 2
+    assert result["page_claim_count"] == 2
+    report_document = db.scalar(
+        select(SourceDocument).where(SourceDocument.source_type == "issuer_ir_report")
+    )
+    assert report_document.title == "Sprawozdanie Rady Nadzorczej"
+    page_facts = list(
+        db.scalars(select(Fact).where(Fact.fact_type == "issuer_ir_page"))
+    )
+    assert [fact.locator["page"] for fact in page_facts] == [1, 2]
+    assert all(fact.verification_state == "unverified" for fact in page_facts)
+
+    cached = issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+    assert cached["status"] == "cached"
+    assert len(calls) == 1
+
+
+def test_ingest_issuer_pdf_rejects_url_not_discovered_in_index(db):
+    from app.db.models import Company
+    from app.scrapers.issuer_ir import ingest_issuer_ir_report
+
+    db.add(Company(ticker="ABS", name="ASSECO BUSINESS SOLUTIONS SA"))
+    db.commit()
+
+    with pytest.raises(ValueError, match="not present"):
+        ingest_issuer_ir_report(db, "ABS", "https://other.example/report.pdf")
+
+
+def test_ingest_issuer_pdf_rejects_cross_host_redirect(db, monkeypatch):
+    from app.db.models import Company, Fact
+    from app.scrapers import issuer_ir
+    from app.services import evidence
+
+    report_url = "https://assecobs.pl/reports/redirect.pdf"
+    company = Company(ticker="ABS", name="ASSECO BUSINESS SOLUTIONS SA")
+    db.add(company)
+    db.flush()
+    index = evidence.record_document_version(
+        db,
+        company,
+        source_name="ABS issuer IR",
+        source_type="issuer_ir",
+        scope_key="reports-index",
+        requested_url=issuer_ir.ISSUER_IR_SOURCES["ABS"],
+        effective_url=issuer_ir.ISSUER_IR_SOURCES["ABS"],
+        content=b"index",
+        text="index",
+        response_status=200,
+        mime_type="text/html",
+    )
+    evidence.record_text_fact(
+        db,
+        company,
+        index.version,
+        fact_type="issuer_ir_link",
+        fact_key="issuer_ir.periodic_report.redirect",
+        text="Redirected report",
+        locator={"url": report_url},
+        verification_state="unverified",
+        extractor_version="test",
+    )
+    db.commit()
+    response = FakeResponse("", 200)
+    response.url = "https://files.example/report.pdf"
+    response.content = b"%PDF-test"
+    monkeypatch.setattr(issuer_ir.http, "fetch", lambda _url: response)
+
+    result = issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+
+    assert result["status"] == "rejected"
+    assert "redirect" in result["error"].lower()
+    assert not list(db.scalars(select(Fact).where(Fact.fact_type == "issuer_ir_page")))
+
+
+def test_ingest_issuer_pdf_preserves_parse_failure_without_raising(db, monkeypatch):
+    from app.db.models import Company, Fact, SourceDocument, DocumentVersion
+    from app.scrapers import issuer_ir
+    from app.services import evidence
+
+    report_url = "https://assecobs.pl/reports/broken.pdf"
+    company = Company(ticker="ABS", name="ASSECO BUSINESS SOLUTIONS SA")
+    db.add(company)
+    db.flush()
+    index = evidence.record_document_version(
+        db,
+        company,
+        source_name="ABS issuer IR",
+        source_type="issuer_ir",
+        scope_key="reports-index",
+        requested_url=issuer_ir.ISSUER_IR_SOURCES["ABS"],
+        effective_url=issuer_ir.ISSUER_IR_SOURCES["ABS"],
+        content=b"index",
+        text="index",
+        response_status=200,
+        mime_type="text/html",
+    )
+    evidence.record_text_fact(
+        db,
+        company,
+        index.version,
+        fact_type="issuer_ir_link",
+        fact_key="issuer_ir.periodic_report.broken",
+        text="Broken report",
+        locator={"url": report_url},
+        verification_state="unverified",
+        extractor_version="test",
+    )
+    db.commit()
+    response = FakeResponse("", 200)
+    response.url = report_url
+    response.content = b"%PDF-broken"
+    monkeypatch.setattr(issuer_ir.http, "fetch", lambda _url: response)
+    monkeypatch.setattr(
+        issuer_ir,
+        "extract_pdf_pages",
+        lambda _content: (_ for _ in ()).throw(ValueError("invalid xref")),
+    )
+
+    result = issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+
+    assert result["status"] == "parse_failed"
+    assert "invalid xref" in result["error"]
+    document = db.scalar(
+        select(SourceDocument).where(SourceDocument.source_type == "issuer_ir_report")
+    )
+    version = db.scalar(
+        select(DocumentVersion).where(DocumentVersion.source_document_id == document.id)
+    )
+    assert version.parse_status == "failed"
+    assert "invalid xref" in version.parse_error
+    assert not list(db.scalars(select(Fact).where(Fact.fact_type == "issuer_ir_page")))
