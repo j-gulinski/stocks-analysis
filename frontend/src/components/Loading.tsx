@@ -27,7 +27,7 @@ export function LoadingMessages({
 
   return (
     <div className="loading-line" role="status" aria-live="polite">
-      <span className="loading-dot" />
+      <span className="loading-spinner" aria-hidden="true" />
       <span key={index} className="loading-text">
         {messages[index]}
       </span>

@@ -216,6 +216,20 @@ export default function ResearchQueuePage() {
         </form>
       </section>
 
+      <section className="workflow-guide" aria-label="Typowa ścieżka analizy">
+        <div className="workflow-guide-copy">
+          <p className="eyebrow">Typowa ścieżka</p>
+          <h2>Wybierz jedną spółkę i wykonaj jej następny krok</h2>
+          <p>Nie musisz otwierać każdej zakładki. Kolejka pokazuje, co wymaga działania teraz.</p>
+        </div>
+        <ol className="workflow-guide-steps">
+          <li className="done"><span>1</span><strong>Odkryj</strong><small>źródłowy radar</small></li>
+          <li className="active"><span>2</span><strong>Zbierz dane</strong><small>dossier i świeżość</small></li>
+          <li><span>3</span><strong>Przeczytaj raport</strong><small>teza + ryzyka</small></li>
+          <li><span>4</span><strong>Zweryfikuj</strong><small>Codex + scenariusze</small></li>
+        </ol>
+      </section>
+
       {error && <div className="error-box">{error}</div>}
 
       {loading ? (
@@ -234,7 +248,7 @@ export default function ResearchQueuePage() {
             <div><span>Dossier gotowe</span><strong>{ready}</strong></div>
             <div className={needsEvidence > 0 ? "warn" : ""}><span>Wymaga danych</span><strong>{needsEvidence}</strong></div>
             <div className={stale > 0 ? "warn" : ""}><span>Nieaktualne</span><strong>{stale}</strong></div>
-            <button className="btn" onClick={() => void refreshAll()} disabled={anyRefreshing}><IconRefresh size={14} className={anyRefreshing ? "spin" : ""} /> Odśwież kolejkę</button>
+            <button className="btn" onClick={() => void refreshAll()} disabled={anyRefreshing}><IconRefresh size={14} className={anyRefreshing ? "spin" : ""} /> {anyRefreshing ? "Odświeżam…" : "Odśwież dane"}</button>
           </section>
 
           <section className="research-list">
@@ -247,30 +261,46 @@ export default function ResearchQueuePage() {
               const days = staleDays(scrapedAt);
               return (
                 <article className="research-row" key={row.ticker}>
-                  <button className="research-open" onClick={() => router.push(`/stock/${row.ticker}`)} aria-label={`Kontynuuj analizę ${row.ticker}`}>
-                    <div className="research-company">
+                  <div className="research-row-head">
+                    <button className="research-company-link" onClick={() => router.push(`/stock/${row.ticker}`)} aria-label={`Otwórz analizę ${row.ticker}`}>
                       <span className="ticker-mark">{row.ticker}</span>
-                      <strong>{row.name ?? "Nazwa do uzupełnienia"}</strong>
-                      <span>{fmtPln(dossier?.ttm.price)} · {fmtMcap(dossier?.ttm.market_cap)}</span>
-                    </div>
-                    <div className="research-state">
+                      <span>
+                        <strong>{row.name ?? "Nazwa do uzupełnienia"}</strong>
+                        <small>{fmtPln(dossier?.ttm.price)} · {fmtMcap(dossier?.ttm.market_cap)}</small>
+                      </span>
+                    </button>
+                    <div className="research-row-status">
                       <span className={`badge ${state.tone}`}>{state.label}</span>
+                      {row.refreshing && <span className="loading-inline"><span className="loading-spinner" /> odświeżam dane</span>}
+                      <small className={days != null && days > 3 ? "warn" : "muted"}>{relativeDate(scrapedAt)}</small>
+                    </div>
+                  </div>
+                  <div className="research-row-grid">
+                    <div className="research-company">
+                      <span className="candidate-label">Teza i odczyt</span>
                       <p>{decisionRead(dossier)}</p>
+                      {dossier?.thesis?.thesis_read && <p className="research-thesis">{dossier.thesis.thesis_read}</p>}
                     </div>
                     <div className="research-signals">
-                      <span className="candidate-label">Kluczowe sygnały</span>
-                      {signals.length > 0 ? signals.map((signal) => <span key={signal.id}>{signal.name}: <strong>{signal.value}</strong></span>) : <span>Po zebraniu danych</span>}
+                      <span className="candidate-label">Co mówi dossier</span>
+                      {signals.length > 0 ? signals.map((signal) => (
+                        <span key={signal.id}>
+                          <strong>{signal.name}: {signal.value}</strong>
+                          {signal.comment && <small>{signal.comment}</small>}
+                        </span>
+                      )) : <span>Po zebraniu danych pojawią się sygnały.</span>}
                     </div>
                     <div className={`research-gap ${risk.clear ? "clear" : ""}`}>
                       <span className="candidate-label">{risk.label}</span>
                       <span>{risk.clear ? <IconCircleCheck size={13} /> : <IconAlertTriangle size={13} />} {risk.value}</span>
                     </div>
                     <div className="research-next">
-                      <span>{state.next}</span>
-                      <small className={days != null && days > 3 ? "warn" : ""}><IconCircleCheck size={12} /> {relativeDate(scrapedAt)}</small>
+                      <span className="candidate-label">Teraz</span>
+                      <button className="btn accent research-primary-action" onClick={() => router.push(`/stock/${row.ticker}`)}>
+                        <IconArrowRight size={14} /> {state.next}
+                      </button>
                     </div>
-                    <IconArrowRight className="research-arrow" size={17} />
-                  </button>
+                  </div>
                   <div className="research-maintenance">
                     <button className="btn icon" title="Odśwież dane" aria-label={`Odśwież ${row.ticker}`} onClick={() => void refresh(row.ticker, true)} disabled={row.refreshing}><IconRefresh size={15} className={row.refreshing ? "spin" : ""} /></button>
                     <button className="btn icon" title="Usuń analizę" aria-label={`Usuń ${row.ticker}`} onClick={() => void remove(row.ticker)}><IconTrash size={15} /></button>

@@ -1,6 +1,6 @@
 # Walidacja silnika scenariuszy i wyceny potencjału — stage SC / WP5
 
-Stage SC / WP5 (`docs/plan-stage-scenarios.md`). Cel: fixture-first walidacja
+Stage SC / WP5 (history archived in `docs/archive/plans/plan-stage-scenarios.md`). Cel: fixture-first walidacja
 deterministycznego silnika scenariuszy (`services/scenarios.py`), refinera AI
 (`services/scenarios_ai.py`) i agenta wyceny potencjału
 (`services/valuation_ai.py`) + wzbogaconego korpusu `WorkedCase`

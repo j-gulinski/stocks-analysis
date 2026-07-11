@@ -2,8 +2,8 @@
 
 The review confirmed that the first vertical slice is useful but still a
 data-backed workspace, not yet a trustworthy research system. The canonical
-response is [`plan-research-platform.md`](plan-research-platform.md); current
-work is in [`TASKS.md`](../TASKS.md).
+response is [`plan-research-platform.md`](../plan-research-platform.md); current
+work is in [`TASKS.md`](../../TASKS.md).
 
 ## Findings retained
 

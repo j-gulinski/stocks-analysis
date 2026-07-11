@@ -13,6 +13,7 @@ import {
 } from "@tabler/icons-react";
 import { addToWatchlist, getDiscovery, listAgentRuns } from "@/lib/api";
 import { fmtDate } from "@/lib/format";
+import { LoadingMessages, SkeletonRows } from "@/components/Loading";
 import type { AgentRun, DiscoveryResult } from "@/lib/types";
 
 const PRESETS = [
@@ -177,6 +178,20 @@ export default function DiscoverPage() {
         <span className="badge neutral">1 strona źródłowa · cache 24 h</span>
       </section>
 
+      <section className="workflow-guide discovery-guide" aria-label="Typowa ścieżka odkrywania">
+        <div className="workflow-guide-copy">
+          <p className="eyebrow">Typowa ścieżka</p>
+          <h2>Najpierw wybierz kandydatów, potem odśwież tylko wybrane dossier</h2>
+          <p>Ranking jest źródłowym prescreenem. Kliknięcie „Rozpocznij analizę” jest jedyną akcją, która dodaje spółkę do Research.</p>
+        </div>
+        <ol className="workflow-guide-steps">
+          <li className="active"><span>1</span><strong>Przesiej</strong><small>rating + F-Score</small></li>
+          <li><span>2</span><strong>Sprawdź powód</strong><small>źródła i zastrzeżenia</small></li>
+          <li><span>3</span><strong>Rozpocznij</strong><small>jawne dossier</small></li>
+          <li><span>4</span><strong>Zweryfikuj</strong><small>raport Codex</small></li>
+        </ol>
+      </section>
+
       <section className="screening-controls" aria-label="Wybór sita">
         <div>
           <h2>Wybierz szerokość sita</h2>
@@ -225,6 +240,9 @@ export default function DiscoverPage() {
           </div>
         )}
 
+        {loading ? (
+          <><SkeletonRows rows={5} height={96} /><LoadingMessages messages={["Ładuję ranking źródłowy…", "Sprawdzam powody wysokiej pozycji…"]} /></>
+        ) : (
         <div className="candidate-list" aria-live="polite">
           {result?.candidates.slice(0, visibleCount).map((candidate) => {
             const evaluation = evaluated.get(candidate.ticker);
@@ -280,6 +298,7 @@ export default function DiscoverPage() {
             );
           })}
         </div>
+        )}
         {result && visibleCount < result.candidates.length && (
           <button className="btn show-more-candidates" onClick={() => setVisibleCount((count) => count + 15)}>
             Pokaż kolejne ({result.candidates.length - visibleCount})

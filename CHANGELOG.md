@@ -3,6 +3,39 @@
 Durable decisions and completed slices only. `TASKS.md` owns current status;
 implementation detail lives in stage plans, validation notes, archives and git.
 
+## 2026-07-11 · Primary workflow redesign, ESPI retry state and Sol pilot
+
+Redesigned the primary UI around the actual workflow: Discover explains source
+ranking and promotion, Research presents a typical path plus one explicit next
+action per company, and each stock workspace explains the current step before
+showing secondary evidence, scenarios and Codex panels. Queue rows now expose
+signals with their comments, the main gap, freshness and the action that should
+happen next. Loading uses animated spinners/skeletons across the main async
+surfaces. Deep-analysis and pre-session controls let the user choose a
+requested orchestrator tier/model (Sol high, Terra high, GPT-5.3 high or Luna
+medium) and disclose that the exact Codex host deployment is not exposed.
+
+ESPI poll results now mark exhausted HTTP 5xx/network failures as
+`temporarily_unavailable`/`retry_later` while preserving the completeness
+watermark; Settings presents a retry-later message and does not create a new
+retry loop. Scenario company outcomes and the top-15 stale-after-seven-days
+post-refetch scheduler remain explicit in the live contract. The Sol-high OPM
+orchestrator pilot was persisted as run #2 with `needs-human`: deterministic
+dossier/math checks passed, but catalyst, backlog, management/governance
+primary-source completion and priced operating outcomes remain unapproved.
+
+## 2026-07-11 · Documentation compaction
+
+Reviewed the repository Markdown inventory and reduced the active documentation
+surface. Completed stage plans, superseded design variants, the dated expert
+review, changelog detail and phase-by-phase learning notes moved under
+`docs/archive/`. `docs/design.md` and `docs/learning.md` now hold the single
+live design/learning contracts, while validation evidence, source materials,
+active plans, skills and guardrails remain separate because they serve
+different operational purposes. References in `AGENTS.md`, `README.md`,
+`PLAN.md`, `TASKS.md` and validation notes were updated; no historical evidence
+was deleted.
+
 ## 2026-07-11 · Keyless Codex workflow parity
 
 The local Codex workflow now has a complete no-key fallback: the existing MCP

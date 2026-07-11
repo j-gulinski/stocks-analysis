@@ -11,6 +11,8 @@ import {
 } from "@/lib/api";
 import { isCurrentVerifiedRun } from "@/lib/analysis";
 import { fmtDate, fmtPct, relativeDate, signClass } from "@/lib/format";
+import { DEFAULT_ORCHESTRATOR_MODEL, modelPolicyDescription, ORCHESTRATOR_MODELS } from "@/lib/model-policy";
+import { LoadingMessages } from "@/components/Loading";
 import type {
   AgentRun,
   AnalysisRun,
@@ -449,6 +451,7 @@ export default function AnalysisPanel({
   const [selectedAgentRunId, setSelectedAgentRunId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [queueing, setQueueing] = useState(false);
+  const [orchestratorModel, setOrchestratorModel] = useState<string>(DEFAULT_ORCHESTRATOR_MODEL);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -492,12 +495,17 @@ export default function AnalysisPanel({
         ticker,
         trigger: "ui-request",
         model_role: "orchestrator",
-        model: "gpt-5.3-codex-spark",
-        orchestrator_model: "gpt-5.3-codex-spark",
+        model: orchestratorModel,
+        orchestrator_model: orchestratorModel,
         inputs: {
           objective: "Create a complete, concise company report from stored evidence and primary-source research.",
           required_verification: "Strongest configured verifier independently owns prediction, confidence, result quality and approval.",
           ui_contract: "Prepared report only; keep raw evidence in audit storage.",
+          model_selection: {
+            requested: orchestratorModel,
+            provider_mode: "codex-host",
+            exact_deployment_exposed: false,
+          },
         },
       });
       setAgentWorkflowRows((current) => [run, ...(current ?? [])]);
@@ -510,7 +518,7 @@ export default function AnalysisPanel({
     }
   };
 
-  if (loading) return <p className="empty-state">Ładowanie historii analiz…</p>;
+  if (loading) return <LoadingMessages messages={["Ładuję historię analiz…", "Sprawdzam najnowszy verifier…"]} />;
 
   const agentRows = agentHistory ?? [];
   const workflowRows = agentWorkflowRows ?? [];
@@ -534,11 +542,39 @@ export default function AnalysisPanel({
 
   return (
     <div>
+      <section className="codex-next-action" aria-label="Następny krok analizy Codex">
+        <div>
+          <p className="eyebrow">Następny krok</p>
+          <h3>{activeDeepJob ? "Raport jest już prowadzony przez Codex" : "Zleć pełny raport po zebraniu danych"}</h3>
+          <p>
+            Codex pracuje na zapisanym dossier, a wynik dopiero po niezależnej
+            weryfikacji może zastąpić raport roboczy. Nie jest wymagany klucz API.
+          </p>
+        </div>
+        <div className="codex-next-controls">
+          <label>
+            Model orchestratora
+            <select
+              value={orchestratorModel}
+              onChange={(event) => setOrchestratorModel(event.target.value)}
+              disabled={queueing || Boolean(activeDeepJob)}
+              aria-describedby="model-policy-note"
+            >
+              {ORCHESTRATOR_MODELS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <button className="btn accent" onClick={handleQueueCodex} disabled={queueing || Boolean(activeDeepJob)}>
+            <IconSparkles size={14} className={queueing ? "spin" : ""} />
+            {activeDeepJob ? "W toku / w kolejce" : "Zleć pełny raport"}
+          </button>
+        </div>
+        <p id="model-policy-note" className="small muted">
+          {modelPolicyDescription(orchestratorModel)} Host Codex nie ujawnia dokładnego deploymentu; wybór jest zapisany w historii runu.
+        </p>
+      </section>
       <div className="row wrap" style={{ marginBottom: 14 }}>
-        <button className="btn accent" onClick={handleQueueCodex} disabled={queueing || Boolean(activeDeepJob)}>
-          <IconSparkles size={14} className={queueing ? "spin" : ""} />
-          {activeDeepJob ? "Pełny raport jest w kolejce" : "Zleć pełny raport"}
-        </button>
         {context && (
           <span className={`badge ${context.ready_for_ai ? "success" : "warning"}`}>
             dane analizy: {context.ready_for_ai ? "gotowe" : `braki: ${context.missing.join(", ")}`}

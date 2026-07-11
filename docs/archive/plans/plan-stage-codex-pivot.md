@@ -2,8 +2,8 @@
 
 **Status:** foundation delivered; CX.10–CX.17 remain bounded follow-up work.
 This compact contract complements the canonical RT roadmap and does not track
-session progress. Use [`TASKS.md`](../TASKS.md) for status and
-[`plan-research-platform.md`](plan-research-platform.md) for target
+session progress. Use [`TASKS.md`](../../../TASKS.md) for status and
+[`plan-research-platform.md`](../../plan-research-platform.md) for target
 architecture.
 
 ## Operating model
@@ -80,5 +80,5 @@ labelled as suggestion or approved conclusion only after verification.
 No hidden model calls on reads, direct buy/sell advice, fabricated values,
 unbounded crawling, autonomous trading, or hosted use of personal Codex
 credentials. Parser changes require fixtures; all HTTP uses the polite scraper
-boundary. See [`project-guardrails.md`](project-guardrails.md), the repository
+boundary. See [`project-guardrails.md`](../../project-guardrails.md), the repository
 skills and the strict verifier skill.

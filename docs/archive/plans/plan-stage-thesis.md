@@ -1,8 +1,8 @@
 # Stage TH — investment thesis (historical)
 
 **Status:** complete. This page is a compact index, not an active execution
-plan. Current work is tracked only in [`TASKS.md`](../TASKS.md); target
-architecture is in [`plan-research-platform.md`](plan-research-platform.md).
+plan. Current work is tracked only in [`TASKS.md`](../../../TASKS.md); target
+architecture is in [`plan-research-platform.md`](../../plan-research-platform.md).
 
 ## Delivered
 
@@ -26,9 +26,9 @@ architecture is in [`plan-research-platform.md`](plan-research-platform.md).
 
 ## Evidence and follow-up
 
-- Validation: [`validation-thesis.md`](validation-thesis.md).
-- Strategy source/spec: [`strategy-malik.md`](strategy-malik.md) and
-  [`../skill/SKILL.md`](../skill/SKILL.md).
+- Validation: [`validation-thesis.md`](../../validation-thesis.md).
+- Strategy source/spec: [`strategy-malik.md`](../../strategy-malik.md) and
+  [`skill/SKILL.md`](../../../skill/SKILL.md).
 - Detailed implementation history: git history and
-  [`changelog-archive-thesis-2026-07-08.md`](changelog-archive-thesis-2026-07-08.md).
+  [`changelog-archive-thesis-2026-07-08.md`](../changelog-archive-thesis-2026-07-08.md).
 - No TH task is currently open; do not reopen this stage for routine RT work.

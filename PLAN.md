@@ -131,4 +131,4 @@ tests, the full relevant suite, frontend build and the local operator gate.
 
 The project is learning material for a mid-level C# developer: prefer readable
 Python/TypeScript, explain why for non-obvious choices, and use C#/.NET
-analogies in `docs/learning/` rather than bloating the architecture docs.
+analogies in `docs/learning.md` rather than bloating the architecture docs.

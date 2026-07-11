@@ -8,8 +8,8 @@ judge evaluation and a Codex-facilitated research workflow.
 
 Docs: `docs/plan-research-platform.md` (binding target) · `PLAN.md` (overview
 and first-build history) · `TASKS.md` (task breakdown) · `CHANGELOG.md`
-(decision log — required for every change) · `docs/design/` (UI reference) ·
-`docs/learning/` (concept notes for a C# dev learning this stack).
+(decision log — required for every change) · `docs/design.md` (UI reference) ·
+`docs/learning.md` (compact C#/.NET learning index).
 
 ## Start locally (recommended)
 

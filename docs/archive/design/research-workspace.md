@@ -1,8 +1,8 @@
 # Research workspace — compact UX contract
 
 **Status:** first vertical slice implemented 2026-07-09. This page defines the
-workflow surface; [`TASKS.md`](../../TASKS.md) owns status and
-[`../plan-research-platform.md`](../plan-research-platform.md) owns future
+workflow surface; [`TASKS.md`](../../../TASKS.md) owns status and
+[`plan-research-platform.md`](../../plan-research-platform.md) owns future
 architecture.
 
 ## Product path

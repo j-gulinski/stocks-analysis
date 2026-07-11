@@ -693,6 +693,8 @@ def test_list_page_failure_is_incomplete_and_keeps_watermark(db, monkeypatch):
     assert result["complete"] is False
     assert result["pages_fetched"] == 1
     assert result["incomplete_reason"].startswith("list_page_error:")
+    assert result["source_status"] == "temporarily_unavailable"
+    assert result["retry_later"] is True
     assert db.query(EventReport).count() == 1
     state = db.query(ListPollState).filter_by(source_key=espi.SOURCE_KEY).one()
     assert _iso_utc(state.last_polled_at) == watermark.isoformat()

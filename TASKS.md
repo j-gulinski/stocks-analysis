@@ -16,8 +16,9 @@ as a session diary.
 
 Take the first unchecked item. Each item should be a bounded, verifiable slice.
 
-1. CX.15a — ESPI completeness watermark and pagination.
-2. CX.15b — `workbench start` pre-session hook.
+1. UX.1 — Complete primary workflow redesign and accessibility/browser QA.
+2. CX.15e — ESPI temporary-unavailable state and user-selected Codex model metadata.
+3. CX.16a — Sol-high orchestrator pilot on OPM; primary-source completion remains open.
 3. [x] IL.1 — decision journal.
 4. [x] IL.2 + CX.15c — thesis-change diff and ESPI/queue actions.
 5. [x] IL.3 — falsifiers and thesis-at-risk ordering.
@@ -31,15 +32,15 @@ Take the first unchecked item. Each item should be a bounded, verifiable slice.
 
 | IDs | Result | Source of detail |
 |---|---|---|
-| P0.1–P0.6 | Monorepo, local Postgres, FastAPI health endpoint, Next proxy, first migration, README. | `PLAN.md` §2, `docs/learning/phase-0.md` |
+| P0.1–P0.6 | Monorepo, local Postgres, FastAPI health endpoint, Next proxy, first migration, README. | `PLAN.md` §2, `docs/learning.md` |
 | P1.0–P1.8 | Polite BiznesRadar/price ingestion, fixtures, metrics inputs, refresh/read APIs and watchlist. | `PLAN.md` §§5–7, scraper-doctor skill |
-| P2.1–P2.6 | PortalAnaliz login, topic linking, incremental forum sync and upvotes. | `PLAN.md` §5, `docs/learning/phase-2.md` |
-| P3.1–P3.6 | Pure metrics, TTM/prescore/forecast, dossier and forum summary. | `PLAN.md` §7, `docs/learning/phase-3.md` |
-| P4.1–P4.8 | Watchlist, stock pages, financials/charts/forecast/forum/settings UI. | `PLAN.md` §7, `docs/learning/phase-4.md` |
-| P5.1–P5.7/P5.9 | Strategy skill, rubric, examples, explicit analysis path, history and forum distiller. | `skill/`, `docs/plan-stage-thesis.md` |
-| TH.1–TH.5, TH.2b | Source-grounded generic thesis engine, Malik profile, guarded optional refinement and validation. | `docs/plan-stage-thesis.md`, `docs/validation-thesis.md` |
-| SC.1–SC.5 | Deterministic scenarios, bounded AI valuation, corpus enrichment and validation. | `docs/plan-stage-scenarios.md`, `docs/validation-scenarios.md` |
-| CX.1–CX.9 | Codex contracts, provider-neutral runs, local scripts/MCP, skills, ESPI events, queue UI and deterministic replay. | `docs/plan-stage-codex-pivot.md` |
+| P2.1–P2.6 | PortalAnaliz login, topic linking, incremental forum sync and upvotes. | `PLAN.md` §5, `docs/learning.md` |
+| P3.1–P3.6 | Pure metrics, TTM/prescore/forecast, dossier and forum summary. | `PLAN.md` §7, `docs/learning.md` |
+| P4.1–P4.8 | Watchlist, stock pages, financials/charts/forecast/forum/settings UI. | `PLAN.md` §7, `docs/learning.md` |
+| P5.1–P5.7/P5.9 | Strategy skill, rubric, examples, explicit analysis path, history and forum distiller. | `skill/`, `docs/strategy-malik.md` |
+| TH.1–TH.5, TH.2b | Source-grounded generic thesis engine, Malik profile, guarded optional refinement and validation. | `docs/strategy-malik.md`, `docs/validation-thesis.md` |
+| SC.1–SC.5 | Deterministic scenarios, bounded AI valuation, corpus enrichment and validation. | `docs/validation-scenarios.md`, `docs/archive/plans/plan-stage-scenarios.md` |
+| CX.1–CX.9 | Codex contracts, provider-neutral runs, local scripts/MCP, skills, ESPI events, queue UI and deterministic replay. | `docs/plan-research-platform.md`, `.codex/tasks/` |
 | CX.12 | Durable queue claim/save/complete lifecycle and local worker contract. Periodic execution is optional under CX.15. | `.codex/tasks/stock-queue-worker.md` |
 
 P1.9 remains an optional premium-session compatibility feature. P5.8 is
@@ -47,7 +48,8 @@ superseded by RT.6. The legacy Claude path is retained only until CX.10.
 
 ## Stage CX — Codex-centered analyst operating system
 
-Detailed contracts: `docs/plan-stage-codex-pivot.md`.
+Detailed contracts: `docs/plan-research-platform.md`, `.codex/tasks/` and the
+matching operational skill; completed stage detail is archived.
 
 - [ ] **CX.10 Legacy provider sunset/archive.** Remove or archive Anthropic/
   Claude configuration, clients, direct analysis behavior and compatibility
@@ -64,12 +66,12 @@ Detailed contracts: `docs/plan-stage-codex-pivot.md`.
   explicit no-evidence warning. Do not change prompts or strategy rules
   without separated validation and `verifier_strict` review. Detail:
   `docs/plan-agent-valuation-backtest.md`.
-- [~] **CX.14 UI workbench composition.** Explore now exposes deterministic
-  source-ranking rationale and, after an explicit source refetch, queues up to
-  15 stale quick analyses for stored companies older than seven days. Remaining
-  work is the primary watchlist surface, compact operations rail,
-  queue truthfulness, provenance/status density and responsive/accessibility
-  checks, coordinated with RT4.5–RT4.7 and `docs/plan-ui-refactor.md`.
+- [~] **CX.14 UI workbench composition.** Discover explains why a candidate is
+  high and, after an explicit source refetch, queues up to 15 stale quick
+  analyses for stored companies older than seven days. Research and the stock
+  workspace now expose a typical path, one next action, richer evidence/risk
+  context, visible spinners and model choice. Final responsive/accessibility
+  checks and follow-up visual refinement remain coordinated with RT4.5–RT4.7.
 - [ ] **CX.15 Session-driven operation.** Keep ingestion and queue execution
   pull-based and local; periodic polling is opt-in only.
   - [x] **CX.15a** Persist `last_polled_at`, paginate GPW ESPI until the
@@ -135,6 +137,24 @@ rules: `docs/plan-research-platform.md` §3.0 and §9, plus `AGENTS.md`.
   progressive disclosure, one canonical company read, and screenshot QA.
   Browser verification passed at desktop and 390px mobile widths: no page
   overflow, all four tabs remained reachable, and Sources/Codex content loaded.
+
+## Active bounded UX/Codex slices
+
+- [~] **UX.1 Primary workflow redesign:** Research uses a typical-path rail,
+  evidence-rich rows and one explicit next action; stock workspaces explain the
+  current step before exposing secondary panels; Discover retains source-rank
+  reasons and staged promotion.
+- [x] **UX.1a Loading and model choice:** loading states use animated spinners
+  and skeletons; deep analysis and pre-session actions store the user's
+  requested orchestrator model (Sol/Terra/GPT-5.3/Luna) while stating that the
+  Codex host does not expose the concrete deployment.
+- [x] **CX.15e ESPI temporary failure:** HTTP 5xx/network exhaustion remains a
+  complete=false result, keeps the watermark, marks `retry_later`, and the UI
+  presents a retry-later message without adding another fetch loop.
+- [x] **CX.16a Sol orchestrator pilot:** OPM run #2 stored `Sol high` as the
+  requested orchestrator and ended `needs-human`; the local dossier/math passed
+  bounded checks, while catalyst/backlog/governance primary-source completion
+  and priced outcomes remain explicit gaps.
 
 ## RT roadmap — next required stages
 

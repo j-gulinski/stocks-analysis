@@ -1,6 +1,6 @@
 # Walidacja silnika tezy — DGN/SNT historycznie + sanity bieżących spółek
 
-Stage TH / WP4 (`docs/plan-stage-thesis.md`). Cel: sprawdzić, czy kryteria
+Stage TH / WP4 (history archived in `docs/archive/plans/plan-stage-thesis.md`). Cel: sprawdzić, czy kryteria
 złapałyby dawne trafienia Malika (Digital Network, wczesny Synektik) i czy
 silnik czyta rozsądnie bieżące spółki różnej wielkości — **z uczciwym opisem
 tego, na co dane pozwalają, a na co nie**. Data: 2026-07-08.

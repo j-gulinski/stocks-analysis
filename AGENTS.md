@@ -3,8 +3,8 @@
 Personal GPW fundamental-research workbench: evidence + point-in-time data →
 deterministic metrics/company templates/scenarios → versioned strategy skills
 and controlled AI review/judge loops. The Malik / OBS strategy is the first
-investment lens, not the whole product. UI designs in `docs/design/` remain a
-reference for the completed first vertical slice.
+investment lens, not the whole product. The live UI contract is `docs/design.md`;
+HTML mockups remain under `docs/design/`.
 
 ## Read on demand (don't preload everything)
 
@@ -21,22 +21,19 @@ reference for the completed first vertical slice.
   here**: diagnostic ladder + verified quirks ledger (BR slug/`,Q` redirect
   trap, robots rules, indicator label traps, price-chain order, storage
   rules). Do not re-derive these.
-- `CHANGELOG.md` — decisions digest; full detail archived per stage in
-  `docs/changelog-archive-*.md` (build day 07-07; Stage TH 07-08).
-- `docs/plan-stage-thesis.md` — investment-thesis stage (TH): architecture +
-  per-WP acceptance; read the WP relevant to the task.
+- `CHANGELOG.md` — decisions digest; historical detail lives in `docs/archive/`.
 - `docs/strategy-malik.md` — source-cited Malik spec the thesis + scenario
   engines implement (principles → dossier field or labelled gap).
 - `docs/validation-thesis.md` — thesis validation: DGN/SNT cases + current-cap
   sanity, explicit gaps + deferred live run.
-- `docs/plan-stage-scenarios.md` — scenario-simulation stage (SC): per-WP
-  architecture + acceptance. Validation `docs/validation-scenarios.md` +
-  learning `docs/learning/phase-scenarios.md` land in WP5 (SC.5).
+- `docs/validation-scenarios.md` — scenario-simulation acceptance evidence;
+  completed stage detail is archived under `docs/archive/plans/`.
 - `docs/project-guardrails.md` — product and quality bar; read at the start
   and end of every phase/work package to keep the app evidence-grounded and
   avoid low-quality feature drift.
 - `docs/source-materials/` — strategy sources; `skill/SKILL.md` must stay
-  faithful to them. `docs/learning/` — phase notes for the user.
+  faithful to them. `docs/learning.md` — compact learning notes; historical
+  phase detail is under `docs/archive/learning/`.
 
 ## Stack
 
@@ -79,8 +76,8 @@ reference for the completed first vertical slice.
   Reported mcap (`companies.market_cap`) beats price×shares.
 - Secrets only in `backend/.env` (gitignored).
 - Learning layer (PLAN §13): user is a mid C# dev learning Python/frontend —
-  idiomatic readable code, comment the *why*, `docs/learning/phase-N.md`
-  after each phase, C#/.NET analogies when explaining.
+  idiomatic readable code, comment the *why*, update `docs/learning.md` after
+  each phase, C#/.NET analogies when explaining.
 - **Guardrail check:** every phase/work package starts and ends by inspecting
   `docs/project-guardrails.md`; do not mark work complete if it violates the
   evidence, UI, model-discipline, or phase-exit checklist there.

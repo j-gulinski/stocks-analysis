@@ -365,12 +365,14 @@ textarea {
   font-size: 13px;
   color: var(--text-secondary);
 
-  .loading-dot {
-    width: 8px;
-    height: 8px;
+  .loading-spinner {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    border: 2px solid color-mix(in srgb, var(--fill-accent) 25%, transparent);
+    border-top-color: var(--fill-accent);
     border-radius: 50%;
-    background: var(--fill-accent);
-    animation: pulse 1.2s ease-in-out infinite;
+    animation: spin 0.8s linear infinite;
   }
   .loading-text { animation: fade-in 0.4s ease; }
 }
@@ -1218,6 +1220,14 @@ textarea {
     margin-bottom: 3px;
     color: var(--text-secondary);
   }
+}
+
+.session-model-select {
+  display: grid;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  select { min-width: 160px; }
 }
 
 .backtest-form {
@@ -2483,30 +2493,69 @@ textarea {
 .research-list { border-top: 0.5px solid var(--border); }
 .research-row {
   position: relative;
+  padding: 18px 0;
   border-bottom: 0.5px solid var(--border);
   &:hover { background: rgba(255, 255, 255, 0.018); }
 }
 
-.research-open {
+.research-row-head {
   display: grid;
-  grid-template-columns: minmax(140px, 0.75fr) minmax(270px, 1.5fr) minmax(170px, 0.9fr) minmax(190px, 1fr) minmax(150px, 0.8fr) auto;
-  gap: 20px;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 14px;
   align-items: center;
-  width: 100%;
-  min-height: 112px;
-  padding: 16px 78px 16px 0;
+}
+
+.research-company-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: 100%;
+  padding: 0;
   border: 0;
   background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
+  &:hover strong, &:focus-visible strong { color: var(--text-accent); }
+  strong, small { display: block; }
+  strong { font-weight: 600; }
+  small { margin-top: 4px; color: var(--text-muted); font-size: 12px; }
+}
+
+.research-row-status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 7px 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.loading-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-accent);
+  .loading-spinner { width: 12px; height: 12px; border-width: 1.5px; }
+}
+
+.research-row-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.15fr) minmax(220px, 1.3fr) minmax(170px, 1fr) minmax(180px, 0.9fr);
+  gap: 20px;
+  align-items: start;
+  padding: 14px 78px 0 34px;
 }
 
 .research-company {
   strong, span { display: block; }
   strong { margin-top: 2px; font-weight: 500; }
   span:last-child { margin-top: 5px; color: var(--text-muted); font-size: 12px; }
+  p { margin: 5px 0 0; color: var(--text-secondary); font-size: 13px; line-height: 1.45; }
+  .research-thesis { display: -webkit-box; overflow: hidden; color: var(--text-muted); font-size: 12px; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 }
 
 .research-state p {
@@ -2529,6 +2578,9 @@ textarea {
   strong { color: var(--text-primary); font-weight: 500; }
 }
 
+.research-signals > span:not(.candidate-label) + span { margin-top: 8px; }
+.research-signals small { display: -webkit-box; overflow: hidden; margin-top: 2px; color: var(--text-muted); font-size: 11px; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+
 .research-gap > span:last-child {
   display: -webkit-box;
   overflow: hidden;
@@ -2546,6 +2598,8 @@ textarea {
   small { margin-top: 6px; color: var(--text-muted); font-size: 11px; }
   svg { vertical-align: -2px; }
 }
+
+.research-primary-action { margin-top: 7px; white-space: normal; text-align: left; }
 
 .research-arrow { color: var(--text-muted); }
 
@@ -2638,6 +2692,50 @@ textarea {
   transform: translateY(-50%);
 }
 
+.workflow-guide {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.8fr) minmax(0, 1.2fr);
+  gap: 24px;
+  align-items: center;
+  padding: 16px 0;
+  border-block: 0.5px solid var(--border);
+}
+.workflow-guide-copy {
+  h2 { font-size: 18px; }
+  p:not(.eyebrow) { margin-top: 5px; color: var(--text-muted); font-size: 13px; line-height: 1.45; }
+}
+.workflow-guide-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  li { position: relative; display: grid; gap: 3px; padding-left: 27px; color: var(--text-muted); font-size: 12px; }
+  li:not(:last-child)::after { content: ""; position: absolute; top: 11px; right: -4px; width: 8px; border-top: 1px solid var(--border); }
+  span { position: absolute; left: 0; top: 0; display: grid; place-items: center; width: 20px; height: 20px; border: 0.5px solid var(--border); border-radius: 50%; }
+  strong { color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+  small { color: var(--text-muted); font-size: 11px; }
+  .done span, .active span { border-color: var(--border-accent); color: var(--text-accent); }
+  .active strong { color: var(--text-primary); }
+}
+
+.codex-next-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, auto);
+  gap: 8px 20px;
+  align-items: end;
+  margin-bottom: 16px;
+  padding: 15px 16px;
+  border: 0.5px solid var(--border-accent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-accent) 65%, var(--surface-1));
+  h3 { margin: 0; font-size: 17px; }
+  p:not(.eyebrow):not(.small) { max-width: 720px; margin-top: 5px; color: var(--text-secondary); font-size: 13px; line-height: 1.45; }
+  .small { grid-column: 1 / -1; margin: 0; }
+}
+.codex-next-controls { display: flex; align-items: end; gap: 8px; label { display: grid; gap: 4px; color: var(--text-muted); font-size: 11px; } select { min-width: 170px; } }
+
 .workspace-header {
   position: sticky;
   z-index: 10;
@@ -2655,6 +2753,17 @@ textarea {
   background: var(--surface-0);
 
   button { min-height: 44px; padding: 9px 14px; }
+}
+
+.stock-workflow-guide {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 13px 0 15px;
+  border-bottom: 0.5px solid var(--border);
+  h2 { margin: 0; font-size: 17px; }
+  p:not(.eyebrow) { max-width: 760px; margin-top: 4px; color: var(--text-muted); font-size: 13px; line-height: 1.45; }
 }
 
 .tab-step {
@@ -2954,7 +3063,7 @@ textarea {
 @media (max-width: 1040px) {
   .candidate-row { grid-template-columns: minmax(150px, 0.7fr) minmax(260px, 1.3fr) minmax(210px, 1fr); }
   .candidate-actions { grid-column: 2 / -1; justify-content: flex-end; }
-  .research-open { grid-template-columns: minmax(130px, 0.7fr) minmax(260px, 1.4fr) minmax(170px, 0.9fr) minmax(180px, 1fr); }
+  .research-row-grid { grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.2fr) minmax(170px, 0.9fr); }
   .research-signals { display: none; }
 }
 
@@ -2971,12 +3080,21 @@ textarea {
   .queue-summary { overflow-x: auto; }
   .queue-summary > div { min-width: max-content; }
   .queue-summary .btn { min-width: max-content; }
-  .research-open { grid-template-columns: 1fr; gap: 10px; min-height: 0; padding: 18px 48px 18px 0; }
+  .workflow-guide { grid-template-columns: 1fr; gap: 14px; }
+  .research-row-head { grid-template-columns: 1fr; }
+  .research-row-status { justify-content: flex-start; }
+  .research-row-grid { grid-template-columns: 1fr; gap: 12px; padding: 14px 48px 36px 0; }
   .research-signals { display: block; }
-  .research-arrow { position: absolute; top: 22px; right: 10px; }
+  .workflow-guide-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 12px; }
+  .workflow-guide-steps li:nth-child(2)::after { display: none; }
+  .codex-next-action { grid-template-columns: 1fr; }
+  .codex-next-action .small { grid-column: auto; }
+  .codex-next-controls { align-items: stretch; flex-direction: column; }
+  .codex-next-controls select { width: 100%; }
   .research-maintenance { top: auto; right: 0; bottom: 10px; transform: none; }
   .workspace-header { position: static; }
   .workflow-tabs { top: 0; }
+  .stock-workflow-guide { align-items: flex-start; flex-direction: column; gap: 8px; }
   .case-editor { grid-template-columns: 1fr 1fr; }
   .case-editor > div { grid-column: 1 / -1; }
   .case-editor .case-update-error { grid-column: 1 / -1; }

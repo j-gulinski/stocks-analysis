@@ -1,8 +1,8 @@
 # Stage SC — scenario simulation (historical)
 
 **Status:** complete. This compact page records the contract and evidence;
-current execution belongs in [`TASKS.md`](../TASKS.md), and future design in
-[`plan-research-platform.md`](plan-research-platform.md).
+current execution belongs in [`TASKS.md`](../../../TASKS.md), and future design in
+[`plan-research-platform.md`](../../plan-research-platform.md).
 
 ## Delivered
 
@@ -31,8 +31,8 @@ current execution belongs in [`TASKS.md`](../TASKS.md), and future design in
 
 ## Evidence and follow-up
 
-- Validation: [`validation-scenarios.md`](validation-scenarios.md).
-- Target migration: [`plan-research-platform.md`](plan-research-platform.md)
+- Validation: [`validation-scenarios.md`](../../validation-scenarios.md).
+- Target migration: [`plan-research-platform.md`](../../plan-research-platform.md)
   §6 and RT.4.
 - Detailed stage history remains in git and the dated changelog archives.
 - No SC task is currently open; extend only through the RT roadmap.

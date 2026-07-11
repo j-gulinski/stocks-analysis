@@ -53,6 +53,33 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
+const TAB_GUIDANCE: Record<Tab, { eyebrow: string; title: string; description: string; next: string }> = {
+  Report: {
+    eyebrow: "Krok 1 · orientacja",
+    title: "Najpierw przeczytaj tezę i główne ryzyka",
+    description: "To jest kanoniczny ekran decyzji: co wiemy, co napędza wynik i co może obalić tezę.",
+    next: "Następnie sprawdź scenariusze",
+  },
+  Charts: {
+    eyebrow: "Krok 2 · scenariusze",
+    title: "Sprawdź, jaki wynik spółki musi się wydarzyć",
+    description: "Scenariusze pokazują zarówno potencjał wyceny, jak i operacyjny warunek pozytywny lub negatywny.",
+    next: "Następnie przejdź do źródeł",
+  },
+  Audit: {
+    eyebrow: "Krok 3 · dowody",
+    title: "Otwórz źródła tylko tam, gdzie jest luka",
+    description: "Surowe dane, sprawozdania i forum są warstwą audytową, nie kolejnym równoległym raportem.",
+    next: "Następnie zleć weryfikację Codex",
+  },
+  History: {
+    eyebrow: "Krok 4 · review",
+    title: "Zleć analizę i poczekaj na niezależny verifier",
+    description: "Wybierz model orchestratora. Dopiero zweryfikowany wynik może zastąpić tezę roboczą.",
+    next: "Po weryfikacji wróć do Raportu",
+  },
+};
+
 const CASE_STATE_LABELS: Record<ResearchCase["state"], string> = {
   new: "nowy",
   ingesting: "zbieranie danych",
@@ -313,6 +340,15 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
           <div className="source-list">{entries.map(([source, status]) => { const ok = status.startsWith("ok") || status === "cached"; return <div className="source-row" key={source}><span className={ok ? "pos" : "neg"}>●</span><span className="secondary source-name">{source}</span><span className={ok ? "secondary" : "neg"}>{status}</span></div>; })}</div>
         </details>
       )}
+
+      <section className="stock-workflow-guide" aria-label="Typowy przebieg analizy">
+        <div>
+          <p className="eyebrow">{TAB_GUIDANCE[tab].eyebrow}</p>
+          <h2>{TAB_GUIDANCE[tab].title}</h2>
+          <p>{TAB_GUIDANCE[tab].description}</p>
+        </div>
+        <span className="badge muted">{TAB_GUIDANCE[tab].next}</span>
+      </section>
 
       <div className="tabs app-tabs workflow-tabs" role="tablist" aria-label="Etapy analizy">
         {TABS.map(({ id, label, icon: Icon }, index) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)} role="tab" aria-selected={tab === id}><span className="tab-step">{index + 1}</span><Icon size={13} /> {label}</button>)}

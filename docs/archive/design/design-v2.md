@@ -2,7 +2,7 @@
 
 This is a visual reference. Product workflow and acceptance live in
 [`research-workspace.md`](research-workspace.md) and
-[`plan-research-platform.md`](../plan-research-platform.md).
+[`plan-research-platform.md`](../../plan-research-platform.md).
 
 ## Language and tone
 

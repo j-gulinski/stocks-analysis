@@ -500,6 +500,17 @@ def _poll_result(
     continuation_offset: int | None = None,
     continuation_limit: int | None = None,
 ) -> dict:
+    source_status = "ok" if complete and ok else "incomplete"
+    retry_later = bool(
+        incomplete_reason
+        and (
+            "HTTP 5" in incomplete_reason
+            or "Giving up on" in incomplete_reason
+            or "network error" in incomplete_reason
+        )
+    )
+    if retry_later:
+        source_status = "temporarily_unavailable"
     return {
         "ok": ok,
         "workflow": "stock-pre-session-brief",
@@ -517,6 +528,8 @@ def _poll_result(
         "complete": complete,
         "metadata_only": metadata_only,
         "incomplete_reason": incomplete_reason,
+        "source_status": source_status,
+        "retry_later": retry_later,
         "scan_started_at": _iso_or_none(scan_started_at),
         "scan_target_at": _iso_or_none(scan_target_at),
         "continuation_offset": continuation_offset,

@@ -14,6 +14,7 @@ import {
 } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
 import { relativeDate } from "@/lib/format";
+import { DEFAULT_ORCHESTRATOR_MODEL, modelPolicyDescription, ORCHESTRATOR_MODELS } from "@/lib/model-policy";
 import { useState } from "react";
 
 function StatusCard({
@@ -50,6 +51,14 @@ function StatusCard({
   );
 }
 
+function friendlyEspiMessage(value: unknown): string {
+  const raw = String(value ?? "Niepełne pobranie ESPI.");
+  if (raw.includes("HTTP 500") || raw.includes("Giving up on")) {
+    return "GPW chwilowo nie odpowiada (HTTP 500). Watermark nie został przesunięty — spróbuj ponownie później.";
+  }
+  return raw;
+}
+
 export default function SettingsPage() {
   const health = useApi(getHealth, []);
   const forum = useApi(getForumLoginStatus, []);
@@ -58,6 +67,7 @@ export default function SettingsPage() {
   const aiUsage = useApi(getAiUsage, []);
   const workflows = useApi(getWorkflowStatus, []);
   const [sessionAction, setSessionAction] = useState<string | null>(null);
+  const [orchestratorModel, setOrchestratorModel] = useState<string>(DEFAULT_ORCHESTRATOR_MODEL);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [sessionInfo, setSessionInfo] = useState<string | null>(null);
 
@@ -68,11 +78,12 @@ export default function SettingsPage() {
     try {
       const result = await preparePreSessionBrief({
         trigger: "settings-ui",
+        orchestrator_model: orchestratorModel,
         fetch_details: true,
         queue: true,
       });
       if (!result.ok) {
-        setSessionError(`ESPI wymaga uwagi: ${String(result.espi_poll.incomplete_reason ?? "niepełne pobranie")}`);
+        setSessionError(`ESPI wymaga uwagi: ${friendlyEspiMessage(result.espi_poll.incomplete_reason)}`);
       } else {
         setSessionInfo(result.agent_run ? `ESPI sprawdzone; utworzono zlecenie #${result.agent_run.id}.` : "ESPI sprawdzone; nie utworzono nowego zlecenia.");
       }
@@ -139,6 +150,12 @@ export default function SettingsPage() {
             </p>
           </div>
           <div className="command-row">
+            <label className="session-model-select">
+              Model orchestratora
+              <select value={orchestratorModel} onChange={(event) => setOrchestratorModel(event.target.value)} disabled={sessionAction != null}>
+                {ORCHESTRATOR_MODELS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
             <button className="btn" onClick={() => void recheckEspi()} disabled={sessionAction != null}>
               <IconRefresh size={14} className={sessionAction === "espi" ? "spin" : ""} />
               {sessionAction === "espi" ? "Sprawdzam ESPI…" : "Sprawdź ESPI"}
@@ -148,6 +165,7 @@ export default function SettingsPage() {
               {sessionAction === "queue" ? "Odbieram zlecenie…" : "Wykonaj jedną próbę kolejki"}
             </button>
           </div>
+          <p className="small muted" style={{ margin: "8px 0 0" }}>{modelPolicyDescription(orchestratorModel)} Wybór dotyczy żądanego orchestratora Codex; host nie ujawnia dokładnego deploymentu.</p>
           <div aria-live="polite">
             {sessionError && <p className="small neg" style={{ margin: "10px 0 0" }}>Błąd: {sessionError}</p>}
             {sessionInfo && <p className="small pos" style={{ margin: "10px 0 0" }}>{sessionInfo}</p>}
