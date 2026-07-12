@@ -71,6 +71,12 @@ def _seed_report_link(db, report_url: str):
             "Relacje inwestorskie | OPTeam",
             2,
         ),
+        (
+            "issuer_ir_asb.html",
+            "https://investor.asbis.com/news/financial-reports-archive/financial-reports-2026",
+            "Financial Reports 2026 - ASBIS",
+            1,
+        ),
     ],
 )
 def test_parse_issuer_ir_index_shapes(
@@ -97,6 +103,7 @@ def test_ingest_issuer_ir_pilot_records_versions_and_unverified_link_claims(
             Company(ticker="SNT", name="SYNEKTIK SA"),
             Company(ticker="ABS", name="ASSECO BUSINESS SOLUTIONS SA"),
             Company(ticker="OPM", name="OPTEAM SA"),
+            Company(ticker="ASB", name="ASBISc ENTERPRISES PLC"),
         ]
     )
     db.commit()
@@ -104,6 +111,7 @@ def test_ingest_issuer_ir_pilot_records_versions_and_unverified_link_claims(
         "SNT": "issuer_ir_snt.html",
         "ABS": "issuer_ir_abs.html",
         "OPM": "issuer_ir_opm.html",
+        "ASB": "issuer_ir_asb.html",
     }
     calls = []
 
@@ -118,24 +126,24 @@ def test_ingest_issuer_ir_pilot_records_versions_and_unverified_link_claims(
     results = [issuer_ir.ingest_issuer_ir_index(db, ticker) for ticker in fixtures]
 
     assert all(result["ok"] for result in results)
-    assert len(calls) == 3
-    assert db.scalar(select(func.count()).select_from(SourceDocument)) == 3
-    assert db.scalar(select(func.count()).select_from(DocumentVersion)) == 3
-    assert db.scalar(select(func.count()).select_from(Fact)) == 4
+    assert len(calls) == 4
+    assert db.scalar(select(func.count()).select_from(SourceDocument)) == 4
+    assert db.scalar(select(func.count()).select_from(DocumentVersion)) == 4
+    assert db.scalar(select(func.count()).select_from(Fact)) == 5
     assert db.scalar(
         select(func.count())
         .select_from(Fact)
         .where(Fact.verification_state == "unverified")
-    ) == 4
+    ) == 5
     assert db.scalar(
         select(func.count())
         .select_from(FetchLog)
         .where(FetchLog.document_version_id.is_not(None))
-    ) == 3
+    ) == 4
 
     cached = issuer_ir.ingest_issuer_ir_index(db, "SNT")
     assert cached["status"] == "cached"
-    assert len(calls) == 3
+    assert len(calls) == 4
 
 
 def test_ingest_issuer_ir_returns_temporary_state_on_polite_hard_stop(db, monkeypatch):
@@ -331,6 +339,63 @@ def test_ingest_issuer_pdf_rejects_cross_host_redirect(db, monkeypatch):
     assert "redirect" in result["error"].lower()
     assert calls == [report_url]
     assert not list(db.scalars(select(Fact).where(Fact.fact_type == "issuer_ir_page")))
+
+
+def test_empty_same_host_redirect_is_upgraded_before_pdf_fetch(db, monkeypatch):
+    from app.scrapers import issuer_ir
+
+    report_url = "https://assecobs.pl/reports/q1.pdf"
+    _seed_report_link(db, report_url)
+    redirect = FakeResponse("", 302)
+    redirect.url = report_url
+    redirect.headers["content-length"] = "0"
+    redirect.headers["location"] = "http://assecobs.pl/reports/cache/q1.pdf?cid=1"
+    pdf = FakeResponse("", 200)
+    pdf.url = "https://assecobs.pl/reports/cache/q1.pdf?cid=1"
+    pdf.content = b"%PDF-q1"
+    pdf.headers = {"content-type": "application/pdf"}
+    calls = []
+
+    def fake_fetch(url, **_kwargs):
+        calls.append(url)
+        return redirect if len(calls) == 1 else pdf
+
+    monkeypatch.setattr(issuer_ir.http, "fetch", fake_fetch)
+    peer_checks = iter((False, True))
+    monkeypatch.setattr(issuer_ir, "_peer_is_public", lambda _response: next(peer_checks))
+    monkeypatch.setattr(issuer_ir, "extract_pdf_pages", lambda _content: ["Q1 claim"])
+
+    result = issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+
+    assert result["status"] == "fetched"
+    assert calls == [
+        report_url,
+        "https://assecobs.pl/reports/cache/q1.pdf?cid=1",
+    ]
+
+
+def test_empty_cross_host_redirect_cannot_bypass_missing_peer(db, monkeypatch):
+    from app.scrapers import issuer_ir
+
+    report_url = "https://assecobs.pl/reports/q1.pdf"
+    _seed_report_link(db, report_url)
+    redirect = FakeResponse("", 302)
+    redirect.url = report_url
+    redirect.headers["content-length"] = "0"
+    redirect.headers["location"] = "https://files.example/q1.pdf"
+    calls = []
+    monkeypatch.setattr(
+        issuer_ir.http,
+        "fetch",
+        lambda url, **_kwargs: calls.append(url) or redirect,
+    )
+    monkeypatch.setattr(issuer_ir, "_peer_is_public", lambda _response: False)
+
+    result = issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+
+    assert result["status"] == "rejected"
+    assert "peer" in result["error"].lower()
+    assert calls == [report_url]
 
 
 def test_ingest_issuer_pdf_preserves_parse_failure_without_raising(db, monkeypatch):

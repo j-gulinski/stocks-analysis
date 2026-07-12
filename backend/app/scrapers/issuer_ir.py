@@ -25,8 +25,8 @@ from app.services.evidence import (
     record_text_fact,
 )
 
-PARSER_VERSION = "issuer-ir-index@2"
-EXTRACTOR_VERSION = "issuer-ir-links@2"
+PARSER_VERSION = "issuer-ir-index@4"
+EXTRACTOR_VERSION = "issuer-ir-links@4"
 MAX_LINKS_PER_INDEX = 30
 MAX_PDF_BYTES = 15 * 1024 * 1024
 MAX_PDF_PAGES = 200
@@ -39,10 +39,12 @@ ISSUER_IR_SOURCES = {
     "SNT": "https://synektik.com.pl/centrum-inwestora/raporty-biezace/",
     "ABS": "https://assecobs.pl/inwestor/raporty-biezace/",
     "OPM": "https://opteam.pl/firma/relacje-inwestorskie",
+    "ASB": "https://investor.asbis.com/news/financial-reports-archive/financial-reports-2026",
 }
 
 REPORT_TERMS = re.compile(
-    r"raport|sprawozd|wynik|prezentac|walne|akcjon|dywidend|governance|ład korpor",
+    r"raport|sprawozd|wynik|prezentac|walne|akcjon|dywidend|governance|ład korpor"
+    r"|financial|interim|annual|quarterly|quarter|report",
     re.IGNORECASE,
 )
 
@@ -63,7 +65,7 @@ class ParsedIssuerIrIndex:
 
 def parse_issuer_ir_index(html: str, *, base_url: str) -> ParsedIssuerIrIndex:
     soup = BeautifulSoup(html, "html.parser")
-    root = soup.find("main") or soup.body or soup
+    root = soup.select_one(".ncont-content") or soup.find("main") or soup.body or soup
     page_title = _clean_text(soup.title.get_text(" ", strip=True) if soup.title else "")
     if not page_title:
         heading = root.find(["h1", "h2"])
@@ -78,8 +80,17 @@ def parse_issuer_ir_index(html: str, *, base_url: str) -> ParsedIssuerIrIndex:
             continue
         direct = _clean_text(anchor.get_text(" ", strip=True))
         heading = anchor.find_previous(["h1", "h2", "h3", "h4"])
-        heading_text = _clean_text(heading.get_text(" ", strip=True) if heading else "")
-        parent_text = _clean_text(anchor.parent.get_text(" ", strip=True) if anchor.parent else "")
+        container = anchor.find_parent(["article", "section", "li", "tr", "div"])
+        heading_text = _clean_text(
+            heading.get_text(" ", strip=True)
+            if heading is not None and container is not None and container.find(heading.name) is heading
+            else ""
+        )
+        parent_text = _clean_text(
+            anchor.parent.get_text(" ", strip=True)
+            if anchor.parent is not None and anchor.parent is not root
+            else ""
+        )
         context = " ".join(value for value in (heading_text, direct, parent_text, href) if value)
         if not REPORT_TERMS.search(context):
             continue
@@ -514,16 +525,35 @@ def _fetch_report_response(ticker: str, report_url: str) -> tuple[requests.Respo
         if not _host_resolves_public(current_url):
             raise ValueError("Registered issuer-IR host did not resolve only to public addresses.")
         response = http.fetch(current_url, allow_redirects=False, stream=True)
-        if not _peer_is_public(response):
+        peer_is_public = _peer_is_public(response)
+        location = response.headers.get("location")
+        current_host = (urlparse(current_url).hostname or "").removeprefix("www.")
+        redirect_host = (
+            (urlparse(urljoin(current_url, location)).hostname or "").removeprefix("www.")
+            if location
+            else ""
+        )
+        empty_same_host_redirect = (
+            response.status_code in REDIRECT_STATUSES
+            and response.headers.get("content-length") == "0"
+            and redirect_host == current_host
+        )
+        if not peer_is_public and not empty_same_host_redirect:
             response.close()
             raise ValueError("Issuer report connection peer is not a public address.")
         if response.status_code not in REDIRECT_STATUSES:
             return response, current_url
-        location = response.headers.get("location")
         response.close()
         if not location:
             raise ValueError("Issuer report redirect did not include a Location header.")
-        current_url = urljoin(current_url, location)
+        next_url = urljoin(current_url, location)
+        parsed_next = urlparse(next_url)
+        if (
+            parsed_next.scheme == "http"
+            and (parsed_next.hostname or "").removeprefix("www.") == current_host
+        ):
+            next_url = parsed_next._replace(scheme="https").geturl()
+        current_url = next_url
     raise ValueError(f"Issuer report exceeded {MAX_REDIRECTS} redirects.")
 
 
@@ -632,7 +662,16 @@ def _link_kind(value: str) -> str:
     lowered = value.lower()
     if "raport" in lowered and ("bieżą" in lowered or "biez" in lowered or "espi" in lowered):
         return "current_report"
-    if "raport" in lowered or "sprawozd" in lowered or "wynik" in lowered:
+    if (
+        "raport" in lowered
+        or "sprawozd" in lowered
+        or "wynik" in lowered
+        or "financial" in lowered
+        or "interim" in lowered
+        or "annual" in lowered
+        or "quarter" in lowered
+        or "report" in lowered
+    ):
         return "periodic_report"
     if "prezentac" in lowered:
         return "presentation"

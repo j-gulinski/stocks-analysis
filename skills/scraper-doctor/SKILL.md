@@ -189,6 +189,18 @@ are NON-NEGOTIABLE at every step (see bottom).
   `scrapers/http.py`; the session stays in memory and no `sid`, account label,
   author, location, signature or post body is written to the real fixture.
 
+### Issuer IR
+
+- ASBIS's English financial-report page repeats report language throughout its
+  navigation. Extract only from `.ncont-content`; page-wide heading context
+  otherwise turns unrelated Company/Contacts links into false report claims.
+- ASBIS `/download/...pdf` returns an empty same-host 302 whose socket has
+  already been released and whose Location uses HTTP. The adapter may accept
+  the missing peer handle only for that zero-length redirect, upgrades the
+  same-host target to HTTPS, then requires the final PDF response's connected
+  peer to be public. Never relax the final peer check or follow a cross-host
+  redirect.
+
 ## Politeness invariants (never relax while debugging)
 
 - All HTTP through `app/scrapers/http.py`: jittered per-domain delays

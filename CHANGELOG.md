@@ -5,6 +5,21 @@ product reset remains available in Git at and before `2ac75d0`.
 
 ## 2026-07-12 · P4 immutable portfolio and verified review platform
 
+- Added ASBIS to the bounded issuer-IR collector and ingested its official
+  2026Q1 report as immutable source/index versions `52/53` with 24 page claims.
+  The parser now scopes ASBIS extraction to article content so report-heavy
+  navigation cannot create false links. Its empty same-host download redirect
+  is upgraded to HTTPS under a narrow zero-length exception; the final PDF
+  response still requires public DNS and connected-peer validation. Focused
+  fixture tests cover both production shapes.
+- ASB review run 36 bound prior snapshot 5 and the new primary evidence, then
+  passed corrected independent VerificationRun 9 and saved snapshot/profile
+  `6/5` as provisional. Four of seven industrial/consumer markers are now
+  sourced: price/mix, gross margin, working capital and capex. Unit volume,
+  fixed costs and backlog remain exact marker gaps; three additional evidence
+  gaps and one USD/PLN translation conflict stay visible. The first strict pass
+  rejected unsupported publication/price wording and an imprecise logistics
+  description before anything was persisted.
 - Began the real Research-coverage gate from immutable portfolio snapshot 2.
   ASB, the largest uncovered holding at 21.65%, completed v2 Research snapshot/
   profile/verification `4/4/7` after a strict-verifier rejection corrected
@@ -28,7 +43,7 @@ product reset remains available in Git at and before `2ac75d0`.
   An independent implementation audit rejected and then closed two queue/save
   bypasses: the strict gate now rechecks frozen prior ID/artifact/source hash
   and immediate-latest identity, while the generic agent endpoint cannot create
-  malformed company-review rows. 615 backend tests and the production build pass.
+  malformed company-review rows. 618 backend tests and the production build pass.
 - Closed the real-provider integration gate with the exact portfolio `Kuba`.
   Parser-v2 snapshot 2 reconciles, retains complete provider history, maps all
   eight GPW holdings (one exact existing identity and seven explicit confirmed

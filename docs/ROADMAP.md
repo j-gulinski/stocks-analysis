@@ -197,7 +197,7 @@ consumes only verified company scenarios.
 - Fixture contracts prove zero-write reads, durable failed sync, repeated
   sync/reversion behavior, mapping correction, point-in-time scenario math and
   exact review verification/save retry and strict model roles. The production
-  build, 614 backend tests, PostgreSQL migration `0026`, three skill validators
+  build, 618 backend tests, PostgreSQL migration `0026`, three skill validators
   and browser interaction pass. The live page remains zero-write until its
   explicit sync button is used.
 - The exact real portfolio name `Kuba` produced reconciled parser-v2 snapshot 2
@@ -217,6 +217,17 @@ consumes only verified company scenarios.
   The provider/parser/repeat-sync/review live gate is closed; P4 itself remains
   open until verified company Research and scenario coverage make the review's
   final exit condition true.
+- ASBIS primary-source coverage now includes its official English 2026Q1
+  report: immutable issuer index/report versions `52/53` retain 24 bounded page
+  claims. The production-shaped parser fixture prevents report-labelled site
+  navigation from entering evidence, and the download path preserves the
+  public-host/final-peer integrity gate across ASBIS's empty HTTP redirect.
+- ASB company-review run 36 advanced immutable Research snapshot/profile/
+  verification to `6/5/9`. Primary evidence moved price/mix into sourced scope,
+  so four of seven industrial/consumer markers are now sourced. Six named gaps
+  and an explicit USD/PLN translation conflict correctly keep the result
+  provisional; the strict verifier rejected three overbroad statements before
+  passing the corrected exact draft. Portfolio snapshot 2 remains unchanged.
 
 ## Verification commands
 
