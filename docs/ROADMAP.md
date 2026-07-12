@@ -18,10 +18,21 @@ Current delivery focus: **P4 portfolio Research coverage** — the immutable syn
 deterministic dashboard and verifier-gated review workflow are implemented and
 have passed the real `Kuba` pilot. Parser v2, stable explicit mappings, repeated
 snapshot reuse, complete provider history and one persisted strict-verifier
-review are proven. The review remains honestly provisional: none of the eight
-mapped holdings has an eligible verified company valuation, seven have no
-Research snapshot, and SNT's available valuation is provisional. P4 closes
-only when a real portfolio review can cite verified company scenarios.
+review are proven. Coverage work now includes ASB, the largest uncovered
+holding at the frozen snapshot's 21.65% allocation: Research snapshot/profile/
+verification `4/4/7` passed the strict gate and remains honestly provisional
+with three of seven industrial/consumer markers sourced and eight named gaps.
+The older OPM queue blocker also completed as provisional snapshot/profile/
+verification `3/3/6`. Existing cases can now explicitly queue one content-
+idempotent `stock-company-review` bound to the prior snapshot and current
+source identities, so primary evidence can advance company memory without
+mutating history. The first real review run 35 bound ASB snapshot 4, found no
+new DocumentVersion, passed VerificationRun 8 and saved snapshot 5/version 2
+with the same profile, claims and eight gaps plus an exact no-new-evidence
+history delta. None of the eight mapped holdings yet has an eligible
+verified company valuation; six still lack Research, while ASB and SNT remain
+provisional. P4 closes only when a real portfolio review can cite verified
+company scenarios.
 
 | Stage | Outcome | Exit gate | Status |
 |---|---|---|---|

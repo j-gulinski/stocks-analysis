@@ -115,6 +115,8 @@ class ResearchCaseSummaryOut(BaseModel):
     updated_at: datetime
     initial_research_run_id: int | None
     initial_research_status: str | None
+    latest_research_run_id: int | None = None
+    latest_research_run_status: str | None = None
     latest_snapshot_status: str | None = None
     latest_snapshot_as_of: datetime | None = None
 
@@ -1594,6 +1596,14 @@ class ResearchLabCreateOut(BaseModel):
     created_case: bool
     reactivated_case: bool
     created_job: bool
+
+
+class ResearchReviewQueueOut(BaseModel):
+    agent_run_id: int
+    status: str
+    created: bool
+    prior_snapshot_id: int
+    source_fingerprint: str
 
 
 class MonitorChangeOut(BaseModel):

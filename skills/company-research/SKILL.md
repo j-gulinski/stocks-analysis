@@ -26,7 +26,8 @@ still apply.
 
 1. Read `../../docs/PRODUCT.md` and `../../docs/ARCHITECTURE.md`. Read
    `../../docs/STRATEGY.md` only when interpreting an investor method.
-2. Require a claimed `AgentRun` with a company identity, ticker, frozen task
+2. Require a claimed `stock-initial-research` or `stock-company-review`
+   `AgentRun` with a company identity, ticker, frozen task
    inputs, and a live lease owned by this worker. Do not claim unrelated work.
 3. Run `./workbench doctor`. Stop with an explicit integrity/access failure when
    the company identity, database, or required local service is unavailable.
@@ -154,6 +155,10 @@ Keep `version` sequential and reuse a profile version only when its content is
 identical. Do not supply `input_fingerprint`; the server derives it from the
 frozen job, `as_of`, and cited source-version set. Do not choose `status` in
 the draft; final status belongs to the independent verifier gate.
+For `stock-company-review`, bind `history.prior_snapshot_id` to the frozen
+immediately preceding snapshot and name the evidence/profile/thesis changes;
+the queued source manifest is a pre-collection audit boundary, not permission
+to omit the exact post-collection source manifest from the draft.
 
 First give the exact draft to the independent verifier context. That verifier,
 not the drafting worker, persists its verdict through:

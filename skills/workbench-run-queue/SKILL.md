@@ -20,12 +20,14 @@ The app persists requests; this skill owns the explicit execution boundary.
 3. Stop successfully if the queue is empty. Never poll, fabricate work, or
    claim a future-dated row early.
 4. Follow the claimed `execution_contract`, frozen inputs, requested skill,
-   and model policy. For `stock-initial-research`, use `company-research`:
+   and model policy. For `stock-initial-research` or `stock-company-review`, use `company-research`:
    bounded collection, common research spine, sector archetype, company
    overlay, and the exact contract frozen in the row. V2 jobs require the
    canonical archetype-pack lookup and one-to-one focus-marker accounting;
    frozen v1 jobs use the legacy v1 section of that skill and may not submit a
-   v2 artifact. For `stock-company-valuation`, use `company-valuation`: require
+   v2 artifact. A company review must bind the immediately prior snapshot,
+   compare history explicitly and save only the next version. For
+   `stock-company-valuation`, use `company-valuation`: require
    its frozen ResearchSnapshot and input fingerprints, run only the frozen
    ready method pack and deterministic engine, obtain independent strict
    verification for the exact draft, then save it unchanged.

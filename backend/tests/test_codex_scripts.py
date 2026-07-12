@@ -1,4 +1,5 @@
 """Keyless Codex CLI fallback contracts."""
+
 from __future__ import annotations
 
 import json
@@ -7,7 +8,9 @@ import sys
 import pytest
 
 
-def test_codex_mark_verification_completes_agent_without_provider_key(db, monkeypatch, capsys):
+def test_codex_mark_verification_completes_agent_without_provider_key(
+    db, monkeypatch, capsys
+):
     from app.db.models import AgentRun, VerificationRun
     from scripts import codex_mark_verification
 
@@ -35,7 +38,9 @@ def test_codex_mark_verification_completes_agent_without_provider_key(db, monkey
             "needs-human",
         ],
     )
-    monkeypatch.setattr(sys, "stdin", type("Input", (), {"read": lambda _self: '{"checks": {}}'})())
+    monkeypatch.setattr(
+        sys, "stdin", type("Input", (), {"read": lambda _self: '{"checks": {}}'})()
+    )
 
     assert codex_mark_verification.main() == 0
     payload = json.loads(capsys.readouterr().out)
@@ -113,7 +118,41 @@ def test_initial_research_policy_and_picker_contract_are_executable():
     assert "structured snapshot" in steps
     assert "verifier_strict" in steps
     assert "every required marker exactly once" in steps
-    assert contract["frozen_contract"]["output_contract_version"] == "research-snapshot-v2"
+    assert (
+        contract["frozen_contract"]["output_contract_version"] == "research-snapshot-v2"
+    )
+
+    review_policy = get_model_policy("stock-company-review")
+    assert review_policy["status"] == "ready"
+    assert review_policy["draft_model"] == "gpt-5.6-terra"
+    review_contract = _execution_contract(
+        AgentRun(
+            id=19,
+            workflow="stock-company-review",
+            status="running",
+            model_role="worker_standard",
+            model="gpt-5.6-terra",
+            inputs={
+                "ticker": "DEK",
+                "research_case_id": 4,
+                "task": {
+                    "skill_version": "company-research-v2",
+                    "output_contract_version": "research-snapshot-v2",
+                    "company_profile_schema_version": "company-profile-v2",
+                    "archetype_contract_version": "archetype-packs-v1",
+                },
+                "review": {"prior_research_snapshot_id": 8},
+            },
+            outputs={},
+        )
+    )
+    review_steps = " ".join(review_contract["steps"])
+    assert review_contract["skill"] == "company-research"
+    assert "prior snapshot" in review_steps
+    assert (
+        "codex_verify_research_snapshot.py --case-id 4"
+        in review_contract["verify_command"]
+    )
 
     legacy = _execution_contract(
         AgentRun(

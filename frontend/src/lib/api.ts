@@ -40,6 +40,7 @@ import type {
   PreSessionBriefResult,
   ResearchCase,
   ResearchCaseCreateResult,
+  ResearchReviewQueueResult,
   ResearchCaseSummary,
   ResearchCaseStepHistory,
   ResearchCaseState,
@@ -103,6 +104,11 @@ export const addResearchCase = (payload: {
   method: "POST",
   body: JSON.stringify(payload),
 });
+
+export const queueResearchReview = (researchCaseId: number) =>
+  request<ResearchReviewQueueResult>(`/research-cases/${researchCaseId}/review-runs`, {
+    method: "POST",
+  });
 
 // ---------------------------------------------------------------- companies
 export const getDossier = (ticker: string) =>

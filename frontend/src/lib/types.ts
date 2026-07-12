@@ -124,6 +124,8 @@ export interface ResearchCaseSummary {
   updated_at: string;
   initial_research_run_id: number | null;
   initial_research_status: string | null;
+  latest_research_run_id: number | null;
+  latest_research_run_status: string | null;
   latest_snapshot_status: ResearchSnapshotStatus | null;
   latest_snapshot_as_of: string | null;
 }
@@ -350,6 +352,14 @@ export interface ResearchCaseCreateResult {
   created_case: boolean;
   reactivated_case: boolean;
   created_job: boolean;
+}
+
+export interface ResearchReviewQueueResult {
+  agent_run_id: number;
+  status: string;
+  created: boolean;
+  prior_snapshot_id: number;
+  source_fingerprint: string;
 }
 
 export interface ResearchCaseStepHistory {

@@ -33,7 +33,10 @@ from app.services.archetype_packs import (
     known_marker_ids,
 )
 
-ALLOWED_WORKFLOWS = {"stock-initial-research", "stock-thesis-review"}
+ALLOWED_WORKFLOWS = {
+    "stock-initial-research",
+    "stock-company-review",
+}
 SKILL = "company-research"
 WRITE_CONTRACTS = {
     "research-snapshot-v1": {
@@ -255,6 +258,50 @@ def _validate_run(
         raise ResearchArtifactError(
             "The agent-run lease expired before artifact processing.", kind="conflict"
         )
+    if agent.workflow == "stock-company-review":
+        review = inputs.get("review") if isinstance(inputs.get("review"), dict) else None
+        if review is None:
+            raise ResearchArtifactError(
+                "Company review requires frozen prior-snapshot inputs.", kind="conflict"
+            )
+        prior_id = review.get("prior_research_snapshot_id")
+        prior = db.get(ResearchSnapshot, prior_id) if isinstance(prior_id, int) else None
+        if prior is None or prior.research_case_id != case.id:
+            raise ResearchArtifactError(
+                "Company review frozen prior snapshot is missing or belongs to another case.",
+                kind="conflict",
+            )
+        if review.get("prior_artifact_fingerprint") != prior.artifact_fingerprint:
+            raise ResearchArtifactError(
+                "Company review frozen prior artifact fingerprint drifted.",
+                kind="conflict",
+            )
+        queued_manifest = review.get("queued_source_manifest")
+        queued_fingerprint = review.get("queued_source_fingerprint")
+        if (
+            not isinstance(queued_manifest, list)
+            or not isinstance(queued_fingerprint, str)
+            or _canonical_hash(queued_manifest) != queued_fingerprint
+        ):
+            raise ResearchArtifactError(
+                "Company review queued source fingerprint is invalid.", kind="conflict"
+            )
+        if payload.sections.history.prior_snapshot_id != prior.id:
+            raise ResearchArtifactError(
+                "Company review history does not bind its frozen prior snapshot.",
+                kind="conflict",
+            )
+        latest_id = db.scalar(
+            select(ResearchSnapshot.id)
+            .where(ResearchSnapshot.research_case_id == case.id)
+            .order_by(ResearchSnapshot.version.desc(), ResearchSnapshot.id.desc())
+            .limit(1)
+        )
+        if latest_id != prior.id:
+            raise ResearchArtifactError(
+                "Company review frozen prior snapshot is no longer latest.",
+                kind="conflict",
+            )
     return agent
 
 

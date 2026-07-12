@@ -298,25 +298,9 @@ def test_provisional_snapshot_with_named_gaps_passes_and_profile_can_be_reused(c
     db.refresh(run)
     assert run.status == "provisional"
 
-    review = AgentRun(
-        workflow="stock-thesis-review",
-        trigger="test",
-        status="queued",
-        company_id=company.id,
-        inputs={
-            "research_case_id": case_id,
-            "task": {
-                "skill": "company-research",
-                "skill_version": "company-research-v2",
-                "output_contract_version": "research-snapshot-v2",
-                "company_profile_schema_version": "company-profile-v2",
-                "archetype_contract_version": "archetype-packs-v1",
-            },
-        },
-        outputs={},
-    )
-    db.add(review)
-    db.commit()
+    queued = client.post(f"/api/research-cases/{case_id}/review-runs")
+    assert queued.status_code == 201, queued.text
+    review = db.get(AgentRun, queued.json()["agent_run_id"])
     review = claim_agent_run(db, agent_run_id=review.id, worker_id="review-worker")
     second_payload = _payload(
         review.id, version.id, status="provisional", lease_owner="review-worker"
@@ -333,6 +317,112 @@ def test_provisional_snapshot_with_named_gaps_passes_and_profile_can_be_reused(c
     assert second.status_code == 200, second.text
     assert db.scalar(select(func.count()).select_from(ResearchSnapshot)) == 2
     assert db.scalar(select(func.count()).select_from(CompanyProfile)) == 1
+
+def test_existing_case_queues_idempotent_review_and_saves_next_snapshot(client, db):
+    from app.db.models import AgentRun, ResearchCaseStepHistory, utcnow
+    from app.services.agent_queue import claim_agent_run
+
+    case_id, initial_run, company = _claimed_case(client, db)
+    version = _document(db, company)
+    first_payload = _approve(client, case_id, _payload(initial_run.id, version.id))
+    first = client.post(
+        f"/api/research-cases/{case_id}/snapshots", json=first_payload
+    ).json()
+
+    queued = client.post(f"/api/research-cases/{case_id}/review-runs")
+    assert queued.status_code == 201, queued.text
+    body = queued.json()
+    assert body["created"] is True
+    assert body["prior_snapshot_id"] == first["id"]
+    assert len(body["source_fingerprint"]) == 64
+    review = db.get(AgentRun, body["agent_run_id"])
+    assert review.workflow == "stock-company-review"
+    assert review.model == "gpt-5.6-terra"
+    assert review.inputs["task"] == {
+        "skill": "company-research",
+        "skill_version": "company-research-v2",
+        "output_contract_version": "research-snapshot-v2",
+        "company_profile_schema_version": "company-profile-v2",
+        "archetype_contract_version": "archetype-packs-v1",
+        "objective": (
+            "Refresh one existing company case, compare new evidence with the "
+            "prior immutable snapshot and save the next verified snapshot."
+        ),
+        "refresh_scope": "all",
+        "required_verification": "verifier_strict",
+        "watchlist_policy": "do not add automatically",
+    }
+    assert review.inputs["review"]["prior_research_snapshot_id"] == first["id"]
+    assert review.inputs["review"]["prior_artifact_fingerprint"] == first["artifact_fingerprint"]
+    assert review.inputs["review"]["queued_source_manifest"] == [{
+        "source_document_id": version.source_document_id,
+        "document_version_id": version.id,
+        "content_hash": version.content_hash,
+        "fetched_at": version.fetched_at.isoformat(),
+    }]
+
+    repeated = client.post(f"/api/research-cases/{case_id}/review-runs").json()
+    assert repeated == {**body, "created": False}
+    listed = client.get("/api/research-cases").json()[0]
+    assert listed["initial_research_run_id"] == initial_run.id
+    assert listed["latest_research_run_id"] == review.id
+    assert listed["latest_research_run_status"] == "queued"
+    assert db.scalar(
+        select(func.count()).select_from(ResearchCaseStepHistory).where(
+            ResearchCaseStepHistory.research_case_id == case_id
+        )
+    ) == 3
+
+    review = claim_agent_run(
+        db, agent_run_id=review.id, worker_id="review-worker"
+    )
+    second_payload = _payload(review.id, version.id, lease_owner="review-worker")
+    second_payload["version"] = 2
+    second_payload["as_of"] = utcnow().isoformat()
+    second_payload["sections"]["history"] = {
+        "changes_since_previous": ["Ponownie sprawdzono ten sam manifest źródłowy."],
+        "prior_snapshot_id": first["id"],
+        "claims": [],
+    }
+    second_payload["statement_provenance"].append({
+        "path": "/sections/history/changes_since_previous/0",
+        "claim": {
+            "text": "Ponownie sprawdzono ten sam manifest źródłowy.",
+            "kind": "fact",
+            "source_document_version_ids": [version.id],
+        },
+    })
+    frozen_inputs = deepcopy(review.inputs)
+    drifted_inputs = deepcopy(frozen_inputs)
+    drifted_inputs["review"]["prior_artifact_fingerprint"] = "0" * 64
+    review.inputs = drifted_inputs
+    db.commit()
+    rejected_drift = client.post(
+        f"/api/research-cases/{case_id}/snapshot-verifications",
+        json={
+            "verifier_worker_id": "review-judge",
+            "draft": second_payload,
+            "verifier_result": _verifier_result(),
+        },
+    )
+    assert rejected_drift.status_code == 409
+    review.inputs = frozen_inputs
+    db.commit()
+    second_payload = _approve(
+        client, case_id, second_payload, verifier_worker_id="review-judge"
+    )
+    saved = client.post(
+        f"/api/research-cases/{case_id}/snapshots", json=second_payload
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["version"] == 2
+    assert saved.json()["agent_run_id"] == review.id
+    assert saved.json()["sections"]["history"]["prior_snapshot_id"] == first["id"]
+    completed_repeat = client.post(f"/api/research-cases/{case_id}/review-runs").json()
+    assert completed_repeat["created"] is False
+    assert completed_repeat["agent_run_id"] == review.id
+    assert completed_repeat["prior_snapshot_id"] == first["id"]
+
 
 def test_source_identity_agent_case_and_version_gates(client, db):
     from app.db.models import AgentRun, Company
@@ -370,7 +460,7 @@ def test_source_identity_agent_case_and_version_gates(client, db):
     ).status_code == 409
 
     wrong_case = AgentRun(
-        workflow="stock-thesis-review", trigger="test", status="queued", company_id=company.id,
+        workflow="stock-company-review", trigger="test", status="queued", company_id=company.id,
         inputs={"research_case_id": case_id + 1000}, outputs={},
     )
     db.add(wrong_case)

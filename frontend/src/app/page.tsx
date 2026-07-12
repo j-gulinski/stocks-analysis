@@ -107,7 +107,7 @@ export default function ResearchPage() {
 
   const activeCount = cases.filter((item) => item.state !== "closed").length;
   const collectingCount = cases.filter((item) =>
-    item.initial_research_status === "queued" || item.initial_research_status === "running"
+    item.latest_research_run_status === "queued" || item.latest_research_run_status === "running"
   ).length;
 
   return (
@@ -159,7 +159,10 @@ export default function ResearchPage() {
 
           <section className="research-case-list" aria-label="Przypadki badawcze">
             {cases.map((item) => {
-              const job = collectionStatus(item.latest_snapshot_status ?? item.initial_research_status);
+              const activeRun = ["queued", "running"].includes(item.latest_research_run_status ?? "")
+                ? item.latest_research_run_status
+                : null;
+              const job = collectionStatus(activeRun ?? item.latest_snapshot_status ?? item.latest_research_run_status);
               return (
                 <article className="research-case-row" key={item.id}>
                   <div className="research-case-company">

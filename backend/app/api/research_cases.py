@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timezone
+import hashlib
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -15,6 +18,7 @@ from app.api.schemas import (
     ResearchCaseSummaryOut,
     ResearchLabCreateIn,
     ResearchLabCreateOut,
+    ResearchReviewQueueOut,
     ResearchSnapshotHistoryOut,
     ResearchSnapshotOut,
     ResearchSnapshotSaveIn,
@@ -45,6 +49,7 @@ router = APIRouter(prefix="/research-cases", tags=["research-cases"])
 
 _PURPOSE = "investment-research"
 _WORKFLOW = "stock-initial-research"
+_REVIEW_WORKFLOW = "stock-company-review"
 _SKILL_VERSION = "company-research-v2"
 _OUTPUT_CONTRACT_VERSION = "research-snapshot-v2"
 _PROFILE_SCHEMA_VERSION = "company-profile-v2"
@@ -102,12 +107,48 @@ def _initial_run_key(case_id: int) -> str:
     return f"research-case-initial-research:{case_id}"
 
 
+def _review_source_state(db: Session, company_id: int) -> tuple[str, list[dict]]:
+    rows = db.execute(
+        select(
+            SourceDocument.id,
+            DocumentVersion.id,
+            DocumentVersion.content_hash,
+            DocumentVersion.fetched_at,
+        )
+        .join(DocumentVersion, DocumentVersion.source_document_id == SourceDocument.id)
+        .where(SourceDocument.company_id == company_id)
+        .order_by(SourceDocument.id, DocumentVersion.id.desc())
+    ).all()
+    latest_by_document: dict[int, dict] = {}
+    for document_id, version_id, content_hash, fetched_at in rows:
+        latest_by_document.setdefault(
+            document_id,
+            {
+                "source_document_id": document_id,
+                "document_version_id": version_id,
+                "content_hash": content_hash,
+                "fetched_at": (
+                    fetched_at
+                    if fetched_at.tzinfo is not None
+                    else fetched_at.replace(tzinfo=timezone.utc)
+                ).isoformat(),
+            },
+        )
+    manifest = list(latest_by_document.values())
+    encoded = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest(), manifest
+
+
 def _summary(
     case: ResearchCase,
     company: Company,
     agent: AgentRun | None,
     latest_snapshot: ResearchSnapshot | None = None,
+    latest_agent: AgentRun | None = None,
 ) -> ResearchCaseSummaryOut:
+    current_agent = latest_agent or agent
     return ResearchCaseSummaryOut(
         id=case.id,
         company_id=company.id,
@@ -122,6 +163,8 @@ def _summary(
         updated_at=case.updated_at,
         initial_research_run_id=agent.id if agent else None,
         initial_research_status=agent.status if agent else None,
+        latest_research_run_id=current_agent.id if current_agent else None,
+        latest_research_run_status=current_agent.status if current_agent else None,
         latest_snapshot_status=latest_snapshot.status if latest_snapshot else None,
         latest_snapshot_as_of=latest_snapshot.as_of if latest_snapshot else None,
     )
@@ -132,6 +175,19 @@ def _latest_snapshot(db: Session, case_id: int) -> ResearchSnapshot | None:
         select(ResearchSnapshot)
         .where(ResearchSnapshot.research_case_id == case_id)
         .order_by(ResearchSnapshot.version.desc(), ResearchSnapshot.id.desc())
+        .limit(1)
+    )
+
+
+def _latest_research_run(db: Session, case: ResearchCase) -> AgentRun | None:
+    return db.scalar(
+        select(AgentRun)
+        .where(
+            AgentRun.company_id == case.company_id,
+            AgentRun.workflow.in_((_WORKFLOW, _REVIEW_WORKFLOW)),
+            AgentRun.inputs["research_case_id"].as_integer() == case.id,
+        )
+        .order_by(AgentRun.created_at.desc(), AgentRun.id.desc())
         .limit(1)
     )
 
@@ -200,7 +256,11 @@ def _ensure_research_case(
     reactivated_case = not created_case and research_case.state == "closed"
     if reactivated_case:
         previous_step = research_case.current_step
-        if agent is not None and agent.status in {"completed", "provisional", "verified"}:
+        if agent is not None and agent.status in {
+            "completed",
+            "provisional",
+            "verified",
+        }:
             research_case.state = "monitoring"
             research_case.current_step = "monitoring"
         elif agent is not None and agent.status in {
@@ -293,7 +353,13 @@ def list_research_cases(db: Session = Depends(get_db)) -> list[ResearchCaseSumma
             )
         )
         result.append(
-            _summary(research_case, company, agent, _latest_snapshot(db, research_case.id))
+            _summary(
+                research_case,
+                company,
+                agent,
+                _latest_snapshot(db, research_case.id),
+                _latest_research_run(db, research_case),
+            )
         )
     return result
 
@@ -305,7 +371,9 @@ def get_research_workspace(
     """Read the canonical stored Research workspace without side effects."""
     company = db.scalar(select(Company).where(Company.ticker == ticker.strip().upper()))
     if company is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown company.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Unknown company."
+        )
     research_case = db.scalar(
         select(ResearchCase).where(
             ResearchCase.company_id == company.id,
@@ -317,7 +385,9 @@ def get_research_workspace(
             status_code=status.HTTP_404_NOT_FOUND, detail="Research case not found."
         )
     agent = db.scalar(
-        select(AgentRun).where(AgentRun.idempotency_key == _initial_run_key(research_case.id))
+        select(AgentRun).where(
+            AgentRun.idempotency_key == _initial_run_key(research_case.id)
+        )
     )
     snapshots = list(
         db.scalars(
@@ -327,16 +397,26 @@ def get_research_workspace(
         )
     )
     latest = snapshots[0] if snapshots else None
-    profile = db.get(CompanyProfile, latest.company_profile_id) if latest else db.scalar(
-        select(CompanyProfile)
-        .where(CompanyProfile.research_case_id == research_case.id)
-        .order_by(CompanyProfile.version.desc(), CompanyProfile.id.desc())
-        .limit(1)
+    profile = (
+        db.get(CompanyProfile, latest.company_profile_id)
+        if latest
+        else db.scalar(
+            select(CompanyProfile)
+            .where(CompanyProfile.research_case_id == research_case.id)
+            .order_by(CompanyProfile.version.desc(), CompanyProfile.id.desc())
+            .limit(1)
+        )
     )
     profile_out = CompanyProfileOut.model_validate(profile) if profile else None
     snapshot_out = ResearchSnapshotOut.model_validate(latest) if latest else None
     return ResearchCaseWorkspaceOut(
-        research_case=_summary(research_case, company, agent, latest),
+        research_case=_summary(
+            research_case,
+            company,
+            agent,
+            latest,
+            _latest_research_run(db, research_case),
+        ),
         profile=profile_out,
         latest_snapshot=snapshot_out,
         history=[
@@ -355,6 +435,139 @@ def get_research_workspace(
             if profile_out
             else None
         ),
+    )
+
+
+@router.post(
+    "/{case_id}/review-runs",
+    response_model=ResearchReviewQueueOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def queue_research_review(
+    case_id: int, db: Session = Depends(get_db)
+) -> ResearchReviewQueueOut:
+    case = db.scalar(
+        select(ResearchCase).where(ResearchCase.id == case_id).with_for_update()
+    )
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Research case not found."
+        )
+    company = db.get(Company, case.company_id)
+    if company is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Research company is missing."
+        )
+    latest_snapshot = _latest_snapshot(db, case.id)
+    if latest_snapshot is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Complete the initial Research snapshot before queuing a review.",
+        )
+
+    source_fingerprint, source_manifest = _review_source_state(db, company.id)
+    key = f"research-case-review:{case.id}:{source_fingerprint}"
+    existing = db.scalar(select(AgentRun).where(AgentRun.idempotency_key == key))
+    if existing is not None:
+        existing_review = (
+            (existing.inputs or {}).get("review")
+            if isinstance((existing.inputs or {}).get("review"), dict)
+            else {}
+        )
+        return ResearchReviewQueueOut(
+            agent_run_id=existing.id,
+            status=existing.status,
+            created=False,
+            prior_snapshot_id=existing_review.get(
+                "prior_research_snapshot_id", latest_snapshot.id
+            ),
+            source_fingerprint=source_fingerprint,
+        )
+
+    active_peer = db.scalar(
+        select(AgentRun).where(
+            AgentRun.company_id == company.id,
+            AgentRun.workflow.in_((_WORKFLOW, _REVIEW_WORKFLOW)),
+            AgentRun.status.in_(("queued", "running")),
+        )
+    )
+    if active_peer is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Another Research collection for this company is already queued or running.",
+        )
+
+    model = default_model_for_workflow(_REVIEW_WORKFLOW)
+    agent = AgentRun(
+        workflow=_REVIEW_WORKFLOW,
+        trigger="research-review-command",
+        status="queued",
+        company_id=company.id,
+        model_role="worker_standard",
+        model=model,
+        orchestrator_model=model,
+        idempotency_key=key,
+        inputs={
+            "ticker": company.ticker,
+            "research_case_id": case.id,
+            "task": {
+                "skill": "company-research",
+                "skill_version": _SKILL_VERSION,
+                "output_contract_version": _OUTPUT_CONTRACT_VERSION,
+                "company_profile_schema_version": _PROFILE_SCHEMA_VERSION,
+                "archetype_contract_version": _ARCHETYPE_CONTRACT_VERSION,
+                "objective": (
+                    "Refresh one existing company case, compare new evidence with the "
+                    "prior immutable snapshot and save the next verified snapshot."
+                ),
+                "refresh_scope": "all",
+                "required_verification": "verifier_strict",
+                "watchlist_policy": "do not add automatically",
+            },
+            "review": {
+                "prior_research_snapshot_id": latest_snapshot.id,
+                "prior_artifact_fingerprint": latest_snapshot.artifact_fingerprint,
+                "queued_source_fingerprint": source_fingerprint,
+                "queued_source_manifest": source_manifest,
+            },
+        },
+        outputs={},
+    )
+    db.add(agent)
+    previous_state, previous_step = case.state, case.current_step
+    case.state = "ingesting"
+    case.current_step = "ingest"
+    case.blocked_reason = None
+    case.updated_at = utcnow()
+    db.add(
+        ResearchCaseStepHistory(
+            research_case_id=case.id,
+            from_state=previous_state,
+            from_step=previous_step,
+            to_state="ingesting",
+            to_step="ingest",
+            reason="Research: jawnie zlecono odświeżenie istniejącego snapshotu.",
+            changed_by="user-command",
+        )
+    )
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.scalar(select(AgentRun).where(AgentRun.idempotency_key == key))
+        if existing is None:
+            raise
+        agent = existing
+        created = False
+    else:
+        db.refresh(agent)
+        created = True
+    return ResearchReviewQueueOut(
+        agent_run_id=agent.id,
+        status=agent.status,
+        created=created,
+        prior_snapshot_id=latest_snapshot.id,
+        source_fingerprint=source_fingerprint,
     )
 
 

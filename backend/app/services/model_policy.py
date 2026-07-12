@@ -5,6 +5,7 @@ module records the requested public model slug and reasoning guidance without
 making a provider call. The worker still records the concrete host model when
 it is known.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -20,6 +21,17 @@ _POLICIES: dict[str, dict[str, Any]] = {
         "verification_scope": (
             "company identity, source freshness, tailored research structure, "
             "claim grounding and explicit gaps"
+        ),
+    },
+    "stock-company-review": {
+        "draft_role": "worker_standard",
+        "draft_model": "gpt-5.6-terra",
+        "draft_reasoning_effort": "high",
+        "required_verifier_role": "verifier_strict",
+        "reasoning": "high for bounded source refresh and point-in-time company-memory comparison",
+        "verification_scope": (
+            "company identity, source freshness, prior-snapshot binding, claim grounding, "
+            "history delta and explicit gaps"
         ),
     },
     "stock-pre-session-brief": {

@@ -187,10 +187,14 @@ Codex worker -> claim + heartbeat -> collect/structure/calculate
              -> save immutable snapshot + terminal job status
 ```
 
-The supported artifact workflows are `stock-initial-research`, executed with
-the versioned `company-research` skill, and `stock-company-valuation`, executed
-with `company-valuation`. Later replacement workflows cover company review and
-portfolio review.
+The supported Research artifact workflows are `stock-initial-research` and
+`stock-company-review`, both executed with the versioned `company-research`
+skill; valuation uses `stock-company-valuation` with `company-valuation`.
+Company review is an explicit, content-idempotent command after an immutable
+snapshot exists: it freezes that prior snapshot and the current latest source
+versions, then the claimed worker performs a bounded refresh and saves only the
+next independently verified snapshot. The prior snapshot remains readable
+while the review waits or runs. Portfolio review remains a separate workflow.
 Research verification is a two-step local protocol: a distinct verifier
 context stores a verdict bound to the exact draft and frozen-input fingerprint;
 only its `VerificationRun` can unlock immutable save. `verifier_worker_id` is

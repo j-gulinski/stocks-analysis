@@ -21,6 +21,7 @@ import {
   getResearchWorkspace,
   listAgentRuns,
   listAnalysisRuns,
+  queueResearchReview,
   refreshCompany,
   updateResearchCase,
 } from "@/lib/api";
@@ -98,8 +99,11 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
   const [caseUpdateError, setCaseUpdateError] = useState<string | null>(null);
   const [caseHistory, setCaseHistory] = useState<ResearchCaseStepHistory[]>([]);
   const [showLegacyDossier, setShowLegacyDossier] = useState(false);
+  const [queueingResearchReview, setQueueingResearchReview] = useState(false);
+  const [researchReviewMessage, setResearchReviewMessage] = useState<string | null>(null);
+  const [researchReviewError, setResearchReviewError] = useState<string | null>(null);
   const { data: dossier, error, loading, reload } = useApi(() => getDossier(ticker), [ticker]);
-  const { data: researchWorkspace, error: workspaceError, loading: workspaceLoading } = useApi(async () => {
+  const { data: researchWorkspace, error: workspaceError, loading: workspaceLoading, reload: reloadResearchWorkspace } = useApi(async () => {
     try {
       return await getResearchWorkspace(ticker);
     } catch (err) {
@@ -209,6 +213,28 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
     }
   };
 
+  const handleQueueResearchReview = async () => {
+    if (!researchWorkspace) return;
+    setQueueingResearchReview(true);
+    setResearchReviewMessage(null);
+    setResearchReviewError(null);
+    try {
+      const result = await queueResearchReview(researchWorkspace.research_case.id);
+      setResearchReviewMessage(
+        result.created
+          ? "Odświeżenie Research zostało zaplanowane. Snapshot pozostaje widoczny do czasu weryfikacji nowej wersji."
+          : result.status === "queued" || result.status === "running"
+            ? "Odświeżenie Research już oczekuje lub jest w toku."
+            : "Ten sam stan źródeł został już przeanalizowany.",
+      );
+      reloadResearchWorkspace();
+    } catch (err) {
+      setResearchReviewError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setQueueingResearchReview(false);
+    }
+  };
+
   if (workspaceLoading || (loading && !researchWorkspace?.latest_snapshot)) return <div><SkeletonCards cards={4} /><LoadingMessages messages={[`Wczytuję zapisane dane ${ticker}…`, "Otwieram ostatni zapisany stan researchu…"]} /></div>;
 
   if (workspaceError) return <div className="error-box">Nie można otworzyć workspace Research: {workspaceError}</div>;
@@ -259,9 +285,17 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
           archetypePack={researchWorkspace.archetype_pack}
         />
         <section className="research-to-valuation">
-          <div><span className="snapshot-label">Następny etap</span><strong>Przetestuj jawne scenariusze wyniku i ceny</strong></div>
-          <Link className="btn accent" href={`/valuation/${ticker}`}>Przejdź do Valuation</Link>
+          <div><span className="snapshot-label">Następny krok</span><strong>Uzupełnij dowody albo przetestuj jawne scenariusze</strong></div>
+          <div className="command-row">
+            <button className="btn" type="button" onClick={() => void handleQueueResearchReview()} disabled={queueingResearchReview || ["queued", "running"].includes(researchWorkspace.research_case.latest_research_run_status ?? "")}>
+              <IconRefresh size={14} className={queueingResearchReview ? "spin" : ""} />
+              {queueingResearchReview ? "Zlecam…" : "Odśwież Research"}
+            </button>
+            <Link className="btn accent" href={`/valuation/${ticker}`}>Przejdź do Valuation</Link>
+          </div>
         </section>
+        {researchReviewMessage && <div className="success-box" role="status">{researchReviewMessage}</div>}
+        {researchReviewError && <div className="error-box" role="alert">{researchReviewError}</div>}
         {dossier && hasDossierData(dossier) && (
           <details className="snapshot-legacy-entry">
             <summary>Starszy raport i narzędzia audytowe</summary>

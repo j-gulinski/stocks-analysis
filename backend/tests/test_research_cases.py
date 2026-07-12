@@ -120,6 +120,18 @@ def test_research_lab_accepts_manual_ticker_and_rejects_wrong_frozen_candidate(
     )
     assert missing_version.status_code == 404
 
+    generic_review = client.post(
+        "/api/agent-runs",
+        json={
+            "workflow": "stock-company-review",
+            "trigger": "manual",
+            "ticker": "SNT",
+            "inputs": {"research_case_id": manual.json()["research_case"]["id"]},
+        },
+    )
+    assert generic_review.status_code == 400
+    assert db.scalar(select(func.count()).select_from(AgentRun)) == 1
+
 
 def test_research_lab_reactivates_a_closed_case_without_duplicate_initial_job(
     client, db

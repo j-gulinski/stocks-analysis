@@ -19,6 +19,7 @@ state, queues work, claims a lease, or calls a model.
 | Add a company | `POST /api/research-cases` with a ticker or frozen Discover version | One company, one active case, at most one initial-research job |
 | Run queued research | Invoke `$workbench-run-queue` | Exactly one claimed and completed job |
 | Open company research | `GET /api/research-cases/by-ticker/{ticker}` | Read-only profile, latest immutable snapshot and history |
+| Refresh existing Research | `POST /api/research-cases/{id}/review-runs` | One content-idempotent company-review job bound to the prior snapshot and queued source state |
 | Verify claimed research | `verify_research_snapshot` or its JSON-in script | Independent verdict bound to the exact draft; job remains running |
 | Save claimed research | `save_research_snapshot` or its JSON-in script | One verifier-gated immutable snapshot; terminal job and cleared lease |
 | Open valuation | `GET /api/research-cases/{id}/valuation-workspace` | Read-only method/template state and immutable valuation history |
@@ -65,6 +66,12 @@ watchlist item never deletes the company, evidence, case, analysis, or history.
    Company-level research rows never substitute for a market-wide sieve.
 5. The browser may enqueue one durable job after an add, but it never executes
    or claims it. Do not add portfolio positions or make a trade decision.
+6. An existing case with a snapshot may explicitly queue `stock-company-review`.
+   The command freezes the prior snapshot/artifact and current latest source
+   identities, reuses an identical job, and rejects a competing active Research
+   collection. Reads never queue it. The prior snapshot remains canonical until
+   the claimed worker collects evidence, obtains a separate strict verdict and
+   saves the next sequential snapshot.
 
 ## One queued Codex job
 
