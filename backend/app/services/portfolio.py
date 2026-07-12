@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from statistics import median
@@ -27,7 +28,7 @@ from app.db.models import (
     ValuationSnapshot,
 )
 
-PARSER_VERSION = "myfund-portfolio-v1"
+PARSER_VERSION = "myfund-portfolio-v2"
 RISK_CONTEXT_VERSION = "portfolio-risk-context-v1"
 RESEARCH_STALE_DAYS = 180
 
@@ -68,7 +69,12 @@ def _rows(value: Any) -> list[tuple[str, str, dict[str, Any]]]:
     if isinstance(value, dict):
         if any(not isinstance(row, dict) for row in value.values()):
             raise ValueError("provider instrument row is not an object")
-        return [("native", str(key), row) for key, row in value.items()]
+        keys = [str(key) for key in value]
+        # myfund serializes an array as an object with disposable 0..N-1 keys.
+        # Those positions are not provider identities and can change on reorder.
+        sequential = set(keys) == {str(index) for index in range(len(keys))}
+        source_kind = "list" if sequential else "native"
+        return [(source_kind, str(key), row) for key, row in value.items()]
     if isinstance(value, list):
         if any(not isinstance(row, dict) for row in value):
             raise ValueError("provider instrument row is not an object")
@@ -95,7 +101,9 @@ def _provider_key(source_kind: str, source_key: str, raw: dict[str, Any]) -> str
         "ticker": _identity_text(
             raw.get("tickerClear") or raw.get("ticker"), upper=True
         ),
-        "name": _identity_text(raw.get("nazwa") or raw.get("name")),
+        "name": _identity_text(
+            raw.get("nazwa") or raw.get("name") or raw.get("ticker")
+        ),
         "asset_type": _identity_text(raw.get("typOrg") or raw.get("typ")),
         "currency": _identity_text(raw.get("waluta"), upper=True),
         "account": [
@@ -116,6 +124,39 @@ def _provider_key(source_kind: str, source_key: str, raw: dict[str, Any]) -> str
         identity, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     )
     return f"myfund:canonical-sha256:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
+
+
+_GPW_ASSET_TYPE = "akcje gpw"
+_TERMINAL_GPW_CODE = re.compile(r"\(([A-Z0-9]{1,12})\)\s*$")
+_PARENTHETICAL_GPW_CODE = re.compile(r"\(([A-Z0-9]{1,12})\)")
+
+
+def provider_gpw_ticker(
+    *,
+    provider_ticker: Any,
+    provider_name: Any,
+    provider_type: Any,
+    currency: Any,
+) -> str | None:
+    """Return one explicit terminal GPW code, never a display-name guess."""
+    if _identity_text(provider_type) != _GPW_ASSET_TYPE:
+        return None
+    if _identity_text(currency, upper=True) != "PLN":
+        return None
+    values = [str(provider_ticker or "").strip(), str(provider_name or "").strip()]
+    candidates = {
+        match.group(1)
+        for value in values
+        for match in _PARENTHETICAL_GPW_CODE.finditer(value.upper())
+    }
+    terminal = {
+        match.group(1)
+        for value in values
+        if (match := _TERMINAL_GPW_CODE.search(value.upper())) is not None
+    }
+    if len(candidates) != 1 or candidates != terminal:
+        return None
+    return next(iter(candidates))
 
 
 def _series(value: Any) -> tuple[dict[date, float], int, int]:
@@ -172,20 +213,24 @@ def normalize_myfund(payload: Any) -> NormalizedPortfolio:
         raise ValueError("provider response has no portfolio summary")
     total = _number(raw_summary.get("wartosc"), required=True, nonnegative=True)
     currency = str(raw_summary.get("waluta") or "PLN").strip().upper()
-    profit = _number(raw_summary.get("zysk"))
-    cost = total - profit if profit is not None else None
     summary = {
         "currency": currency,
         "total_value": total,
-        "profit": profit,
-        "cost_basis": cost,
+        "profit": None,
+        "cost_basis": None,
         "benchmark_name": str(raw_summary.get("benchName") or "").strip() or None,
     }
     positions: list[dict[str, Any]] = []
     gaps: list[str] = []
     for source_kind, source_key, raw in _rows(payload.get("tickers")):
         ticker = str(raw.get("tickerClear") or raw.get("ticker") or "").strip()
-        name = str(raw.get("nazwa") or ticker or "Nieznany instrument").strip()
+        name = str(
+            raw.get("nazwa")
+            or raw.get("name")
+            or raw.get("ticker")
+            or ticker
+            or "Nieznany instrument"
+        ).strip()
         provider_key = _provider_key(source_kind, source_key, raw)
         value = _number(raw.get("wartosc"), required=True, nonnegative=True)
         row_profit = _number(raw.get("zysk"))
@@ -228,6 +273,16 @@ def normalize_myfund(payload: Any) -> NormalizedPortfolio:
             "Dostawca zwrócił dodatnią wartość portfela bez pozycji składowych."
         )
     retained = sum(row["value"] for row in positions)
+    if not positions and total == 0:
+        summary["profit"] = 0.0
+        summary["cost_basis"] = 0.0
+    elif positions and all(row["profit"] is not None for row in positions):
+        summary["profit"] = sum(row["profit"] for row in positions)
+        summary["cost_basis"] = sum(row["cost_basis"] for row in positions)
+    elif positions:
+        gaps.append(
+            "Bieżący koszt i wynik portfela są niedostępne: nie każda pozycja ma wynik dostawcy."
+        )
     if abs(retained - total) > max(0.02, total * 0.001):
         gaps.append(
             f"Suma pozycji różni się od wartości portfela o {round(retained-total, 2)} {currency}."
@@ -278,9 +333,14 @@ def classify_mapping(
     db: Session, row: dict[str, Any]
 ) -> tuple[str, str, Company | None, str]:
     asset_type = _identity_text(row.get("asset_type"))
-    if asset_type in {"gotówka", "gotowka", "cash"}:
+    if asset_type in {"gotówka", "gotowka", "cash", "konta gotówkowe"}:
         return "cash", "exact", None, "Provider identifies a cash instrument."
-    ticker = str(row.get("ticker") or "").upper()
+    ticker = provider_gpw_ticker(
+        provider_ticker=row.get("ticker"),
+        provider_name=row.get("name"),
+        provider_type=row.get("asset_type"),
+        currency=row.get("currency"),
+    )
     company = (
         db.scalar(select(Company).where(Company.ticker == ticker)) if ticker else None
     )
@@ -307,6 +367,21 @@ def portfolio_workspace(db: Session, snapshot: PortfolioSnapshot) -> dict[str, A
         if rows
         else {}
     )
+    company_ids = {
+        mapping.company_id
+        for mapping in mappings.values()
+        if mapping.company_id is not None
+    }
+    company_tickers = (
+        {
+            company.id: company.ticker
+            for company in db.scalars(
+                select(Company).where(Company.id.in_(company_ids))
+            ).all()
+        }
+        if company_ids
+        else {}
+    )
     positions: list[dict[str, Any]] = []
     sectors: dict[str, float] = {}
     types: dict[str, float] = {}
@@ -330,6 +405,7 @@ def portfolio_workspace(db: Session, snapshot: PortfolioSnapshot) -> dict[str, A
                 "mapping_kind": mapping.mapping_kind,
                 "mapping_status": mapping.mapping_status,
                 "company_id": mapping.company_id,
+                "company_ticker": company_tickers.get(mapping.company_id),
                 "ticker": row.ticker,
                 "name": row.name,
                 "asset_type": row.asset_type,

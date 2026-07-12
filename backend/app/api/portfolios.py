@@ -35,6 +35,7 @@ from app.services.portfolio import (
     classify_mapping,
     normalize_myfund,
     portfolio_workspace,
+    provider_gpw_ticker,
 )
 from app.services.portfolio_review_artifacts import (
     PortfolioReviewArtifactError,
@@ -522,11 +523,33 @@ def patch_mapping(
         mapping.confirmed_at = utcnow()
     else:
         ticker = (payload.company_ticker or "").strip().upper()
+        provider_ticker = provider_gpw_ticker(
+            provider_ticker=mapping.provider_ticker,
+            provider_name=mapping.provider_name,
+            provider_type=mapping.provider_type,
+            currency=mapping.currency,
+        )
+        if not ticker or provider_ticker != ticker:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Confirmed ticker must exactly match one terminal GPW code "
+                    "from a PLN Akcje GPW provider identity."
+                ),
+            )
         company = db.scalar(select(Company).where(Company.ticker == ticker))
         if company is None:
-            raise HTTPException(
-                status_code=422, detail="Known company ticker is required."
+            display_name = mapping.provider_name.strip()
+            suffix = f" ({ticker})"
+            if display_name.upper().endswith(suffix):
+                display_name = display_name[: -len(suffix)].strip()
+            company = Company(
+                ticker=ticker,
+                name=display_name or ticker,
+                market="GPW",
             )
+            db.add(company)
+            db.flush()
         mapping.mapping_kind = "company"
         mapping.mapping_status = "confirmed"
         mapping.company_id = company.id

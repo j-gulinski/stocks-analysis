@@ -28,7 +28,7 @@ state, queues work, claims a lease, or calls a model.
 | Save claimed valuation | `save_valuation_snapshot` or `codex_save_valuation_snapshot.py` | One immutable valuation snapshot; terminal job and cleared lease |
 | Open Portfolio | `GET /api/portfolios/workspace` | Zero-write latest stored snapshot, mappings, analytics and review history |
 | Synchronize myfund | `POST /api/portfolios/sync/myfund` | One durable attempt and either reused or next immutable snapshot |
-| Correct a mapping | `PATCH /api/portfolios/mappings/{id}` | Explicit current interpretation; immutable provider row stays unchanged |
+| Correct a mapping | `PATCH /api/portfolios/mappings/{id}` | Explicit current interpretation; an exact confirmed PLN `Akcje GPW` `(CODE)` may create only a minimal Company identity |
 | Queue portfolio review | `POST /api/portfolios/review-runs` | At most one content-identical `stock-portfolio-review` job |
 | Verify portfolio review | `codex_verify_portfolio_review.py` | Independent verdict bound to the exact frozen draft |
 | Save portfolio review | `codex_save_portfolio_review.py` | One immutable review; terminal job and cleared lease |
@@ -108,8 +108,17 @@ heartbeats, obtains independent strict verification, saves to the same
    derived concentration, coverage, liquidity, risk, scenario and review
    output. Keep only the provider summary, partial-history status and raw rows.
 3. Mapping correction is explicit and cannot reinterpret an exact cash/company
-   identity. Company analysis and valuation never change because a position is
-   owned or sized differently.
+   identity. A confirmed ticker must equal the one unambiguous terminal `(CODE)`
+   on a PLN `Akcje GPW` provider identity. The correction reuses an existing
+   Company or creates only that minimal GPW identity; it creates no ResearchCase
+   or job, and a user-confirmed mapping remains correctable. Company analysis
+   and valuation never change because a position is owned or sized differently.
+   Sequential `0..N-1` myfund object keys are collection positions, not native
+   instrument IDs. `Konta gotówkowe` is an exact cash type. Snapshot cost/result
+   are complete current-position sums or an explicit gap; flow-aware provider
+   profit/contribution remains provider-labelled history. Portfolio reads expose
+   the canonical Company ticker separately from the provider label so links
+   always open the mapped Research identity.
 4. Treat return and benchmark series as provider-reported. TWR/XIRR and total-
    return benchmark claims remain unavailable without independently reconciled
    dated flows and benchmark semantics. Liquidity remains a labelled 20-session

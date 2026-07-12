@@ -221,8 +221,8 @@ export default function PortfolioDashboard({ initial }: { initial: PortfolioWork
 
       <section className="portfolio-summary" aria-label="Podsumowanie portfela">
         <SummaryMetric label="Wartość" value={fmtPln(snapshot.total_value)} note={`wg ${provider}`} />
-        <SummaryMetric label="Koszt" value={fmtPln(snapshot.cost_basis)} note={snapshot.cost_basis == null ? "brak podstawy kosztowej" : `wg ${provider}`} />
-        <SummaryMetric label="Wynik" value={signedPln(snapshot.profit)} tone={signClass(snapshot.profit)} note={resultPct == null ? `wg ${provider}` : `${fmtPct(resultPct, { signed: true })} · wg ${provider}`} />
+        <SummaryMetric label="Koszt" value={fmtPln(snapshot.cost_basis)} note={snapshot.cost_basis == null ? "niepełne dane pozycji" : `suma bieżących pozycji · ${provider}`} />
+        <SummaryMetric label="Wynik" value={signedPln(snapshot.profit)} tone={signClass(snapshot.profit)} note={resultPct == null ? "niepełne dane pozycji" : `${fmtPct(resultPct, { signed: true })} · bieżące pozycje`} />
         <SummaryMetric label="Gotówka" value={fmtPln(snapshot.cash_value)} note={snapshot.cash_value == null ? "brak rozpoznanej pozycji gotówkowej" : analyticsAvailable ? `${fmtPct(snapshot.total_value > 0 ? snapshot.cash_value / snapshot.total_value * 100 : 0)} portfela` : "wartość z zachowanych wierszy"} />
         <SummaryMetric label="Pokrycie scenariuszami" value={analyticsAvailable ? fmtPct(scenarioCoverage) : "niedostępne"} note={analyticsAvailable ? "tylko zweryfikowane wyceny" : "wiersze nie uzgadniają się z sumą"} />
       </section>
@@ -312,7 +312,7 @@ function PortfolioRiskAttention({ workspace }: { workspace: PortfolioWorkspace }
     <section className="portfolio-risk-attention" aria-labelledby="portfolio-risk-title">
       <div className="portfolio-risk-heading"><div><p className="section-label">Kontekst ryzyk</p><h2 id="portfolio-risk-title">Sygnały wymagające sprawdzenia</h2></div><span>Snapshot {exactTimestamp(context.snapshot_as_of)} · kontekst {exactTimestamp(context.context_generated_at)}</span></div>
       <div className="portfolio-risk-counts">
-        {stale.length > 0 && <span><strong>{stale.length}</strong> nieaktualny Research</span>}
+        {stale.length > 0 && <span><strong>{stale.length}</strong> brakujący lub nieaktualny Research</span>}
         {snapshotFired.length > 0 && <span className="danger"><strong>{snapshotFired.reduce((sum, item) => sum + item.snapshot_known_fired_count, 0)}</strong> naruszone na moment snapshotu</span>}
         {currentOnlyFired.length > 0 && <span className="current"><strong>{currentOnlyFired.reduce((sum, item) => sum + item.current_only_fired_count, 0)}</strong> naruszone tylko w bieżącym kontekście</span>}
         {groups.length > 0 && <span><strong>{groups.length}</strong> wspólnych ekspozycji</span>}
@@ -320,7 +320,7 @@ function PortfolioRiskAttention({ workspace }: { workspace: PortfolioWorkspace }
       <details>
         <summary>Spółki i wspólne ekspozycje</summary>
         <div className="portfolio-risk-details">
-          {stale.length > 0 && <section><h3>Nieaktualny Research</h3><ul>{stale.map((item) => <li key={item.company_id}><strong>{item.ticker || item.company_id}</strong><span>{item.research.as_of ? `${item.research.age_days} dni · ${item.research.status}` : "brak snapshotu Research"}</span></li>)}</ul></section>}
+          {stale.length > 0 && <section><h3>Brakujący lub nieaktualny Research</h3><ul>{stale.map((item) => <li key={item.company_id}><strong>{item.ticker || item.company_id}</strong><span>{item.research.as_of ? `${item.research.age_days} dni · ${item.research.status}` : "brak snapshotu Research"}</span></li>)}</ul></section>}
           {snapshotFired.length > 0 && <section><h3>Naruszone do {exactTimestamp(context.snapshot_as_of)}</h3><ul>{snapshotFired.flatMap((item) => item.snapshot_known_fired_falsifiers.map((row) => <li key={`${item.company_id}-${row.id}`}><strong>{item.ticker || item.company_id}</strong><span>{row.statement} · aktualizacja {exactTimestamp(row.updated_at)}</span></li>))}</ul><small>Te wiersze istniały i nie zmieniły się po momencie snapshotu.</small></section>}
           {currentOnlyFired.length > 0 && <section><h3>Naruszone tylko w kontekście z {exactTimestamp(context.context_generated_at)}</h3><ul>{currentOnlyFired.flatMap((item) => item.current_only_fired_falsifiers.map((row) => <li key={`${item.company_id}-${row.id}`}><strong>{item.ticker || item.company_id}</strong><span>{row.statement} · aktualizacja {exactTimestamp(row.updated_at)}</span></li>))}</ul><small>Tych statusów nie przypisujemy do wcześniejszego snapshotu portfela.</small></section>}
           {groups.length > 0 && <section><h3>Współekspozycja</h3><ul>{groups.map((group) => { const groupType = group.type ?? group.group_type; const currentMetadata = group.time_basis === "includes-current-only"; const metadataTimes = group.evidence_basis.map((item) => item.company_metadata_updated_at).filter((item): item is string => Boolean(item)); return <li key={`${groupType}-${group.label}`}><strong>{groupType === "sector" ? "Sektor" : "Archetyp"}: {group.label}</strong><span>{group.company_ids.map((id) => tickerByCompany.get(id)).join(", ")} · {fmtPln(group.value)} · {currentMetadata ? `zawiera bieżące metadane${metadataTimes.length ? ` (${exactTimestamp(metadataTimes.sort().at(-1))})` : ""}` : "podstawa znana na moment snapshotu"}</span></li>; })}</ul><small>To wspólna ekspozycja według etykiet sektora lub archetypu. Nie oznacza korelacji, kowariancji ani wspólnego prawdopodobieństwa wyniku.</small></section>}
@@ -356,11 +356,13 @@ function PositionsSection({ positions, total, liquidity, covered, exclusions, an
             const badge = mappingLabel(position);
             const allocation = analyticsAvailable ? (position.allocation_pct ?? (total > 0 ? position.value / total * 100 : 0)) : null;
             const excluded = exclusions.get(position.id);
-            const name = <><strong>{position.ticker || position.name}</strong>{position.ticker && <span>{position.name}</span>}</>;
+            const displayTicker = position.company_ticker || position.ticker || position.name;
+            const providerLabel = position.name !== displayTicker ? position.name : null;
+            const name = <><strong>{displayTicker}</strong>{providerLabel && <span>{providerLabel}</span>}</>;
             return (
               <div className="portfolio-position-row" role="row" key={position.id}>
                 <div className="portfolio-position-name" role="cell">
-                  {position.company_id && position.ticker ? <Link href={`/stock/${position.ticker}`}>{name}</Link> : <div>{name}</div>}
+                  {position.company_id && position.company_ticker ? <Link href={`/stock/${position.company_ticker}`}>{name}</Link> : <div>{name}</div>}
                   <small>{position.sector || position.asset_type || "Brak klasyfikacji"}</small>
                   {badge && <span className={`badge ${badge.tone}`}>{badge.text}</span>}
                 </div>

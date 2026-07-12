@@ -14,11 +14,14 @@ artifact. Valuation now turns a frozen Research snapshot and explicit human
 assumptions into deterministic quarter/F12M/cash-flow/price scenarios; a
 separate verifier owns final probabilities and status.
 
-Current delivery focus: **P4 portfolio live gate** — the immutable sync,
-deterministic dashboard and verifier-gated review workflow are implemented.
-The configured provider reference is not an accepted portfolio name, so the
-real holdings pilot and final P4 gate remain open until the exact myfund
-portfolio name is supplied.
+Current delivery focus: **P4 portfolio Research coverage** — the immutable sync,
+deterministic dashboard and verifier-gated review workflow are implemented and
+have passed the real `Kuba` pilot. Parser v2, stable explicit mappings, repeated
+snapshot reuse, complete provider history and one persisted strict-verifier
+review are proven. The review remains honestly provisional: none of the eight
+mapped holdings has an eligible verified company valuation, seven have no
+Research snapshot, and SNT's available valuation is provisional. P4 closes
+only when a real portfolio review can cite verified company scenarios.
 
 | Stage | Outcome | Exit gate | Status |
 |---|---|---|---|
@@ -26,7 +29,7 @@ portfolio name is supplied.
 | P1 · Research vertical | one `Dodaj do Research` command creates/reuses a company and case and one executable initial job | candidate and ticker paths are idempotent; case appears immediately; one pilot reaches a verifier-labelled snapshot | complete |
 | P2 · Tailored research + sieves | common research spine, 2–3 real archetype packs, company overlay, primary-source plan, honest OBS/PA sieves | three comparable factor/coverage views; two representative companies render different relevant sections | complete |
 | P3 · Valuation | separate method packs, driver assumptions, deterministic quarter/year and price bridges | one industrial plus one non-industrial pilot reconcile and pass strict verification; sensitivity is labelled | complete |
-| P4 · Portfolio | dated myfund/API snapshots, mappings, history, deterministic portfolio analytics and scenario aggregation | repeated sync updates positions; history/benchmark reconcile; portfolio review cites verified company snapshots | in progress · live name blocked |
+| P4 · Portfolio | dated myfund/API snapshots, mappings, history, deterministic portfolio analytics and scenario aggregation | repeated sync updates positions; history/benchmark reconcile; portfolio review cites verified company snapshots | in progress · Research/scenario coverage |
 | P5 · Calibration | official adjusted returns, historical availability, mixed/holdout cases and method calibration | replay is no-look-ahead, reproducible, benchmark-relative, and reports calibration limits | waiting for data |
 
 ## P0 acceptance
@@ -183,13 +186,26 @@ consumes only verified company scenarios.
 - Fixture contracts prove zero-write reads, durable failed sync, repeated
   sync/reversion behavior, mapping correction, point-in-time scenario math and
   exact review verification/save retry and strict model roles. The production
-  build, 606 backend tests, PostgreSQL migration `0026`, three skill validators
+  build, 614 backend tests, PostgreSQL migration `0026`, three skill validators
   and browser interaction pass. The live page remains zero-write until its
-  explicit sync button is used and then preserves the sanitized failed attempt.
-- The real API currently returns “portfolio not found” for the configured
-  reference. No holdings were fabricated and no login/password scraping was
-  added. P4 closes only after an exact-name sync, repeated changed snapshot,
-  reconciled live history/benchmark and one real verifier-gated review.
+  explicit sync button is used.
+- The exact real portfolio name `Kuba` produced reconciled parser-v2 snapshot 2
+  with complete provider history and exact cash classification. All eight GPW
+  positions map to canonical Company identities: one reused an existing exact
+  identity and seven were explicitly confirmed. The mapping commands created
+  no Research case or job. A repeated live sync reused the same snapshot,
+  retained every mapping and reported zero unmatched positions. Current-
+  position cost/profit reconcile independently from the provider's flow-aware
+  lifetime history.
+- Real portfolio review 1 froze snapshot 2 and passed all nine strict-verifier
+  checks in VerificationRun 5. It remains `provisional`, correctly reports 0%
+  eligible verified scenario coverage, and does not turn missing evidence into
+  advice. Browser QA renders the real snapshot and review and opens mapped
+  holdings through canonical Company tickers rather than provider display
+  labels. No holdings were fabricated and no login/password scraping was added.
+  The provider/parser/repeat-sync/review live gate is closed; P4 itself remains
+  open until verified company Research and scenario coverage make the review's
+  final exit condition true.
 
 ## Verification commands
 

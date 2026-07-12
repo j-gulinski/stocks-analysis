@@ -86,10 +86,21 @@ latest snapshot; changed or later-reverted content receives the next version.
 Unknown instruments stay in reconciliation. `InstrumentMapping` is the
 explicit correctable identity layer over immutable provider rows; a queued
 review freezes the exact mapping states it consumed.
-Mappings use the provider-native row key when myfund supplies one; list payloads
-use a stable canonical instrument/account identity rather than a display ticker
-or list position. Cash is exact only for a small provider asset-type contract,
-never because a free-text name happens to contain “cash”.
+Mappings use a genuine provider-native row key when myfund supplies one;
+0-based sequential object keys are disposable collection positions and, like
+list payloads, use a stable canonical instrument/account identity rather than
+a display ticker or position. Exact PLN `Akcje GPW` identities use one terminal
+`(CODE)` for matching; synchronization may reuse an existing `Company` but only
+an explicit matching correction may create its minimal GPW identity, without a
+Research case or job. Cash is exact only for a small provider asset-type
+contract, including `Konta gotówkowe`, never because a free-text name happens
+to contain “cash”.
+
+Snapshot cost and profit are sums of complete current position rows. The
+flow-aware provider summary profit is not relabelled as open-position profit;
+when any current row lacks profit, both snapshot aggregates remain unknown and
+the gap is explicit. Provider profit/contribution history retains its exact
+provider-labelled meaning.
 
 Python owns portfolio totals, weights, HHI/concentration, provider-history
 projection, 20-session liquidity estimates and aligned company-scenario

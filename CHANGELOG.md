@@ -5,6 +5,27 @@ product reset remains available in Git at and before `2ac75d0`.
 
 ## 2026-07-12 · P4 immutable portfolio and verified review platform
 
+- Closed the real-provider integration gate with the exact portfolio `Kuba`.
+  Parser-v2 snapshot 2 reconciles, retains complete provider history, maps all
+  eight GPW holdings (one exact existing identity and seven explicit confirmed
+  corrections) and reuses the same snapshot on an unchanged repeat sync.
+  Mapping created no Research case or job. Portfolio review 1
+  passed all nine strict checks in VerificationRun 5 and renders through
+  canonical Company routes. Its status remains deliberately `provisional`:
+  verified scenario coverage is 0%, seven holdings lack Research and SNT's
+  valuation is provisional, so P4 remains open for evidence coverage rather
+  than provider integration.
+- Corrected the live myfund payload contract after the first accepted portfolio
+  response: sequential `0..N-1` object keys now use stable instrument/account
+  identities, `Konta gotówkowe` is recognized only as an exact provider type,
+  and terminal PLN `Akcje GPW` codes drive safe matching. Explicit mapping may
+  create only the matching minimal GPW Company and never a Research case/job.
+  Snapshot cost/profit now sums complete current position rows instead of
+  mislabelling the provider's flow-aware summary profit; incomplete rows yield
+  null aggregates and an explicit gap. Parser contract advanced to v2. Portfolio
+  links now use the mapped canonical Company ticker rather than the provider's
+  display ticker, while preserving the raw label as context.
+
 - Replaced the empty append/skip position ledger with migration `0026` and a
   provider-neutral portfolio model: durable sync attempts, explicit instrument
   mappings, immutable dated holdings/value history and immutable verifier-
@@ -46,11 +67,6 @@ product reset remains available in Git at and before `2ac75d0`.
   PostgreSQL migration `0026`, three skill validators and browser interaction
   pass. The live browser proves zero-write opening, explicit sync and an honest
   sanitized failure state without creating a snapshot.
-- The configured myfund reference is not an accepted exact portfolio name; the
-  provider returns portfolio-not-found. No holdings were fabricated and no
-  login/password or signed-in UI scraping was added. P4 remains open until an
-  exact-name live sync, changed repeat snapshot, history/benchmark
-  reconciliation and one real verifier-gated review succeed.
 
 ## 2026-07-12 · P3 immutable scenario valuation
 

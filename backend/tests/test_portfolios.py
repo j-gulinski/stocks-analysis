@@ -42,8 +42,8 @@ def payload(*, snt_value=6000.0):
         "tickers": {
             "1": {
                 "tickerClear": "SNT",
-                "nazwa": "Synektik",
-                "typOrg": "Akcje",
+                "nazwa": "Synektik (SNT)",
+                "typOrg": "Akcje GPW",
                 "waluta": "PLN",
                 "data": "2026-07-10",
                 "close": "300",
@@ -135,6 +135,45 @@ def test_normalizer_reports_each_malformed_history_series_point():
     )
 
 
+def test_current_cost_and_profit_come_only_from_complete_position_rows():
+    raw = payload()
+    raw["portfel"]["zysk"] = "90610.01"
+    normalized = normalize_myfund(raw)
+    assert normalized.summary["profit"] == 900
+    assert normalized.summary["cost_basis"] == 9100
+    assert (
+        normalized.summary["cost_basis"] + normalized.summary["profit"]
+        == normalized.summary["total_value"]
+    )
+    assert normalized.history[-1]["profit"] == 1000
+
+    raw["tickers"]["2"].pop("zysk")
+    incomplete = normalize_myfund(raw)
+    assert incomplete.summary["profit"] is None
+    assert incomplete.summary["cost_basis"] is None
+    assert any("nie każda pozycja ma wynik" in gap for gap in incomplete.gaps)
+
+
+def test_empty_portfolio_has_zero_current_result_but_missing_positive_rows_do_not():
+    empty = payload()
+    empty["portfel"]["wartosc"] = "0"
+    empty["portfel"]["zysk"] = "123"
+    empty["tickers"] = {}
+    normalized_empty = normalize_myfund(empty)
+    assert normalized_empty.summary["profit"] == 0
+    assert normalized_empty.summary["cost_basis"] == 0
+    assert normalized_empty.positions == []
+    assert not any("bez pozycji składowych" in gap for gap in normalized_empty.gaps)
+
+    missing = payload()
+    missing["portfel"]["wartosc"] = "100"
+    missing["tickers"] = {}
+    normalized_missing = normalize_myfund(missing)
+    assert normalized_missing.summary["profit"] is None
+    assert normalized_missing.summary["cost_basis"] is None
+    assert any("bez pozycji składowych" in gap for gap in normalized_missing.gaps)
+
+
 def test_dict_native_keys_prevent_duplicate_ticker_mapping_collision(
     client, db, monkeypatch
 ):
@@ -147,8 +186,8 @@ def test_dict_native_keys_prevent_duplicate_ticker_mapping_collision(
     raw["portfel"]["wartosc"] = "150"
     pln = {
         "tickerClear": "DUP",
-        "nazwa": "Duplicate GPW",
-        "typOrg": "Akcje",
+        "nazwa": "Duplicate GPW (DUP)",
+        "typOrg": "Akcje GPW",
         "waluta": "PLN",
         "wartosc": "100",
     }
@@ -235,6 +274,96 @@ def test_list_identity_is_order_stable_and_duplicate_rows_share_mapping_identity
     assert rows[0]["row_key"] != rows[1]["row_key"]
 
 
+def test_sequential_dict_keys_are_positions_not_native_identity():
+    row_a = {
+        "tickerClear": "ALPHA",
+        "nazwa": "Alpha (AAA)",
+        "typOrg": "Akcje GPW",
+        "waluta": "PLN",
+        "kontoInvName": "IKE",
+        "wartosc": "100",
+        "zysk": "10",
+    }
+    row_b = {
+        "tickerClear": "BETA",
+        "nazwa": "Beta (BBB)",
+        "typOrg": "Akcje GPW",
+        "waluta": "PLN",
+        "kontoInvName": "IKE",
+        "wartosc": "50",
+        "zysk": "5",
+    }
+    first = payload()
+    first["portfel"]["wartosc"] = "150"
+    first["tickers"] = {"0": row_a, "1": row_b}
+    reordered = payload()
+    reordered["portfel"]["wartosc"] = "150"
+    reordered["tickers"] = {"0": row_b, "1": row_a}
+    normalized_first = normalize_myfund(first)
+    normalized_reordered = normalize_myfund(reordered)
+    assert normalized_first.fingerprint == normalized_reordered.fingerprint
+    assert {
+        row["ticker"]: row["provider_key"] for row in normalized_first.positions
+    } == {row["ticker"]: row["provider_key"] for row in normalized_reordered.positions}
+    assert all(
+        row["provider_key"].startswith("myfund:canonical-sha256:")
+        for row in normalized_first.positions
+    )
+
+    duplicate = payload()
+    duplicate["portfel"]["wartosc"] = "200"
+    duplicate["tickers"] = {"0": row_a, "1": row_a}
+    duplicate_rows = normalize_myfund(duplicate).positions
+    assert duplicate_rows[0]["provider_key"] == duplicate_rows[1]["provider_key"]
+    assert duplicate_rows[0]["row_key"] != duplicate_rows[1]["row_key"]
+
+    second_account = {**row_a, "kontoInvName": "Zwykły"}
+    accounts = payload()
+    accounts["portfel"]["wartosc"] = "200"
+    accounts["tickers"] = {"0": row_a, "1": second_account}
+    account_rows = normalize_myfund(accounts).positions
+    assert account_rows[0]["provider_key"] != account_rows[1]["provider_key"]
+
+
+def test_live_display_identity_matches_only_an_existing_company(
+    client, db, monkeypatch
+):
+    from app.api import portfolios
+
+    company = Company(ticker="SNT", name="Synektik")
+    db.add(company)
+    db.commit()
+    raw = payload()
+    raw["portfel"]["wartosc"] = "150"
+    raw["tickers"] = {
+        "0": {
+            "tickerClear": "SYNEKTIK",
+            "ticker": "SYNEKTIK (SNT)",
+            "typOrg": "Akcje GPW",
+            "waluta": "PLN",
+            "wartosc": "100",
+            "zysk": "10",
+        },
+        "1": {
+            "tickerClear": "ALPHA",
+            "ticker": "ALPHA (ABC)",
+            "typOrg": "Akcje GPW",
+            "waluta": "PLN",
+            "wartosc": "50",
+            "zysk": "5",
+        },
+    }
+    monkeypatch.setattr(portfolios, "get_settings", settings)
+    monkeypatch.setattr(portfolios.polite_http, "fetch", lambda *a, **k: Response(raw))
+    synced = client.post("/api/portfolios/sync/myfund").json()
+    by_name = {row["name"]: row for row in synced["positions"]}
+    assert by_name["SYNEKTIK (SNT)"]["company_id"] == company.id
+    assert by_name["ALPHA (ABC)"]["mapping_status"] == "unmatched"
+    assert db.scalar(select(Company).where(Company.ticker == "ABC")) is None
+    assert db.scalar(select(func.count()).select_from(ResearchCase)) == 0
+    assert db.scalar(select(func.count()).select_from(AgentRun)) == 0
+
+
 def test_native_provider_keys_preserve_case_identity():
     raw = payload()
     row = {
@@ -292,7 +421,7 @@ def test_cash_requires_exact_provider_asset_type_not_free_text(client, db, monke
         "cash": {
             "tickerClear": "PLN",
             "nazwa": "Dowolna etykieta",
-            "typOrg": "Gotówka",
+            "typOrg": "Konta gotówkowe",
             "waluta": "PLN",
             "wartosc": "10",
         },
@@ -521,7 +650,13 @@ def test_risk_context_freezes_research_profiles_current_falsifiers_and_coexposur
     db.add_all(companies)
     db.commit()
     raw = payload()
-    raw["tickers"]["2"].update({"tickerClear": "ABS"})
+    raw["tickers"]["2"].update(
+        {
+            "tickerClear": "ABS",
+            "nazwa": "ABS (ABS)",
+            "typOrg": "Akcje GPW",
+        }
+    )
     raw["tickers"]["1"]["sektor"] = "Zdrowie"
     monkeypatch.setattr(portfolios, "get_settings", settings)
     monkeypatch.setattr(portfolios.polite_http, "fetch", lambda *a, **k: Response(raw))
@@ -711,31 +846,41 @@ def test_mapping_patch_reinterprets_workspace_and_survives_identical_sync(
 ):
     from app.api import portfolios
 
-    db.add_all(
-        [Company(ticker="SNT", name="Synektik"), Company(ticker="ABS", name="ABS")]
-    )
+    db.add(Company(ticker="SNT", name="Synektik"))
     db.commit()
-    monkeypatch.setattr(portfolios, "get_settings", settings)
-    monkeypatch.setattr(
-        portfolios.polite_http, "fetch", lambda *a, **k: Response(payload())
+    raw = payload()
+    raw["tickers"]["2"].update(
+        {
+            "tickerClear": "ALPHA",
+            "nazwa": "Alpha SA (ABC)",
+            "typOrg": "Akcje GPW",
+            "waluta": "PLN",
+        }
     )
+    monkeypatch.setattr(portfolios, "get_settings", settings)
+    monkeypatch.setattr(portfolios.polite_http, "fetch", lambda *a, **k: Response(raw))
     body = client.post("/api/portfolios/sync/myfund").json()
     unmatched = next(p for p in body["positions"] if p["mapping_status"] == "unmatched")
     cash = next(p for p in body["positions"] if p["mapping_kind"] == "cash")
     assert (
         client.patch(
             f"/api/portfolios/mappings/{cash['mapping_id']}",
-            json={"company_ticker": "ABS"},
+            json={"company_ticker": "ABC"},
         ).status_code
         == 409
     )
     patched = client.patch(
         f"/api/portfolios/mappings/{unmatched['mapping_id']}",
-        json={"company_ticker": "ABS"},
+        json={"company_ticker": "ABC"},
     )
     assert (
         patched.status_code == 200 and patched.json()["mapping_status"] == "confirmed"
     )
+    company = db.scalar(select(Company).where(Company.ticker == "ABC"))
+    assert company is not None
+    assert company.name == "Alpha SA" and company.market == "GPW"
+    assert db.scalar(select(func.count()).select_from(ResearchCase)) == 0
+    assert db.scalar(select(func.count()).select_from(AgentRun)) == 0
     reread = client.get("/api/portfolios/workspace").json()
     interpreted = next(
         p for p in reread["positions"] if p["mapping_id"] == unmatched["mapping_id"]
@@ -743,6 +888,7 @@ def test_mapping_patch_reinterprets_workspace_and_survives_identical_sync(
     assert (
         interpreted["mapping_status"] == "confirmed"
         and interpreted["company_id"] is not None
+        and interpreted["company_ticker"] == "ABC"
     )
     repeated = client.post("/api/portfolios/sync/myfund").json()
     assert repeated["sync"]["reused_snapshot"] is True
@@ -754,12 +900,57 @@ def test_mapping_patch_reinterprets_workspace_and_survives_identical_sync(
         f"/api/portfolios/mappings/{unmatched['mapping_id']}", json={"ignored": True}
     )
     assert ignored.json()["mapping_status"] == "ignored"
-    assert (
-        client.post("/api/portfolios/sync/myfund").json()["positions"][1][
-            "mapping_status"
-        ]
-        == "ignored"
+    corrected = client.patch(
+        f"/api/portfolios/mappings/{unmatched['mapping_id']}",
+        json={"company_ticker": "ABC"},
     )
+    assert corrected.status_code == 200
+    assert corrected.json()["company_id"] == company.id
+
+
+@pytest.mark.parametrize(
+    ("name", "asset_type", "currency", "confirmed", "expected_status"),
+    [
+        ("Alpha SA (ABC)", "Akcje GPW", "PLN", "XYZ", 422),
+        ("Alpha SA (ABC) (XYZ)", "Akcje GPW", "PLN", "XYZ", 422),
+        ("Alpha SA (ABC)", "ETF", "PLN", "ABC", 422),
+        ("Alpha SA (ABC)", "Akcje GPW", "USD", "ABC", 422),
+    ],
+)
+def test_mapping_patch_rejects_mismatch_ambiguous_or_non_gpw_identity(
+    client,
+    db,
+    monkeypatch,
+    name,
+    asset_type,
+    currency,
+    confirmed,
+    expected_status,
+):
+    from app.api import portfolios
+
+    raw = payload()
+    raw["portfel"]["wartosc"] = "100"
+    raw["tickers"] = {
+        "provider-row": {
+            "tickerClear": "ALPHA",
+            "nazwa": name,
+            "typOrg": asset_type,
+            "waluta": currency,
+            "wartosc": "100",
+            "zysk": "10",
+        }
+    }
+    monkeypatch.setattr(portfolios, "get_settings", settings)
+    monkeypatch.setattr(portfolios.polite_http, "fetch", lambda *a, **k: Response(raw))
+    synced = client.post("/api/portfolios/sync/myfund").json()
+    mapping_id = synced["positions"][0]["mapping_id"]
+    response = client.patch(
+        f"/api/portfolios/mappings/{mapping_id}",
+        json={"company_ticker": confirmed},
+    )
+    assert response.status_code == expected_status
+    assert db.scalar(select(Company).where(Company.ticker == confirmed)) is None
 
 
 def test_verified_scenario_aggregation_is_point_in_time_and_arithmetic(
@@ -1179,10 +1370,16 @@ def test_mapping_change_after_claim_requires_needs_human_artifact(
         [Company(ticker="SNT", name="Synektik"), Company(ticker="ABS", name="ABS")]
     )
     db.commit()
-    monkeypatch.setattr(portfolios, "get_settings", settings)
-    monkeypatch.setattr(
-        portfolios.polite_http, "fetch", lambda *a, **k: Response(payload())
+    raw = payload()
+    raw["tickers"]["2"].update(
+        {
+            "tickerClear": "ALPHA",
+            "nazwa": "Alpha SA (ABC)",
+            "typOrg": "Akcje GPW",
+        }
     )
+    monkeypatch.setattr(portfolios, "get_settings", settings)
+    monkeypatch.setattr(portfolios.polite_http, "fetch", lambda *a, **k: Response(raw))
     synced = client.post("/api/portfolios/sync/myfund").json()
     queued = client.post("/api/portfolios/review-runs").json()
     agent = claim_agent_run(
@@ -1195,7 +1392,7 @@ def test_mapping_change_after_claim_requires_needs_human_artifact(
     assert (
         client.patch(
             f"/api/portfolios/mappings/{unmatched['mapping_id']}",
-            json={"company_ticker": "ABS"},
+            json={"company_ticker": "ABC"},
         ).status_code
         == 200
     )
