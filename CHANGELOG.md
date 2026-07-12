@@ -5,6 +5,18 @@ product reset remains available in Git at and before `2ac75d0`.
 
 ## 2026-07-12 · P4 immutable portfolio and verified review platform
 
+- Continued real portfolio coverage with CDR at 10.27%. The bounded issuer
+  collector now scopes CD PROJEKT's Q1 result-center entry to
+  `.presstype-quarter .entry-content`; official index/report/presentation
+  versions `79/80/81` retain three authorized links, 29 bounded report claims
+  and all 16 presentation pages. Trusted scoped link generations
+  `@4/@5/@6/@7` may authorize PDF fetches while older noisy lineage remains
+  excluded. Initial run 39 passed corrected VerificationRun 12 and saved
+  snapshot/profile `9/8` as provisional. Launch timing, cumulative units,
+  pipeline and runway are sourced; price, concrete platform share and four
+  further evidence gaps remain explicit. The first strict pass rejected total-
+  IP labelling of product sales and digital-channel share used as platform
+  share before persistence.
 - Continued real portfolio coverage with DIG at 13.53%. The bounded issuer
   collector now scopes Digital Network's periodic-report archive to
   `.files-section`; official index/report versions `70/71` retain one Q1 link

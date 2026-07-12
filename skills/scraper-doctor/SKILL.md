@@ -208,6 +208,10 @@ are NON-NEGOTIABLE at every step (see bottom).
   historical files around the active list. Extract only from `.files-section`;
   the official Q1 PDF is a same-host `/wp-content/uploads/...pdf` link and must
   remain bound to the stored scoped index claim before detail ingestion.
+- CD PROJEKT's result center repeats investor links across quarterly archive
+  entries. Select only the first current `.presstype-quarter .entry-content`;
+  the consolidated report and presentation remain same-host PDF links, and
+  each detail fetch must be authorized by its stored scoped index claim.
 
 ## Politeness invariants (never relax while debugging)
 

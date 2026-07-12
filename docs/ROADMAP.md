@@ -245,6 +245,16 @@ consumes only verified company scenarios.
   result treats the first full Braughman consolidation quarter as a
   comparability limitation rather than fabricated organic growth. Portfolio
   snapshot 2 and scenario eligibility remain unchanged.
+- CDR at 10.27% now has official result-center/report/presentation versions
+  `79/80/81` and initial Research snapshot/profile/verification `9/8/12`.
+  Four of six gaming markers are sourced: launch timing, cumulative units,
+  pipeline and runway. Price, concrete platform share and four further gaps
+  keep it provisional. The source adapter scopes the current quarterly result
+  entry to `.presstype-quarter .entry-content` and permits only trusted scoped
+  extractor generations `@4/@5/@6/@7`. A first strict pass rejected product-
+  sales figures labelled as total IP revenue and digital-channel share used as
+  a platform marker; the corrected fresh pass preserves both distinctions.
+  Portfolio snapshot 2 and scenario eligibility remain unchanged.
 
 ## Verification commands
 

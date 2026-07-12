@@ -25,10 +25,15 @@ from app.services.evidence import (
     record_text_fact,
 )
 
-PARSER_VERSION = "issuer-ir-index@6"
-EXTRACTOR_VERSION = "issuer-ir-links@6"
+PARSER_VERSION = "issuer-ir-index@7"
+EXTRACTOR_VERSION = "issuer-ir-links@7"
 AUTHORIZED_LINK_EXTRACTOR_VERSIONS = frozenset(
-    {"issuer-ir-links@4", "issuer-ir-links@5", EXTRACTOR_VERSION}
+    {
+        "issuer-ir-links@4",
+        "issuer-ir-links@5",
+        "issuer-ir-links@6",
+        EXTRACTOR_VERSION,
+    }
 )
 MAX_LINKS_PER_INDEX = 30
 MAX_PDF_BYTES = 15 * 1024 * 1024
@@ -45,10 +50,11 @@ ISSUER_IR_SOURCES = {
     "ASB": "https://investor.asbis.com/news/financial-reports-archive/financial-reports-2026",
     "ART": "https://www.artifexmundi.com/en/quarterly-report-for-the-first-quarter-of-2026/",
     "DIG": "https://digitalnetwork.pl/raporty/raporty-okresowe/",
+    "CDR": "https://www.cdprojekt.com/en/investors/result-center/?presstype=quarter",
 }
 
 REPORT_TERMS = re.compile(
-    r"raport|sprawozd|wynik|prezentac|walne|akcjon|dywidend|governance|ład korpor"
+    r"raport|sprawozd|wynik|prezentac|presentat|walne|akcjon|dywidend|governance|ład korpor"
     r"|financial|interim|annual|quarterly|quarter|report",
     re.IGNORECASE,
 )
@@ -71,7 +77,8 @@ class ParsedIssuerIrIndex:
 def parse_issuer_ir_index(html: str, *, base_url: str) -> ParsedIssuerIrIndex:
     soup = BeautifulSoup(html, "html.parser")
     root = (
-        soup.select_one(".ncont-content")
+        soup.select_one(".presstype-quarter .entry-content")
+        or soup.select_one(".ncont-content")
         or soup.select_one(".investors-page-content")
         or soup.select_one(".files-section")
         or soup.find("main")
