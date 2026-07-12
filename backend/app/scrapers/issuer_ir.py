@@ -25,10 +25,10 @@ from app.services.evidence import (
     record_text_fact,
 )
 
-PARSER_VERSION = "issuer-ir-index@5"
-EXTRACTOR_VERSION = "issuer-ir-links@5"
+PARSER_VERSION = "issuer-ir-index@6"
+EXTRACTOR_VERSION = "issuer-ir-links@6"
 AUTHORIZED_LINK_EXTRACTOR_VERSIONS = frozenset(
-    {"issuer-ir-links@4", EXTRACTOR_VERSION}
+    {"issuer-ir-links@4", "issuer-ir-links@5", EXTRACTOR_VERSION}
 )
 MAX_LINKS_PER_INDEX = 30
 MAX_PDF_BYTES = 15 * 1024 * 1024
@@ -44,6 +44,7 @@ ISSUER_IR_SOURCES = {
     "OPM": "https://opteam.pl/firma/relacje-inwestorskie",
     "ASB": "https://investor.asbis.com/news/financial-reports-archive/financial-reports-2026",
     "ART": "https://www.artifexmundi.com/en/quarterly-report-for-the-first-quarter-of-2026/",
+    "DIG": "https://digitalnetwork.pl/raporty/raporty-okresowe/",
 }
 
 REPORT_TERMS = re.compile(
@@ -72,6 +73,7 @@ def parse_issuer_ir_index(html: str, *, base_url: str) -> ParsedIssuerIrIndex:
     root = (
         soup.select_one(".ncont-content")
         or soup.select_one(".investors-page-content")
+        or soup.select_one(".files-section")
         or soup.find("main")
         or soup.body
         or soup

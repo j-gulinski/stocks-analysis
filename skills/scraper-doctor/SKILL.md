@@ -204,6 +204,10 @@ are NON-NEGOTIABLE at every step (see bottom).
   navigation. Extract only from `.investors-page-content`; the official PDF is
   a same-host `/wp-content/uploads/...pdf` link and must still be discovered in
   the stored index evidence before detail ingestion.
+- Digital Network's periodic archive contains report navigation and many
+  historical files around the active list. Extract only from `.files-section`;
+  the official Q1 PDF is a same-host `/wp-content/uploads/...pdf` link and must
+  remain bound to the stored scoped index claim before detail ingestion.
 
 ## Politeness invariants (never relax while debugging)
 

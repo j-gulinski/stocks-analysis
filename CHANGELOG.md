@@ -5,6 +5,17 @@ product reset remains available in Git at and before `2ac75d0`.
 
 ## 2026-07-12 · P4 immutable portfolio and verified review platform
 
+- Continued real portfolio coverage with DIG at 13.53%. The bounded issuer
+  collector now scopes Digital Network's periodic-report archive to
+  `.files-section`; official index/report versions `70/71` retain one Q1 link
+  and 30 bounded page claims from the 52-page report. Trusted scoped link
+  generations `@4/@5/@6` may authorize detail fetches while older noisy
+  lineage remains excluded. Initial run 38 passed independent VerificationRun
+  11 and saved snapshot/profile `8/7` as provisional. Five of seven
+  industrial/consumer markers are sourced; fixed costs, backlog and four
+  additional evidence gaps remain explicit. The result separates acquisition-
+  driven reported growth from unknown organic growth and adds no valuation or
+  portfolio assumptions.
 - Continued real portfolio coverage with ART, the largest remaining uncovered
   holding at 14.37%. The bounded issuer collector now scopes Artifex Mundi to
   `.investors-page-content`; official landing/report versions `61/62` retain

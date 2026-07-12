@@ -83,6 +83,12 @@ def _seed_report_link(db, report_url: str, *, extractor_version: str | None = No
             "Artifex Mundi - Quarterly report for the first quarter of 2026",
             1,
         ),
+        (
+            "issuer_ir_dig.html",
+            "https://digitalnetwork.pl/raporty/raporty-okresowe/",
+            "Raporty okresowe - Digital Network",
+            1,
+        ),
     ],
 )
 def test_parse_issuer_ir_index_shapes(
@@ -111,6 +117,7 @@ def test_ingest_issuer_ir_pilot_records_versions_and_unverified_link_claims(
             Company(ticker="OPM", name="OPTEAM SA"),
             Company(ticker="ASB", name="ASBISc ENTERPRISES PLC"),
             Company(ticker="ART", name="ARTIFEX MUNDI SA"),
+            Company(ticker="DIG", name="DIGITAL NETWORK SA"),
         ]
     )
     db.commit()
@@ -120,6 +127,7 @@ def test_ingest_issuer_ir_pilot_records_versions_and_unverified_link_claims(
         "OPM": "issuer_ir_opm.html",
         "ASB": "issuer_ir_asb.html",
         "ART": "issuer_ir_art.html",
+        "DIG": "issuer_ir_dig.html",
     }
     calls = []
 
@@ -134,24 +142,24 @@ def test_ingest_issuer_ir_pilot_records_versions_and_unverified_link_claims(
     results = [issuer_ir.ingest_issuer_ir_index(db, ticker) for ticker in fixtures]
 
     assert all(result["ok"] for result in results)
-    assert len(calls) == 5
-    assert db.scalar(select(func.count()).select_from(SourceDocument)) == 5
-    assert db.scalar(select(func.count()).select_from(DocumentVersion)) == 5
-    assert db.scalar(select(func.count()).select_from(Fact)) == 6
+    assert len(calls) == 6
+    assert db.scalar(select(func.count()).select_from(SourceDocument)) == 6
+    assert db.scalar(select(func.count()).select_from(DocumentVersion)) == 6
+    assert db.scalar(select(func.count()).select_from(Fact)) == 7
     assert db.scalar(
         select(func.count())
         .select_from(Fact)
         .where(Fact.verification_state == "unverified")
-    ) == 6
+    ) == 7
     assert db.scalar(
         select(func.count())
         .select_from(FetchLog)
         .where(FetchLog.document_version_id.is_not(None))
-    ) == 5
+    ) == 6
 
     cached = issuer_ir.ingest_issuer_ir_index(db, "SNT")
     assert cached["status"] == "cached"
-    assert len(calls) == 5
+    assert len(calls) == 6
 
 
 def test_ingest_issuer_ir_returns_temporary_state_on_polite_hard_stop(db, monkeypatch):

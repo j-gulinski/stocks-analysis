@@ -235,6 +235,16 @@ consumes only verified company scenarios.
   scopes Artifex report content and permits only trusted scoped extractor
   generations `@4/@5`; the noisy legacy `@3` lineage cannot authorize a PDF.
   Alpha-test participants remain clearly separated from sales units.
+- DIG, the next uncovered position at 13.53%, now has official issuer
+  index/report versions `70/71` and initial Research snapshot/profile/
+  verification `8/7/11`. Five of seven industrial/consumer markers are
+  sourced: volume, price/mix, gross margin, working capital and capex. Fixed
+  costs, backlog and four further evidence gaps keep it provisional. The
+  source adapter scopes Digital Network's archive to `.files-section` and
+  permits only trusted scoped extractor generations `@4/@5/@6`; the Research
+  result treats the first full Braughman consolidation quarter as a
+  comparability limitation rather than fabricated organic growth. Portfolio
+  snapshot 2 and scenario eligibility remain unchanged.
 
 ## Verification commands
 
