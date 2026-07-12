@@ -6,6 +6,7 @@ usage and are no longer logged.
 
 | Date | Stage | Work | Role | Selected tier | Reasoning | Concrete host | Substitution / escalation | Verification |
 |---|---|---|---|---|---|---|---|---|
+| 2026-07-12 | PRODUCT-NORTH-STAR | default GPW workspace, method-governance and active-roadmap contract refinement | manager / analyst_deep | Sol high | high | GPT-5-based Codex host; concrete deployment not exposed | requested Sol-high product/architecture role mapped to available host; no escalation | three bounded product/roadmap/method audits, independent final contract review, diff check; documentation-only change |
 | 2026-07-11 | P0-AUDIT-DOC | repository-wide documentation/artifact audit | analyst_deep | Sol high | high | Codex host; exact deployment not exposed | host cannot select/report the named deployment | independent manager synthesis; no edits |
 | 2026-07-11 | P0-AUDIT-FE | frontend/product-flow audit | analyst_deep | Sol high | high | Codex host; exact deployment not exposed | host cannot select/report the named deployment | source, browser, and cross-audit corroboration; no edits |
 | 2026-07-11 | P0-AUDIT-BE | backend/data/orchestration audit | analyst_deep | Sol high | high | Codex host; exact deployment not exposed | host cannot select/report the named deployment | isolated TestClient reproduction, focused tests, DB/log evidence; no edits |

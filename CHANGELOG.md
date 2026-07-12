@@ -3,6 +3,26 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-12 · Default GPW analysis workspace contract
+
+- Refined the Product north star from a generic research second brain into the
+  investor's default GPW analysis workspace, with one durable path from why a
+  company deserves attention through business understanding, separate
+  source-backed method perspectives, explicit scenarios, falsifiers, and real
+  portfolio impact.
+- Defined expert-derived methods as attributed, non-impersonating, stage-aware,
+  versioned packs. Company evidence remains independent from method corpora;
+  Codex may synthesize visible agreement and disagreement but may not create an
+  anonymous expert consensus or hidden blend.
+- Replaced the Roadmap's completed-stage evidence diary with active incremental
+  outcome gates for Discover integrity and multi-sieve comparison, user-owned
+  Research profiles, method perspectives, verified portfolio scenario coverage,
+  a read-only Research agenda, and later point-in-time calibration. Existing
+  data, artifact, calculation, queue, and verifier foundations remain in place.
+- Documented current capability limits separately from planned outcomes. This
+  contract update adds no runtime feature and does not present Roadmap work as
+  implemented.
+
 ## 2026-07-12 · P4 immutable portfolio and verified review platform
 
 - Completed primary Research coverage for all mapped real holdings with CRI at

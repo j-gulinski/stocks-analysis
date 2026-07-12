@@ -15,7 +15,7 @@ state, queues work, claims a lease, or calls a model.
 | Check the app | `./workbench doctor` then `./workbench status` | Read-only health report |
 | Start or stop | `./workbench start` / `./workbench stop` | Local services only; no queue claim |
 | Refresh Discover | `POST /api/discovery/refresh` | One stored source snapshot; no research jobs |
-| Compare Discover sieves | `GET /api/discovery` | Three server-owned factor/coverage views; only sufficiently sourced sieves return candidates |
+| Inspect Discover | `GET /api/discovery` | Three server-owned status/coverage views plus the sourced financial-health candidate list |
 | Add a company | `POST /api/research-cases` with a ticker or frozen Discover version | One company, one active case, at most one initial-research job |
 | Run queued research | Invoke `$workbench-run-queue` | Exactly one claimed and completed job |
 | Open company research | `GET /api/research-cases/by-ticker/{ticker}` | Read-only profile, latest immutable snapshot and history |
@@ -33,6 +33,23 @@ state, queues work, claims a lease, or calls a model.
 | Queue portfolio review | `POST /api/portfolios/review-runs` | At most one content-identical `stock-portfolio-review` job |
 | Verify portfolio review | `codex_verify_portfolio_review.py` | Independent verdict bound to the exact frozen draft |
 | Save portfolio review | `codex_save_portfolio_review.py` | One immutable review; terminal job and cleared lease |
+
+## Current capability limits
+
+- Discover currently produces candidates only from the financial-health sieve.
+  OBS and Portal Analiz expose honest source/factor gaps but no candidates,
+  cross-sieve comparison, or overlap yet.
+- `rank_candidates` and `codex_candidate_scan.py` measure stored-company data
+  readiness, not investment potential; do not present their score as a stock
+  opportunity rank.
+- Malik/OBS has a source-grounded Codex lens and the only ready Valuation pack;
+  its market-wide Discover sieve and canonical persisted/rendered Research
+  perspective remain planned. Areczeks and Elendix stay draft until retained
+  sources and stage-specific inputs satisfy the Strategy contract. Never
+  simulate their company conclusions or blend methods implicitly.
+- The current company overlay is model-proposed and read-only. User-confirmed
+  profile versioning and the Research `Do sprawdzenia` agenda are Roadmap work,
+  not current actions.
 
 Research lists `ResearchCase` rows, not watchlist membership. Removing a
 watchlist item never deletes the company, evidence, case, analysis, or history.
@@ -57,8 +74,9 @@ watchlist item never deletes the company, evidence, case, analysis, or history.
 3. The company page renders versioned `research-snapshot-v1`/`v2` artifacts as
    the canonical six-section workspace when one exists. The prior dossier
    remains a labelled secondary audit view and cannot override snapshot status.
-4. Discover always compares the three typed sieve contracts. The
-   financial-health sieve is a preliminary filter; do not describe Altman or
+4. Discover shows status and coverage for three typed sieve contracts, but only
+   the financial-health sieve currently supplies candidate rows. Do not claim
+   per-sieve candidate comparison or overlap yet, and do not describe Altman or
    Piotroski values as a recommendation. Its v1 membership thresholds
    (Altman `>= 8`, Piotroski `>= 7`) belong to the server contract, not the UI.
    Keep OBS and Portal Analiz candidates blocked while their server-provided

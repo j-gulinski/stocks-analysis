@@ -10,10 +10,70 @@ stay separate so the user can compare them or deliberately choose a blend.
 Unknown factors are excluded from a fit denominator and shown as coverage gaps.
 No method may turn missing data into a negative company fact.
 
+## Method-pack governance
+
+Each expert-derived method is represented by a versioned pack, not by a
+simulated persona. Its manifest declares:
+
+- stable identifier, version, neutral label, attribution and a non-endorsement
+  disclaimer;
+- retained source manifest with document version/hash, publication or known
+  date, exact locator, author identity, and retention status;
+- readiness separately for Discover, Research, and Valuation, because a pack
+  may be usable for company Research before market-wide Discover inputs exist;
+- required and optional factors or questions, each labelled as author-stated,
+  standard finance, or a Workbench operationalization;
+- deterministic formulas, judgment questions, compatible archetypes and
+  templates, red flags, falsifiers, exclusions, and known blind spots;
+- skill, output-schema, calculation-engine, and verifier versions; and
+- evaluation maturity: `untested`, `diagnostic-cases`, or
+  `point-in-time-calibrated`. Readiness never implies proven performance.
+
+Stage readiness is explicit: `draft` means source or interpretation coverage is
+insufficient; `planned` means the contract exists but serving data is missing;
+`supported` may produce decision-support output subject to company coverage;
+and `retired` is preserved only for historical artifacts and replay.
+
+A new pack version is required when selection rules, required inputs,
+calculations, material judgment framing, or source interpretation changes.
+Every Research, Valuation, synthesis, and backtest artifact freezes the exact
+pack and method-source versions it used. Method-source corpora remain separate
+from company-evidence manifests.
+
+Method outputs remain separate. Codex may synthesize them only after showing
+each applicable pack's conclusion, evidence coverage, disagreement, and
+company-specific blind spots. A deliberate blend is itself named and versioned,
+preserves every input contribution, and is never labelled as one expert's
+method. Expert popularity, reputation, anecdotal performance, or agreement
+between packs cannot increase company confidence by themselves.
+
+The strict verifier checks attribution, source sufficiency, method
+applicability, separation of fact/calculation/judgment, unknown handling,
+look-ahead boundaries, non-impersonation, and whether synthesis accurately
+represents disagreement.
+
+## Current method readiness
+
+| Method | Discover | Research | Valuation |
+|---|---|---|---|
+| Malik/OBS | `planned` — market-wide factors are missing | source-grounded Codex lens exists; canonical persisted/rendered perspective is planned in M1 | `supported` — `malik_obs_v1` is ready |
+| Areczeks | `draft` — retained method evidence and market inputs are incomplete | `draft` | `draft` |
+| Elendix | `draft` — retained method evidence and market inputs are incomplete | `draft` | `draft` |
+
+The financial-health BiznesRadar sieve is a supported deterministic data lens,
+not an expert-derived method pack.
+
 ## Source hierarchy
 
-Highest confidence comes from the investor's own dated writing/interviews and
-worked analyses. Retained local source evidence includes:
+For interpreting an investor method, highest confidence comes from that
+investor's own dated writing, interviews, and worked analyses. For current
+company facts, issuer and regulatory documents plus lineage-linked
+deterministic records outrank investor commentary. Investor material supplies
+analytical questions, lenses, and attributed leads; it never supplies
+unsourced company numbers or proves that its author endorses the Workbench
+interpretation.
+
+Retained local method-source evidence includes:
 
 - `docs/source-materials/obs.txt` — raw PortalAnaliz OBS portfolio thread;
 - `docs/source-materials/transkrypcja_biznesradar_excel.docx` — Malik's
@@ -157,6 +217,25 @@ point-in-time series exists. Current raw prices and timestamp-frozen
 shares/market cap remain visible provisional limitations. This first bridge is
 not a DCF, unit-economics model, proof of Malik/OBS performance, or permission
 to blend the blocked Areczeks/Elendix packs.
+
+## Cross-method Codex synthesis
+
+For one company and as-of time, Codex may produce a synthesis only from
+supported, applicable packs and the same frozen company-evidence set. It must
+state:
+
+- why each pack is or is not applicable;
+- conclusions shared across packs without treating them as independent votes;
+- material disagreements and the assumptions causing them;
+- risks or questions visible through only one pack;
+- missing evidence that could change the comparison; and
+- the next dated evidence checks, without a buy/sell instruction.
+
+Draft or planned packs may be shown as unavailable perspectives with named
+source or data gaps, but their expected company conclusions must not be
+invented. The default product path uses the canonical `ResearchSnapshot` and
+`ValuationSnapshot`; legacy analysis or alignment scores do not become a
+universal expert-backed verdict.
 
 ## Backtest and learning gate
 

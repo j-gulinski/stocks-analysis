@@ -1,290 +1,208 @@
-# Pivot roadmap
+# Delivery roadmap
 
-This is the only live delivery document. It records outcomes and gates, not
-session logs or a catalogue of every historical task. Git and `CHANGELOG.md`
-retain completed detail.
+This is the only live delivery document. It contains active outcomes,
+dependencies, blockers, and acceptance gates. `CHANGELOG.md` and Git preserve
+completed implementation evidence.
+
+## North-star outcome
+
+Make the existing `Discover -> Research -> Valuation -> Portfolio` product the
+investor's default GPW analysis workspace: trustworthy enough to find what
+deserves attention, deep enough to build durable company understanding, clear
+about how separate Polish-market investor methods view the evidence, and
+practical enough to connect verified scenarios with the real portfolio.
+
+This is an incremental completion of the current product. It does not replace
+the FastAPI/Next.js stack, durable evidence model, `ResearchCase`, immutable
+snapshots, deterministic engines, explicit job queue, or strict-verifier
+boundary.
 
 ## Current state
 
-P0 through P3 are complete. Discover and typed-ticker adds create/reuse/reactivate
-one visible case and one unclaimed initial job. A claimed worker now produces
-an immutable, source-bound `CompanyProfile`/`ResearchSnapshot`; a separate
-verifier owns final status, and the fixed company workspace renders that
-artifact. Valuation now turns a frozen Research snapshot and explicit human
-assumptions into deterministic quarter/F12M/cash-flow/price scenarios; a
-separate verifier owns final probabilities and status.
+- P0-P3 delivered reusable foundations: zero-write reads, explicit commands,
+  immutable source lineage, one canonical Research case, tailored archetype
+  packs, verifier-gated Research snapshots, and deterministic valuation.
+- Discover currently works only as a financial-health shortlist. Its live
+  snapshot contains 384 GPW companies, 366 with joint Altman/Piotroski coverage,
+  and 45 candidates. OBS and Portal Analiz have no market-wide candidate data;
+  overlap, neutral context, robust stale-factor treatment, and universe
+  continuity checks remain open.
+- All eight mapped holdings have strict-verifier-passed Research, but ordinary
+  evidence gaps keep every current artifact provisional. The proposed company
+  overlay is visible but not yet user-confirmable or correctable.
+- The valuation and portfolio engines are implemented. No holding yet has an
+  eligible verified valuation bound to its latest Research snapshot, so real
+  portfolio scenario coverage remains 0%.
+- Malik/OBS has a source-grounded Codex lens and the only ready Valuation pack;
+  its market-wide Discover sieve and canonical persisted/rendered Research
+  perspective remain planned. Areczeks and Elendix remain draft until dated
+  source evidence is retained and attributed. No expert method has
+  point-in-time performance calibration.
 
-Current delivery focus: **P4 verified scenario coverage** — the immutable sync,
-deterministic dashboard, verifier-gated review workflow and primary-source
-Research coverage are implemented for all eight mapped holdings in real
-portfolio snapshot 2: ASB, ART, DIG, SNT, CDR, CBF, BFT and CRI. Every Research
-artifact passed an independent strict verifier and remains honestly
-`provisional` where source gaps remain. No holding yet has an eligible verified
-valuation/scenario, so scenario coverage is still 0%; P4 closes only when a
-real portfolio review can cite verified company scenarios built from explicit
-human assumptions rather than fabricated inputs.
+The next eligible engineering slice is **D1 · Discover integrity and context**.
+**V1 · Verified scenario coverage** remains active in parallel where current
+evidence, scalar lineage, and explicit user assumptions are available.
 
-| Stage | Outcome | Exit gate | Status |
+## Active outcomes
+
+| Order | Outcome | Exit gate | Status |
 |---|---|---|---|
-| P0 · Reset | Four binding docs, obsolete artifacts removed, reads side-effect free, memory non-destructive, worker-only claims | tests prove zero-write reads, proxy verbs, archive preservation, no orphan claim | complete |
-| P1 · Research vertical | one `Dodaj do Research` command creates/reuses a company and case and one executable initial job | candidate and ticker paths are idempotent; case appears immediately; one pilot reaches a verifier-labelled snapshot | complete |
-| P2 · Tailored research + sieves | common research spine, 2–3 real archetype packs, company overlay, primary-source plan, honest OBS/PA sieves | three comparable factor/coverage views; two representative companies render different relevant sections | complete |
-| P3 · Valuation | separate method packs, driver assumptions, deterministic quarter/year and price bridges | one industrial plus one non-industrial pilot reconcile and pass strict verification; sensitivity is labelled | complete |
-| P4 · Portfolio | dated myfund/API snapshots, mappings, history, deterministic portfolio analytics and scenario aggregation | repeated sync updates positions; history/benchmark reconcile; portfolio review cites verified company snapshots | in progress · Research/scenario coverage |
-| P5 · Calibration | official adjusted returns, historical availability, mixed/holdout cases and method calibration | replay is no-look-ahead, reproducible, benchmark-relative, and reports calibration limits | waiting for data |
+| D1 | trustworthy Discover integrity and context | complete-universe and freshness gates, decision context, correct add/reactivate behavior | next |
+| D2 | comparable sourced sieves and overlap | three per-sieve candidate views share one contract and controlled overlap renders correctly | waits for D1 and market-wide facts |
+| R1 | user-owned Research memory | confirmed/corrected profile produces a new version and review without rewriting history | after D1 |
+| M1 | named method catalog and Codex perspectives | supported packs render separately over one evidence snapshot; synthesis preserves disagreement | after R1 and retained method sources |
+| V1 / P4 | verified valuation and portfolio scenario coverage | real portfolio review consumes at least two eligible verified scenarios | in progress · evidence/user-input dependent |
+| W1 | daily `Do sprawdzenia` workspace | stored read-only agenda leads to explicit bounded actions across the four stages | after D1, R1, and first V1 coverage |
+| P5 | point-in-time calibration | reproducible benchmark-relative replay and disclosed calibration limits | waits for historical data |
 
-## P0 acceptance
+## D1 · Discover integrity and context
 
-- `GET /discovery` reads a stored snapshot and creates no `AgentRun`, company,
-  or case. Source refresh is a separate explicit command.
-- Startup/session hooks and UI do not claim Codex leases.
-- The Next proxy supports every API method used by the client, including PATCH.
-- Hiding/unpinning a company never deletes evidence or analysis history.
-- Direct provider calls during refresh are disabled; model work is a durable
-  job.
-- Old mockups, screenshots, previews, archives, superseded plans, duplicate
-  prototypes, generated build state, and task diary are removed.
+Build on the stored BiznesRadar snapshot and current explicit refresh command.
+Do not add a crawler or model call to Discover reads.
 
-## P1 acceptance
+- Fail closed when the market page is truncated, structurally incomplete, or
+  implausibly discontinuous from the last good universe.
+- Separate content version time, last successful source check, factor/report
+  period, and latest failed refresh. Stale factors remain visible and cannot
+  rank as current without an explicit stale state or policy.
+- Return and render source/version, membership factors, factor gaps, missing
+  strategy questions, WIG bucket where sourced, sector, and size as neutral
+  context.
+- Freeze Discover-origin provenance: sieve ID/version, membership factors,
+  source/parser identity, and as-of time. Typed-ticker entry remains available.
+- Fix closed-case reactivation and keep Discover usable when the Research list
+  read fails independently.
+- Rename or retire the stored-company `rank_candidates` score unless it becomes
+  an honest data-readiness tool. If retained, it evaluates the full eligible
+  stored-company set before applying the output limit; it must not masquerade
+  as investment potential.
 
-- One atomic, idempotent API accepts a frozen Discover candidate reference or a
-  typed ticker.
-- It resolves/creates `Company`, creates/activates `ResearchCase`, and queues
-  exactly one `stock-initial-research` job with `company_id` and the
-  `company-research` skill contract.
-- A duplicate click returns the same case/job; no duplicate queue rows.
-- Research lists cases, not watchlist rows, and displays the job as waiting,
-  collecting, provisional, verified, rejected, or requiring intervention.
-- The queue model policy and picker return an executable contract; only the
-  executing worker claims, heartbeats, and completes it.
-- The first result stores a source manifest, common research spine, selected
-  archetype, company-specific drivers/questions, gaps, and strict verifier
-  status.
-- Browser QA proves Discover candidate -> Add -> immediate Research presence,
-  direct ticker add, duplicate add, and case PATCH.
+Gate: parser fixtures reject truncated universes; stale-company fixtures show
+the explicit state; repeated GETs remain zero-write; the production build and a
+browser flow prove context, source freshness, one-click add, duplicate reuse,
+and closed-case reactivation.
 
-## P2 design boundary
+## D2 · Comparable sourced sieves and overlap
 
-Build the financial-health sieve first from one stored BiznesRadar universe
-page. Add OBS and PortalAnaliz sieves only after bounded bulk factor pages or
-equivalent sourced data provide their declared inputs. Each sieve returns
-`id/version`, candidate coverage, top contributing factors, neutral metadata,
-source references, and gaps; cap the visible result to a useful shortlist.
+- Evolve the typed sieve response so each candidate carries per-sieve
+  membership, factors, coverage, source/freshness, and overlap; do not hard-code
+  the financial-health list in the UI.
+- Populate `obs_operating_improvement_v1` only from a bounded, versioned
+  market-wide snapshot of its declared factors. Catalyst and priced-in judgment
+  remain Research gaps when not available deterministically.
+- Populate `pa_value_catalyst_v1` only after retained Areczeks/Elendix method
+  sources and bounded market-wide inputs exist. Attribute each factor to the
+  author source, standard finance, or Workbench operationalization.
+- Compare columns and overlap rather than producing a universal expert rank.
 
-Research snapshots use a fixed schema plus versioned archetype/company profile.
-P1 first adds their model/migration, schema validator, version/hash-frozen job
-contract, save adapter, fixed renderer, and one verified/provisional pilot. P2
-then broadens only from actual pilot needs, not every sector. Raw reports, OCR,
-ESPI/EBI, issuer IR, and forum leads are source-plan items with explicit
-completeness.
+Gate: one frozen fixture contains companies unique to each sieve, overlapping
+two, overlapping all three, and missing factors. API and browser tests prove
+distinct lists, visible overlap, equal source/coverage contracts, and honest
+blocked states. D2 closes the multi-sieve Product acceptance gap.
 
-## P1 completion evidence
+## R1 · User-owned Research memory
 
-- Migration `0024` stores immutable, sequential company profiles and research
-  snapshots with one artifact per claimed run and one exact verifier record.
-- The server derives frozen-input/artifact fingerprints, checks lease ownership,
-  job/skill contract, company-bound source versions, fetch-time cutoff,
-  chronological history, and exact provenance for every displayed statement.
-- Independent verification is persisted before save and owns final status:
-  pass/no gaps is verified, pass/any gap is provisional, fail is rejected, and
-  needs-human remains blocked.
-- ABS AgentRun 21 completed through the real one-shot skill: snapshot/profile/
-  verification IDs `1/1/1`, nine cited source versions, eight named gaps,
-  provisional status, cleared lease, case monitoring. OPM remained queued.
-- 560 backend tests, the frontend production build, PostgreSQL migration/runtime
-  checks, skill validation, and browser interaction all pass. Browser QA opened
-  ABS from Research, rendered all six sections, and exposed the collapsed source,
-  statement-provenance and verifier audit.
+- Let the user confirm or override the proposed archetype, segments, drivers,
+  KPIs, competitors, source questions, and unusual risks.
+- Store every correction as the next immutable `CompanyProfile` version with
+  author/time/reason; never rewrite evidence or an earlier profile/snapshot.
+- An explicit review job freezes and consumes the confirmed profile. Model
+  proposals and human corrections retain distinct provenance.
+- Lead the company page with what changed, current understanding, strongest
+  evidence, main uncertainty, and one next useful action.
 
-## P2 completion evidence
+Gate: a browser flow changes a proposed driver or archetype, queues one
+idempotent review, produces a new verifier-gated snapshot, and shows the prior
+profile and snapshot unchanged in History.
 
-- Discover serves three typed, comparable sieve contracts from the backend.
-  `financial_health_br_v1` owns reproducible Altman `>= 8` and Piotroski
-  `>= 7` rules over stored market version 31: 384 companies, 366 with both
-  inputs, and 45 candidates. OBS and Portal Analiz remain blocked with zero
-  candidates and explicit source/factor gaps.
-- Seven canonical archetype packs are available through the API, MCP and a
-  read-only script. V2 snapshots require one-to-one marker accounting and
-  distinguish sourced facts, assumptions, gaps and missing scope; legacy v1
-  jobs/ABS reads remain explicit and isolated.
-- ABS renders the provisional software/services pack with only 2/5 markers
-  addressed. SNT snapshot/profile/verification `2/2/2` renders the materially
-  different industrial/consumer pack with three sourced markers and four exact
-  marker gaps; all seven pack questions are accounted for without claiming
-  missing evidence.
-- SNT AgentRun 28 froze and independently reproduced company identity, source
-  versions 31 and 39–44, parser/content hashes, failed primary-source attempt,
-  deterministic dossier projection, calculation payload and archetype version.
-  The strict verifier passed all five checks; final status remains honestly
-  `provisional` because nine evidence gaps include a controlled issuer-IR 403.
-- 569 backend tests, frontend production build, skill validation, runtime
-  invariants and browser QA pass. Browser QA confirms the concise three-sieve
-  comparison, Research list state, different ABS/SNT content, v2 audit states,
-  exact manifest and verifier evidence.
+## M1 · Named method catalog and Codex perspectives
 
-## P3 design boundary
+- Introduce the stage-aware method manifest defined in `docs/STRATEGY.md` using
+  the existing versioned skill/template foundations; do not create a parallel
+  company-truth artifact family.
+- Keep Malik/OBS supported only for the stages its evidence and inputs justify.
+  Retain, cite, and independently review one additional Polish-market method
+  corpus before promoting its Research perspective; add later methods one at a
+  time by the same gate.
+- Map every applicable supported method over the same frozen Research evidence
+  as `supports`, `contradicts`, `unknown`, or `not applicable`, with source
+  coverage, blind spots, falsifiers, and next checks.
+- Codex synthesizes agreement and disagreement in Polish. It does not simulate
+  an expert voice, average shared facts into consensus, or reuse legacy
+  conviction/alignment scores as the canonical verdict.
+- A second Valuation method becomes available only after retained sources, a
+  deterministic compatible template, two contrasting pilots, and an
+  independent strict pass.
 
-Codex chooses/explains drivers and probabilities; deterministic services own
-financial and price calculations. Preserve an immutable valuation snapshot and
-separate strict verification. Backtesting remains a calibration gate, not a
-marketing claim.
+Gate: two unlike companies render materially different method perspectives;
+every enabled pack freezes its manifest/source versions; unsupported packs show
+named gaps; the verifier proves attribution, non-impersonation, applicability,
+unknown handling, and no hidden blend.
 
-## P3 completion evidence
+## V1 / P4 · Verified scenario coverage
 
-- Migration `0025` adds immutable, sequential `ValuationSnapshot` artifacts
-  bound to one Research snapshot, claimed run and exact `VerificationRun`.
-  Preview and reads are zero-write; queue inputs freeze the Research/source/
-  fact/company/price identities, method/template/engine versions, typed
-  assumptions, deterministic outputs and both fingerprints.
-- `valuation-engine-v2` rejects conflicting consumed facts, non-consecutive
-  quarters, look-ahead inputs and non-positive/non-finite prices. It treats
-  capex as a positive outlay, does not apply C/Z to non-positive EPS, and keeps
-  own-history reversion separate until a valid point-in-time series exists.
-- Only `malik_obs_v1` is ready. Areczeks and Elendix remain blocked with named
-  source gaps. Industrial/consumer and software/services use distinct driver
-  framing; no hidden blend or legacy scenario/AI path enters the canonical
-  valuation artifact.
-- SNT valuation/verification `1/3` binds Research snapshot 2 and excludes the
-  256.562 mln PLN discontinued-operation gain. Strict probabilities 40/45/15
-  yield a weighted 305.41 PLN versus frozen 384.60 PLN. ABS valuation/
-  verification `2/4` binds Research snapshot 1; probabilities 35/45/20 yield
-  78.11 PLN versus frozen 87.80 PLN. Both remain honestly `provisional` because
-  upstream Research and scalar lineage have named gaps.
-- The first independent code audit rejected mixed source-version facts,
-  invalid price handling, stale Research/UI binding, hidden event weight,
-  concurrent job risk and model-policy drift. The corrected vertical passed a
-  fresh independent approval, 585 backend tests, frontend production build,
-  skill validation, runtime/DB invariants and browser QA of list, SNT/ABS,
-  optional event preview, Polish gaps and Research-to-Valuation navigation.
+Close the real decision path before broadening company collection further.
 
-## P4 design boundary
+- Complete one industrial and one non-industrial company from current primary
+  evidence through latest Research, scalar lineage, explicit human assumptions,
+  deterministic valuation, independent verification, and portfolio consumption.
+- Expand after those pilots by portfolio weight, staleness, and decision need,
+  one bounded company at a time. Never fabricate an assumption to increase
+  coverage.
+- Keep provider reconciliation, method identity, Research binding, and
+  simultaneous-sensitivity labels fail-closed.
 
-Verify myfund's available API/export and terms before expanding ingestion. Sync
-is snapshot/upsert with instrument mapping, not append-only de-duplication.
-Company analysis stays independent of position size; portfolio aggregation
-consumes only verified company scenarios.
+Gate: a real portfolio review consumes at least two eligible verified company
+scenarios and reports non-zero value coverage. Every remaining material holding
+is covered or shows a named evidence, scalar-lineage, or user-input dependency.
 
-## P4 implementation evidence
+## W1 · Daily `Do sprawdzenia` workspace
 
-- Migration `0026` replaces the empty append/skip position ledger with dated
-  portfolios, every sync attempt, correctable instrument mappings, immutable
-  holdings/value points and verifier-gated portfolio review snapshots.
-- Stored reads never fetch. Explicit myfund sync uses the official API key and
-  exact portfolio-name contract, sanitizes failures, reuses identical content
-  and versions changed content without dropping unknown rows.
-- The Portfolio screen makes positions dominant and progressively exposes
-  value/cost/P&L/cash, concentration, provider-labelled history and benchmark,
-  provisional liquidity and verified-only aligned scenario sensitivity.
-- Unreconciled provider totals fail all derived analytics and review closed.
-  Malformed history is labelled partial, liquidity excludes price rows learned
-  after the snapshot, and frozen risk context names stale Research, current-
-  only falsifier timing and sector/archetype co-exposure limitations.
-- `stock-portfolio-review` freezes provider, snapshot, mapping, analytics,
-  method and eligible valuation identities. Terra-high interpretation and a
-  separate Sol-high verifier save one immutable Polish review. Mapping or
-  fingerprint drift fails closed; known transaction-instruction forms are
-  screened deterministically and the verifier owns the broader no-advice gate.
-- Fixture contracts prove zero-write reads, durable failed sync, repeated
-  sync/reversion behavior, mapping correction, point-in-time scenario math and
-  exact review verification/save retry and strict model roles. The production
-  build, 621 backend tests, PostgreSQL migration `0026`, three skill validators
-  and browser interaction pass. The live page remains zero-write until its
-  explicit sync button is used.
-- The exact real portfolio name `Kuba` produced reconciled parser-v2 snapshot 2
-  with complete provider history and exact cash classification. All eight GPW
-  positions map to canonical Company identities: one reused an existing exact
-  identity and seven were explicitly confirmed. The mapping commands created
-  no Research case or job. A repeated live sync reused the same snapshot,
-  retained every mapping and reported zero unmatched positions. Current-
-  position cost/profit reconcile independently from the provider's flow-aware
-  lifetime history.
-- Real portfolio review 1 froze snapshot 2 and passed all nine strict-verifier
-  checks in VerificationRun 5. It remains `provisional`, correctly reports 0%
-  eligible verified scenario coverage, and does not turn missing evidence into
-  advice. Browser QA renders the real snapshot and review and opens mapped
-  holdings through canonical Company tickers rather than provider display
-  labels. No holdings were fabricated and no login/password scraping was added.
-  The provider/parser/repeat-sync/review live gate is closed; P4 itself remains
-  open until verified company Research and scenario coverage make the review's
-  final exit condition true.
-- ASBIS primary-source coverage now includes its official English 2026Q1
-  report: immutable issuer index/report versions `52/53` retain 24 bounded page
-  claims. The production-shaped parser fixture prevents report-labelled site
-  navigation from entering evidence, and the download path preserves the
-  public-host/final-peer integrity gate across ASBIS's empty HTTP redirect.
-- ASB company-review run 36 advanced immutable Research snapshot/profile/
-  verification to `6/5/9`. Primary evidence moved price/mix into sourced scope,
-  so four of seven industrial/consumer markers are now sourced. Six named gaps
-  and an explicit USD/PLN translation conflict correctly keep the result
-  provisional; the strict verifier rejected three overbroad statements before
-  passing the corrected exact draft. Portfolio snapshot 2 remains unchanged.
-- ART, the next-largest uncovered position at 14.37%, now has official issuer
-  landing/report versions `61/62` and initial Research snapshot/profile/
-  verification `7/6/10`. Four of six gaming markers are sourced; sales units,
-  price and four additional evidence gaps keep it provisional. The parser
-  scopes Artifex report content and permits only trusted scoped extractor
-  generations `@4/@5`; the noisy legacy `@3` lineage cannot authorize a PDF.
-  Alpha-test participants remain clearly separated from sales units.
-- DIG, the next uncovered position at 13.53%, now has official issuer
-  index/report versions `70/71` and initial Research snapshot/profile/
-  verification `8/7/11`. Five of seven industrial/consumer markers are
-  sourced: volume, price/mix, gross margin, working capital and capex. Fixed
-  costs, backlog and four further evidence gaps keep it provisional. The
-  source adapter scopes Digital Network's archive to `.files-section` and
-  permits only trusted scoped extractor generations `@4/@5/@6`; the Research
-  result treats the first full Braughman consolidation quarter as a
-  comparability limitation rather than fabricated organic growth. Portfolio
-  snapshot 2 and scenario eligibility remain unchanged.
-- CDR at 10.27% now has official result-center/report/presentation versions
-  `79/80/81` and initial Research snapshot/profile/verification `9/8/12`.
-  Four of six gaming markers are sourced: launch timing, cumulative units,
-  pipeline and runway. Price, concrete platform share and four further gaps
-  keep it provisional. The source adapter scopes the current quarterly result
-  entry to `.presstype-quarter .entry-content` and permits only trusted scoped
-  extractor generations `@4/@5/@6/@7`. A first strict pass rejected product-
-  sales figures labelled as total IP revenue and digital-channel share used as
-  a platform marker; the corrected fresh pass preserves both distinctions.
-  Portfolio snapshot 2 and scenario eligibility remain unchanged.
-- CBF at 10.05% now has official attachment/presentation/statement versions
-  `89/90/91` and initial Research snapshot/profile/verification `10/9/13`.
-  Four of five software/services markers are sourced: recurring revenue,
-  NER-based revenue retention/expansion, wages and cash conversion;
-  utilization and five additional gaps keep it provisional. The issuer adapter
-  scopes `.attachments` and trusts scoped extractor generations `@4` through
-  `@8`. The full management report exceeded the fixed 15 MB safety cap and was
-  not used; the draft keeps NER distinct from logo retention and acquisition
-  cash flow distinct from CFO. Portfolio snapshot 2 remains unchanged.
-- BFT at 10.00% now has official index/report versions `99/100` and initial
-  Research snapshot/profile/verification `11/10/14`. Four of seven industrial
-  markers are sourced: volume, gross margin, working capital and capex.
-  Price/mix, fixed costs, backlog and four further gaps keep it provisional.
-  The adapter scopes `.news-related-files` and trusts scoped extractor
-  generations `@4` through `@9`; Research explicitly separates MAC scope and
-  the IAS 29 monetary gain from organic operating performance. Portfolio
-  snapshot 2 remains unchanged.
-- CRI at 7.25% now has official index/report versions `108/109` and corrected
-  Research snapshot/profile/verification `13/12/16`. Working capital and capex
-  are sourced; volume, price/mix, gross margin, fixed costs, backlog and three
-  further gaps keep it provisional. The adapter scopes
-  `.investors-content__report` and trusts scoped extractor generations `@4`
-  through `@10`. Research separates continuing operations from the spun-off
-  Quantum business, labels CFO as combined, preserves the KIMSF 17 presentation
-  boundary and treats two-customer concentration as customers rather than
-  unsupported contract identities. An independent code audit rejected the
-  initial sourced fixed-cost marker; immutable review v2 moved it to a gap
-  because the report does not split fixed and variable costs. All eight mapped
-  holdings now have strict-verifier-passed Research; portfolio snapshot 2 and
-  verified scenario coverage remain unchanged.
+Add a concise agenda to the Research landing rather than a fifth navigation
+stage or generic dashboard.
 
-## Verification commands
+- From stored state, show material source changes, stale cases, unresolved
+  conflicts, testable falsifiers, important gaps, valuations awaiting user
+  assumptions, and portfolio positions lacking current verified coverage.
+- Give each item one clear next action into the existing Discover, Research,
+  Valuation, or Portfolio flow.
+- Opening the agenda is a zero-write read. Source refresh, quick/deep Codex
+  review, and verification remain separate, explicit, bounded commands.
 
-```text
-./workbench doctor
-cd backend && ./.venv/bin/pytest
-cd frontend && npm run build
-./workbench start
-./workbench status
-```
+Gate: deterministic freshness and delta tests pass; every displayed change has
+a source or explicit unknown; browser QA proves a morning session from agenda
+to one durable outcome without hidden refresh, queue claim, or model call.
 
-Run focused contract tests before the full suites and finish each active stage
-with one browser interaction that proves the stated user outcome.
+## P5 · Calibration and learning
+
+Preserve every investor method separately while adding point-in-time universe
+history, official corporate-action-aware total returns, delistings/failures,
+mixed cases, untouched holdout, and 3/6/12/24-month outcome windows.
+
+Gate: replay is reproducible and no-look-ahead; results are benchmark-relative
+and report direction/range accuracy, falsifier timing, Brier/calibration
+measures, costs, latency, and limitations. Until then, no performance claim or
+calibrated method weighting is allowed.
+
+## External and user-input dependencies
+
+- OBS Discover needs a bounded market-wide factor snapshot.
+- Areczeks and Elendix cannot become supported packs until dated method sources
+  with exact attribution are retained.
+- Verified valuations need current primary evidence, scalar lineage, and the
+  user's explicit scenario assumptions.
+- P5 needs official point-in-time universe and corporate-action-aware return
+  data.
+
+## Default-workspace gate
+
+A real company must be discoverable with an explainable source/freshness trail,
+addable or reactivatable in one action, correctable by the user, interpretable
+through separate source-backed method lenses, valuatable through verified
+scenarios, visible in portfolio exposure, and returnable from the read-only
+daily agenda. Source, time, assumptions, method versions, verifier decisions,
+and prior artifacts remain inspectable at every step.
+
+Every active slice finishes with focused contracts, the relevant full backend
+suite, the frontend production build, runtime health, and one browser interaction
+that proves its user outcome.
