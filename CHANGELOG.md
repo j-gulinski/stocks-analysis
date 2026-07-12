@@ -3,6 +3,20 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-13 · R1 user-owned Research profile versions
+
+- Added an explicit user profile command and Polish company-page editor for
+  archetype, overlay, drivers and KPIs. Every confirmation or correction
+  appends a `CompanyProfile` version with human/Codex provenance, author,
+  reason and lineage; earlier profiles, evidence and snapshots are not
+  rewritten.
+- The Research workspace now distinguishes the profile bound to the canonical
+  snapshot from the current profile and exposes immutable profile history. A
+  pending human profile is visibly separate until an explicit review completes.
+- Review jobs now freeze the selected profile's complete contents and
+  fingerprint. Their idempotency key includes that fingerprint, and the
+  verifier/save gate rejects any review draft that drifts from it.
+
 ## 2026-07-13 · D2 comparable Discover contract
 
 - Replaced the financial-only Discover result list with a union of typed,

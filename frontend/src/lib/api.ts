@@ -42,6 +42,11 @@ import type {
   ResearchCaseCreateResult,
   ResearchReviewQueueResult,
   ResearchCaseSummary,
+  CompanyProfile,
+  ResearchArchetype,
+  CompanyOverlay,
+  ResearchDriver,
+  ResearchKpi,
   ResearchCaseStepHistory,
   ResearchCaseState,
   ResearchCaseStep,
@@ -109,6 +114,21 @@ export const queueResearchReview = (researchCaseId: number) =>
   request<ResearchReviewQueueResult>(`/research-cases/${researchCaseId}/review-runs`, {
     method: "POST",
   });
+
+export const confirmResearchProfile = (
+  researchCaseId: number,
+  payload: {
+    base_profile_id: number;
+    reason: string;
+    archetype: ResearchArchetype;
+    company_overlay: CompanyOverlay;
+    drivers: ResearchDriver[];
+    kpis: ResearchKpi[];
+  },
+) => request<CompanyProfile>(`/research-cases/${researchCaseId}/profiles`, {
+  method: "POST",
+  body: JSON.stringify(payload),
+});
 
 // ---------------------------------------------------------------- companies
 export const getDossier = (ticker: string) =>

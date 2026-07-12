@@ -156,9 +156,12 @@ identical. Do not supply `input_fingerprint`; the server derives it from the
 frozen job, `as_of`, and cited source-version set. Do not choose `status` in
 the draft; final status belongs to the independent verifier gate.
 For `stock-company-review`, bind `history.prior_snapshot_id` to the frozen
-immediately preceding snapshot and name the evidence/profile/thesis changes;
-the queued source manifest is a pre-collection audit boundary, not permission
-to omit the exact post-collection source manifest from the draft.
+immediately preceding snapshot and name the evidence/profile/thesis changes.
+The job's `review.confirmed_company_profile` is the complete user-confirmed
+profile boundary: submit its exact ID/version/content, not a fresh profile
+proposal, and do not absorb any later user correction. Its queued source
+manifest is a pre-collection audit boundary, not permission to omit the exact
+post-collection source manifest from the draft.
 
 First give the exact draft to the independent verifier context. That verifier,
 not the drafting worker, persists its verdict through:

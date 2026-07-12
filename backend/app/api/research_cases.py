@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
+    CompanyProfileCorrectionIn,
     CompanyProfileOut,
     ResearchCaseWorkspaceOut,
     ResearchCaseSummaryOut,
@@ -38,6 +39,11 @@ from app.db.models import (
 )
 from app.scrapers.biznesradar import MarketCandidate, ParseError, parse_market_rating
 from app.services.archetype_packs import coverage_payload
+from app.services.company_profiles import (
+    CompanyProfileError,
+    append_human_profile,
+    frozen_profile,
+)
 from app.services.model_policy import default_model_for_workflow
 from app.services.research_artifacts import (
     ResearchArtifactError,
@@ -449,16 +455,20 @@ def get_research_workspace(
         )
     )
     latest = snapshots[0] if snapshots else None
-    profile = (
+    snapshot_profile = (
         db.get(CompanyProfile, latest.company_profile_id)
         if latest
-        else db.scalar(
+        else None
+    )
+    profiles = list(
+        db.scalars(
             select(CompanyProfile)
             .where(CompanyProfile.research_case_id == research_case.id)
             .order_by(CompanyProfile.version.desc(), CompanyProfile.id.desc())
-            .limit(1)
         )
     )
+    current_profile = profiles[0] if profiles else None
+    profile = snapshot_profile or current_profile
     profile_out = CompanyProfileOut.model_validate(profile) if profile else None
     snapshot_out = ResearchSnapshotOut.model_validate(latest) if latest else None
     return ResearchCaseWorkspaceOut(
@@ -470,6 +480,10 @@ def get_research_workspace(
             _latest_research_run(db, research_case),
         ),
         profile=profile_out,
+        current_profile=(
+            CompanyProfileOut.model_validate(current_profile) if current_profile else None
+        ),
+        profile_history=[CompanyProfileOut.model_validate(item) for item in profiles],
         latest_snapshot=snapshot_out,
         history=[
             ResearchSnapshotHistoryOut(
@@ -488,6 +502,40 @@ def get_research_workspace(
             else None
         ),
     )
+
+
+@router.post("/{case_id}/profiles", response_model=CompanyProfileOut)
+def confirm_company_profile(
+    case_id: int,
+    payload: CompanyProfileCorrectionIn,
+    db: Session = Depends(get_db),
+) -> CompanyProfile:
+    """Append a user-owned profile version; no evidence or snapshot is rewritten."""
+    case = db.scalar(
+        select(ResearchCase).where(ResearchCase.id == case_id).with_for_update()
+    )
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Research case not found."
+        )
+    try:
+        profile = append_human_profile(db, case=case, payload=payload)
+        db.commit()
+    except CompanyProfileError as exc:
+        db.rollback()
+        code = {
+            "conflict": status.HTTP_409_CONFLICT,
+            "not-found": status.HTTP_404_NOT_FOUND,
+        }.get(exc.kind, status.HTTP_422_UNPROCESSABLE_CONTENT)
+        raise HTTPException(status_code=code, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The company profile changed concurrently; reopen it before confirming.",
+        ) from exc
+    db.refresh(profile)
+    return profile
 
 
 @router.post(
@@ -517,8 +565,21 @@ def queue_research_review(
             detail="Complete the initial Research snapshot before queuing a review.",
         )
 
+    profile = db.scalar(
+        select(CompanyProfile)
+        .where(CompanyProfile.research_case_id == case.id)
+        .order_by(CompanyProfile.version.desc(), CompanyProfile.id.desc())
+        .limit(1)
+    )
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The latest Research snapshot has no company profile.",
+        )
+    frozen = frozen_profile(profile)
+
     source_fingerprint, source_manifest = _review_source_state(db, company.id)
-    key = f"research-case-review:{case.id}:{source_fingerprint}"
+    key = f"research-case-review:{case.id}:{source_fingerprint}:{frozen['fingerprint']}"
     existing = db.scalar(select(AgentRun).where(AgentRun.idempotency_key == key))
     if existing is not None:
         existing_review = (
@@ -534,6 +595,15 @@ def queue_research_review(
                 "prior_research_snapshot_id", latest_snapshot.id
             ),
             source_fingerprint=source_fingerprint,
+            profile_id=existing_review.get("confirmed_company_profile", {}).get(
+                "id", profile.id
+            ),
+            profile_version=existing_review.get("confirmed_company_profile", {}).get(
+                "version", profile.version
+            ),
+            profile_fingerprint=existing_review.get("confirmed_company_profile", {}).get(
+                "fingerprint", frozen["fingerprint"]
+            ),
         )
 
     active_peer = db.scalar(
@@ -581,6 +651,7 @@ def queue_research_review(
                 "prior_artifact_fingerprint": latest_snapshot.artifact_fingerprint,
                 "queued_source_fingerprint": source_fingerprint,
                 "queued_source_manifest": source_manifest,
+                "confirmed_company_profile": frozen,
             },
         },
         outputs={},
@@ -620,6 +691,9 @@ def queue_research_review(
         created=created,
         prior_snapshot_id=latest_snapshot.id,
         source_fingerprint=source_fingerprint,
+        profile_id=profile.id,
+        profile_version=profile.version,
+        profile_fingerprint=frozen["fingerprint"],
     )
 
 

@@ -188,11 +188,26 @@ class CompanyProfileIn(StrictResearchModel):
     kpis: list[ResearchKpi] = Field(min_length=1)
 
 
+class CompanyProfileCorrectionIn(StrictResearchModel):
+    """Human-owned successor to the current immutable company profile."""
+
+    base_profile_id: int = Field(gt=0)
+    reason: str = Field(min_length=3, max_length=1000)
+    archetype: ResearchArchetype
+    company_overlay: CompanyOverlay
+    drivers: list[ResearchDriver] = Field(min_length=1)
+    kpis: list[ResearchKpi] = Field(min_length=1)
+
+
 class CompanyProfileOut(CompanyProfileIn):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     research_case_id: int
+    provenance: Literal["codex-proposed", "human-confirmed", "human-corrected"]
+    author: str
+    reason: str | None
+    based_on_profile_id: int | None
     created_at: datetime
 
 
@@ -406,7 +421,12 @@ class ArchetypePackOut(BaseModel):
 
 class ResearchCaseWorkspaceOut(BaseModel):
     research_case: ResearchCaseSummaryOut
+    # Profile bound to latest_snapshot (or the only profile before first save).
     profile: CompanyProfileOut | None
+    # Latest human/model understanding; it can intentionally be newer than the
+    # profile bound to latest_snapshot while an explicit review is pending.
+    current_profile: CompanyProfileOut | None
+    profile_history: list[CompanyProfileOut]
     latest_snapshot: ResearchSnapshotOut | None
     history: list[ResearchSnapshotHistoryOut]
     archetype_pack: ArchetypePackOut | None = None
@@ -1650,6 +1670,9 @@ class ResearchReviewQueueOut(BaseModel):
     created: bool
     prior_snapshot_id: int
     source_fingerprint: str
+    profile_id: int
+    profile_version: int
+    profile_fingerprint: str
 
 
 class MonitorChangeOut(BaseModel):

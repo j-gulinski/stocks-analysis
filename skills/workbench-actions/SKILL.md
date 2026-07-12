@@ -18,8 +18,9 @@ state, queues work, claims a lease, or calls a model.
 | Inspect Discover | `GET /api/discovery` | Three server-owned status/coverage views plus the sourced financial-health candidate list |
 | Add a company | `POST /api/research-cases` with a ticker or frozen Discover version | One company, one active case, at most one initial-research job |
 | Run queued research | Invoke `$workbench-run-queue` | Exactly one claimed and completed job |
-| Open company research | `GET /api/research-cases/by-ticker/{ticker}` | Read-only profile, latest immutable snapshot and history |
-| Refresh existing Research | `POST /api/research-cases/{id}/review-runs` | One content-idempotent company-review job bound to the prior snapshot and queued source state |
+| Open company research | `GET /api/research-cases/by-ticker/{ticker}` | Read-only snapshot-bound profile, current profile and immutable histories |
+| Confirm or correct Research profile | `POST /api/research-cases/{id}/profiles` | Next immutable human-confirmed/corrected profile with required reason; no snapshot or job side effect |
+| Refresh existing Research | `POST /api/research-cases/{id}/review-runs` | One content-idempotent company-review job bound to the prior snapshot, queued source state and exact confirmed profile |
 | Verify claimed research | `verify_research_snapshot` or its JSON-in script | Independent verdict bound to the exact draft; job remains running |
 | Save claimed research | `save_research_snapshot` or its JSON-in script | One verifier-gated immutable snapshot; terminal job and cleared lease |
 | Open valuation | `GET /api/research-cases/{id}/valuation-workspace` | Read-only method/template state and immutable valuation history |
@@ -54,9 +55,13 @@ state, queues work, claims a lease, or calls a model.
   perspective remain planned. Areczeks and Elendix stay draft until retained
   sources and stage-specific inputs satisfy the Strategy contract. Never
   simulate their company conclusions or blend methods implicitly.
-- The current company overlay is model-proposed and read-only. User-confirmed
-  profile versioning and the Research `Do sprawdzenia` agenda are Roadmap work,
-  not current actions.
+- A company profile may be confirmed or corrected only with an explicit reason.
+  The page keeps the old snapshot-bound profile visible until a separately
+  requested review saves the next verifier-gated snapshot. Every review freezes
+  the complete selected profile plus its fingerprint; do not claim a later
+  correction is included in an already queued review.
+- The Research `Do sprawdzenia` agenda remains Roadmap work, not a current
+  action.
 
 Research lists `ResearchCase` rows, not watchlist membership. Removing a
 watchlist item never deletes the company, evidence, case, analysis, or history.
@@ -91,12 +96,14 @@ watchlist item never deletes the company, evidence, case, analysis, or history.
    Company-level research rows never substitute for a market-wide sieve.
 5. The browser may enqueue one durable job after an add, but it never executes
    or claims it. Do not add portfolio positions or make a trade decision.
-6. An existing case with a snapshot may explicitly queue `stock-company-review`.
-   The command freezes the prior snapshot/artifact and current latest source
-   identities, reuses an identical job, and rejects a competing active Research
-   collection. Reads never queue it. The prior snapshot remains canonical until
-   the claimed worker collects evidence, obtains a separate strict verdict and
-   saves the next sequential snapshot.
+6. An existing case with a snapshot may explicitly append a confirmed/corrected
+   profile version, then queue `stock-company-review`. The profile command never
+   queues work. The review command freezes the prior snapshot/artifact, current
+   latest source identities and complete current profile/fingerprint, reuses an
+   identical job, and rejects a competing active Research collection. Reads
+   never queue it. The prior snapshot remains canonical until the claimed
+   worker collects evidence, obtains a separate strict verdict and saves the
+   next sequential snapshot.
 7. Bounded issuer-IR collection includes ASBIS, Artifex Mundi, Digital Network,
    CD PROJEKT, cyber_Folks, Benefit Systems and Creotech official report pages.
    Report links are extracted only from

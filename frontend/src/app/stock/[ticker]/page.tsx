@@ -48,6 +48,7 @@ import DecisionJournalPanel from "@/components/DecisionJournalPanel";
 import FalsifiersPanel from "@/components/FalsifiersPanel";
 import EvidenceSourcesPanel from "@/components/EvidenceSourcesPanel";
 import ResearchSnapshotView from "@/components/ResearchSnapshotView";
+import ResearchProfileEditor from "@/components/ResearchProfileEditor";
 import type { AgentRun, AnalysisRun, ResearchCase, ResearchCaseStepHistory } from "@/lib/types";
 
 const TABS = [
@@ -222,7 +223,7 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
       const result = await queueResearchReview(researchWorkspace.research_case.id);
       setResearchReviewMessage(
         result.created
-          ? "Odświeżenie Research zostało zaplanowane. Snapshot pozostaje widoczny do czasu weryfikacji nowej wersji."
+          ? `Odświeżenie Research użyje potwierdzonego profilu v${result.profile_version}. Snapshot pozostaje widoczny do czasu weryfikacji nowej wersji.`
           : result.status === "queued" || result.status === "running"
             ? "Odświeżenie Research już oczekuje lub jest w toku."
             : "Ten sam stan źródeł został już przeanalizowany.",
@@ -269,6 +270,31 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
             archetypePack={researchWorkspace.archetype_pack}
           />
         </details>
+        {researchWorkspace.current_profile && (
+          <ResearchProfileEditor
+            researchCaseId={researchWorkspace.research_case.id}
+            profile={researchWorkspace.current_profile}
+            profileHistory={researchWorkspace.profile_history}
+            onSaved={reloadResearchWorkspace}
+          />
+        )}
+        {researchWorkspace.current_profile && researchWorkspace.current_profile.id !== researchWorkspace.profile.id && (
+          <section className="research-profile-pending" role="status">
+            <IconAlertTriangle size={16} />
+            <div><strong>Profil v{researchWorkspace.current_profile.version} czeka na jawny review.</strong><span>Odrzucony snapshot zachowuje profil v{researchWorkspace.profile.version}; zleć odświeżenie, aby nowy profil został zamrożony i zweryfikowany.</span></div>
+          </section>
+        )}
+        <section className="research-to-valuation">
+          <div><span className="snapshot-label">Następny krok</span><strong>Skoryguj profil lub uzupełnij dowody, potem jawnie zleć ponowny Research</strong></div>
+          <div className="command-row">
+            <button className="btn" type="button" onClick={() => void handleQueueResearchReview()} disabled={queueingResearchReview || ["queued", "running"].includes(researchWorkspace.research_case.latest_research_run_status ?? "")}>
+              <IconRefresh size={14} className={queueingResearchReview ? "spin" : ""} />
+              {queueingResearchReview ? "Zlecam…" : "Odśwież Research"}
+            </button>
+          </div>
+        </section>
+        {researchReviewMessage && <div className="success-box" role="status">{researchReviewMessage}</div>}
+        {researchReviewError && <div className="error-box" role="alert">{researchReviewError}</div>}
       </main>
     );
   }
@@ -284,6 +310,20 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
           history={researchWorkspace.history}
           archetypePack={researchWorkspace.archetype_pack}
         />
+        {researchWorkspace.current_profile && (
+          <ResearchProfileEditor
+            researchCaseId={researchWorkspace.research_case.id}
+            profile={researchWorkspace.current_profile}
+            profileHistory={researchWorkspace.profile_history}
+            onSaved={reloadResearchWorkspace}
+          />
+        )}
+        {researchWorkspace.current_profile && researchWorkspace.current_profile.id !== researchWorkspace.profile.id && (
+          <section className="research-profile-pending" role="status">
+            <IconAlertTriangle size={16} />
+            <div><strong>Profil v{researchWorkspace.current_profile.version} czeka na jawny review.</strong><span>Widoczny snapshot zachowuje profil v{researchWorkspace.profile.version}; zleć odświeżenie, aby nowy profil został zamrożony i zweryfikowany.</span></div>
+          </section>
+        )}
         <section className="research-to-valuation">
           <div><span className="snapshot-label">Następny krok</span><strong>Uzupełnij dowody albo przetestuj jawne scenariusze</strong></div>
           <div className="command-row">

@@ -29,8 +29,10 @@ boundary.
   candidate data; their union/overlap contract is now rendered honestly, but
   live multi-sieve coverage remains blocked on source facts.
 - All eight mapped holdings have strict-verifier-passed Research, but ordinary
-  evidence gaps keep every current artifact provisional. The proposed company
-  overlay is visible but not yet user-confirmable or correctable.
+  evidence gaps keep every current artifact provisional. Company profiles can
+  now be confirmed or corrected into immutable human-owned versions; an
+  explicit review must still consume the selected version before it changes a
+  canonical snapshot.
 - The valuation and portfolio engines are implemented. No holding yet has an
   eligible verified valuation bound to its latest Research snapshot, so real
   portfolio scenario coverage remains 0%.
@@ -40,9 +42,9 @@ boundary.
   source evidence is retained and attributed. No expert method has
   point-in-time performance calibration.
 
-The next eligible engineering slice is **D1 · Discover integrity and context**.
-**V1 · Verified scenario coverage** remains active in parallel where current
-evidence, scalar lineage, and explicit user assumptions are available.
+The active engineering slice is **R1 · user-owned Research memory**. **V1 ·
+Verified scenario coverage** remains active in parallel where current evidence,
+scalar lineage, and explicit user assumptions are available.
 
 ## Active outcomes
 
@@ -50,7 +52,7 @@ evidence, scalar lineage, and explicit user assumptions are available.
 |---|---|---|---|
 | D1 | trustworthy Discover integrity and context | complete-universe and freshness gates, decision context, correct add/reactivate behavior | in progress · integrity/freshness/provenance implemented; final user-flow gate remains |
 | D2 | comparable sourced sieves and overlap | three per-sieve candidate views share one contract and controlled overlap renders correctly | in progress · union contract/renderer ready; OBS/PA market-wide facts blocked |
-| R1 | user-owned Research memory | confirmed/corrected profile produces a new version and review without rewriting history | after D1 |
+| R1 | user-owned Research memory | confirmed/corrected profile produces a new version and review without rewriting history | in progress · immutable human profile/review-freeze contract and editor ready; real browser mutation and verifier-save gate await a user-confirmed company change |
 | M1 | named method catalog and Codex perspectives | supported packs render separately over one evidence snapshot; synthesis preserves disagreement | after R1 and retained method sources |
 | V1 / P4 | verified valuation and portfolio scenario coverage | real portfolio review consumes at least two eligible verified scenarios | in progress · evidence/user-input dependent |
 | W1 | daily `Do sprawdzenia` workspace | stored read-only agenda leads to explicit bounded actions across the four stages | after D1, R1, and first V1 coverage |

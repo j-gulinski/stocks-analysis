@@ -32,6 +32,7 @@ from app.services.archetype_packs import (
     get_pack,
     known_marker_ids,
 )
+from app.services.company_profiles import profile_fingerprint, profile_values
 
 ALLOWED_WORKFLOWS = {
     "stock-initial-research",
@@ -129,6 +130,48 @@ def _assert_profile_matches(profile: CompanyProfile, values: dict) -> None:
                 "That company-profile version already exists with different content.",
                 kind="conflict",
             )
+
+
+def _validate_frozen_review_profile(
+    db: Session,
+    case: ResearchCase,
+    review: dict,
+    payload: ResearchSnapshotDraftIn,
+) -> None:
+    frozen = review.get("confirmed_company_profile")
+    if not isinstance(frozen, dict):
+        raise ResearchArtifactError(
+            "Company review requires one frozen confirmed company profile.",
+            kind="conflict",
+        )
+    profile_id = frozen.get("id")
+    profile = db.get(CompanyProfile, profile_id) if isinstance(profile_id, int) else None
+    if profile is None or profile.research_case_id != case.id:
+        raise ResearchArtifactError(
+            "Company review frozen profile is missing or belongs to another case.",
+            kind="conflict",
+        )
+    expected_frozen = {
+        "id": profile.id,
+        "version": profile.version,
+        "fingerprint": profile_fingerprint(profile),
+        **profile_values(profile),
+        "provenance": profile.provenance,
+        "author": profile.author,
+        "reason": profile.reason,
+        "based_on_profile_id": profile.based_on_profile_id,
+    }
+    if frozen != expected_frozen:
+        raise ResearchArtifactError(
+            "Company review frozen profile fingerprint drifted.", kind="conflict"
+        )
+    actual = {"version": payload.profile.version, **_profile_values(payload)}
+    expected = {"version": profile.version, **profile_values(profile)}
+    if actual != expected:
+        raise ResearchArtifactError(
+            "Company review draft profile does not match its frozen confirmed profile.",
+            kind="conflict",
+        )
 
 
 def _material_statements(payload: ResearchSnapshotDraftIn) -> dict[str, str]:
@@ -291,6 +334,7 @@ def _validate_run(
                 "Company review history does not bind its frozen prior snapshot.",
                 kind="conflict",
             )
+        _validate_frozen_review_profile(db, case, review, payload)
         latest_id = db.scalar(
             select(ResearchSnapshot.id)
             .where(ResearchSnapshot.research_case_id == case.id)
@@ -675,6 +719,10 @@ def save_research_snapshot(
             research_case_id=case.id,
             version=payload.profile.version,
             **values,
+            provenance="codex-proposed",
+            author=f"{agent.workflow}:{agent.id}",
+            reason=None,
+            based_on_profile_id=None,
         )
         db.add(profile)
         db.flush()

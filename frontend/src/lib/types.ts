@@ -217,6 +217,10 @@ export interface CompanyProfile {
   company_overlay: CompanyOverlay;
   drivers: ResearchDriver[];
   kpis: ResearchKpi[];
+  provenance: "codex-proposed" | "human-confirmed" | "human-corrected";
+  author: string;
+  reason: string | null;
+  based_on_profile_id: number | null;
   created_at: string;
 }
 
@@ -352,6 +356,8 @@ export interface ResearchSnapshotHistory {
 export interface ResearchWorkspace {
   research_case: ResearchCaseSummary;
   profile: CompanyProfile | null;
+  current_profile: CompanyProfile | null;
+  profile_history: CompanyProfile[];
   latest_snapshot: ResearchSnapshot | null;
   history: ResearchSnapshotHistory[];
   archetype_pack: ResearchArchetypePack | null;
@@ -395,6 +401,9 @@ export interface ResearchReviewQueueResult {
   created: boolean;
   prior_snapshot_id: number;
   source_fingerprint: string;
+  profile_id: number;
+  profile_version: number;
+  profile_fingerprint: string;
 }
 
 export interface ResearchCaseStepHistory {

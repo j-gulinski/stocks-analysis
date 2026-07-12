@@ -424,6 +424,165 @@ def test_existing_case_queues_idempotent_review_and_saves_next_snapshot(client, 
     assert completed_repeat["prior_snapshot_id"] == first["id"]
 
 
+def test_human_profile_successor_is_immutable_and_frozen_into_same_source_review(client, db):
+    """A user correction must not rewrite v1 or reuse its completed review."""
+    from app.db.models import CompanyProfile, ResearchSnapshot, utcnow
+    from app.services.agent_queue import claim_agent_run
+
+    case_id, initial_run, company = _claimed_case(client, db)
+    version = _document(db, company)
+    first_payload = _approve(client, case_id, _payload(initial_run.id, version.id))
+    first = client.post(
+        f"/api/research-cases/{case_id}/snapshots", json=first_payload
+    ).json()
+    original = db.get(CompanyProfile, first["company_profile_id"])
+    assert original is not None
+    original_driver = original.drivers[0]["mechanism"]
+
+    workspace_before = client.get("/api/research-cases/by-ticker/SNT").json()
+    profile = workspace_before["profile"]
+    correction = client.post(
+        f"/api/research-cases/{case_id}/profiles",
+        json={
+            "base_profile_id": profile["id"],
+            "reason": "Potwierdzono z emitentem rolę wolumenu w wyniku.",
+            "archetype": profile["archetype"],
+            "company_overlay": profile["company_overlay"],
+            "drivers": [
+                {
+                    **item,
+                    "mechanism": "Wolumen kontraktów bezpośrednio zmienia przychody.",
+                }
+                if item["key"] == "volume"
+                else item
+                for item in profile["drivers"]
+            ],
+            "kpis": profile["kpis"],
+        },
+    )
+    assert correction.status_code == 200, correction.text
+    corrected = correction.json()
+    assert corrected["version"] == 2
+    assert corrected["provenance"] == "human-corrected"
+    assert corrected["author"] == "user"
+    assert corrected["reason"] == "Potwierdzono z emitentem rolę wolumenu w wyniku."
+    assert corrected["based_on_profile_id"] == original.id
+    db.refresh(original)
+    assert original.version == 1
+    assert original.drivers[0]["mechanism"] == original_driver
+
+    workspace_after_correction = client.get("/api/research-cases/by-ticker/SNT").json()
+    assert workspace_after_correction["profile"]["id"] == original.id
+    assert workspace_after_correction["current_profile"]["id"] == corrected["id"]
+    assert [item["version"] for item in workspace_after_correction["profile_history"]] == [2, 1]
+    assert workspace_after_correction["history"][0]["profile_version"] == 1
+
+    queued = client.post(f"/api/research-cases/{case_id}/review-runs")
+    assert queued.status_code == 201, queued.text
+    queue_body = queued.json()
+    assert queue_body["created"] is True
+    assert queue_body["profile_id"] == corrected["id"]
+    assert queue_body["profile_version"] == 2
+    assert len(queue_body["profile_fingerprint"]) == 64
+    review = claim_agent_run(
+        db, agent_run_id=queue_body["agent_run_id"], worker_id="review-worker"
+    )
+    frozen = review.inputs["review"]["confirmed_company_profile"]
+    assert frozen["id"] == corrected["id"]
+    assert frozen["fingerprint"] == queue_body["profile_fingerprint"]
+    assert frozen["drivers"][0]["mechanism"] == corrected["drivers"][0]["mechanism"]
+    repeated = client.post(f"/api/research-cases/{case_id}/review-runs")
+    assert repeated.status_code == 201
+    assert repeated.json() == {
+        **queue_body,
+        "created": False,
+        "status": "running",
+    }
+
+    second_payload = _payload(review.id, version.id, lease_owner="review-worker")
+    second_payload["version"] = 2
+    second_payload["as_of"] = utcnow().isoformat()
+    second_payload["profile"] = {
+        key: corrected[key]
+        for key in (
+            "schema_version",
+            "version",
+            "archetype",
+            "archetype_version",
+            "company_overlay",
+            "drivers",
+            "kpis",
+        )
+    }
+    second_payload["sections"]["history"] = {
+        "changes_since_previous": ["Użytkownik potwierdził mechanizm wolumenu."],
+        "prior_snapshot_id": first["id"],
+        "claims": [],
+    }
+    second_payload["statement_provenance"].append({
+        "path": "/sections/history/changes_since_previous/0",
+        "claim": {
+            "text": "Użytkownik potwierdził mechanizm wolumenu.",
+            "kind": "fact",
+            "source_document_version_ids": [version.id],
+        },
+    })
+    drifted = deepcopy(second_payload)
+    drifted["profile"]["drivers"][0]["mechanism"] = "Inny mechanizm bez potwierdzenia użytkownika."
+    rejected = client.post(
+        f"/api/research-cases/{case_id}/snapshot-verifications",
+        json={
+            "verifier_worker_id": "review-judge",
+            "draft": drifted,
+            "verifier_result": _verifier_result(),
+        },
+    )
+    assert rejected.status_code == 409
+
+    approved = _approve(
+        client, case_id, second_payload, verifier_worker_id="review-judge"
+    )
+    saved = client.post(f"/api/research-cases/{case_id}/snapshots", json=approved)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["company_profile_id"] == corrected["id"]
+    assert db.scalar(select(func.count()).select_from(CompanyProfile)) == 2
+    old_snapshot = db.get(ResearchSnapshot, first["id"])
+    assert old_snapshot is not None and old_snapshot.company_profile_id == original.id
+
+
+def test_human_profile_rejects_unknown_or_foreign_document_versions(client, db):
+    from app.db.models import Company, CompanyProfile
+
+    case_id, run, company = _claimed_case(client, db)
+    version = _document(db, company)
+    first_payload = _approve(client, case_id, _payload(run.id, version.id))
+    saved = client.post(
+        f"/api/research-cases/{case_id}/snapshots", json=first_payload
+    )
+    assert saved.status_code == 200
+    profile = client.get("/api/research-cases/by-ticker/SNT").json()["profile"]
+    correction = {
+        "base_profile_id": profile["id"],
+        "reason": "Sprawdzam ochronę źródeł w pamięci Research.",
+        "archetype": profile["archetype"],
+        "company_overlay": profile["company_overlay"],
+        "drivers": deepcopy(profile["drivers"]),
+        "kpis": deepcopy(profile["kpis"]),
+    }
+    correction["drivers"][0]["source_document_version_ids"] = [999999]
+    unknown = client.post(f"/api/research-cases/{case_id}/profiles", json=correction)
+    assert unknown.status_code == 404
+
+    foreign_company = Company(ticker="DEC", name="DECORA")
+    db.add(foreign_company)
+    db.commit()
+    foreign_version = _document(db, foreign_company)
+    correction["drivers"][0]["source_document_version_ids"] = [foreign_version.id]
+    foreign = client.post(f"/api/research-cases/{case_id}/profiles", json=correction)
+    assert foreign.status_code == 409
+    assert db.scalar(select(func.count()).select_from(CompanyProfile)) == 1
+
+
 def test_source_identity_agent_case_and_version_gates(client, db):
     from app.db.models import AgentRun, Company
     from app.services.agent_queue import claim_agent_run

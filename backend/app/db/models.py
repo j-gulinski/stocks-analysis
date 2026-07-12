@@ -124,6 +124,12 @@ class CompanyProfile(Base):
     company_overlay: Mapped[dict] = mapped_column(JSONVariant)
     drivers: Mapped[list] = mapped_column(JSONVariant)
     kpis: Mapped[list] = mapped_column(JSONVariant)
+    provenance: Mapped[str] = mapped_column(String(40), default="codex-proposed")
+    author: Mapped[str] = mapped_column(String(120), default="company-research")
+    reason: Mapped[str | None] = mapped_column(String(1000))
+    based_on_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("company_profiles.id", ondelete="RESTRICT"), index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )
