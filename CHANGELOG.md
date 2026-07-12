@@ -3,6 +3,17 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-13 · M1 source-frozen Research method catalog
+
+- Added a stage-aware, read-only method catalog to every canonical Research
+  workspace. Malik/OBS exposes its retained source paths, SHA-256 hashes,
+  exact locators, readiness, questions and blind spots without producing a
+  company conclusion. The transcript's unknown original publication date stays
+  explicit; local document metadata is not repurposed as source time.
+- Areczeks and Elendix are rendered only as named draft packs with their source
+  and implementation gaps. The catalog cannot queue work, invoke a model, make
+  a recommendation, or create a hidden method blend.
+
 ## 2026-07-13 · R1 user-owned Research profile versions
 
 - Added an explicit user profile command and Polish company-page editor for

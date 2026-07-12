@@ -1,0 +1,191 @@
+"""Source-frozen, stage-aware catalog of Research method lenses.
+
+The catalog describes what a lens may ask of one immutable Research snapshot.
+It does not produce a company conclusion, queue work, or replace a verifier.
+"""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+
+
+@dataclass(frozen=True)
+class MethodStageReadiness:
+    status: str
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
+class MethodSource:
+    id: str
+    label: str
+    repo_path: str | None
+    sha256: str | None
+    author_identity: str | None
+    source_url: str | None
+    locator: str | None
+    publication_at: str | None
+    known_at: str | None
+    date_note: str | None
+    retention_status: str
+
+
+@dataclass(frozen=True)
+class ResearchMethodCatalogEntry:
+    id: str
+    version: str
+    label: str
+    disclaimer: str
+    stages: dict[str, MethodStageReadiness]
+    evaluation_maturity: str
+    skill: str | None
+    research_output_schema_version: str | None
+    valuation_output_schema_version: str | None
+    calculation_engine_version: str | None
+    required_verifier_role: str | None
+    source_manifest: tuple[MethodSource, ...]
+    required_questions: tuple[str, ...]
+    blind_spots: tuple[str, ...]
+    gaps: tuple[str, ...]
+
+    def to_dict(self) -> dict:
+        value = asdict(self)
+        for key in ("source_manifest", "required_questions", "blind_spots", "gaps"):
+            value[key] = list(value[key])
+        return value
+
+
+_MALIK_SOURCES = (
+    MethodSource(
+        id="obs-portfolio-thread-2021-selection",
+        label="OBS · portfel IKE i kryterium perspektyw",
+        repo_path="docs/source-materials/obs.txt",
+        sha256="7445d7c59f6e0a020c61fc3a0d2bc48fc890ae76043ee18a5d9c732560e99771",
+        author_identity="Paweł Malik (OBS)",
+        source_url="https://portalanaliz.pl/forum/viewtopic.php?f=7&t=569",
+        locator="OBS — 2021-02-02T14:56:44+00:00",
+        publication_at="2021-02-02T14:56:44+00:00",
+        known_at=None,
+        date_note=None,
+        retention_status="retained",
+    ),
+    MethodSource(
+        id="obs-portfolio-thread-2024-improvement",
+        label="OBS · poprawa wyników, katalizator i ryzyko płynności",
+        repo_path="docs/source-materials/obs.txt",
+        sha256="7445d7c59f6e0a020c61fc3a0d2bc48fc890ae76043ee18a5d9c732560e99771",
+        author_identity="Paweł Malik (OBS)",
+        source_url="https://portalanaliz.pl/forum/viewtopic.php?f=7&t=569",
+        locator="OBS — 2024-08-15T15:37:00+00:00",
+        publication_at="2024-08-15T15:37:00+00:00",
+        known_at=None,
+        date_note=None,
+        retention_status="retained",
+    ),
+    MethodSource(
+        id="malik-biznesradar-excel-transcript",
+        label="Transkrypcja: BiznesRadar → Excel → prognoza kwartału",
+        repo_path="docs/source-materials/transkrypcja_biznesradar_excel.docx",
+        sha256="df1ea20f2f4f804e8e7fb04fd08a3bb2da0a6d4183420768dddb4c8e38a4527a",
+        author_identity="Paweł Malik (mówca); transkrybent niepodany",
+        source_url=None,
+        locator="00:00–11:07; część „Budowanie szybkiej prognozy na kolejny kwartał”",
+        publication_at=None,
+        known_at=None,
+        date_note="Oryginalna data publikacji nie została zachowana; metadane lokalnego DOCX nie są datą źródła.",
+        retention_status="retained",
+    ),
+)
+
+
+CATALOG = (
+    ResearchMethodCatalogEntry(
+        id="malik_obs_v1",
+        version="malik-obs-method-v1",
+        label="Paweł Malik / OBS",
+        disclaimer=(
+            "To wersjonowana perspektywa Workbench z materiałów źródłowych, nie bieżąca "
+            "opinia, rekomendacja ani głos autora."
+        ),
+        stages={
+            "discover": MethodStageReadiness(
+                "planned",
+                "Brak zachowanego, rynkowego snapshotu wszystkich wymaganych czynników.",
+            ),
+            "research": MethodStageReadiness(
+                "planned",
+                "Źródła są zachowane, ale osobna perspektywa spółki związana ze snapshotem i verifierem nie istnieje jeszcze.",
+            ),
+            "valuation": MethodStageReadiness("supported"),
+        },
+        evaluation_maturity="untested",
+        skill="strategy-malik-obs",
+        research_output_schema_version=None,
+        valuation_output_schema_version="valuation-snapshot-v1",
+        calculation_engine_version="valuation-engine-v2",
+        required_verifier_role="verifier_strict",
+        source_manifest=_MALIK_SOURCES,
+        required_questions=(
+            "Jaki obserwowalny mechanizm może zmienić wynik w następnym kwartale lub roku?",
+            "Czy przychody, marża brutto i koszty stałe tworzą spójny most wyniku?",
+            "Która część wyniku jest trwała, a która jednorazowa lub zależna od warunków zewnętrznych?",
+            "Jaki katalizator, horyzont i falsyfikator można sprawdzić w kolejnych źródłach?",
+            "Czy gotówka, kapitał obrotowy, capex i zadłużenie zostawiają margines bezpieczeństwa?",
+        ),
+        blind_spots=(
+            "Nie zastępuje źródłowego backlogu, cen, marż projektowych ani oceny zarządu.",
+            "Nie daje uniwersalnego rankingu ani wyniku inwestycyjnego.",
+            "Własna historia mnożnika jest tylko wrażliwością, dopóki brak porównywalnego szeregu point-in-time.",
+        ),
+        gaps=(
+            "Katalog nie jest jeszcze osobnym, verifier-gated zapisem perspektywy dla tej spółki.",
+            "Ocena „czy rynek już wycenił zmianę” pozostaje pytaniem Research, nie faktem z katalogu.",
+        ),
+    ),
+    ResearchMethodCatalogEntry(
+        id="areczeks_v1",
+        version="areczeks-method-draft-v1",
+        label="Areczeks",
+        disclaimer="Metoda pozostaje szkicem; Workbench nie symuluje głosu ani wniosków autora.",
+        stages={
+            "discover": MethodStageReadiness("draft", "Brak zachowanych, datowanych materiałów źródłowych i danych rynkowych."),
+            "research": MethodStageReadiness("draft", "Brak zachowanych, datowanych materiałów źródłowych."),
+            "valuation": MethodStageReadiness("draft", "Brak zweryfikowanych reguł wyceny i kompatybilnego szablonu."),
+        },
+        evaluation_maturity="untested",
+        skill=None,
+        research_output_schema_version=None,
+        valuation_output_schema_version=None,
+        calculation_engine_version=None,
+        required_verifier_role=None,
+        source_manifest=(),
+        required_questions=(),
+        blind_spots=(),
+        gaps=("Nie aktywować bez zachowanych źródeł z dokładną atrybucją.",),
+    ),
+    ResearchMethodCatalogEntry(
+        id="elendix_v1",
+        version="elendix-method-draft-v1",
+        label="Elendix",
+        disclaimer="Metoda pozostaje szkicem; Workbench nie symuluje głosu ani wniosków autora.",
+        stages={
+            "discover": MethodStageReadiness("draft", "Brak zachowanych, datowanych materiałów źródłowych i danych rynkowych."),
+            "research": MethodStageReadiness("draft", "Brak pełnego, zachowanego materiału źródłowego."),
+            "valuation": MethodStageReadiness("draft", "Brak zweryfikowanych reguł wyceny i kompatybilnego szablonu."),
+        },
+        evaluation_maturity="untested",
+        skill=None,
+        research_output_schema_version=None,
+        valuation_output_schema_version=None,
+        calculation_engine_version=None,
+        required_verifier_role=None,
+        source_manifest=(),
+        required_questions=(),
+        blind_spots=(),
+        gaps=("Nie aktywować bez zachowanych źródeł z dokładną atrybucją.",),
+    ),
+)
+
+
+def list_research_method_catalog() -> list[dict]:
+    return [entry.to_dict() for entry in CATALOG]

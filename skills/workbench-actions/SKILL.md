@@ -18,7 +18,7 @@ state, queues work, claims a lease, or calls a model.
 | Inspect Discover | `GET /api/discovery` | Three server-owned status/coverage views plus the sourced financial-health candidate list |
 | Add a company | `POST /api/research-cases` with a ticker or frozen Discover version | One company, one active case, at most one initial-research job |
 | Run queued research | Invoke `$workbench-run-queue` | Exactly one claimed and completed job |
-| Open company research | `GET /api/research-cases/by-ticker/{ticker}` | Read-only snapshot-bound profile, current profile and immutable histories |
+| Open company research | `GET /api/research-cases/by-ticker/{ticker}` | Read-only snapshot-bound profile, current profile, immutable histories and source-frozen method catalog |
 | Confirm or correct Research profile | `POST /api/research-cases/{id}/profiles` | Next immutable human-confirmed/corrected profile with required reason; no snapshot or job side effect |
 | Refresh existing Research | `POST /api/research-cases/{id}/review-runs` | One content-idempotent company-review job bound to the prior snapshot, queued source state and exact confirmed profile |
 | Verify claimed research | `verify_research_snapshot` or its JSON-in script | Independent verdict bound to the exact draft; job remains running |
@@ -51,10 +51,12 @@ state, queues work, claims a lease, or calls a model.
   stay explicit unknowns until sourced; opening Discover still performs no
   fetch, write, queue, or model call.
 - Malik/OBS has a source-grounded Codex lens and the only ready Valuation pack;
-  its market-wide Discover sieve and canonical persisted/rendered Research
-  perspective remain planned. Areczeks and Elendix stay draft until retained
-  sources and stage-specific inputs satisfy the Strategy contract. Never
-  simulate their company conclusions or blend methods implicitly.
+  its market-wide Discover sieve remains planned. Research now renders its
+  source-frozen catalog only: it names stage readiness, exact retained sources,
+  questions and blind spots, but does not create a company conclusion. Areczeks
+  and Elendix stay draft until retained sources and stage-specific inputs satisfy
+  the Strategy contract. Never simulate their company conclusions or blend
+  methods implicitly.
 - A company profile may be confirmed or corrected only with an explicit reason.
   The page keeps the old snapshot-bound profile visible until a separately
   requested review saves the next verifier-gated snapshot. Every review freezes

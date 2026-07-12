@@ -37,10 +37,11 @@ boundary.
   eligible verified valuation bound to its latest Research snapshot, so real
   portfolio scenario coverage remains 0%.
 - Malik/OBS has a source-grounded Codex lens and the only ready Valuation pack;
-  its market-wide Discover sieve and canonical persisted/rendered Research
-  perspective remain planned. Areczeks and Elendix remain draft until dated
-  source evidence is retained and attributed. No expert method has
-  point-in-time performance calibration.
+  its market-wide Discover sieve remains planned. A source-frozen, read-only
+  Research catalog now exposes its stage readiness and source limits, but a
+  canonical verifier-gated company perspective remains planned. Areczeks and
+  Elendix remain draft until dated source evidence is retained and attributed.
+  No expert method has point-in-time performance calibration.
 
 The active engineering slice is **R1 · user-owned Research memory**. **V1 ·
 Verified scenario coverage** remains active in parallel where current evidence,
@@ -53,7 +54,7 @@ scalar lineage, and explicit user assumptions are available.
 | D1 | trustworthy Discover integrity and context | complete-universe and freshness gates, decision context, correct add/reactivate behavior | in progress · integrity/freshness/provenance implemented; final user-flow gate remains |
 | D2 | comparable sourced sieves and overlap | three per-sieve candidate views share one contract and controlled overlap renders correctly | in progress · union contract/renderer ready; OBS/PA market-wide facts blocked |
 | R1 | user-owned Research memory | confirmed/corrected profile produces a new version and review without rewriting history | in progress · immutable human profile/review-freeze contract and editor ready; real browser mutation and verifier-save gate await a user-confirmed company change |
-| M1 | named method catalog and Codex perspectives | supported packs render separately over one evidence snapshot; synthesis preserves disagreement | after R1 and retained method sources |
+| M1 | named method catalog and Codex perspectives | supported packs render separately over one evidence snapshot; synthesis preserves disagreement | in progress · read-only source-frozen catalog is rendered; verifier-gated per-company perspectives and synthesis remain pending |
 | V1 / P4 | verified valuation and portfolio scenario coverage | real portfolio review consumes at least two eligible verified scenarios | in progress · evidence/user-input dependent |
 | W1 | daily `Do sprawdzenia` workspace | stored read-only agenda leads to explicit bounded actions across the four stages | after D1, R1, and first V1 coverage |
 | P5 | point-in-time calibration | reproducible benchmark-relative replay and disclosed calibration limits | waits for historical data |

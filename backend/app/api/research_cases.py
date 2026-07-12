@@ -45,6 +45,7 @@ from app.services.company_profiles import (
     frozen_profile,
 )
 from app.services.model_policy import default_model_for_workflow
+from app.services.research_method_catalog import list_research_method_catalog
 from app.services.research_artifacts import (
     ResearchArtifactError,
     save_research_snapshot,
@@ -501,6 +502,7 @@ def get_research_workspace(
             if profile_out
             else None
         ),
+        method_catalog=list_research_method_catalog(),
     )
 
 

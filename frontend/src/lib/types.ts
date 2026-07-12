@@ -361,6 +361,7 @@ export interface ResearchWorkspace {
   latest_snapshot: ResearchSnapshot | null;
   history: ResearchSnapshotHistory[];
   archetype_pack: ResearchArchetypePack | null;
+  method_catalog: ResearchMethodCatalog[];
 }
 
 export interface ResearchArchetypePack {
@@ -384,6 +385,42 @@ export interface ResearchArchetypePack {
   missing_count: number;
   coverage_count: number;
   coverage_pct: number;
+}
+
+export type ResearchMethodStageStatus = "supported" | "planned" | "draft" | "retired";
+
+export interface ResearchMethodCatalog {
+  id: string;
+  version: string;
+  label: string;
+  disclaimer: string;
+  stages: {
+    discover: { status: ResearchMethodStageStatus; reason: string | null };
+    research: { status: ResearchMethodStageStatus; reason: string | null };
+    valuation: { status: ResearchMethodStageStatus; reason: string | null };
+  };
+  evaluation_maturity: "untested" | "diagnostic-cases" | "point-in-time-calibrated";
+  skill: string | null;
+  research_output_schema_version: string | null;
+  valuation_output_schema_version: string | null;
+  calculation_engine_version: string | null;
+  required_verifier_role: string | null;
+  source_manifest: Array<{
+    id: string;
+    label: string;
+    repo_path: string;
+    sha256: string;
+    author_identity: string | null;
+    source_url: string | null;
+    locator: string;
+    publication_at: string | null;
+    known_at: string | null;
+    date_note: string | null;
+    retention_status: "retained";
+  }>;
+  required_questions: string[];
+  blind_spots: string[];
+  gaps: string[];
 }
 
 export interface ResearchCaseCreateResult {

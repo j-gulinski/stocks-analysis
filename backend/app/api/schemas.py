@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------- watchlist
@@ -419,6 +419,64 @@ class ArchetypePackOut(BaseModel):
     coverage_pct: float
 
 
+class MethodStageReadinessOut(BaseModel):
+    status: Literal["supported", "planned", "draft", "retired"]
+    reason: str | None = None
+
+
+class ResearchMethodStagesOut(BaseModel):
+    discover: MethodStageReadinessOut
+    research: MethodStageReadinessOut
+    valuation: MethodStageReadinessOut
+
+
+class ResearchMethodSourceOut(BaseModel):
+    id: str = Field(min_length=1, max_length=120)
+    label: str = Field(min_length=1, max_length=300)
+    repo_path: str = Field(pattern=r"^docs/source-materials/.+")
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    author_identity: str | None
+    source_url: str | None
+    locator: str = Field(min_length=1, max_length=1000)
+    publication_at: datetime | None
+    known_at: datetime | None
+    date_note: str | None
+    retention_status: Literal["retained"]
+
+    @field_validator("publication_at", "known_at")
+    @classmethod
+    def require_timezone_when_dated(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            raise ValueError("method source dates must be timezone-aware")
+        return value
+
+    @model_validator(mode="after")
+    def require_date_or_explicit_unknown(self):
+        if self.publication_at is None and self.known_at is None and not self.date_note:
+            raise ValueError("an undated retained method source requires an explicit date note")
+        return self
+
+
+class ResearchMethodCatalogOut(BaseModel):
+    id: str
+    version: str
+    label: str
+    disclaimer: str
+    stages: ResearchMethodStagesOut
+    evaluation_maturity: Literal[
+        "untested", "diagnostic-cases", "point-in-time-calibrated"
+    ]
+    skill: str | None
+    research_output_schema_version: str | None
+    valuation_output_schema_version: str | None
+    calculation_engine_version: str | None
+    required_verifier_role: str | None
+    source_manifest: list[ResearchMethodSourceOut]
+    required_questions: list[str]
+    blind_spots: list[str]
+    gaps: list[str]
+
+
 class ResearchCaseWorkspaceOut(BaseModel):
     research_case: ResearchCaseSummaryOut
     # Profile bound to latest_snapshot (or the only profile before first save).
@@ -430,6 +488,7 @@ class ResearchCaseWorkspaceOut(BaseModel):
     latest_snapshot: ResearchSnapshotOut | None
     history: list[ResearchSnapshotHistoryOut]
     archetype_pack: ArchetypePackOut | None = None
+    method_catalog: list[ResearchMethodCatalogOut]
 
 
 # --------------------------------------------------------------- valuation v1

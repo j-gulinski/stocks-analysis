@@ -10,11 +10,13 @@ import {
   IconHistory,
 } from "@tabler/icons-react";
 import { fmtDate } from "@/lib/format";
+import ResearchMethodCatalogView from "@/components/ResearchMethodCatalogView";
 import type {
   CompanyProfile,
   ResearchClaim,
   ResearchClaimKind,
   ResearchArchetypePack,
+  ResearchMethodCatalog,
   ResearchSnapshot,
   ResearchSnapshotHistory,
   ResearchSnapshotStatus,
@@ -92,6 +94,7 @@ export default function ResearchSnapshotView({
   snapshot,
   history,
   archetypePack,
+  methodCatalog,
 }: {
   ticker: string;
   companyName: string | null;
@@ -99,6 +102,7 @@ export default function ResearchSnapshotView({
   snapshot: ResearchSnapshot;
   history: ResearchSnapshotHistory[];
   archetypePack: ResearchArchetypePack | null;
+  methodCatalog: ResearchMethodCatalog[];
 }) {
   const sections = snapshot.sections;
   const drivers = profile.drivers.filter((item) =>
@@ -236,8 +240,10 @@ export default function ResearchSnapshotView({
         </div>
       </section>
 
+      <ResearchMethodCatalogView methods={methodCatalog} />
+
       <section className="snapshot-section" aria-labelledby="snapshot-history">
-        <header><span>06</span><h2 id="snapshot-history">Historia</h2></header>
+        <header><span>07</span><h2 id="snapshot-history">Historia</h2></header>
         <TextList items={sections.history.changes_since_previous} empty="To pierwszy zapisany snapshot — nie ma jeszcze zmian do porównania." />
         <ClaimList claims={sections.history.claims} />
         <div className="snapshot-timeline">
