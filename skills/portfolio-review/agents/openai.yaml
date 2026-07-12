@@ -1,0 +1,4 @@
+interface:
+  display_name: "Portfolio Review"
+  short_description: "Verify portfolio risks and scenario exposure"
+  default_prompt: "Use $portfolio-review to interpret one frozen portfolio snapshot without changing company valuations."

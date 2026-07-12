@@ -7,6 +7,7 @@ Conventions:
 - Timestamps are timezone-aware UTC, set client-side for portability
   (tests run on SQLite, production on PostgreSQL).
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
@@ -69,7 +70,9 @@ class ResearchCase(Base):
 
     __tablename__ = "research_cases"
     __table_args__ = (
-        UniqueConstraint("company_id", "purpose", name="uq_research_case_company_purpose"),
+        UniqueConstraint(
+            "company_id", "purpose", name="uq_research_case_company_purpose"
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -91,7 +94,9 @@ class ResearchCase(Base):
     promotion_evidence_reason: Mapped[str | None] = mapped_column(String(1000))
     quarterly_review_due_on: Mapped[date | None] = mapped_column(Date)
     material_event_review_policy: Mapped[str | None] = mapped_column(String(60))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
@@ -119,7 +124,9 @@ class CompanyProfile(Base):
     company_overlay: Mapped[dict] = mapped_column(JSONVariant)
     drivers: Mapped[list] = mapped_column(JSONVariant)
     kpis: Mapped[list] = mapped_column(JSONVariant)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class ResearchSnapshot(Base):
@@ -165,7 +172,9 @@ class ResearchSnapshot(Base):
     next_checks: Mapped[list] = mapped_column(JSONVariant)
     statement_provenance: Mapped[list] = mapped_column(JSONVariant)
     verifier_result: Mapped[dict] = mapped_column(JSONVariant)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class ValuationSnapshot(Base):
@@ -177,6 +186,9 @@ class ValuationSnapshot(Base):
             "research_case_id", "version", name="uq_valuation_snapshot_case_version"
         ),
         UniqueConstraint("agent_run_id", name="uq_valuation_snapshot_agent_run"),
+        UniqueConstraint(
+            "verification_run_id", name="uq_valuation_snapshot_verification_run"
+        ),
         CheckConstraint("version > 0", name="ck_valuation_snapshot_positive_version"),
         CheckConstraint(
             "status IN ('provisional', 'verified', 'rejected', 'needs-human')",
@@ -193,10 +205,10 @@ class ValuationSnapshot(Base):
         ForeignKey("research_snapshots.id", ondelete="RESTRICT"), index=True
     )
     agent_run_id: Mapped[int] = mapped_column(
-        ForeignKey("agent_runs.id", ondelete="RESTRICT"), unique=True, index=True
+        ForeignKey("agent_runs.id", ondelete="RESTRICT"), index=True
     )
     verification_run_id: Mapped[int] = mapped_column(
-        ForeignKey("verification_runs.id", ondelete="RESTRICT"), unique=True, index=True
+        ForeignKey("verification_runs.id", ondelete="RESTRICT"), index=True
     )
     version: Mapped[int] = mapped_column(Integer)
     contract_version: Mapped[str] = mapped_column(String(40))
@@ -217,7 +229,9 @@ class ValuationSnapshot(Base):
     calculation_fingerprint: Mapped[str] = mapped_column(String(64))
     artifact_fingerprint: Mapped[str] = mapped_column(String(64))
     verifier_result: Mapped[dict] = mapped_column(JSONVariant)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class AssumptionSet(Base):
@@ -226,7 +240,8 @@ class AssumptionSet(Base):
     __tablename__ = "assumption_sets"
     __table_args__ = (
         UniqueConstraint(
-            "research_case_id", "scenario_kind",
+            "research_case_id",
+            "scenario_kind",
             name="uq_assumption_set_case_scenario",
         ),
         Index("ix_assumption_sets_case_status", "research_case_id", "status"),
@@ -242,7 +257,9 @@ class AssumptionSet(Base):
     as_of: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     assumptions: Mapped[list] = mapped_column(JSONVariant)
     created_by: Mapped[str | None] = mapped_column(String(200))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
@@ -266,7 +283,9 @@ class ResearchCaseStepHistory(Base):
     to_step: Mapped[str] = mapped_column(String(40))
     reason: Mapped[str] = mapped_column(Text)
     changed_by: Mapped[str | None] = mapped_column(String(200))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class ReportValue(Base):
@@ -275,14 +294,20 @@ class ReportValue(Base):
     __tablename__ = "report_values"
     __table_args__ = (
         UniqueConstraint(
-            "company_id", "statement", "freq", "period", "field_code",
+            "company_id",
+            "statement",
+            "freq",
+            "period",
+            "field_code",
             name="uq_report_value_key",
         ),
         Index("ix_report_values_lookup", "company_id", "statement", "freq"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE")
+    )
     statement: Mapped[str] = mapped_column(String(10))  # income | balance | cashflow
     freq: Mapped[str] = mapped_column(String(1))  # Q | Y
     period: Mapped[str] = mapped_column(String(8))  # 2025Q1 or 2024
@@ -293,7 +318,9 @@ class ReportValue(Base):
     # Logical lineage link (kept unconstrained for portable additive SQLite
     # migrations); evidence tests enforce that referenced facts exist.
     source_fact_id: Mapped[int | None] = mapped_column(Integer, index=True)
-    scraped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    scraped_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
     company: Mapped[Company] = relationship(back_populates="report_values")
 
@@ -307,22 +334,26 @@ class IndicatorValue(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE")
+    )
     indicator: Mapped[str] = mapped_column(String(40))  # cz, cwk, ev_ebitda, roe, …
     period: Mapped[str] = mapped_column(String(8))
     value: Mapped[float | None] = mapped_column(Numeric(14, 4))
     source_fact_id: Mapped[int | None] = mapped_column(Integer, index=True)
-    scraped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    scraped_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class Dividend(Base):
     __tablename__ = "dividends"
-    __table_args__ = (
-        UniqueConstraint("company_id", "year", name="uq_dividend_year"),
-    )
+    __table_args__ = (UniqueConstraint("company_id", "year", name="uq_dividend_year"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE")
+    )
     year: Mapped[int] = mapped_column(Integer)
     dps: Mapped[float | None] = mapped_column(Numeric(10, 4))  # dividend per share, PLN
     yield_pct: Mapped[float | None] = mapped_column(Numeric(6, 2))
@@ -353,7 +384,9 @@ class Price(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE")
+    )
     date: Mapped[date] = mapped_column(Date)
     close: Mapped[float] = mapped_column(Numeric(12, 4))
     volume: Mapped[int | None] = mapped_column(BigInteger)
@@ -418,7 +451,9 @@ class ForumPost(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    topic_id: Mapped[int] = mapped_column(ForeignKey("forum_topics.id", ondelete="CASCADE"))
+    topic_id: Mapped[int] = mapped_column(
+        ForeignKey("forum_topics.id", ondelete="CASCADE")
+    )
     phpbb_post_id: Mapped[int] = mapped_column(Integer)  # stable id from div#p{id}
     author: Mapped[str] = mapped_column(String(100))
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -443,7 +478,9 @@ class ForumIntelligence(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE")
+    )
     source: Mapped[str] = mapped_column(String(60), default="portal_analiz")
     industry_type: Mapped[str | None] = mapped_column(String(80))
     last_30d_post_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -481,7 +518,9 @@ class DiscoveryTriageReview(Base):
 
     __tablename__ = "discovery_triage_reviews"
     __table_args__ = (
-        Index("ix_discovery_triage_version_ticker", "source_document_version_id", "ticker"),
+        Index(
+            "ix_discovery_triage_version_ticker", "source_document_version_id", "ticker"
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -495,7 +534,9 @@ class DiscoveryTriageReview(Base):
     next_review_date: Mapped[date] = mapped_column(Date)
     evidence_reason: Mapped[str] = mapped_column(String(1000))
     created_by: Mapped[str | None] = mapped_column(String(200))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class DecisionJournalEntry(Base):
@@ -528,7 +569,9 @@ class DecisionJournalEntry(Base):
     thesis_snapshot: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     thesis_hash: Mapped[str | None] = mapped_column(String(64))
     created_by: Mapped[str | None] = mapped_column(String(200))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class MonitorSnapshot(Base):
@@ -543,7 +586,9 @@ class MonitorSnapshot(Base):
     company_id: Mapped[int] = mapped_column(
         ForeignKey("companies.id", ondelete="CASCADE"), index=True
     )
-    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    captured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
     snapshot_hash: Mapped[str] = mapped_column(String(64))
     snapshot: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     source: Mapped[str] = mapped_column(String(40), default="session")
@@ -564,7 +609,9 @@ class MonitorChange(Base):
     from_snapshot_id: Mapped[int] = mapped_column(Integer)
     to_snapshot_id: Mapped[int] = mapped_column(Integer)
     changes: Mapped[list] = mapped_column(JSONVariant, default=list)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class ThesisFalsifier(Base):
@@ -590,40 +637,226 @@ class ThesisFalsifier(Base):
     reason: Mapped[str] = mapped_column(Text)
     review_date: Mapped[date | None] = mapped_column(Date)
     thesis_hash: Mapped[str | None] = mapped_column(String(64))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
 
 
-class PositionLedgerEntry(Base):
-    """Read-only position context; never included in analysis inputs."""
+class Portfolio(Base):
+    """One explicitly configured provider portfolio; credentials remain in env."""
 
-    __tablename__ = "position_ledger_entries"
+    __tablename__ = "portfolios"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_ref", name="uq_portfolio_provider_ref"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(30), default="myfund")
+    provider_ref: Mapped[str] = mapped_column(String(160))
+    name: Mapped[str] = mapped_column(String(160))
+    base_currency: Mapped[str] = mapped_column(String(8), default="PLN")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class PortfolioSync(Base):
+    __tablename__ = "portfolio_syncs"
+    __table_args__ = (
+        Index("ix_portfolio_syncs_portfolio_requested", "portfolio_id", "requested_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(
+        ForeignKey("portfolios.id", ondelete="CASCADE"), index=True
+    )
+    snapshot_id: Mapped[int | None] = mapped_column(
+        ForeignKey("portfolio_snapshots.id", ondelete="SET NULL"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(24), index=True)
+    provider_status_code: Mapped[str | None] = mapped_column(String(30))
+    error: Mapped[str | None] = mapped_column(String(500))
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    payload_hash: Mapped[str | None] = mapped_column(String(64), index=True)
+    parser_version: Mapped[str] = mapped_column(
+        String(40), default="myfund-portfolio-v1"
+    )
+    reused_snapshot: Mapped[bool] = mapped_column(default=False)
+
+
+class InstrumentMapping(Base):
+    __tablename__ = "instrument_mappings"
     __table_args__ = (
         UniqueConstraint(
-            "source",
-            "portfolio",
-            "source_ref",
-            name="uq_position_ledger_source_ref",
+            "provider", "provider_key", name="uq_instrument_mapping_provider_key"
         ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(30))
+    provider_key: Mapped[str] = mapped_column(String(200))
+    provider_ticker: Mapped[str | None] = mapped_column(String(80))
+    provider_name: Mapped[str] = mapped_column(String(300))
+    provider_type: Mapped[str | None] = mapped_column(String(100))
+    currency: Mapped[str | None] = mapped_column(String(8))
+    mapping_kind: Mapped[str] = mapped_column(String(20))
+    mapping_status: Mapped[str] = mapped_column(String(20))
     company_id: Mapped[int | None] = mapped_column(
         ForeignKey("companies.id", ondelete="SET NULL"), index=True
     )
-    ticker: Mapped[str] = mapped_column(String(12), index=True)
-    instrument_name: Mapped[str | None] = mapped_column(String(200))
-    portfolio: Mapped[str] = mapped_column(String(80), default="default")
-    entry_date: Mapped[date | None] = mapped_column(Date)
-    entry_price: Mapped[float | None] = mapped_column(Numeric(14, 4))
-    quantity: Mapped[float | None] = mapped_column(Numeric(20, 6))
-    size_pln: Mapped[float | None] = mapped_column(Numeric(20, 2))
-    sizing_rule_flag: Mapped[bool] = mapped_column(default=False)
-    source: Mapped[str] = mapped_column(String(30), default="csv")
-    source_ref: Mapped[str] = mapped_column(String(160))
-    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    reason: Mapped[str] = mapped_column(String(500))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class PortfolioSnapshot(Base):
+    __tablename__ = "portfolio_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "portfolio_id", "version", name="uq_portfolio_snapshot_version"
+        ),
+        CheckConstraint("version > 0", name="ck_portfolio_snapshot_positive_version"),
+        Index("ix_portfolio_snapshots_portfolio_as_of", "portfolio_id", "as_of"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(
+        ForeignKey("portfolios.id", ondelete="CASCADE"), index=True
+    )
+    version: Mapped[int] = mapped_column(Integer)
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    currency: Mapped[str] = mapped_column(String(8))
+    total_value: Mapped[float] = mapped_column(Numeric(20, 2))
+    cost_basis: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    profit: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    cash_value: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    benchmark_name: Mapped[str | None] = mapped_column(String(160))
+    input_fingerprint: Mapped[str] = mapped_column(String(64), index=True)
+    gaps: Mapped[list] = mapped_column(JSONVariant, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
+class PortfolioPositionSnapshot(Base):
+    __tablename__ = "portfolio_position_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_id", "provider_row_key", name="uq_portfolio_position_row"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    snapshot_id: Mapped[int] = mapped_column(
+        ForeignKey("portfolio_snapshots.id", ondelete="CASCADE"), index=True
+    )
+    mapping_id: Mapped[int] = mapped_column(
+        ForeignKey("instrument_mappings.id", ondelete="RESTRICT"), index=True
+    )
+    mapping_kind: Mapped[str] = mapped_column(String(20))
+    mapping_status: Mapped[str] = mapped_column(String(20))
+    company_id: Mapped[int | None] = mapped_column(
+        ForeignKey("companies.id", ondelete="SET NULL"), index=True
+    )
+    provider_row_key: Mapped[str] = mapped_column(String(200))
+    ticker: Mapped[str | None] = mapped_column(String(80))
+    name: Mapped[str] = mapped_column(String(300))
+    asset_type: Mapped[str | None] = mapped_column(String(100))
+    sector: Mapped[str | None] = mapped_column(String(160))
+    currency: Mapped[str] = mapped_column(String(8))
+    quote_date: Mapped[date | None] = mapped_column(Date)
+    quote: Mapped[float | None] = mapped_column(Numeric(20, 6))
+    quantity: Mapped[float | None] = mapped_column(Numeric(24, 8))
+    value: Mapped[float] = mapped_column(Numeric(20, 2))
+    cost_basis: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    profit: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    allocation_pct: Mapped[float | None] = mapped_column(Numeric(10, 4))
+
+
+class PortfolioValuePoint(Base):
+    __tablename__ = "portfolio_value_points"
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", "date", name="uq_portfolio_value_point_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    snapshot_id: Mapped[int] = mapped_column(
+        ForeignKey("portfolio_snapshots.id", ondelete="CASCADE"), index=True
+    )
+    date: Mapped[date] = mapped_column(Date)
+    value: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    contributed: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    profit: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    provider_return_pct: Mapped[float | None] = mapped_column(Numeric(14, 6))
+    benchmark_return_pct: Mapped[float | None] = mapped_column(Numeric(14, 6))
+    daily_change: Mapped[float | None] = mapped_column(Numeric(20, 6))
+
+
+class PortfolioReviewSnapshot(Base):
+    """Canonical immutable Codex interpretation of one frozen portfolio snapshot."""
+
+    __tablename__ = "portfolio_review_snapshots"
+    __table_args__ = (
+        UniqueConstraint("portfolio_id", "version", name="uq_portfolio_review_version"),
+        UniqueConstraint("agent_run_id", name="uq_portfolio_review_agent_run"),
+        UniqueConstraint(
+            "verification_run_id", name="uq_portfolio_review_verification_run"
+        ),
+        CheckConstraint("version > 0", name="ck_portfolio_review_positive_version"),
+        CheckConstraint(
+            "status IN ('provisional', 'verified', 'rejected', 'needs-human')",
+            name="ck_portfolio_review_status",
+        ),
+        Index("ix_portfolio_review_portfolio_created", "portfolio_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(
+        ForeignKey("portfolios.id", ondelete="CASCADE"), index=True
+    )
+    portfolio_snapshot_id: Mapped[int] = mapped_column(
+        ForeignKey("portfolio_snapshots.id", ondelete="RESTRICT"), index=True
+    )
+    agent_run_id: Mapped[int] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="RESTRICT"), index=True
+    )
+    verification_run_id: Mapped[int] = mapped_column(
+        ForeignKey("verification_runs.id", ondelete="RESTRICT"), index=True
+    )
+    version: Mapped[int] = mapped_column(Integer)
+    contract_version: Mapped[str] = mapped_column(String(50))
+    status: Mapped[str] = mapped_column(String(30), index=True)
+    draft_requested_model_role: Mapped[str] = mapped_column(String(40))
+    draft_requested_model: Mapped[str] = mapped_column(String(80))
+    draft_reasoning_effort: Mapped[str] = mapped_column(String(20))
+    draft_actual_host_model: Mapped[str] = mapped_column(String(160))
+    draft_substitution_or_escalation: Mapped[str | None] = mapped_column(String(1000))
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    sections: Mapped[dict] = mapped_column(JSONVariant)
+    input_manifest: Mapped[dict] = mapped_column(JSONVariant)
+    gaps: Mapped[list] = mapped_column(JSONVariant)
+    input_fingerprint: Mapped[str] = mapped_column(String(64))
+    analytics_fingerprint: Mapped[str] = mapped_column(String(64))
+    draft_fingerprint: Mapped[str] = mapped_column(String(64))
+    artifact_fingerprint: Mapped[str] = mapped_column(String(64))
+    verifier_result: Mapped[dict] = mapped_column(JSONVariant)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class Forecast(Base):
@@ -632,12 +865,16 @@ class Forecast(Base):
     __tablename__ = "forecasts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE")
+    )
     label: Mapped[str | None] = mapped_column(String(120))
     assumptions: Mapped[dict] = mapped_column(JSONVariant)
     result: Mapped[dict] = mapped_column(JSONVariant)
     created_by: Mapped[str | None] = mapped_column(String(200))  # user email (Phase 6)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class Analysis(Base):
@@ -652,7 +889,9 @@ class Analysis(Base):
     __tablename__ = "analyses"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE")
+    )
     model: Mapped[str] = mapped_column(String(60))
     provider: Mapped[str | None] = mapped_column(String(40))
     purpose: Mapped[str] = mapped_column(String(80), default="investment_verdict")
@@ -678,7 +917,9 @@ class Analysis(Base):
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[str | None] = mapped_column(String(200))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     model_calls: Mapped[list[ModelCall]] = relationship(
@@ -690,9 +931,7 @@ class ModelCall(Base):
     """One provider attempt made as part of an analysis run."""
 
     __tablename__ = "model_calls"
-    __table_args__ = (
-        Index("ix_model_calls_analysis_role", "analysis_id", "role"),
-    )
+    __table_args__ = (Index("ix_model_calls_analysis_role", "analysis_id", "role"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     analysis_id: Mapped[int] = mapped_column(
@@ -722,7 +961,9 @@ class ModelCall(Base):
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
     escalation_reason: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     analysis: Mapped[Analysis] = relationship(back_populates="model_calls")
@@ -775,8 +1016,12 @@ class SourceDocument(Base):
     title: Mapped[str | None] = mapped_column(String(500))
     period: Mapped[str | None] = mapped_column(String(40))
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    last_fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    last_fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
     latest_content_hash: Mapped[str] = mapped_column(String(64))
     mime_type: Mapped[str] = mapped_column(String(120))
     parser_version: Mapped[str] = mapped_column(String(120))
@@ -798,7 +1043,9 @@ class DocumentVersion(Base):
         ForeignKey("source_documents.id", ondelete="CASCADE"), index=True
     )
     content_hash: Mapped[str] = mapped_column(String(64))
-    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
     requested_url: Mapped[str] = mapped_column(String(1000))
     effective_url: Mapped[str] = mapped_column(String(1000))
     response_status: Mapped[int | None] = mapped_column(Integer)
@@ -840,7 +1087,9 @@ class Fact(Base):
     extractor_version: Mapped[str] = mapped_column(String(120))
     confidence: Mapped[float | None] = mapped_column(Numeric(5, 4))
     verification_state: Mapped[str] = mapped_column(String(40), index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class Event(Base):
@@ -862,7 +1111,9 @@ class Event(Base):
     known_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     claims: Mapped[list] = mapped_column(JSONVariant)
     verification_state: Mapped[str] = mapped_column(String(40))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class DataConflict(Base):
@@ -891,7 +1142,9 @@ class DataConflict(Base):
     status: Mapped[str] = mapped_column(String(40), default="open", index=True)
     resolution_rule: Mapped[str | None] = mapped_column(Text)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class AgentRun(Base):
@@ -928,12 +1181,18 @@ class AgentRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     lease_owner: Mapped[str | None] = mapped_column(String(160), index=True)
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True
+    )
     # A future review is durable but cannot be claimed before this timestamp.
     # It never wakes Codex by itself; a user-invoked worker claims it once due.
-    available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    available_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True
+    )
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
@@ -949,7 +1208,9 @@ class AnalysisRun(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE")
+    )
     agent_run_id: Mapped[int | None] = mapped_column(
         ForeignKey("agent_runs.id", ondelete="SET NULL")
     )
@@ -967,7 +1228,9 @@ class AnalysisRun(Base):
     verification: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     alignment_score: Mapped[int | None] = mapped_column(Integer)
     created_by: Mapped[str | None] = mapped_column(String(200))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class VerificationRun(Base):
@@ -991,7 +1254,9 @@ class VerificationRun(Base):
     verdict: Mapped[str] = mapped_column(String(30))
     checks: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     summary: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class EventReport(Base):
@@ -1011,7 +1276,9 @@ class EventReport(Base):
     external_id: Mapped[str] = mapped_column(String(120))
     raw_url: Mapped[str | None] = mapped_column(String(500))
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    scraped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    scraped_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
     title: Mapped[str | None] = mapped_column(String(500))
     raw_text: Mapped[str | None] = mapped_column(Text)
     parsed: Mapped[dict] = mapped_column(JSONVariant, default=dict)
@@ -1030,7 +1297,9 @@ class ListPollState(Base):
     scan_target_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scan_next_offset: Mapped[int | None] = mapped_column()
     scan_next_limit: Mapped[int | None] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
@@ -1060,14 +1329,18 @@ class CandidateRun(Base):
     verification_status: Mapped[str] = mapped_column(String(30), default="pending")
     reasons: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     missing_data: Mapped[dict] = mapped_column(JSONVariant, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class BacktestRun(Base):
     """A deterministic replay run, optionally interpreted by Codex."""
 
     __tablename__ = "backtest_runs"
-    __table_args__ = (Index("ix_backtest_runs_strategy_created", "strategy", "created_at"),)
+    __table_args__ = (
+        Index("ix_backtest_runs_strategy_created", "strategy", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     agent_run_id: Mapped[int | None] = mapped_column(
@@ -1082,7 +1355,9 @@ class BacktestRun(Base):
     parameters: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     summary: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     verification_status: Mapped[str] = mapped_column(String(30), default="pending")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class BacktestObservation(Base):
@@ -1097,12 +1372,16 @@ class BacktestObservation(Base):
     backtest_run_id: Mapped[int] = mapped_column(
         ForeignKey("backtest_runs.id", ondelete="CASCADE")
     )
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE")
+    )
     as_of_date: Mapped[date] = mapped_column(Date)
     known_inputs: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     signal: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     outcome: Mapped[dict] = mapped_column(JSONVariant, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class AgentEvaluationRun(Base):
@@ -1130,7 +1409,9 @@ class AgentEvaluationRun(Base):
     parameters: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     summary: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     verification_status: Mapped[str] = mapped_column(String(30), default="pending")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class AgentEvaluationObservation(Base):
@@ -1152,13 +1433,17 @@ class AgentEvaluationObservation(Base):
     analysis_run_id: Mapped[int] = mapped_column(
         ForeignKey("analysis_runs.id", ondelete="CASCADE")
     )
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE")
+    )
     as_of_date: Mapped[date] = mapped_column(Date)
     known_inputs: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     prediction: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     outcome: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     score: Mapped[dict] = mapped_column(JSONVariant, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
 
 class FetchLog(Base):
@@ -1171,4 +1456,6 @@ class FetchLog(Base):
     url: Mapped[str] = mapped_column(String(500))
     status: Mapped[int | None] = mapped_column(Integer)  # None = network error
     document_version_id: Mapped[int | None] = mapped_column(Integer, index=True)
-    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )

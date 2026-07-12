@@ -5,6 +5,7 @@ worker. It runs only after an explicit user request. It does not call a model by
 itself; it claims durable work and tells Codex which skill/tool contract should
 execute it.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -141,6 +142,29 @@ def _execution_contract(agent: AgentRun) -> dict[str, Any]:
                 "Save the unchanged draft with that verification_run_id and stop after this one claimed job.",
             ],
         }
+    if agent.workflow == "stock-portfolio-review":
+        return {
+            **base,
+            "skill": "portfolio-review",
+            "frozen_contract": (agent.inputs or {}).get("portfolio_review"),
+            "provenance_contract": (agent.inputs or {}).get("task"),
+            "verify_command": (
+                "cd backend && ./.venv/bin/python "
+                "scripts/codex_verify_portfolio_review.py --input <verification.json>"
+            ),
+            "save_command": (
+                "cd backend && ./.venv/bin/python "
+                "scripts/codex_save_portfolio_review.py --input <review.json>"
+            ),
+            "steps": [
+                "Read the frozen portfolio snapshot, retained mappings and deterministic analytics; never sync or repair them.",
+                "Interpret concentration, liquidity, provider-labelled history and aligned scenario sensitivity in concise Polish.",
+                "Keep aligned downside labelled as simultaneous sensitivity, not joint probability, and make no transaction recommendation.",
+                "Have a distinct verifier_strict context persist its verdict for this exact draft and frozen fingerprints.",
+                "Record requested role/model/reasoning separately from actual_host_model; use 'host deployment not exposed' when unavailable and name any substitution or escalation.",
+                "Save the unchanged draft with that verification_run_id, clear the lease and stop after this one row.",
+            ],
+        }
     if agent.workflow == "stock-quick-analysis":
         return {
             **base,
@@ -242,7 +266,9 @@ def _execution_contract(agent: AgentRun) -> dict[str, Any]:
     }
 
 
-def _query_agents(db, *, status: str, workflow: str | None, limit: int) -> list[AgentRun]:
+def _query_agents(
+    db, *, status: str, workflow: str | None, limit: int
+) -> list[AgentRun]:
     stmt = (
         select(AgentRun)
         .where(AgentRun.status == status)
@@ -251,7 +277,10 @@ def _query_agents(db, *, status: str, workflow: str | None, limit: int) -> list[
     )
     if status == "queued":
         from app.db.models import utcnow
-        stmt = stmt.where(or_(AgentRun.available_at.is_(None), AgentRun.available_at <= utcnow()))
+
+        stmt = stmt.where(
+            or_(AgentRun.available_at.is_(None), AgentRun.available_at <= utcnow())
+        )
     if workflow:
         stmt = stmt.where(AgentRun.workflow == workflow)
     return list(db.scalars(stmt))
@@ -262,10 +291,14 @@ def main() -> int:
         description="List or claim queued Codex workflow runs for a Codex worker."
     )
     parser.add_argument("--workflow", help="Restrict to one workflow.")
-    parser.add_argument("--status", default="queued", help="Status to list; default queued.")
+    parser.add_argument(
+        "--status", default="queued", help="Status to list; default queued."
+    )
     parser.add_argument("--limit", type=int, default=5)
     parser.add_argument("--agent-run-id", type=int, help="Claim a specific queued run.")
-    parser.add_argument("--claim", action="store_true", help="Claim the first matching run.")
+    parser.add_argument(
+        "--claim", action="store_true", help="Claim the first matching run."
+    )
     parser.add_argument("--model-role", help="Model role to record when claiming.")
     parser.add_argument("--model", help="Concrete model to record when claiming.")
     parser.add_argument("--orchestrator-model", help="Orchestrator model to record.")

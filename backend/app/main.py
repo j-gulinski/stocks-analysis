@@ -5,8 +5,10 @@ No CORS is configured on purpose — the browser only ever talks to the
 Next.js route-handler proxy, which calls this API server-to-server.
 """
 import logging
+import hmac
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -23,17 +25,30 @@ from app.api import (
     forum,
     journal,
     monitor,
-    positions,
+    portfolios,
     research_cases,
     valuations,
     watchlist,
 )
 from app.db.base import get_db
+from app.config import get_settings
 
 # Scraper warnings (per-page refresh failures) should reach the uvicorn console.
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="Stock Analysis Workbench API", version="0.1.0")
+
+
+@app.middleware("http")
+async def require_backend_token(request: Request, call_next):
+    """Protect all domain API routes when a deployment token is configured."""
+    expected = get_settings().api_token
+    if expected and request.url.path.startswith("/api/") and request.url.path != "/api/health":
+        supplied = request.headers.get("authorization", "")
+        candidate = supplied[7:] if supplied.startswith("Bearer ") else ""
+        if not hmac.compare_digest(candidate.encode(), expected.encode()):
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized."})
+    return await call_next(request)
 
 app.include_router(watchlist.router, prefix="/api")
 app.include_router(companies.router, prefix="/api")
@@ -48,7 +63,7 @@ app.include_router(falsifiers.router, prefix="/api")
 app.include_router(discovery.router, prefix="/api")
 app.include_router(journal.router, prefix="/api")
 app.include_router(monitor.router, prefix="/api")
-app.include_router(positions.router, prefix="/api")
+app.include_router(portfolios.router, prefix="/api")
 app.include_router(research_cases.router, prefix="/api")
 app.include_router(valuations.router, prefix="/api")
 

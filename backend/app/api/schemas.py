@@ -4,6 +4,7 @@ Kept in one module on purpose (small app); split by domain if it outgrows ~300
 lines. `from_attributes=True` lets a schema be built straight from an ORM
 object, like AutoMapper-lite.
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -13,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # ---------------------------------------------------------------- watchlist
+
 
 class WatchlistAddIn(BaseModel):
     ticker: str = Field(min_length=1, max_length=12)
@@ -32,12 +34,25 @@ class WatchlistItemOut(BaseModel):
 
 
 CaseState = Literal[
-    "new", "ingesting", "data_review", "business_model", "thesis",
-    "scenarios", "review", "monitoring", "blocked", "closed",
+    "new",
+    "ingesting",
+    "data_review",
+    "business_model",
+    "thesis",
+    "scenarios",
+    "review",
+    "monitoring",
+    "blocked",
+    "closed",
 ]
 CaseStep = Literal[
-    "ingest", "data_review", "business_model", "thesis",
-    "scenarios", "review", "monitoring",
+    "ingest",
+    "data_review",
+    "business_model",
+    "thesis",
+    "scenarios",
+    "review",
+    "monitoring",
 ]
 
 
@@ -160,7 +175,9 @@ class CompanyOverlay(StrictResearchModel):
 
 
 class CompanyProfileIn(StrictResearchModel):
-    schema_version: Literal["company-profile-v1", "company-profile-v2"] = "company-profile-v2"
+    schema_version: Literal["company-profile-v1", "company-profile-v2"] = (
+        "company-profile-v2"
+    )
     version: int = Field(ge=1)
     archetype: ResearchArchetype
     archetype_version: str = Field(min_length=1, max_length=40)
@@ -188,7 +205,9 @@ class ResearchClaim(StrictResearchModel):
         if self.kind in {"fact", "lead"} and not self.source_document_version_ids:
             raise ValueError("fact and lead claims require a document version")
         if self.kind in {"calculation", "assumption", "unknown"} and not self.basis:
-            raise ValueError("calculation, assumption and unknown claims require a named basis")
+            raise ValueError(
+                "calculation, assumption and unknown claims require a named basis"
+            )
         return self
 
 
@@ -293,7 +312,9 @@ class ResearchVerifierResult(StrictResearchModel):
 
 
 class ResearchSnapshotDraftIn(StrictResearchModel):
-    contract_version: Literal["research-snapshot-v1", "research-snapshot-v2"] = "research-snapshot-v2"
+    contract_version: Literal["research-snapshot-v1", "research-snapshot-v2"] = (
+        "research-snapshot-v2"
+    )
     agent_run_id: int = Field(ge=1)
     lease_owner: str = Field(min_length=1, max_length=200)
     version: int = Field(ge=1)
@@ -439,7 +460,10 @@ class ValuationScenarioAssumptions(StrictResearchModel):
 
     @model_validator(mode="after")
     def validate_ranges(self):
-        if self.quarter_revenue_growth_pct.value <= -100 or self.year_revenue_growth_pct.value <= -100:
+        if (
+            self.quarter_revenue_growth_pct.value <= -100
+            or self.year_revenue_growth_pct.value <= -100
+        ):
             raise ValueError("revenue growth must stay above -100%")
         if not -200 <= self.gross_margin_pct.value <= 200:
             raise ValueError("gross margin must be bounded to -200..200%")
@@ -460,7 +484,9 @@ class ValuationScenarioAssumptions(StrictResearchModel):
         if self.kind != "event" and self.event_one_off_net_pln_thousands is not None:
             raise ValueError("event one-off is allowed only in the event scenario")
         if self.kind == "event" and self.event_one_off_net_pln_thousands is None:
-            raise ValueError("event scenario requires an explicit net one-off assumption")
+            raise ValueError(
+                "event scenario requires an explicit net one-off assumption"
+            )
         return self
 
 
@@ -511,7 +537,9 @@ class ValuationDraftJudgment(StrictResearchModel):
 class ValuationSnapshotDraftIn(StrictResearchModel):
     contract_version: Literal["valuation-snapshot-v1"] = "valuation-snapshot-v1"
     engine_version: Literal["valuation-engine-v2"] = "valuation-engine-v2"
-    template_contract_version: Literal["valuation-templates-v1"] = "valuation-templates-v1"
+    template_contract_version: Literal["valuation-templates-v1"] = (
+        "valuation-templates-v1"
+    )
     agent_run_id: int = Field(ge=1)
     lease_owner: str = Field(min_length=1, max_length=200)
     version: int = Field(ge=1)
@@ -558,7 +586,9 @@ class ValuationVerifierResult(StrictResearchModel):
     verifier_model: str = Field(min_length=1, max_length=80)
     verdict: Literal["pass", "fail", "needs-human"]
     checks: ValuationVerifierChecks
-    final_probabilities: list[ValuationFinalProbability] = Field(default_factory=list, max_length=4)
+    final_probabilities: list[ValuationFinalProbability] = Field(
+        default_factory=list, max_length=4
+    )
     summary: str = Field(min_length=1, max_length=4000)
 
     @model_validator(mode="after")
@@ -633,6 +663,149 @@ class ValuationWorkspaceOut(BaseModel):
     template: dict | None
     latest_valuation: ValuationSnapshotOut | None
     history: list[ValuationHistoryOut]
+
+
+class PortfolioReviewSections(StrictResearchModel):
+    summary: str = Field(min_length=1, max_length=2000)
+    concentration: list[str] = Field(min_length=1, max_length=5)
+    liquidity: list[str] = Field(min_length=1, max_length=5)
+    history: list[str] = Field(min_length=1, max_length=5)
+    scenario_exposure: list[str] = Field(min_length=1, max_length=5)
+    risks: list[str] = Field(min_length=1, max_length=6)
+    next_checks: list[str] = Field(min_length=1, max_length=3)
+
+
+_UNAVAILABLE_HOST_MODELS = {
+    "host deployment not exposed",
+    "host model not exposed",
+    "actual host model not exposed",
+    "host deployment unavailable",
+}
+
+
+def _validate_model_provenance(
+    requested_model: str,
+    actual_host_model: str,
+    substitution_or_escalation: str | None,
+) -> None:
+    requested = requested_model.strip().casefold()
+    actual = actual_host_model.strip().casefold()
+    substitution = (substitution_or_escalation or "").strip()
+    if not requested:
+        raise ValueError("requested_model cannot be blank")
+    if not actual:
+        raise ValueError("actual_host_model cannot be blank")
+    if substitution_or_escalation is not None and not substitution:
+        raise ValueError("substitution_or_escalation cannot be blank")
+    if (
+        actual != requested
+        and actual not in _UNAVAILABLE_HOST_MODELS
+        and not substitution
+    ):
+        raise ValueError(
+            "a disclosed host model differing from requested_model requires substitution_or_escalation"
+        )
+
+
+class PortfolioReviewDraftIn(StrictResearchModel):
+    contract_version: Literal["portfolio-review-v1"] = "portfolio-review-v1"
+    agent_run_id: int = Field(ge=1)
+    lease_owner: str = Field(min_length=1, max_length=200)
+    version: int = Field(ge=1)
+    portfolio_id: int = Field(ge=1)
+    portfolio_snapshot_id: int = Field(ge=1)
+    as_of: datetime
+    input_manifest: dict
+    gaps: list[str] = Field(default_factory=list)
+    input_fingerprint: str = Field(min_length=64, max_length=64)
+    analytics_fingerprint: str = Field(min_length=64, max_length=64)
+    sections: PortfolioReviewSections
+    requested_model_role: Literal["worker_standard"] = "worker_standard"
+    requested_model: str = Field(min_length=1, max_length=80)
+    reasoning_effort: Literal["high"] = "high"
+    actual_host_model: str = Field(min_length=1, max_length=160)
+    substitution_or_escalation: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def require_aware_as_of(self):
+        if self.as_of.tzinfo is None:
+            raise ValueError("as_of must include a timezone")
+        _validate_model_provenance(
+            self.requested_model,
+            self.actual_host_model,
+            self.substitution_or_escalation,
+        )
+        return self
+
+
+class PortfolioReviewVerifierChecks(StrictResearchModel):
+    snapshot_source_identity: bool
+    reconciliation: bool
+    mapping_set: bool
+    method_labels: bool
+    scenario_arithmetic: bool
+    eligible_valuations: bool
+    look_ahead: bool
+    draft_fingerprint: bool
+    no_recommendation: bool
+
+
+class PortfolioReviewVerifierResult(StrictResearchModel):
+    requested_model_role: Literal["verifier_strict"] = "verifier_strict"
+    requested_model: str = Field(min_length=1, max_length=80)
+    reasoning_effort: Literal["high"] = "high"
+    actual_host_model: str = Field(min_length=1, max_length=160)
+    substitution_or_escalation: str | None = Field(default=None, max_length=1000)
+    verdict: Literal["pass", "fail", "needs-human"]
+    checks: PortfolioReviewVerifierChecks
+    summary: str = Field(min_length=1, max_length=3000)
+
+    @model_validator(mode="after")
+    def validate_model_provenance(self):
+        _validate_model_provenance(
+            self.requested_model,
+            self.actual_host_model,
+            self.substitution_or_escalation,
+        )
+        return self
+
+
+class PortfolioReviewVerificationIn(StrictResearchModel):
+    verifier_worker_id: str = Field(min_length=1, max_length=200)
+    draft: PortfolioReviewDraftIn
+    verifier_result: PortfolioReviewVerifierResult
+
+
+class PortfolioReviewSaveIn(PortfolioReviewDraftIn):
+    verification_run_id: int = Field(ge=1)
+
+
+class PortfolioReviewSnapshotOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    portfolio_id: int
+    portfolio_snapshot_id: int
+    agent_run_id: int
+    verification_run_id: int
+    version: int
+    contract_version: str
+    status: Literal["provisional", "verified", "rejected", "needs-human"]
+    draft_requested_model_role: str
+    draft_requested_model: str
+    draft_reasoning_effort: str
+    draft_actual_host_model: str
+    draft_substitution_or_escalation: str | None
+    as_of: datetime
+    sections: dict
+    input_manifest: dict
+    gaps: list[str]
+    input_fingerprint: str
+    analytics_fingerprint: str
+    draft_fingerprint: str
+    artifact_fingerprint: str
+    verifier_result: dict
+    created_at: datetime
 
 
 class ValuationPreviewOut(BaseModel):
@@ -714,6 +887,7 @@ class AssumptionSetOut(BaseModel):
 
 # -------------------------------------------------------- decision journal
 
+
 class DecisionJournalEntryOut(BaseModel):
     """One immutable user decision record attached to a company thesis."""
 
@@ -748,6 +922,7 @@ class DecisionJournalEntryCreateIn(BaseModel):
 
 
 # --------------------------------------------------------------- discovery
+
 
 class DiscoveryCandidateOut(BaseModel):
     ticker: str
@@ -814,6 +989,7 @@ class DiscoveryOut(BaseModel):
 
 # ---------------------------------------------------------------- companies
 
+
 class CompanyOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -873,6 +1049,7 @@ class PriceOut(BaseModel):
 
 # -------------------------------------------------------------------- forum
 
+
 class TopicLinkIn(BaseModel):
     url: str = Field(max_length=500)
     ticker: str = Field(min_length=1, max_length=12)
@@ -912,6 +1089,7 @@ class ForumPageOut(BaseModel):
 
 # ----------------------------------------------------------------- forecast
 
+
 class ForecastAssumptionsIn(BaseModel):
     """Next-quarter assumptions; every value in tys. PLN unless stated."""
 
@@ -941,6 +1119,7 @@ class ForecastOut(BaseModel):
 
 
 # ------------------------------------------------------------------ dossier
+
 
 class CheckOut(BaseModel):
     id: str
@@ -1324,6 +1503,7 @@ class ValuationOut(BaseModel):
 
 # ----------------------------------------------------------------- analyses
 
+
 class AnalysisOut(BaseModel):
     """One persisted AI analysis run (services/claude_client.py, Phase 5).
     `output` is the verdict object (PLAN §8 schema) kept as a permissive dict —
@@ -1460,38 +1640,6 @@ class FalsifierUpdateIn(BaseModel):
     status: str = Field(min_length=1, max_length=20)
     reason: str = Field(min_length=1, max_length=2000)
     review_date: date | None = None
-
-
-class PositionOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    ticker: str
-    instrument_name: str | None
-    portfolio: str
-    entry_date: date | None
-    entry_price: float | None
-    quantity: float | None
-    size_pln: float | None
-    sizing_rule_flag: bool
-    source: str
-    imported_at: datetime
-
-
-class PositionCsvImportIn(BaseModel):
-    portfolio: str = Field(default="default", min_length=1, max_length=80)
-    csv_text: str = Field(min_length=1, max_length=500_000)
-
-
-class PositionImportOut(BaseModel):
-    imported: int
-    skipped_duplicates: int
-    unmatched: list[str]
-    positions: list[PositionOut]
-
-
-class MyfundImportIn(BaseModel):
-    portfolio: str | None = Field(default=None, min_length=1, max_length=80)
 
 
 class AnalysisRunOut(BaseModel):

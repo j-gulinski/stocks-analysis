@@ -101,6 +101,19 @@ _POLICIES: dict[str, dict[str, Any]] = {
             "look-ahead and final probability coherence"
         ),
     },
+    "stock-portfolio-review": {
+        "draft_role": "worker_standard",
+        "draft_model": "gpt-5.6-terra",
+        "draft_reasoning_effort": "high",
+        "required_verifier_role": "verifier_strict",
+        "verifier_model": "gpt-5.6-sol",
+        "verifier_reasoning_effort": "high",
+        "reasoning": "Terra high for bounded interpretation of frozen deterministic portfolio analytics",
+        "verification_scope": (
+            "snapshot and mapping identity, reconciliation, method labels, eligible valuation "
+            "arithmetic, look-ahead, exact draft and absence of transaction advice"
+        ),
+    },
 }
 
 

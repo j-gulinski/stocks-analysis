@@ -1,0 +1,541 @@
+"use client";
+
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import {
+  IconAlertTriangle,
+  IconArrowRight,
+  IconBriefcase,
+  IconDatabaseOff,
+  IconRefresh,
+  IconShieldCheck,
+  IconSparkles,
+} from "@tabler/icons-react";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { getPortfolioWorkspace, queuePortfolioReview, syncMyfundPortfolio } from "@/lib/api";
+import { fmtDate, fmtPct, fmtPln, signClass } from "@/lib/format";
+import type {
+  PortfolioLiquidity,
+  PortfolioPosition,
+  PortfolioReviewSnapshot,
+  PortfolioReviewStatus,
+  PortfolioWorkspace,
+} from "@/lib/types";
+
+function ageInDays(value: string): number {
+  return Math.floor((Date.now() - new Date(value).getTime()) / 86_400_000);
+}
+
+function exactTimestamp(value: string | null | undefined): string {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("pl-PL", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function signedPln(value: number | null | undefined): string {
+  if (value == null) return "—";
+  return `${value > 0 ? "+" : ""}${fmtPln(value)}`;
+}
+
+function profitPct(profit: number | null, cost: number | null): number | null {
+  if (profit == null || cost == null || cost <= 0) return null;
+  return profit / cost * 100;
+}
+
+function providerLabel(provider: string): string {
+  return provider.toLowerCase() === "myfund" ? "myfund" : provider;
+}
+
+function modelProvenanceLabel(requested: string, actual: string, substitution: string | null): string {
+  if (substitution?.trim()) return substitution.trim();
+  if (actual.trim() === requested.trim()) return "zgodne z żądaniem";
+  const normalized = actual.trim().toLowerCase();
+  if ([
+    "not exposed",
+    "not-exposed",
+    "unavailable",
+    "not available",
+    "model unavailable",
+    "deployment unavailable",
+    "does not expose",
+    "nieujawn",
+    "niedostęp",
+  ].some((marker) => normalized.includes(marker))) {
+    return "konkretne wdrożenie nieujawnione";
+  }
+  return "uwaga: brak wyjaśnienia różnicy";
+}
+
+function hasCurrentSyncFailure(workspace: PortfolioWorkspace): boolean {
+  const failure = workspace.last_sync_failure;
+  if (!failure) return false;
+  if (!workspace.latest_sync) return true;
+  return new Date(failure.requested_at).getTime() >= new Date(workspace.latest_sync.requested_at).getTime();
+}
+
+function mappingLabel(position: PortfolioPosition): { text: string; tone: string } | null {
+  if (position.mapping_status === "unmatched") return { text: "nierozpoznany", tone: "warning" };
+  if (position.mapping_status === "ignored" || position.mapping_kind === "ignored") return { text: "pominięty świadomie", tone: "muted" };
+  if (position.mapping_kind === "cash") return { text: "gotówka", tone: "neutral" };
+  if (position.mapping_kind === "other") return { text: "poza analizą spółek", tone: "muted" };
+  return null;
+}
+
+function liquidityLabel(item: PortfolioLiquidity | undefined): React.ReactNode {
+  if (!item || item.status === "unavailable" || item.estimated_exit_days == null) {
+    return <span className="muted">brak danych</span>;
+  }
+  return <><strong>{item.estimated_exit_days < 1 ? "< 1" : item.estimated_exit_days.toLocaleString("pl-PL", { maximumFractionDigits: 1 })} dni</strong><small>przy {item.participation_pct}% obrotu</small></>;
+}
+
+export default function PortfolioDashboard({ initial }: { initial: PortfolioWorkspace }) {
+  const [workspace, setWorkspace] = useState(initial);
+  const [syncing, setSyncing] = useState(false);
+  const [commandError, setCommandError] = useState<string | null>(null);
+  const [reviewQueueing, setReviewQueueing] = useState(false);
+  const [reviewNotice, setReviewNotice] = useState<string | null>(null);
+  const snapshot = workspace.snapshot;
+  const provider = providerLabel(workspace.provider);
+
+  const liquidityByPosition = useMemo(
+    () => new Map(workspace.liquidity.map((item) => [item.position_id, item])),
+    [workspace.liquidity],
+  );
+  const coveredPositions = useMemo(
+    () => new Set(workspace.scenario_sensitivity?.covered.map((item) => item.position_id) ?? []),
+    [workspace.scenario_sensitivity],
+  );
+  const exclusions = useMemo(
+    () => new Map(workspace.scenario_sensitivity?.exclusions.map((item) => [item.position_id, item]) ?? []),
+    [workspace.scenario_sensitivity],
+  );
+
+  async function synchronize() {
+    setSyncing(true);
+    setCommandError(null);
+    try {
+      const result = await syncMyfundPortfolio();
+      setWorkspace(result);
+    } catch {
+      setCommandError("Synchronizacja nie powiodła się. Pokazuję ostatni poprawny stan.");
+      try {
+        // The failed attempt is durable. Re-read it without retrying the
+        // provider so the notice updates while the good snapshot remains.
+        setWorkspace(await getPortfolioWorkspace());
+      } catch {
+        // Keep the already rendered snapshot if even the local read fails.
+      }
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function queueReview() {
+    setReviewQueueing(true);
+    setReviewNotice(null);
+    let queued: Awaited<ReturnType<typeof queuePortfolioReview>>;
+    try {
+      queued = await queuePortfolioReview();
+    } catch {
+      setReviewNotice("Nie udało się zaplanować analizy. Zapisany portfel pozostał bez zmian.");
+      setReviewQueueing(false);
+      return;
+    }
+    setReviewNotice(queued.created ? "Analiza została zaplanowana." : "Analiza dla tego samego stanu już istnieje.");
+    try {
+      setWorkspace(await getPortfolioWorkspace());
+    } catch {
+      // The durable command succeeded. Keep its accurate confirmation even if
+      // refreshing the local read model failed.
+    } finally {
+      setReviewQueueing(false);
+    }
+  }
+
+  if (!workspace.configured) {
+    return (
+      <main className="page-stack portfolio-page">
+        <PortfolioHeader workspace={workspace} syncing={false} onSync={synchronize} />
+        <section className="portfolio-empty">
+          <IconDatabaseOff size={25} />
+          <h2>Portfolio nie jest jeszcze połączone</h2>
+          <p>Dodaj klucz API i nazwę jednego portfela myfund w konfiguracji środowiska. Workbench nie przechowuje loginu ani hasła.</p>
+          <Link className="btn" href="/settings">Otwórz System <IconArrowRight size={14} /></Link>
+        </section>
+      </main>
+    );
+  }
+
+  if (!snapshot) {
+    return (
+      <main className="page-stack portfolio-page">
+        <PortfolioHeader workspace={workspace} syncing={syncing} onSync={synchronize} />
+        {commandError && <div className="error-box" role="alert">{commandError}</div>}
+        {hasCurrentSyncFailure(workspace) && <SyncFailure workspace={workspace} />}
+        <section className="portfolio-empty">
+          <IconBriefcase size={25} />
+          <h2>Brak pierwszego snapshotu</h2>
+          <p>Synchronizacja uruchomi się dopiero po użyciu przycisku. Odczyt tej strony nie kontaktuje się z myfund.</p>
+          <button className="btn accent" onClick={() => void synchronize()} disabled={syncing}>
+            <IconRefresh size={14} className={syncing ? "spin" : ""} /> {syncing ? "Synchronizuję…" : `Synchronizuj ${provider}`}
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  const resultPct = profitPct(snapshot.profit, snapshot.cost_basis);
+  const analyticsAvailable = workspace.reconciliation?.status === "reconciled"
+    && workspace.coverage?.analytics_available === true;
+  const scenario = workspace.scenario_sensitivity;
+  const scenarioCoverage = scenario?.coverage_value_pct ?? 0;
+  const historyGaps = new Set(workspace.history_quality?.gaps ?? []);
+  const attention: string[] = [];
+  if (ageInDays(snapshot.as_of) > 3) attention.push(`Stan portfela ma ${ageInDays(snapshot.as_of)} dni — zsynchronizuj aktualne wartości.`);
+  if ((workspace.coverage?.unmapped_positions ?? 0) > 0) attention.push(`${workspace.coverage!.unmapped_positions} pozycji nie ma pewnego mapowania i nie wchodzi do analizy spółek.`);
+  if (analyticsAvailable && scenarioCoverage === 0 && workspace.positions.some((item) => item.mapping_kind === "company")) attention.push("Żadna pozycja nie ma aktualnej zweryfikowanej wyceny; wrażliwość scenariuszowa jest niedostępna.");
+  else if (scenario && scenario.exclusions.length > 0) attention.push(`${scenario.exclusions.length} pozycji nie wchodzi do wrażliwości scenariuszowej.`);
+  if (workspace.history.length === 0) attention.push("myfund nie zwrócił historii wartości i stóp zwrotu dla tego snapshotu.");
+  snapshot.gaps.filter((gap) => !historyGaps.has(gap)).forEach((gap) => attention.push(gap));
+
+  return (
+    <main className="page-stack portfolio-page">
+      <PortfolioHeader workspace={workspace} syncing={syncing} onSync={synchronize} />
+      {commandError && <div className="error-box" role="alert">{commandError}</div>}
+      {hasCurrentSyncFailure(workspace) && <SyncFailure workspace={workspace} />}
+      {!analyticsAvailable && workspace.reconciliation && <ReconciliationWarning reconciliation={workspace.reconciliation} />}
+
+      <section className="portfolio-summary" aria-label="Podsumowanie portfela">
+        <SummaryMetric label="Wartość" value={fmtPln(snapshot.total_value)} note={`wg ${provider}`} />
+        <SummaryMetric label="Koszt" value={fmtPln(snapshot.cost_basis)} note={snapshot.cost_basis == null ? "brak podstawy kosztowej" : `wg ${provider}`} />
+        <SummaryMetric label="Wynik" value={signedPln(snapshot.profit)} tone={signClass(snapshot.profit)} note={resultPct == null ? `wg ${provider}` : `${fmtPct(resultPct, { signed: true })} · wg ${provider}`} />
+        <SummaryMetric label="Gotówka" value={fmtPln(snapshot.cash_value)} note={snapshot.cash_value == null ? "brak rozpoznanej pozycji gotówkowej" : analyticsAvailable ? `${fmtPct(snapshot.total_value > 0 ? snapshot.cash_value / snapshot.total_value * 100 : 0)} portfela` : "wartość z zachowanych wierszy"} />
+        <SummaryMetric label="Pokrycie scenariuszami" value={analyticsAvailable ? fmtPct(scenarioCoverage) : "niedostępne"} note={analyticsAvailable ? "tylko zweryfikowane wyceny" : "wiersze nie uzgadniają się z sumą"} />
+      </section>
+
+      {attention.length > 0 && (
+        <section className="portfolio-attention" aria-labelledby="portfolio-attention-title">
+          <div><IconAlertTriangle size={17} /><h2 id="portfolio-attention-title">Wymaga uwagi</h2></div>
+          <ul>{attention.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul>
+        </section>
+      )}
+
+      {analyticsAvailable && workspace.risk_context && <PortfolioRiskAttention workspace={workspace} />}
+
+      <PositionsSection
+        positions={workspace.positions}
+        total={snapshot.total_value}
+        liquidity={liquidityByPosition}
+        covered={coveredPositions}
+        exclusions={exclusions}
+        analyticsAvailable={analyticsAvailable}
+      />
+
+      {workspace.positions.length > 0 && workspace.concentration && (
+        <section className="portfolio-two-column">
+          <ConcentrationPanel title="Koncentracja sektorowa" groups={workspace.concentration.sectors} top1={workspace.concentration.top1_pct} top3={workspace.concentration.top3_pct} />
+          <ConcentrationPanel title="Klasy aktywów wg myfund" groups={workspace.concentration.asset_types} />
+        </section>
+      )}
+
+      <HistorySection workspace={workspace} />
+      <ScenarioSection workspace={workspace} analyticsAvailable={analyticsAvailable} />
+      <PortfolioReviewSection workspace={workspace} queueing={reviewQueueing} notice={reviewNotice} onQueue={queueReview} analyticsAvailable={analyticsAvailable} />
+      <LiquidityAudit workspace={workspace} />
+    </main>
+  );
+}
+
+function PortfolioHeader({ workspace, syncing, onSync }: { workspace: PortfolioWorkspace; syncing: boolean; onSync: () => void }) {
+  return (
+    <section className="page-header portfolio-header">
+      <div>
+        <p className="eyebrow">Portfolio</p>
+        <h1>{workspace.portfolio_label || "Mój portfel"}</h1>
+        <p>{workspace.snapshot ? `Stan dokładnie na ${exactTimestamp(workspace.snapshot.as_of)} · ${ageInDays(workspace.snapshot.as_of) <= 1 ? "aktualny snapshot" : `${ageInDays(workspace.snapshot.as_of)} dni od snapshotu`}` : "Rzeczywiste aktywa, historia i ekspozycja na scenariusze spółek."}</p>
+      </div>
+      {workspace.configured && (
+        <button className="btn accent" onClick={onSync} disabled={syncing}>
+          <IconRefresh size={14} className={syncing ? "spin" : ""} /> {syncing ? "Synchronizuję…" : `Synchronizuj ${providerLabel(workspace.provider)}`}
+        </button>
+      )}
+    </section>
+  );
+}
+
+function SyncFailure({ workspace }: { workspace: PortfolioWorkspace }) {
+  const failure = workspace.last_sync_failure!;
+  return (
+    <div className="portfolio-sync-failure" role="status">
+      <IconAlertTriangle size={16} />
+      <div><strong>Ostatnia synchronizacja nie powiodła się</strong><span>{fmtDate(failure.requested_at)}{failure.error ? ` · ${failure.error.replace(/[.\s]+$/, "")}` : ""}. {workspace.snapshot ? "Pokazuję ostatni poprawny snapshot." : "Dane nie zostały zapisane."}</span></div>
+    </div>
+  );
+}
+
+function ReconciliationWarning({ reconciliation }: { reconciliation: NonNullable<PortfolioWorkspace["reconciliation"]> }) {
+  return (
+    <section className="portfolio-reconciliation-warning" role="alert">
+      <IconAlertTriangle size={19} />
+      <div>
+        <strong>Wiersze portfela nie uzgadniają się z sumą myfund</strong>
+        <p>Wiersze: {fmtPln(reconciliation.retained_value)} · suma dostawcy: {fmtPln(reconciliation.provider_total)} · różnica: {signedPln(reconciliation.delta)} · tolerancja: {fmtPln(reconciliation.tolerance)}.</p>
+        <span>Pokazuję sumę dostawcy, historię i surowe pozycje. Udziały, koncentracja, płynność, scenariusze, kontekst ryzyk i nowa analiza Codex pozostają wyłączone do czasu pełnego uzgodnienia.</span>
+      </div>
+    </section>
+  );
+}
+
+function PortfolioRiskAttention({ workspace }: { workspace: PortfolioWorkspace }) {
+  const context = workspace.risk_context!;
+  const stale = context.companies.filter((item) => item.research.stale);
+  const snapshotFired = context.companies.filter((item) => item.snapshot_known_fired_count > 0);
+  const currentOnlyFired = context.companies.filter((item) => item.current_only_fired_count > 0);
+  const groups = context.shared_groups;
+  if (stale.length === 0 && snapshotFired.length === 0 && currentOnlyFired.length === 0 && groups.length === 0) return null;
+  const tickerByCompany = new Map(context.companies.map((item) => [item.company_id, item.ticker || `spółka ${item.company_id}`]));
+  return (
+    <section className="portfolio-risk-attention" aria-labelledby="portfolio-risk-title">
+      <div className="portfolio-risk-heading"><div><p className="section-label">Kontekst ryzyk</p><h2 id="portfolio-risk-title">Sygnały wymagające sprawdzenia</h2></div><span>Snapshot {exactTimestamp(context.snapshot_as_of)} · kontekst {exactTimestamp(context.context_generated_at)}</span></div>
+      <div className="portfolio-risk-counts">
+        {stale.length > 0 && <span><strong>{stale.length}</strong> nieaktualny Research</span>}
+        {snapshotFired.length > 0 && <span className="danger"><strong>{snapshotFired.reduce((sum, item) => sum + item.snapshot_known_fired_count, 0)}</strong> naruszone na moment snapshotu</span>}
+        {currentOnlyFired.length > 0 && <span className="current"><strong>{currentOnlyFired.reduce((sum, item) => sum + item.current_only_fired_count, 0)}</strong> naruszone tylko w bieżącym kontekście</span>}
+        {groups.length > 0 && <span><strong>{groups.length}</strong> wspólnych ekspozycji</span>}
+      </div>
+      <details>
+        <summary>Spółki i wspólne ekspozycje</summary>
+        <div className="portfolio-risk-details">
+          {stale.length > 0 && <section><h3>Nieaktualny Research</h3><ul>{stale.map((item) => <li key={item.company_id}><strong>{item.ticker || item.company_id}</strong><span>{item.research.as_of ? `${item.research.age_days} dni · ${item.research.status}` : "brak snapshotu Research"}</span></li>)}</ul></section>}
+          {snapshotFired.length > 0 && <section><h3>Naruszone do {exactTimestamp(context.snapshot_as_of)}</h3><ul>{snapshotFired.flatMap((item) => item.snapshot_known_fired_falsifiers.map((row) => <li key={`${item.company_id}-${row.id}`}><strong>{item.ticker || item.company_id}</strong><span>{row.statement} · aktualizacja {exactTimestamp(row.updated_at)}</span></li>))}</ul><small>Te wiersze istniały i nie zmieniły się po momencie snapshotu.</small></section>}
+          {currentOnlyFired.length > 0 && <section><h3>Naruszone tylko w kontekście z {exactTimestamp(context.context_generated_at)}</h3><ul>{currentOnlyFired.flatMap((item) => item.current_only_fired_falsifiers.map((row) => <li key={`${item.company_id}-${row.id}`}><strong>{item.ticker || item.company_id}</strong><span>{row.statement} · aktualizacja {exactTimestamp(row.updated_at)}</span></li>))}</ul><small>Tych statusów nie przypisujemy do wcześniejszego snapshotu portfela.</small></section>}
+          {groups.length > 0 && <section><h3>Współekspozycja</h3><ul>{groups.map((group) => { const groupType = group.type ?? group.group_type; const currentMetadata = group.time_basis === "includes-current-only"; const metadataTimes = group.evidence_basis.map((item) => item.company_metadata_updated_at).filter((item): item is string => Boolean(item)); return <li key={`${groupType}-${group.label}`}><strong>{groupType === "sector" ? "Sektor" : "Archetyp"}: {group.label}</strong><span>{group.company_ids.map((id) => tickerByCompany.get(id)).join(", ")} · {fmtPln(group.value)} · {currentMetadata ? `zawiera bieżące metadane${metadataTimes.length ? ` (${exactTimestamp(metadataTimes.sort().at(-1))})` : ""}` : "podstawa znana na moment snapshotu"}</span></li>; })}</ul><small>To wspólna ekspozycja według etykiet sektora lub archetypu. Nie oznacza korelacji, kowariancji ani wspólnego prawdopodobieństwa wyniku.</small></section>}
+        </div>
+      </details>
+    </section>
+  );
+}
+
+function SummaryMetric({ label, value, note, tone = "" }: { label: string; value: string; note: string; tone?: string }) {
+  return <div><span>{label}</span><strong className={tone}>{value}</strong><small>{note}</small></div>;
+}
+
+function PositionsSection({ positions, total, liquidity, covered, exclusions, analyticsAvailable }: {
+  positions: PortfolioPosition[];
+  total: number;
+  liquidity: Map<number, PortfolioLiquidity>;
+  covered: Set<number>;
+  exclusions: Map<number, { reason: string; latest_status?: string | null }>;
+  analyticsAvailable: boolean;
+}) {
+  return (
+    <section className="portfolio-section" aria-labelledby="portfolio-positions-title">
+      <div className="portfolio-section-heading"><div><p className="section-label">Skład</p><h2 id="portfolio-positions-title">Pozycje</h2></div><span>{positions.length} instrumentów</span></div>
+      {positions.length === 0 ? (
+        <div className="portfolio-valid-empty"><strong>Portfel jest pusty</strong><span>Synchronizacja zakończyła się poprawnie i nie zwróciła pozycji.</span></div>
+      ) : (
+        <div className="portfolio-position-table" role="table" aria-label="Pozycje portfela">
+          <div className="portfolio-position-head" role="row">
+            <span>Instrument</span><span>{analyticsAvailable ? "Wartość / udział" : "Wartość"}</span><span>Koszt / wynik</span><span>Płynność</span><span>Scenariusze</span>
+          </div>
+          {positions.map((position) => {
+            const badge = mappingLabel(position);
+            const allocation = analyticsAvailable ? (position.allocation_pct ?? (total > 0 ? position.value / total * 100 : 0)) : null;
+            const excluded = exclusions.get(position.id);
+            const name = <><strong>{position.ticker || position.name}</strong>{position.ticker && <span>{position.name}</span>}</>;
+            return (
+              <div className="portfolio-position-row" role="row" key={position.id}>
+                <div className="portfolio-position-name" role="cell">
+                  {position.company_id && position.ticker ? <Link href={`/stock/${position.ticker}`}>{name}</Link> : <div>{name}</div>}
+                  <small>{position.sector || position.asset_type || "Brak klasyfikacji"}</small>
+                  {badge && <span className={`badge ${badge.tone}`}>{badge.text}</span>}
+                </div>
+                <div role="cell"><strong>{fmtPln(position.value)}</strong>{allocation != null && <span>{fmtPct(allocation)}</span>}{position.quantity != null && <small>{position.quantity.toLocaleString("pl-PL", { maximumFractionDigits: 4 })} szt.</small>}</div>
+                <div role="cell"><strong>{fmtPln(position.cost_basis)}</strong><span className={signClass(position.profit)}>{signedPln(position.profit)}</span><small>wg dostawcy</small></div>
+                <div role="cell" className="portfolio-liquidity-cell">{analyticsAvailable ? liquidityLabel(liquidity.get(position.id)) : <span className="muted">po uzgodnieniu</span>}</div>
+                <div role="cell">
+                  {!analyticsAvailable ? <span className="muted">po uzgodnieniu</span> : covered.has(position.id) ? <><span className="badge success">pokryta</span><small>zweryfikowana wycena</small></> : position.mapping_kind === "company" ? <><span className="badge muted">bez pokrycia</span><small title={excluded?.reason}>{excluded?.latest_status ? `ostatnia: ${excluded.latest_status}` : "brak aktualnej zweryfikowanej wyceny"}</small></> : <span className="muted">nie dotyczy</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ConcentrationPanel({ title, groups, top1, top3 }: { title: string; groups: Array<{ label: string; value: number; allocation_pct: number }>; top1?: number; top3?: number }) {
+  return (
+    <section className="portfolio-section portfolio-concentration">
+      <div className="portfolio-section-heading"><h2>{title}</h2>{top1 != null && <span>Największa pozycja {fmtPct(top1)} · 3 największe pozycje {fmtPct(top3)}</span>}</div>
+      {groups.length === 0 ? <p className="muted">Brak sklasyfikowanych pozycji.</p> : <div className="portfolio-bars">{groups.slice(0, 6).map((group) => <div key={group.label}><div><span>{group.label}</span><strong>{fmtPct(group.allocation_pct)}</strong></div><span className="portfolio-bar"><i style={{ width: `${Math.min(100, group.allocation_pct)}%` }} /></span></div>)}</div>}
+    </section>
+  );
+}
+
+function HistorySection({ workspace }: { workspace: PortfolioWorkspace }) {
+  const methods = workspace.performance_methods;
+  const benchmark = workspace.snapshot?.benchmark_name;
+  const historyQuality = workspace.history_quality;
+  return (
+    <section className="portfolio-section" aria-labelledby="portfolio-history-title">
+      <div className="portfolio-section-heading"><div><p className="section-label">Historia</p><h2 id="portfolio-history-title">Wartość i wyniki wg myfund</h2></div><span>{benchmark ? `Benchmark dostawcy: ${benchmark}` : "Brak benchmarku dostawcy"}</span></div>
+      {historyQuality?.status === "partial" && <div className="portfolio-history-partial"><IconAlertTriangle size={15} /><div><strong>Historia jest częściowa</strong><span>{historyQuality.gaps.join(" ")}</span></div></div>}
+      {workspace.history.length === 0 ? <div className="portfolio-valid-empty"><strong>Brak historii od dostawcy</strong><span>Bieżący skład pozostaje użyteczny; nie wyliczamy stopy zwrotu z przybliżeń.</span></div> : <div className="portfolio-chart-grid">
+        <div><h3>Wartość i wkład</h3><div className="portfolio-chart"><ResponsiveContainer width="100%" height="100%"><LineChart data={workspace.history}><CartesianGrid stroke="#2a3440" vertical={false} /><XAxis dataKey="date" tickFormatter={(value) => fmtDate(String(value))} tick={{ fill: "#8797a8", fontSize: 10 }} /><YAxis tick={{ fill: "#8797a8", fontSize: 10 }} width={68} /><Tooltip labelFormatter={(value) => fmtDate(String(value))} formatter={(value) => fmtPln(typeof value === "number" ? value : null)} /><Legend /><Line type="monotone" dataKey="value" name="Wartość" stroke="#58a6ff" dot={false} connectNulls /><Line type="monotone" dataKey="contributed" name="Wpłacony kapitał wg myfund" stroke="#9fb0bf" dot={false} connectNulls /></LineChart></ResponsiveContainer></div></div>
+        <div><h3>Stopy zwrotu dostawcy</h3><div className="portfolio-chart"><ResponsiveContainer width="100%" height="100%"><LineChart data={workspace.history}><CartesianGrid stroke="#2a3440" vertical={false} /><XAxis dataKey="date" tickFormatter={(value) => fmtDate(String(value))} tick={{ fill: "#8797a8", fontSize: 10 }} /><YAxis tickFormatter={(value) => `${value}%`} tick={{ fill: "#8797a8", fontSize: 10 }} width={46} /><Tooltip labelFormatter={(value) => fmtDate(String(value))} formatter={(value) => typeof value === "number" ? fmtPct(value) : "—"} /><Legend /><Line type="monotone" dataKey="provider_return_pct" name="Portfel wg myfund" stroke="#3fd0a4" dot={false} connectNulls /><Line type="monotone" dataKey="benchmark_return_pct" name={benchmark ? `${benchmark} wg myfund` : "Benchmark wg myfund"} stroke="#efb454" dot={false} connectNulls /></LineChart></ResponsiveContainer></div></div>
+      </div>}
+      <div className="portfolio-method-note"><strong>Metoda</strong><span>Stopa portfela: {methods?.provider_return ?? "niedostępna"}. Benchmark: {methods?.benchmark ?? "niedostępny"}.</span><span>TWR: {methods?.twr ?? "niedostępny"} · XIRR: {methods?.xirr ?? "niedostępny"}.</span>{methods?.gap && <span>{methods.gap}</span>}<span>Workbench nie potwierdził, że benchmark jest indeksem dochodowym.</span></div>
+    </section>
+  );
+}
+
+function ScenarioSection({ workspace, analyticsAvailable }: { workspace: PortfolioWorkspace; analyticsAvailable: boolean }) {
+  const scenario = workspace.scenario_sensitivity;
+  const current = workspace.snapshot!.total_value;
+  return (
+    <section className="portfolio-section" aria-labelledby="portfolio-scenarios-title">
+      <div className="portfolio-section-heading"><div><p className="section-label">Perspektywy</p><h2 id="portfolio-scenarios-title">Wrażliwość na scenariusze spółek</h2></div><span>Gotówka i pozycje bez pokrycia pozostają bez zmian</span></div>
+      {!analyticsAvailable ? <div className="portfolio-valid-empty"><strong>Scenariusze czekają na uzgodnienie portfela</strong><span>Nie agregujemy wycen, dopóki suma zachowanych wierszy nie zgadza się z sumą myfund.</span></div> : !scenario || scenario.coverage_value_pct === 0 ? <div className="portfolio-valid-empty"><strong>Brak zweryfikowanych scenariuszy</strong><span>Wyceny prowizoryczne, odrzucone lub niepowiązane z najnowszym Research nie są agregowane.</span></div> : <>
+        <div className="portfolio-scenario-grid">
+          {[{ key: "negative", label: "Spadkowy" }, { key: "base", label: "Bazowy" }, { key: "positive", label: "Wzrostowy" }, { key: "weighted", label: "Ważony w spółkach" }].map(({ key, label }) => {
+            const value = scenario.portfolio_values[key as keyof typeof scenario.portfolio_values];
+            const change = current > 0 ? (value / current - 1) * 100 : null;
+            return <div key={key}><span>{label}</span><strong>{fmtPln(value)}</strong><small className={signClass(change)}>{fmtPct(change, { signed: true })} wobec obecnej wartości</small></div>;
+          })}
+        </div>
+        <p className="portfolio-scenario-note">Pokrycie {fmtPct(scenario.coverage_value_pct)}. To równoległa wrażliwość, a nie wspólny rozkład prawdopodobieństwa ani rekomendacja.</p>
+      </>}
+      {scenario && scenario.exclusions.length > 0 && <details className="portfolio-exclusions"><summary>Pozycje wyłączone ({scenario.exclusions.length})</summary><ul>{scenario.exclusions.map((item) => { const position = workspace.positions.find((row) => row.id === item.position_id); return <li key={item.position_id}><strong>{position?.ticker || position?.name || `Pozycja ${item.position_id}`}</strong><span>{item.latest_status ? `ostatnia wycena: ${item.latest_status}` : "brak kwalifikującej się wyceny"}</span></li>; })}</ul></details>}
+    </section>
+  );
+}
+
+const REVIEW_STATUS: Record<PortfolioReviewStatus, { label: string; tone: string }> = {
+  verified: { label: "zweryfikowana", tone: "success" },
+  provisional: { label: "prowizoryczna", tone: "warning" },
+  rejected: { label: "odrzucona", tone: "danger" },
+  "needs-human": { label: "wymaga interwencji", tone: "warning" },
+};
+
+function PortfolioReviewSection({ workspace, queueing, notice, onQueue, analyticsAvailable }: {
+  workspace: PortfolioWorkspace;
+  queueing: boolean;
+  notice: string | null;
+  onQueue: () => void;
+  analyticsAvailable: boolean;
+}) {
+  const reviewState = workspace.portfolio_review;
+  const latest = reviewState.latest;
+  const active = reviewState.active_run;
+  const status = latest ? REVIEW_STATUS[latest.status] : null;
+  const currentSnapshot = Boolean(latest && latest.portfolio_snapshot_id === workspace.snapshot?.id);
+  const activeLabel = active?.status === "running" ? "Analiza jest wykonywana" : "Analiza oczekuje";
+
+  return (
+    <section className="portfolio-section portfolio-review" aria-labelledby="portfolio-review-title">
+      <div className="portfolio-section-heading portfolio-review-heading">
+        <div><p className="section-label">Codex</p><h2 id="portfolio-review-title">Perspektywa całego portfela</h2></div>
+        <button className="btn" onClick={onQueue} disabled={!analyticsAvailable || queueing || Boolean(active)}>
+          <IconSparkles size={14} /> {!analyticsAvailable ? "Najpierw uzgodnij dane" : queueing ? "Planuję…" : active ? activeLabel : "Przeanalizuj z Codex"}
+        </button>
+      </div>
+
+      {notice && <div className="portfolio-review-notice" role="status">{notice}</div>}
+      {!analyticsAvailable && <div className="portfolio-valid-empty"><strong>Nowa analiza Codex jest niedostępna</strong><span>Najpierw suma zachowanych pozycji musi uzgodnić się z sumą portfela myfund. Poprzednie analizy pozostają poniżej jako historia.</span></div>}
+      {active && (
+        <div className="portfolio-review-queued" role="status">
+          <IconSparkles size={16} />
+          <div><strong>{activeLabel}</strong><span>Utworzono {exactTimestamp(active.created_at)} dla snapshotu portfela {active.snapshot_id ?? "—"}.</span><small>Aby wykonać dokładnie jedno zadanie, uruchom jawnie <code>$workbench-run-queue</code>. Ta strona nie przejmuje ani nie wykonuje kolejki.</small></div>
+        </div>
+      )}
+
+      {!latest ? (
+        analyticsAvailable ? <div className="portfolio-valid-empty"><strong>Brak analizy Codex</strong><span>Możesz jawnie zaplanować interpretację zapisanych obliczeń, ryzyk i luk. Nie zmieni ona wycen spółek ani portfela.</span></div> : null
+      ) : (
+        <article className={`portfolio-review-result ${latest.status}`}>
+          <header>
+            <div><span className={`badge ${status!.tone}`}>{status!.label}</span><strong>Analiza v{latest.version}</strong></div>
+            <span>{currentSnapshot ? "Bieżący snapshot" : `Starszy snapshot ${latest.portfolio_snapshot_id}`} · {exactTimestamp(latest.as_of)}</span>
+          </header>
+
+          {!currentSnapshot && <div className="portfolio-review-stale">Od tej analizy zapisano nowszy snapshot portfela. Wniosek pozostaje historią, nie opisem bieżącego składu.</div>}
+          {latest.status === "rejected" && <div className="portfolio-review-rejected">Niezależna weryfikacja odrzuciła tę wersję. Treść jest widoczna wyłącznie jako zapis audytowy.</div>}
+          {latest.status === "needs-human" && <div className="portfolio-review-rejected">Integralność lub tożsamość danych wymaga ręcznego rozstrzygnięcia przed użyciem tej analizy.</div>}
+          {latest.status === "rejected" || latest.status === "needs-human" ? (
+            <details className="portfolio-review-details portfolio-review-audit-only">
+              <summary>Treść szkicu i wynik weryfikacji</summary>
+              <ReviewNarrative latest={latest} history={reviewState.history} auditOnly />
+            </details>
+          ) : <ReviewNarrative latest={latest} history={reviewState.history} />}
+        </article>
+      )}
+    </section>
+  );
+}
+
+function ReviewNarrative({ latest, history, auditOnly = false }: {
+  latest: PortfolioReviewSnapshot;
+  history: PortfolioWorkspace["portfolio_review"]["history"];
+  auditOnly?: boolean;
+}) {
+  const detailSections = [
+    ["Koncentracja", latest.sections.concentration],
+    ["Płynność", latest.sections.liquidity],
+    ["Historia i metoda", latest.sections.history],
+    ["Ekspozycja scenariuszowa", latest.sections.scenario_exposure],
+  ] as const;
+  const details = <>
+    <div className="portfolio-review-detail-grid">
+      {detailSections.map(([label, items]) => <section key={label}><h3>{label}</h3><ul>{items.map((item) => <li key={item}>{item}</li>)}</ul></section>)}
+    </div>
+    {latest.gaps.length > 0 && <div className="portfolio-review-gaps"><strong>Luki ({latest.gaps.length})</strong><ul>{latest.gaps.map((gap) => <li key={gap}>{gap}</li>)}</ul></div>}
+    <div className="portfolio-review-verifier"><IconShieldCheck size={15} /><div>
+      <strong>Weryfikacja: {latest.verifier_result.verdict}</strong>
+      <span>{latest.verifier_result.summary}</span>
+      <span>Szkic — żądano: {latest.draft_requested_model_role} · {latest.draft_requested_model} · {latest.draft_reasoning_effort}; host: {latest.draft_actual_host_model} · pochodzenie: {modelProvenanceLabel(latest.draft_requested_model, latest.draft_actual_host_model, latest.draft_substitution_or_escalation)}.</span>
+      <span>Weryfikacja — żądano: {latest.verifier_result.requested_model_role} · {latest.verifier_result.requested_model} · {latest.verifier_result.reasoning_effort}; host: {latest.verifier_result.actual_host_model} · pochodzenie: {modelProvenanceLabel(latest.verifier_result.requested_model, latest.verifier_result.actual_host_model, latest.verifier_result.substitution_or_escalation)}.</span>
+    </div></div>
+    {history.length > 1 && <details className="portfolio-review-history"><summary>Historia analiz ({history.length})</summary><ol>{history.map((item) => <li key={item.id}><span>v{item.version} · {REVIEW_STATUS[item.status].label}</span><small>snapshot {item.portfolio_snapshot_id} · {exactTimestamp(item.as_of)}</small></li>)}</ol></details>}
+  </>;
+  return <>
+    <p className="portfolio-review-summary">{latest.sections.summary}</p>
+    <p className="portfolio-review-boundary">Interpretacja ryzyk i perspektyw — nie rekomendacja kupna, sprzedaży ani zmiany pozycji.</p>
+    <div className="portfolio-review-primary">
+      <div><h3>Najważniejsze ryzyka</h3><ul>{latest.sections.risks.map((item) => <li key={item}>{item}</li>)}</ul></div>
+      <div><h3>Następne sprawdzenia</h3><ol>{latest.sections.next_checks.map((item) => <li key={item}>{item}</li>)}</ol></div>
+    </div>
+    {auditOnly ? details : <details className="portfolio-review-details"><summary>Pozostałe wnioski i weryfikacja</summary>{details}</details>}
+  </>;
+}
+
+function LiquidityAudit({ workspace }: { workspace: PortfolioWorkspace }) {
+  const available = workspace.liquidity.filter((item) => item.status === "provisional").length;
+  const analyticsAvailable = workspace.coverage?.analytics_available === true;
+  return (
+    <details className="portfolio-audit">
+      <summary>Dane, płynność i metoda</summary>
+      <div>
+        <p><strong>Źródło</strong><span>{providerLabel(workspace.provider)} · ostatni zapisany stan i udana synchronizacja {exactTimestamp(workspace.snapshot?.as_of)}</span></p>
+        <p><strong>Mapowanie</strong><span>{analyticsAvailable ? `${fmtPct(workspace.coverage?.mapped_company_value_pct)} wartości powiązane ze spółkami` : "udział wartości niedostępny do czasu uzgodnienia"} · {workspace.coverage?.unmapped_positions ?? 0} nierozpoznanych pozycji</span></p>
+        <p><strong>Płynność</strong><span>{analyticsAvailable ? `${available} pozycji z prowizorycznym szacunkiem. Liczba dni zakłada 10% mediany wartości obrotu z 20 sesji; surowa seria nie jest prognozą wykonania.` : "Wyłączona, ponieważ zachowane wiersze nie uzgadniają się z sumą portfela."}</span></p>
+        <p><strong>Scenariusze</strong><span>{analyticsAvailable ? "Wyłącznie zweryfikowane wyceny powiązane z najnowszym Research; dane spółek nie zmieniają się przez obecność w portfelu." : "Wyłączone razem z koncentracją i kontekstem ryzyk do czasu uzgodnienia."}</span></p>
+      </div>
+    </details>
+  );
+}

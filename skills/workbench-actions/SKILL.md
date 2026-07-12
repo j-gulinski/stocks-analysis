@@ -1,6 +1,6 @@
 ---
 name: workbench-actions
-description: Run explicit user-triggered Stock Analysis Workbench actions and explain the current operator flows. Use when the user wants to start, stop, inspect, refresh Discover, add a company to Research, preview or queue a valuation, or execute one queued Codex job. Never create a recurring worker.
+description: Run explicit user-triggered Stock Analysis Workbench actions and explain the current operator flows. Use when the user wants to start, stop, inspect, refresh Discover, add a company to Research, preview or queue a valuation, synchronize/review Portfolio, or execute one queued Codex job. Never create a recurring worker.
 ---
 
 # Workbench actions
@@ -26,6 +26,12 @@ state, queues work, claims a lease, or calls a model.
 | Queue valuation | `POST /api/research-cases/{id}/valuation-runs` | At most one content-identical `stock-company-valuation` job |
 | Verify claimed valuation | `verify_valuation_snapshot` or `codex_verify_valuation_snapshot.py` | Independent exact-draft verdict and final probabilities; job remains running |
 | Save claimed valuation | `save_valuation_snapshot` or `codex_save_valuation_snapshot.py` | One immutable valuation snapshot; terminal job and cleared lease |
+| Open Portfolio | `GET /api/portfolios/workspace` | Zero-write latest stored snapshot, mappings, analytics and review history |
+| Synchronize myfund | `POST /api/portfolios/sync/myfund` | One durable attempt and either reused or next immutable snapshot |
+| Correct a mapping | `PATCH /api/portfolios/mappings/{id}` | Explicit current interpretation; immutable provider row stays unchanged |
+| Queue portfolio review | `POST /api/portfolios/review-runs` | At most one content-identical `stock-portfolio-review` job |
+| Verify portfolio review | `codex_verify_portfolio_review.py` | Independent verdict bound to the exact frozen draft |
+| Save portfolio review | `codex_save_portfolio_review.py` | One immutable review; terminal job and cleared lease |
 
 Research lists `ResearchCase` rows, not watchlist membership. Removing a
 watchlist item never deletes the company, evidence, case, analysis, or history.
@@ -87,6 +93,39 @@ heartbeats, obtains independent strict verification, saves to the same
 6. Saving must attach only the verification ID to the unchanged draft. It
    creates one immutable `ValuationSnapshot`, clears the lease, and never
    recommends or executes a trade.
+
+## Portfolio
+
+1. Opening `/portfolio` or `GET /api/portfolios/workspace` reads only the last
+   stored state. Synchronize only after the user's explicit action. Use the
+   configured API key and exact single portfolio name; never request or store
+   a login/password and never automate the myfund web UI.
+2. Every sync attempt is recorded. Identical content reuses the latest
+   snapshot; changed content receives the next version. Preserve unknown rows
+   and surface reconciliation gaps. A failed refresh leaves the last good
+   snapshot visible.
+   If retained rows do not reconcile to the provider total, withhold all
+   derived concentration, coverage, liquidity, risk, scenario and review
+   output. Keep only the provider summary, partial-history status and raw rows.
+3. Mapping correction is explicit and cannot reinterpret an exact cash/company
+   identity. Company analysis and valuation never change because a position is
+   owned or sized differently.
+4. Treat return and benchmark series as provider-reported. TWR/XIRR and total-
+   return benchmark claims remain unavailable without independently reconciled
+   dated flows and benchmark semantics. Liquidity remains a labelled 20-session
+   raw-series estimate.
+5. Aggregate only verified valuations bound to the latest point-in-time
+   Research snapshot. Keep uncovered value unchanged and label aligned
+   downside/base/upside as simultaneous sensitivity, not joint probability.
+6. Queue review only through `/portfolio/review-runs`. `$portfolio-review`
+   reads the frozen snapshot/mappings/analytics/valuation identities, never
+   syncs or repairs them, obtains an independent strict verdict, and saves the
+   unchanged Polish draft through the canonical scripts. It never recommends
+   a transaction.
+7. Risk context freezes point-in-time Research/Profile and visibly current-
+   only falsifier timing. A shared sector/archetype group is co-exposure, not
+   correlation, covariance or joint probability. Historical liquidity may use
+   only price rows learned by the portfolio snapshot cutoff.
 
 ## Capability maintenance
 

@@ -14,9 +14,11 @@ artifact. Valuation now turns a frozen Research snapshot and explicit human
 assumptions into deterministic quarter/F12M/cash-flow/price scenarios; a
 separate verifier owns final probabilities and status.
 
-Current delivery focus: **P4 portfolio** — verify the supported myfund
-integration path, preserve dated holdings/history, and aggregate only
-company-bound scenario artifacts without changing them.
+Current delivery focus: **P4 portfolio live gate** — the immutable sync,
+deterministic dashboard and verifier-gated review workflow are implemented.
+The configured provider reference is not an accepted portfolio name, so the
+real holdings pilot and final P4 gate remain open until the exact myfund
+portfolio name is supplied.
 
 | Stage | Outcome | Exit gate | Status |
 |---|---|---|---|
@@ -24,7 +26,7 @@ company-bound scenario artifacts without changing them.
 | P1 · Research vertical | one `Dodaj do Research` command creates/reuses a company and case and one executable initial job | candidate and ticker paths are idempotent; case appears immediately; one pilot reaches a verifier-labelled snapshot | complete |
 | P2 · Tailored research + sieves | common research spine, 2–3 real archetype packs, company overlay, primary-source plan, honest OBS/PA sieves | three comparable factor/coverage views; two representative companies render different relevant sections | complete |
 | P3 · Valuation | separate method packs, driver assumptions, deterministic quarter/year and price bridges | one industrial plus one non-industrial pilot reconcile and pass strict verification; sensitivity is labelled | complete |
-| P4 · Portfolio | dated myfund/API snapshots, mappings, history, deterministic portfolio analytics and scenario aggregation | repeated sync updates positions; history/benchmark reconcile; portfolio review cites verified company snapshots | next |
+| P4 · Portfolio | dated myfund/API snapshots, mappings, history, deterministic portfolio analytics and scenario aggregation | repeated sync updates positions; history/benchmark reconcile; portfolio review cites verified company snapshots | in progress · live name blocked |
 | P5 · Calibration | official adjusted returns, historical availability, mixed/holdout cases and method calibration | replay is no-look-ahead, reproducible, benchmark-relative, and reports calibration limits | waiting for data |
 
 ## P0 acceptance
@@ -157,6 +159,37 @@ Verify myfund's available API/export and terms before expanding ingestion. Sync
 is snapshot/upsert with instrument mapping, not append-only de-duplication.
 Company analysis stays independent of position size; portfolio aggregation
 consumes only verified company scenarios.
+
+## P4 implementation evidence
+
+- Migration `0026` replaces the empty append/skip position ledger with dated
+  portfolios, every sync attempt, correctable instrument mappings, immutable
+  holdings/value points and verifier-gated portfolio review snapshots.
+- Stored reads never fetch. Explicit myfund sync uses the official API key and
+  exact portfolio-name contract, sanitizes failures, reuses identical content
+  and versions changed content without dropping unknown rows.
+- The Portfolio screen makes positions dominant and progressively exposes
+  value/cost/P&L/cash, concentration, provider-labelled history and benchmark,
+  provisional liquidity and verified-only aligned scenario sensitivity.
+- Unreconciled provider totals fail all derived analytics and review closed.
+  Malformed history is labelled partial, liquidity excludes price rows learned
+  after the snapshot, and frozen risk context names stale Research, current-
+  only falsifier timing and sector/archetype co-exposure limitations.
+- `stock-portfolio-review` freezes provider, snapshot, mapping, analytics,
+  method and eligible valuation identities. Terra-high interpretation and a
+  separate Sol-high verifier save one immutable Polish review. Mapping or
+  fingerprint drift fails closed; known transaction-instruction forms are
+  screened deterministically and the verifier owns the broader no-advice gate.
+- Fixture contracts prove zero-write reads, durable failed sync, repeated
+  sync/reversion behavior, mapping correction, point-in-time scenario math and
+  exact review verification/save retry and strict model roles. The production
+  build, 606 backend tests, PostgreSQL migration `0026`, three skill validators
+  and browser interaction pass. The live page remains zero-write until its
+  explicit sync button is used and then preserves the sanitized failed attempt.
+- The real API currently returns “portfolio not found” for the configured
+  reference. No holdings were fabricated and no login/password scraping was
+  added. P4 closes only after an exact-name sync, repeated changed snapshot,
+  reconciled live history/benchmark and one real verifier-gated review.
 
 ## Verification commands
 

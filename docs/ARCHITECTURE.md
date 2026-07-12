@@ -71,6 +71,52 @@ Implementation may extend the current schema incrementally, but disposable
 local database state does not justify compatibility layers. Use one forward
 migration per coherent schema slice.
 
+## Portfolio boundary
+
+The supported myfund integration is the documented read-only API using one
+environment-held API key and the exact configured portfolio name. The app
+never stores a myfund login/password and never automates the signed-in web UI.
+Opening Portfolio is a zero-write stored-data read; only the explicit sync
+command may contact the provider.
+
+Every provider attempt is durable and sanitized. A successful response is
+normalized into one immutable `PortfolioSnapshot`, retained position rows and
+provider-labelled value/return history. Identical current content reuses the
+latest snapshot; changed or later-reverted content receives the next version.
+Unknown instruments stay in reconciliation. `InstrumentMapping` is the
+explicit correctable identity layer over immutable provider rows; a queued
+review freezes the exact mapping states it consumed.
+Mappings use the provider-native row key when myfund supplies one; list payloads
+use a stable canonical instrument/account identity rather than a display ticker
+or list position. Cash is exact only for a small provider asset-type contract,
+never because a free-text name happens to contain “cash”.
+
+Python owns portfolio totals, weights, HHI/concentration, provider-history
+projection, 20-session liquidity estimates and aligned company-scenario
+sensitivity. Provider-reported return and benchmark series keep those labels.
+TWR, XIRR and benchmark total-return claims remain unavailable until dated
+external flows and benchmark semantics can be independently reconciled.
+If retained rows do not reconcile to the provider total within the explicit
+tolerance, concentration, coverage, liquidity, risk context, scenarios and new
+Codex review fail closed; only the provider summary, partial-history state and
+raw retained rows remain visible. Historical liquidity also requires each
+price row to have been scraped by the portfolio snapshot cutoff.
+
+Only a `verified` valuation bound to the latest point-in-time Research snapshot
+may enter scenario sensitivity. Cash and uncovered positions remain unchanged.
+The negative/base/positive totals are simultaneous sensitivities, not a joint
+probability distribution. An explicit `stock-portfolio-review` job freezes the
+snapshot, rows, mappings, method labels, deterministic analytics and eligible
+valuation fingerprints; a separate strict verifier owns the immutable Polish
+review status.
+The frozen risk context binds point-in-time Research/Profile identity and
+freshness plus explicitly current-only falsifier states. Shared sector or
+archetype groups are evidence-labelled co-exposure only, never correlation,
+covariance or a joint probability claim.
+Review artifacts persist requested role/model/reasoning separately from the
+actual host identity and any substitution/escalation explanation; a disclosed
+different host without that explanation is rejected.
+
 ## Research tailoring
 
 The common research schema is stable; content requirements come from a

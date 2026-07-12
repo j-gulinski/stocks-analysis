@@ -1410,19 +1410,308 @@ export interface Falsifier {
   updated_at: string;
 }
 
-export interface Position {
+export interface PortfolioSyncSummary {
   id: number;
-  ticker: string;
-  instrument_name: string | null;
-  portfolio: string;
-  entry_date: string | null;
-  entry_price: number | null;
-  quantity: number | null;
-  size_pln: number | null;
-  sizing_rule_flag: boolean;
-  source: string;
-  imported_at: string;
+  status: string;
+  requested_at: string;
+  fetched_at: string | null;
+  snapshot_id: number | null;
+  reused_snapshot: boolean;
+  error: string | null;
 }
+
+export interface PortfolioSnapshotSummary {
+  id: number;
+  version: number;
+  as_of: string;
+  currency: string;
+  total_value: number;
+  cost_basis: number | null;
+  profit: number | null;
+  cash_value: number | null;
+  benchmark_name: string | null;
+  gaps: string[];
+}
+
+export interface PortfolioPosition {
+  id: number;
+  mapping_id: number;
+  mapping_kind: "company" | "cash" | "other" | "ignored";
+  mapping_status: "exact" | "confirmed" | "unmatched" | "ignored";
+  company_id: number | null;
+  ticker: string | null;
+  name: string;
+  asset_type: string | null;
+  sector: string | null;
+  currency: string;
+  quote_date: string | null;
+  quote: number | null;
+  quantity: number | null;
+  value: number;
+  cost_basis: number | null;
+  profit: number | null;
+  allocation_pct: number | null;
+}
+
+export interface PortfolioHistoryPoint {
+  date: string;
+  value: number | null;
+  contributed: number | null;
+  profit: number | null;
+  provider_return_pct: number | null;
+  benchmark_return_pct: number | null;
+  daily_change: number | null;
+}
+
+export interface PortfolioLiquidity {
+  position_id: number;
+  status: "provisional" | "unavailable";
+  median_20d_traded_value_pln?: number;
+  participation_pct?: number;
+  estimated_exit_days?: number | null;
+  series_status?: string;
+  gap: string;
+}
+
+export interface PortfolioScenarioSensitivity {
+  label: string;
+  coverage_value_pct: number;
+  portfolio_values: {
+    negative: number;
+    base: number;
+    positive: number;
+    weighted: number;
+  };
+  covered: Array<{
+    position_id: number;
+    valuation_snapshot_id: number;
+    valuation_fingerprint: string;
+    current_value: number;
+    negative_value: number;
+    base_value: number;
+    positive_value: number;
+    weighted_value: number;
+  }>;
+  exclusions: Array<{
+    position_id: number;
+    reason: string;
+    latest_status?: string | null;
+  }>;
+}
+
+export interface PortfolioReconciliation {
+  status: "reconciled" | "unreconciled";
+  retained_value: number;
+  provider_total: number;
+  delta: number;
+  tolerance: number;
+}
+
+export interface PortfolioHistoryQuality {
+  status: "complete" | "partial";
+  gaps: string[];
+}
+
+export interface PortfolioRiskFalsifier {
+  id: number;
+  key: string;
+  statement: string;
+  status: "holding" | "warning" | "fired";
+  reason: string;
+  review_date: string | null;
+  thesis_hash: string | null;
+  status_basis: string;
+  created_at?: string;
+  updated_at?: string;
+  known_by_snapshot?: boolean;
+  changed_after_snapshot?: boolean;
+}
+
+export interface PortfolioRiskCompany {
+  position_id: number;
+  company_id: number;
+  ticker: string | null;
+  value: number;
+  sector: string | null;
+  sector_basis: string;
+  sector_known_by_snapshot: boolean;
+  company_metadata_updated_at: string | null;
+  asset_type: string | null;
+  research: {
+    id: number | null;
+    status: string;
+    as_of: string | null;
+    gaps: unknown[];
+    age_days: number | null;
+    stale: boolean;
+    stale_threshold_days: number;
+    freshness_version: string;
+  };
+  profile: {
+    id: number | null;
+    archetype: string | null;
+    archetype_version: string | null;
+    driver_keys: string[];
+  };
+  falsifiers: PortfolioRiskFalsifier[];
+  snapshot_known_falsifiers: PortfolioRiskFalsifier[];
+  current_only_falsifiers: PortfolioRiskFalsifier[];
+  snapshot_known_fired_count: number;
+  snapshot_known_fired_falsifiers: PortfolioRiskFalsifier[];
+  current_only_fired_count: number;
+  current_only_fired_falsifiers: PortfolioRiskFalsifier[];
+}
+
+export interface PortfolioRiskContext {
+  version: string;
+  snapshot_as_of: string;
+  context_generated_at: string;
+  research_stale_threshold_days: number;
+  companies: PortfolioRiskCompany[];
+  shared_groups: Array<{
+    type?: "sector" | "archetype";
+    group_type?: "sector" | "archetype";
+    label: string;
+    company_ids: number[];
+    position_ids: number[];
+    value: number;
+    time_basis: "snapshot-known" | "includes-current-only";
+    evidence_basis: Array<{
+      company_id: number;
+      sector_basis: string;
+      company_metadata_updated_at: string | null;
+      research_snapshot_id: number | null;
+      profile_id: number | null;
+    }>;
+    interpretation: string;
+  }>;
+  falsifier_status_basis: string;
+}
+
+export type PortfolioReviewStatus = "provisional" | "verified" | "rejected" | "needs-human";
+
+export interface PortfolioReviewSections {
+  summary: string;
+  concentration: string[];
+  liquidity: string[];
+  history: string[];
+  scenario_exposure: string[];
+  risks: string[];
+  next_checks: string[];
+}
+
+export interface PortfolioReviewSnapshot {
+  id: number;
+  portfolio_id: number;
+  portfolio_snapshot_id: number;
+  agent_run_id: number;
+  verification_run_id: number;
+  version: number;
+  contract_version: string;
+  status: PortfolioReviewStatus;
+  draft_requested_model_role: string;
+  draft_requested_model: string;
+  draft_reasoning_effort: string;
+  draft_actual_host_model: string;
+  draft_substitution_or_escalation: string | null;
+  as_of: string;
+  sections: PortfolioReviewSections;
+  input_manifest: Record<string, unknown>;
+  gaps: string[];
+  input_fingerprint: string;
+  analytics_fingerprint: string;
+  draft_fingerprint: string;
+  artifact_fingerprint: string;
+  verifier_result: {
+    requested_model_role: "verifier_strict";
+    requested_model: string;
+    reasoning_effort: string;
+    actual_host_model: string;
+    substitution_or_escalation: string | null;
+    verdict: "pass" | "fail" | "needs-human";
+    checks: Record<string, boolean>;
+    summary: string;
+  };
+  created_at: string;
+}
+
+export interface PortfolioReviewHistoryItem {
+  id: number;
+  version: number;
+  status: PortfolioReviewStatus;
+  draft_requested_model_role: string;
+  draft_requested_model: string;
+  draft_reasoning_effort: string;
+  draft_actual_host_model: string;
+  draft_substitution_or_escalation: string | null;
+  portfolio_snapshot_id: number;
+  as_of: string;
+  gaps: string[];
+  created_at: string;
+}
+
+export interface PortfolioReviewRun {
+  id: number;
+  status: "queued" | "running";
+  created_at: string;
+  snapshot_id: number | null;
+  input_fingerprint: string | null;
+  risk_context_fingerprint: string | null;
+}
+
+export interface PortfolioReviewQueueResult {
+  agent_run_id: number;
+  status: string;
+  created: boolean;
+  portfolio_id: number;
+  portfolio_snapshot_id: number;
+  input_fingerprint: string;
+  analytics_fingerprint: string;
+  risk_context_fingerprint: string;
+}
+
+export interface PortfolioWorkspace {
+  configured: boolean;
+  provider: string;
+  portfolio_label: string | null;
+  latest_sync: PortfolioSyncSummary | null;
+  last_sync_failure: PortfolioSyncSummary | null;
+  snapshot: PortfolioSnapshotSummary | null;
+  positions: PortfolioPosition[];
+  reconciliation: PortfolioReconciliation | null;
+  concentration: {
+    top1_pct: number;
+    top3_pct: number;
+    hhi: number;
+    sectors: Array<{ label: string; value: number; allocation_pct: number }>;
+    asset_types: Array<{ label: string; value: number; allocation_pct: number }>;
+  } | null;
+  history: PortfolioHistoryPoint[];
+  history_quality: PortfolioHistoryQuality | null;
+  liquidity: PortfolioLiquidity[];
+  scenario_sensitivity: PortfolioScenarioSensitivity | null;
+  risk_context: PortfolioRiskContext | null;
+  performance_methods: {
+    provider_return: string;
+    benchmark: string;
+    twr: string;
+    xirr: string;
+    gap: string;
+  } | null;
+  coverage: {
+    mapped_company_value_pct: number | null;
+    unmapped_positions: number;
+    retained_position_value_pct?: number | null;
+    analytics_available: boolean;
+  } | null;
+  portfolio_review: {
+    latest: PortfolioReviewSnapshot | null;
+    history: PortfolioReviewHistoryItem[];
+    active_run: PortfolioReviewRun | null;
+  };
+}
+
+export type PortfolioSyncResult = PortfolioWorkspace & { sync: PortfolioSyncSummary };
 
 export interface BacktestObservation {
   id: number;

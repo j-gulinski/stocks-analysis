@@ -45,7 +45,6 @@ import CompanyReport from "@/components/CompanyReport";
 import AssumptionSetsPanel from "@/components/AssumptionSetsPanel";
 import DecisionJournalPanel from "@/components/DecisionJournalPanel";
 import FalsifiersPanel from "@/components/FalsifiersPanel";
-import PositionPanel from "@/components/PositionPanel";
 import EvidenceSourcesPanel from "@/components/EvidenceSourcesPanel";
 import ResearchSnapshotView from "@/components/ResearchSnapshotView";
 import type { AgentRun, AnalysisRun, ResearchCase, ResearchCaseStepHistory } from "@/lib/types";
@@ -392,7 +391,7 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
         {TABS.map(({ id, label, icon: Icon }, index) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)} role="tab" aria-selected={tab === id}><span className="tab-step">{index + 1}</span><Icon size={13} /> {label}</button>)}
       </div>
 
-      {tab === "Report" && <><CompanyReport dossier={dossier} analysis={currentAnalysis} reviewAnalysis={reviewAnalysis} analysisJob={latestDeepJob} researchCase={researchCase} onRequestAnalysis={() => setTab("History")} /><PositionPanel ticker={ticker} /><FalsifiersPanel ticker={ticker} /><DecisionJournalPanel ticker={ticker} thesis={dossier.thesis} /><section className="overview-section report-chart"><div className="section-heading"><div><p className="section-label">Trend operacyjny</p><h2>Najważniejsze wykresy wyników</h2></div><p>W raporcie pozostaje tylko trend potrzebny do oceny tezy.</p></div><QuarterlyCharts quarters={dossier.quarters} preferContinuingNet /></section></>}
+      {tab === "Report" && <><CompanyReport dossier={dossier} analysis={currentAnalysis} reviewAnalysis={reviewAnalysis} analysisJob={latestDeepJob} researchCase={researchCase} onRequestAnalysis={() => setTab("History")} /><FalsifiersPanel ticker={ticker} /><DecisionJournalPanel ticker={ticker} thesis={dossier.thesis} /><section className="overview-section report-chart"><div className="section-heading"><div><p className="section-label">Trend operacyjny</p><h2>Najważniejsze wykresy wyników</h2></div><p>W raporcie pozostaje tylko trend potrzebny do oceny tezy.</p></div><QuarterlyCharts quarters={dossier.quarters} preferContinuingNet /></section></>}
 
       {tab === "Charts" && <><section className="scenario-warning"><IconAlertTriangle size={17} /><div><strong>Ograniczenie scenariuszy</strong><p>Warunek wyniku spółki jest pokazany jakościowo, ale cena nadal wynika głównie ze zmiany mnożnika. Traktuj to jako wrażliwość wyceny do czasu scenariuszy operacyjnych v2.</p></div></section><AssumptionSetsPanel ticker={ticker} researchCase={researchCase} /><section className="overview-section"><div className="section-heading"><div><p className="section-label">Wycena</p><h2>Scenariusze i kurs</h2></div><p>Widoki wspierające raport, bez surowych tabel.</p></div>{dossier.scenarios && <ScenariosPanel scenarios={dossier.scenarios} valuation={dossier.valuation} />}<div className="overview-grid scenario-context"><ForecastPanel ticker={ticker} dossier={dossier} onSaved={reload} /><PriceChart ticker={ticker} /></div></section></>}
 

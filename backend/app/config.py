@@ -70,12 +70,9 @@ class Settings(BaseSettings):
     # auth middleware is disabled — local dev runs open on localhost.
     api_token: str | None = None
 
-    # myfund.pl portfolio import (IL.4a, read-only). The key is the per-user
-    # API key generated in myfund (Konto → Ustawienia konta) — never a stored
-    # login/password. No key ⇒ position ledger runs on manual entries only,
-    # feature silently off. `myfund_portfolio` pins the ONE tracked portfolio
-    # (wallet name or id): the importer must never pull the whole account and
-    # must never log the key.
+    # myfund.pl explicit snapshot sync. The key is generated in myfund and is
+    # never persisted in the database or logs. `myfund_portfolio` is the exact
+    # name of the one pinned portfolio accepted by getPortfel.php (not its id).
     myfund_api_key: str | None = None
     myfund_portfolio: str | None = None
     myfund_base_url: str = "https://myfund.pl/"

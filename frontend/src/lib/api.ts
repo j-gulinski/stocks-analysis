@@ -34,7 +34,9 @@ import type {
   LoginStatus,
   MonitorCheckResult,
   PricePoint,
-  Position,
+  PortfolioSyncResult,
+  PortfolioReviewQueueResult,
+  PortfolioWorkspace,
   PreSessionBriefResult,
   ResearchCase,
   ResearchCaseCreateResult,
@@ -356,10 +358,17 @@ export const updateFalsifier = (
     { method: "PATCH", body: JSON.stringify(payload) },
   );
 
-export const getPositions = (ticker?: string) => {
-  const query = ticker ? `?ticker=${encodeURIComponent(ticker)}` : "";
-  return request<Position[]>(`/positions${query}`);
-};
+// --------------------------------------------------------------- portfolio
+// Opening Portfolio is a stored-data read. Only the explicit sync command may
+// contact myfund and persist a new dated snapshot.
+export const getPortfolioWorkspace = () =>
+  request<PortfolioWorkspace>("/portfolios/workspace");
+
+export const syncMyfundPortfolio = () =>
+  request<PortfolioSyncResult>("/portfolios/sync/myfund", { method: "POST" });
+
+export const queuePortfolioReview = () =>
+  request<PortfolioReviewQueueResult>("/portfolios/review-runs", { method: "POST" });
 
 export const listBacktestRuns = (params: { limit?: number; strategy?: string } = {}) => {
   const search = new URLSearchParams();

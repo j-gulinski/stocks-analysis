@@ -3,6 +3,55 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-12 · P4 immutable portfolio and verified review platform
+
+- Replaced the empty append/skip position ledger with migration `0026` and a
+  provider-neutral portfolio model: durable sync attempts, explicit instrument
+  mappings, immutable dated holdings/value history and immutable verifier-
+  gated portfolio reviews. The legacy position API/panel was removed.
+- Implemented explicit myfund synchronization through the documented API-key
+  and exact portfolio-name contract. Reads are zero-write; failures are
+  sanitized and durable, identical current content reuses the latest snapshot,
+  and changed or later-reverted content receives the next version. Unknown
+  rows remain visible and failed refreshes preserve the last good state.
+- Added deterministic concentration/HHI, provider-labelled history and
+  benchmark series, provisional 20-session liquidity, mapping/coverage gaps
+  and point-in-time scenario sensitivity. Only verified valuations bound to
+  the latest eligible Research enter the calculation; cash and uncovered value
+  remain unchanged. TWR, XIRR and total-return benchmark claims remain blocked.
+- Added the calm Portfolio page with a dominant holdings table, conditional
+  attention, exact snapshot freshness, progressive history/scenario/method
+  detail and honest configuration, empty, failure, unmapped, stale and
+  uncovered states. Provider sync and Codex review are explicit buttons; page
+  reads never perform either action.
+- Added `stock-portfolio-review`: content-idempotent queueing freezes the exact
+  snapshot, retained rows, current mappings, deterministic analytics/methods
+  eligible valuation fingerprints and evidence-labelled Research/falsifier/
+  co-exposure context. A separate strict verifier owns the immutable Polish
+  review; exact model roles, fingerprints, known transaction-instruction
+  language and look-ahead fail closed, while mapping drift can only finish as
+  `needs-human`. Exact terminal save retries are idempotent.
+- Derived analytics now fail closed when retained rows do not reconcile to the
+  provider total. Malformed history is labelled partial, liquidity excludes
+  future-known backfilled price rows, and shared downside is limited to named
+  sector/archetype co-exposure rather than inferred correlation or covariance.
+- Provider-native row keys now prevent display-ticker mapping collisions; list
+  payloads use stable instrument/account identity hashes. Exact cash requires
+  an explicit provider asset type, so company/fund names containing “cash”
+  remain unmatched and correctable. Disclosed requested/actual model differences
+  require a persisted substitution or escalation explanation.
+- Added configured bearer validation for domain APIs while keeping health open,
+  and documented the canonical sync/review actions and model routing. Focused
+  portfolio contracts, 606 backend tests, the frontend production build,
+  PostgreSQL migration `0026`, three skill validators and browser interaction
+  pass. The live browser proves zero-write opening, explicit sync and an honest
+  sanitized failure state without creating a snapshot.
+- The configured myfund reference is not an accepted exact portfolio name; the
+  provider returns portfolio-not-found. No holdings were fabricated and no
+  login/password or signed-in UI scraping was added. P4 remains open until an
+  exact-name live sync, changed repeat snapshot, history/benchmark
+  reconciliation and one real verifier-gated review succeed.
+
 ## 2026-07-12 · P3 immutable scenario valuation
 
 - Added migration `0025` and the canonical `ValuationSnapshot` vertical:

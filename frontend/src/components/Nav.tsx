@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { IconCalculator, IconFlask2, IconRadar2, IconSettings } from "@tabler/icons-react";
+import { IconBriefcase, IconCalculator, IconFlask2, IconRadar2, IconSettings } from "@tabler/icons-react";
 
 const links = [
   { href: "/discover", label: "Discover", icon: IconRadar2 },
   { href: "/", label: "Research", icon: IconFlask2 },
   { href: "/valuation", label: "Valuation", icon: IconCalculator },
+  { href: "/portfolio", label: "Portfolio", icon: IconBriefcase },
   { href: "/settings", label: "System", icon: IconSettings },
 ];
 
