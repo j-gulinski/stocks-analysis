@@ -25,13 +25,14 @@ from app.services.evidence import (
     record_text_fact,
 )
 
-PARSER_VERSION = "issuer-ir-index@7"
-EXTRACTOR_VERSION = "issuer-ir-links@7"
+PARSER_VERSION = "issuer-ir-index@8"
+EXTRACTOR_VERSION = "issuer-ir-links@8"
 AUTHORIZED_LINK_EXTRACTOR_VERSIONS = frozenset(
     {
         "issuer-ir-links@4",
         "issuer-ir-links@5",
         "issuer-ir-links@6",
+        "issuer-ir-links@7",
         EXTRACTOR_VERSION,
     }
 )
@@ -51,6 +52,7 @@ ISSUER_IR_SOURCES = {
     "ART": "https://www.artifexmundi.com/en/quarterly-report-for-the-first-quarter-of-2026/",
     "DIG": "https://digitalnetwork.pl/raporty/raporty-okresowe/",
     "CDR": "https://www.cdprojekt.com/en/investors/result-center/?presstype=quarter",
+    "CBF": "https://investors.cyberfolks.pl/raporty/raport-kwartalny-za-q1-2026/",
 }
 
 REPORT_TERMS = re.compile(
@@ -78,6 +80,7 @@ def parse_issuer_ir_index(html: str, *, base_url: str) -> ParsedIssuerIrIndex:
     soup = BeautifulSoup(html, "html.parser")
     root = (
         soup.select_one(".presstype-quarter .entry-content")
+        or soup.select_one(".attachments")
         or soup.select_one(".ncont-content")
         or soup.select_one(".investors-page-content")
         or soup.select_one(".files-section")

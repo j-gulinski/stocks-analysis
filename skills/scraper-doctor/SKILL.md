@@ -212,6 +212,10 @@ are NON-NEGOTIABLE at every step (see bottom).
   entries. Select only the first current `.presstype-quarter .entry-content`;
   the consolidated report and presentation remain same-host PDF links, and
   each detail fetch must be authorized by its stored scoped index claim.
+- cyber_Folks report pages expose a dedicated `.attachments` block containing
+  Polish/English reports, statements and presentations. Scope to that block;
+  retain the 15 MB PDF limit and use smaller authorized primary documents when
+  a full report exceeds it rather than weakening the safety boundary.
 
 ## Politeness invariants (never relax while debugging)
 

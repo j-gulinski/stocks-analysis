@@ -255,6 +255,15 @@ consumes only verified company scenarios.
   sales figures labelled as total IP revenue and digital-channel share used as
   a platform marker; the corrected fresh pass preserves both distinctions.
   Portfolio snapshot 2 and scenario eligibility remain unchanged.
+- CBF at 10.05% now has official attachment/presentation/statement versions
+  `89/90/91` and initial Research snapshot/profile/verification `10/9/13`.
+  Four of five software/services markers are sourced: recurring revenue,
+  NER-based revenue retention/expansion, wages and cash conversion;
+  utilization and five additional gaps keep it provisional. The issuer adapter
+  scopes `.attachments` and trusts scoped extractor generations `@4` through
+  `@8`. The full management report exceeded the fixed 15 MB safety cap and was
+  not used; the draft keeps NER distinct from logo retention and acquisition
+  cash flow distinct from CFO. Portfolio snapshot 2 remains unchanged.
 
 ## Verification commands
 

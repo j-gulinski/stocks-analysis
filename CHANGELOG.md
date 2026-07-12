@@ -5,6 +5,14 @@ product reset remains available in Git at and before `2ac75d0`.
 
 ## 2026-07-12 · P4 immutable portfolio and verified review platform
 
+- Continued real portfolio coverage with CBF at 10.05%. The bounded issuer
+  collector scopes cyber_Folks' Q1 attachment block to `.attachments`;
+  official index/presentation/statement versions `89/90/91` retain seven
+  links and 30 bounded claims from each selected PDF. The oversized management
+  report remained rejected by the 15 MB safety cap. Initial run 40 passed
+  VerificationRun 13 and saved snapshot/profile `10/9` as provisional.
+  Recurring revenue, NER-based revenue retention/expansion, wages and cash
+  conversion are sourced; utilization and five additional gaps remain explicit.
 - Continued real portfolio coverage with CDR at 10.27%. The bounded issuer
   collector now scopes CD PROJEKT's Q1 result-center entry to
   `.presstype-quarter .entry-content`; official index/report/presentation

@@ -72,10 +72,10 @@ watchlist item never deletes the company, evidence, case, analysis, or history.
    collection. Reads never queue it. The prior snapshot remains canonical until
    the claimed worker collects evidence, obtains a separate strict verdict and
    saves the next sequential snapshot.
-7. Bounded issuer-IR collection includes ASBIS, Artifex Mundi, Digital Network
-   and CD PROJEKT official report pages. Report links are extracted only from
+7. Bounded issuer-IR collection includes ASBIS, Artifex Mundi, Digital Network,
+   CD PROJEKT and cyber_Folks official report pages. Report links are extracted only from
    issuer-specific content (`.ncont-content` / `.investors-page-content` /
-   `.files-section` / `.presstype-quarter .entry-content`);
+   `.files-section` / `.presstype-quarter .entry-content` / `.attachments`);
    same-host empty redirects may be upgraded from HTTP to HTTPS, but the final
    PDF connection must still pass public-host and connected-peer checks. This
    collection is a worker action, never a Research GET side effect.
