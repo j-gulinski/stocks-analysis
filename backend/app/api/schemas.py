@@ -929,27 +929,37 @@ class DecisionJournalEntryCreateIn(BaseModel):
 class DiscoveryCandidateOut(BaseModel):
     ticker: str
     name: str | None
-    report_period: str
-    br_rating: str | None
-    br_rating_value: float | None
-    piotroski_f_score: int | None
-    rank: int | None
-    rank_basis: list[str]
-    reasons: list[str]
-    caveat: str
-    factor_status: Literal["current", "stale"]
-    membership_factors: list["DiscoveryMembershipFactorOut"]
-    factor_gaps: list[str]
-    strategy_questions: list[str]
     neutral_context: list["DiscoveryContextOut"]
+    memberships: list["DiscoveryCandidateMembershipOut"]
+    overlap: "DiscoveryOverlapOut"
 
 
 class DiscoveryMembershipFactorOut(BaseModel):
     id: str
     label: str
+    note: str | None = None
     value: float | int | None
     report_period: str
     source_document_version_id: int
+
+
+class DiscoveryCandidateMembershipOut(BaseModel):
+    sieve_id: str
+    sieve_version: str
+    rank: int | None
+    rank_basis: list[str]
+    factor_status: Literal["current", "stale"]
+    factors: list[DiscoveryMembershipFactorOut]
+    factor_gaps: list[str]
+    strategy_questions: list[str]
+    caveat: str
+    source: "DiscoverySieveSourceOut | None" = None
+    freshness: "DiscoveryFreshnessOut | None" = None
+
+
+class DiscoveryOverlapOut(BaseModel):
+    sieve_ids: list[str]
+    count: int
 
 
 class DiscoveryContextOut(BaseModel):
@@ -1003,7 +1013,13 @@ class DiscoverySieveOut(BaseModel):
     selection_rules: list[DiscoverySieveRuleOut]
     factor_coverage: list[DiscoverySieveFactorCoverageOut]
     source: DiscoverySieveSourceOut | None = None
+    freshness: DiscoveryFreshnessOut | None = None
+    candidates: list["DiscoverySieveCandidateRefOut"]
     gaps: list[str]
+
+
+class DiscoverySieveCandidateRefOut(BaseModel):
+    ticker: str
 
 
 class DiscoveryOut(BaseModel):

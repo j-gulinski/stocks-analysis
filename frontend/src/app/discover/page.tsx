@@ -4,7 +4,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   IconCircleCheck,
-  IconDatabaseSearch,
   IconLock,
   IconPlus,
   IconRefresh,
@@ -15,25 +14,20 @@ import {
   getResearchCases,
   refreshDiscovery,
 } from "@/lib/api";
-import { LoadingMessages, SkeletonRows } from "@/components/Loading";
+import { LoadingMessages } from "@/components/Loading";
 import { fmtDate, fmtNumber } from "@/lib/format";
-import type { DiscoveryCandidate, DiscoveryResult, ResearchCaseSummary } from "@/lib/types";
+import type { DiscoveryCandidate, DiscoveryCandidateMembership, DiscoveryResult, ResearchCaseSummary } from "@/lib/types";
 
 const CANDIDATE_PAGE_SIZE = 12;
 
-function financialFactors(candidate: DiscoveryCandidate) {
-  return [
-    {
-      label: "Altman EM-Score",
-      value: fmtNumber(candidate.br_rating_value, 1),
-      note: `ryzyko problemów finansowych${candidate.br_rating ? ` · klasa ${candidate.br_rating}` : ""}`,
-    },
-    {
-      label: "Piotroski F-Score",
-      value: candidate.piotroski_f_score == null ? "brak" : `${candidate.piotroski_f_score}/9`,
-      note: "zmiany rentowności, płynności i efektywności",
-    },
-  ];
+function membershipFactors(membership: DiscoveryCandidateMembership) {
+  return membership.factors.map((factor) => ({
+    label: factor.label,
+    value: factor.id === "piotroski_f_score" && factor.value != null
+      ? `${factor.value}/9`
+      : fmtNumber(factor.value, 1),
+    note: factor.note ?? "Czynnik tego sita — szczegółowa interpretacja wymaga źródła.",
+  }));
 }
 
 export default function DiscoverPage() {
@@ -127,9 +121,64 @@ export default function DiscoverPage() {
     }
   };
 
-  const activeSieve = result?.sieves.find(
-    (sieve) => sieve.id === "financial_health_br_v1" && sieve.status === "available",
-  ) ?? null;
+  const candidatesByTicker = new Map((result?.candidates ?? []).map((candidate) => [candidate.ticker, candidate]));
+  const sieveTitles = new Map((result?.sieves ?? []).map((sieve) => [sieve.id, sieve.title]));
+
+  const renderCandidate = (candidate: DiscoveryCandidate, membership: DiscoveryCandidateMembership) => {
+    const added = addedTickers.has(candidate.ticker);
+    const closed = closedTickers.has(candidate.ticker);
+    const adding = addingTickers.has(candidate.ticker);
+    const addIsReady = membership.sieve_id === "financial_health_br_v1" && membership.source != null;
+    const reportPeriod = membership.factors[0]?.report_period ?? "brak okresu";
+    return (
+      <article className="candidate-row" key={`${membership.sieve_id}:${candidate.ticker}`}>
+        <div className="candidate-company">
+          <span className="ticker-mark">{candidate.ticker}</span>
+          <div>
+            <strong>{candidate.name ?? "Nazwa do uzupełnienia"}</strong>
+            <small>Raport {reportPeriod}</small>
+            <small>{candidate.neutral_context.map((item) => `${item.label}: ${item.value ?? "brak"}`).join(" · ")}</small>
+            <small>Do sprawdzenia: {membership.strategy_questions[0]}</small>
+            {membership.factor_status === "stale" && <small className="warning">{membership.caveat}</small>}
+          </div>
+        </div>
+
+        <div className="candidate-factor-list" aria-label={`Czynniki ${candidate.ticker} w sicie ${membership.sieve_id}`}>
+          {membershipFactors(membership).map((factor) => (
+            <div className="candidate-factor" key={factor.label}>
+              <span>{factor.label}</span>
+              <strong>{factor.value}</strong>
+              <small>{factor.note}</small>
+            </div>
+          ))}
+        </div>
+
+        <div className="candidate-source-meta">
+          <span className="badge muted">{membership.rank == null ? "Ranking nieaktualny" : `#${membership.rank} w tym sicie`}</span>
+          {candidate.overlap.count > 1 && <span className="badge neutral">{candidate.overlap.sieve_ids.map((id) => sieveTitles.get(id) ?? id).join(" + ")}</span>}
+        </div>
+
+        <button
+          className={`btn ${added ? "" : "accent"}`}
+          type="button"
+          onClick={() => void addCandidate(candidate.ticker)}
+          disabled={!addIsReady || added || adding}
+          aria-label={
+            added
+              ? `${candidate.ticker} jest w Research`
+              : !addIsReady
+                ? `${membership.sieve_id} nie ma jeszcze źródła do dodania`
+                : closed
+                ? `Wznów ${candidate.ticker} w Research`
+                : `Dodaj ${candidate.ticker} do Research`
+          }
+        >
+          {added ? <IconCircleCheck size={14} /> : <IconPlus size={14} />}
+          {added ? "Dodano" : !addIsReady ? "Brak źródła" : adding ? "Dodaję…" : closed ? "Wznów Research" : "Dodaj do Research"}
+        </button>
+      </article>
+    );
+  };
 
   return (
     <main className="page-stack discover-page">
@@ -152,6 +201,11 @@ export default function DiscoverPage() {
           </article>
         )) : result?.sieves.map((sieve) => {
           const available = sieve.status === "available";
+          const sieveCandidates = sieve.candidates
+            .map((reference) => candidatesByTicker.get(reference.ticker))
+            .filter((candidate): candidate is DiscoveryCandidate => candidate != null)
+            .map((candidate) => ({ candidate, membership: candidate.memberships.find((item) => item.sieve_id === sieve.id) }))
+            .filter((item): item is { candidate: DiscoveryCandidate; membership: DiscoveryCandidateMembership } => item.membership != null);
           return (
           <article className={`sieve-card ${available ? "available" : "unavailable"}`} key={sieve.id}>
             <header>
@@ -188,7 +242,19 @@ export default function DiscoverPage() {
                 <ul>{sieve.gaps.map((gap) => <li key={gap}>{gap}</li>)}</ul>
               </details>
             )}
-            {sieve.source && <small>{sieve.source.name} · dane {fmtDate(sieve.source.as_of)}</small>}
+            {sieve.source && <small>{sieve.source.name} · zapis #{sieve.source.document_version_id} · dane {fmtDate(sieve.source.as_of)}</small>}
+            {sieve.freshness && <small>Sprawdzono {fmtDate(sieve.freshness.last_successful_source_check_at)} · {sieve.freshness.status === "stale" ? "dane nieaktualne" : "źródło aktualne"}</small>}
+            {available && (
+              <div className="candidate-list discovery-sieve-candidates" aria-live="polite">
+                {sieveCandidates.slice(0, visibleCount).map(({ candidate, membership }) => renderCandidate(candidate, membership))}
+                {!sieveCandidates.length && <p className="empty-state">Brak kandydatów mimo dostępnego sita.</p>}
+                {visibleCount < sieveCandidates.length && (
+                  <button className="btn candidate-more" type="button" onClick={() => setVisibleCount((current) => current + CANDIDATE_PAGE_SIZE)}>
+                    Pokaż kolejne · {sieveCandidates.length - visibleCount} pozostało
+                  </button>
+                )}
+              </div>
+            )}
           </article>
         ); })}
       </section>
@@ -197,119 +263,13 @@ export default function DiscoverPage() {
       {error && <div className="error-box" role="alert">{error}</div>}
       {researchReadWarning && <div className="error-box" role="status">{researchReadWarning}</div>}
 
-      {result && activeSieve && (
-        <section className="discovery-source-strip" aria-label="Stan aktywnego sita">
-          <div>
-            <IconDatabaseSearch size={17} />
-            <span>
-              {activeSieve.title} · {activeSieve.candidate_count} kandydatów · {activeSieve.source?.name ?? result.source} · zapis #{activeSieve.source?.document_version_id ?? result.source_version_id} · dane {fmtDate(activeSieve.source?.as_of ?? result.as_of)}
-            </span>
-          </div>
-          <div>
-            <span className={`badge ${result.freshness.status === "stale" ? "warning" : "neutral"}`}>
-              {result.freshness.status === "stale" ? "Dane nieaktualne" : "Źródło sprawdzone"}
-            </span>
-            <small> treść: {fmtDate(result.freshness.content_version_at)} · sprawdzono: {fmtDate(result.freshness.last_successful_source_check_at)}</small>
-          </div>
-        </section>
-      )}
-
       {result?.freshness.last_failed_refresh_at && new Date(result.freshness.last_failed_refresh_at) >= new Date(result.freshness.last_successful_source_check_at) && (
         <div className="error-box" role="status">
           Ostatnia nieudana próba odświeżenia ({fmtDate(result.freshness.last_failed_refresh_at)}): {result.freshness.last_failed_refresh_reason ?? "nieznany błąd"}. Wyświetlane są ostatnie poprawne dane.
         </div>
       )}
 
-      <section className="candidate-section" aria-labelledby="candidate-title">
-        <div className="section-heading compact-heading">
-          <div>
-            <p className="section-label">Aktywne sito</p>
-            <h2 id="candidate-title">{activeSieve?.title ?? "Brak aktywnego sita"}</h2>
-          </div>
-          <p>To wstępna lista do dalszego poznania spółki, nie ocena inwestycyjna.</p>
-        </div>
-
-        <p className="discovery-method-note">
-          Altman EM-Score szacuje kondycję finansową i ryzyko problemów; klasa AAA oznacza mocną klasyfikację w tym modelu. Piotroski F-Score to dziewięć testów zmian rentowności, płynności i efektywności. Żaden z nich nie jest werdyktem inwestycyjnym.
-        </p>
-
-        {loading ? (
-          <>
-            <SkeletonRows rows={6} height={82} />
-            <LoadingMessages messages={["Otwieram zapisaną listę kandydatów…", "Sprawdzam, które spółki są już w Research…"]} />
-          </>
-        ) : !activeSieve ? (
-          <div className="empty-state">
-            Żadne sito nie ma jeszcze wystarczającego pokrycia danych, aby pokazać kandydatów.
-          </div>
-        ) : !result?.candidates.length ? (
-          <div className="empty-state">
-            Brak zapisanej listy kandydatów. Użyj „Odśwież źródło”, aby pobrać aktualny zapis źródłowy.
-          </div>
-        ) : (
-          <div className="candidate-list" aria-live="polite">
-            {result.candidates.slice(0, visibleCount).map((candidate) => {
-              const added = addedTickers.has(candidate.ticker);
-              const closed = closedTickers.has(candidate.ticker);
-              const adding = addingTickers.has(candidate.ticker);
-              return (
-                <article className="candidate-row" key={candidate.ticker}>
-                  <div className="candidate-company">
-                    <span className="ticker-mark">{candidate.ticker}</span>
-                    <div>
-                      <strong>{candidate.name ?? "Nazwa do uzupełnienia"}</strong>
-                      <small>Raport {candidate.report_period}</small>
-                      <small>{candidate.neutral_context.map((item) => `${item.label}: ${item.value ?? "brak"}`).join(" · ")}</small>
-                      <small>Do sprawdzenia: {candidate.strategy_questions[0]}</small>
-                      {candidate.factor_status === "stale" && <small className="warning">{candidate.caveat}</small>}
-                    </div>
-                  </div>
-
-                  <div className="candidate-factor-list" aria-label={`Czynniki ${candidate.ticker}`}>
-                    {financialFactors(candidate).map((factor) => (
-                      <div className="candidate-factor" key={factor.label}>
-                        <span>{factor.label}</span>
-                        <strong>{factor.value}</strong>
-                        <small>{factor.note}</small>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="candidate-source-meta">
-                    <span className="badge muted">{candidate.rank == null ? "Ranking nieaktualny" : `#${candidate.rank} w tym sicie`}</span>
-                  </div>
-
-                  <button
-                    className={`btn ${added ? "" : "accent"}`}
-                    type="button"
-                    onClick={() => void addCandidate(candidate.ticker)}
-                    disabled={added || adding}
-                    aria-label={
-                      added
-                        ? `${candidate.ticker} jest w Research`
-                        : closed
-                          ? `Wznów ${candidate.ticker} w Research`
-                          : `Dodaj ${candidate.ticker} do Research`
-                    }
-                  >
-                    {added ? <IconCircleCheck size={14} /> : <IconPlus size={14} />}
-                    {added ? "Dodano" : adding ? "Dodaję…" : closed ? "Wznów Research" : "Dodaj do Research"}
-                  </button>
-                </article>
-              );
-            })}
-            {visibleCount < result.candidates.length && (
-              <button
-                className="btn candidate-more"
-                type="button"
-                onClick={() => setVisibleCount((current) => current + CANDIDATE_PAGE_SIZE)}
-              >
-                Pokaż kolejne · {result.candidates.length - visibleCount} pozostało
-              </button>
-            )}
-          </div>
-        )}
-      </section>
+      {loading && <LoadingMessages messages={["Otwieram zapisane sita…", "Sprawdzam, które spółki są już w Research…"]} />}
     </main>
   );
 }

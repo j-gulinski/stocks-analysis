@@ -38,7 +38,9 @@ state, queues work, claims a lease, or calls a model.
 
 - Discover currently produces candidates only from the financial-health sieve.
   OBS and Portal Analiz expose honest source/factor gaps but no candidates,
-  cross-sieve comparison, or overlap yet.
+  while the UI renders the same per-sieve candidate/overlap contract for all
+  three columns. Do not describe the empty blocked columns as live comparison
+  or market-wide coverage.
 - `assess_data_readiness` and `codex_candidate_scan.py` measure stored-company
   data readiness, not investment potential; do not present their score as a
   stock opportunity rank.

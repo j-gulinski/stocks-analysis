@@ -24,9 +24,10 @@ boundary.
   packs, verifier-gated Research snapshots, and deterministic valuation.
 - Discover currently works only as a financial-health shortlist. Its live
   snapshot contains 384 GPW companies, 366 with joint Altman/Piotroski coverage,
-  and 45 candidates. OBS and Portal Analiz have no market-wide candidate data;
-  overlap, neutral context, robust stale-factor treatment, and universe
-  continuity checks remain open.
+  and 45 candidates. Its immutable source lineage, universe-continuity and
+  stale-factor gates are implemented. OBS and Portal Analiz have no market-wide
+  candidate data; their union/overlap contract is now rendered honestly, but
+  live multi-sieve coverage remains blocked on source facts.
 - All eight mapped holdings have strict-verifier-passed Research, but ordinary
   evidence gaps keep every current artifact provisional. The proposed company
   overlay is visible but not yet user-confirmable or correctable.
@@ -48,7 +49,7 @@ evidence, scalar lineage, and explicit user assumptions are available.
 | Order | Outcome | Exit gate | Status |
 |---|---|---|---|
 | D1 | trustworthy Discover integrity and context | complete-universe and freshness gates, decision context, correct add/reactivate behavior | in progress · integrity/freshness/provenance implemented; final user-flow gate remains |
-| D2 | comparable sourced sieves and overlap | three per-sieve candidate views share one contract and controlled overlap renders correctly | waits for D1 and market-wide facts |
+| D2 | comparable sourced sieves and overlap | three per-sieve candidate views share one contract and controlled overlap renders correctly | in progress · union contract/renderer ready; OBS/PA market-wide facts blocked |
 | R1 | user-owned Research memory | confirmed/corrected profile produces a new version and review without rewriting history | after D1 |
 | M1 | named method catalog and Codex perspectives | supported packs render separately over one evidence snapshot; synthesis preserves disagreement | after R1 and retained method sources |
 | V1 / P4 | verified valuation and portfolio scenario coverage | real portfolio review consumes at least two eligible verified scenarios | in progress · evidence/user-input dependent |

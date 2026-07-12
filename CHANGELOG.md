@@ -3,6 +3,19 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-13 · D2 comparable Discover contract
+
+- Replaced the financial-only Discover result list with a union of typed,
+  per-sieve memberships. Each membership carries its local rank/factors/gaps,
+  source and freshness; the shared candidate states exactly which sieves include
+  it. There is no global opportunity rank.
+- The UI now renders three comparable sieve columns and overlap indicators.
+  Only the source-backed financial-health column has candidates today; OBS and
+  Portal Analiz remain explicitly blocked with empty candidate references,
+  null source/freshness and named market-wide data gaps.
+- Added a frozen multi-sieve fixture that covers unique, paired and all-three
+  overlap without claiming that the blocked providers have live data.
+
 ## 2026-07-12 · D1 Discover integrity and provenance
 
 - Discover now rejects structurally incomplete or implausibly small first

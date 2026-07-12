@@ -407,9 +407,10 @@ def test_explicit_discovery_refresh_explains_rank_without_scheduling_research(
     assert response.status_code == 200
     body = response.json()
     dek = next(row for row in body["candidates"] if row["ticker"] == "DEK")
-    assert dek["rank"] == 1
-    assert dek["rank_basis"][0] == "Pozycja 1/1 w sicie kondycji finansowej."
-    assert "modelu Altmana: 8.6 (klasa AAA)" in dek["rank_basis"][2]
+    membership = dek["memberships"][0]
+    assert membership["rank"] == 1
+    assert membership["rank_basis"][0] == "Pozycja 1/1 w sicie kondycji finansowej."
+    assert "modelu Altmana: 8.6 (klasa AAA)" in membership["rank_basis"][2]
 
     assert db.scalar(select(func.count()).select_from(AgentRun)) == 0
 
@@ -450,6 +451,9 @@ def test_three_sieves_report_market_wide_coverage_and_limit_does_not_change_coun
     assert financial.source is not None
     assert financial.source.document_version_id == body.source_version_id == 31
     assert financial.source.version == "31"
+    assert [reference.ticker for reference in financial.candidates] == [
+        candidate.ticker for candidate in body.candidates
+    ]
     assert financial.factor_coverage[1].covered_count == 366
     assert [rule.threshold for rule in financial.selection_rules] == [8.0, 7.0]
     assert "18 spółek" in financial.gaps[0]
@@ -460,6 +464,117 @@ def test_three_sieves_report_market_wide_coverage_and_limit_does_not_change_coun
         assert blocked.source is None
         assert blocked.factor_coverage
         assert blocked.gaps
+        assert blocked.candidates == []
+        assert blocked.freshness is None
+
+
+def test_candidate_union_keeps_distinct_sieve_memberships_and_overlap():
+    from app.api.discovery import _compose_discovery_out
+    from app.api.schemas import DiscoverySieveOut
+    from app.scrapers.biznesradar import MarketCandidate
+
+    source_by_sieve = {
+        sieve_id: {
+            "name": f"{sieve_id} source",
+            "version": str(index),
+            "document_version_id": index,
+            "parser_version": f"{sieve_id}@{index}",
+            "as_of": datetime(2026, 7, index, tzinfo=timezone.utc),
+        }
+        for index, sieve_id in enumerate(("financial", "obs", "pa"), start=1)
+    }
+    freshness_by_sieve = {
+        sieve_id: {
+            "status": "stale" if sieve_id == "obs" else "current",
+            "content_version_at": datetime(2026, 7, index, tzinfo=timezone.utc),
+            "last_successful_source_check_at": datetime(2026, 7, index, tzinfo=timezone.utc),
+            "last_failed_refresh_at": None,
+            "last_failed_refresh_reason": None,
+            "stale_after_hours": 168,
+        }
+        for index, sieve_id in enumerate(("financial", "obs", "pa"), start=1)
+    }
+
+    def membership(sieve_id: str, rank: int) -> dict:
+        return {
+            "sieve_id": sieve_id,
+            "sieve_version": f"{sieve_id}@1",
+            "rank": rank,
+            "rank_basis": [f"Lokalna pozycja {rank}"],
+            "factor_status": "current",
+            "factors": [{"id": "fixture", "label": "Fixture", "note": "fixture factor", "value": None, "report_period": "2026Q1", "source_document_version_id": source_by_sieve[sieve_id]["document_version_id"]}],
+            "factor_gaps": ["Brak jednego czynnika"] if sieve_id == "obs" else [],
+            "strategy_questions": ["Co zweryfikować?"],
+            "caveat": "fixture",
+            "source": source_by_sieve[sieve_id],
+            "freshness": freshness_by_sieve[sieve_id],
+        }
+
+    alpha = MarketCandidate("AAA", None, "Alpha", "2026Q1", "AAA", 8.0, 7)
+    beta = MarketCandidate("BBB", None, "Beta", "2026Q1", "AAA", 8.0, 7)
+    gamma = MarketCandidate("CCC", None, "Gamma", "2026Q1", "AAA", 8.0, 7)
+    financial_obs = MarketCandidate("FOP", None, "Financial OBS", "2026Q1", "AAA", 8.0, 7)
+    financial_pa = MarketCandidate("FPA", None, "Financial PA", "2026Q1", "AAA", 8.0, 7)
+    obs_pa = MarketCandidate("OPA", None, "OBS PA", "2026Q1", "AAA", 8.0, 7)
+    entries = [
+        (alpha, membership("financial", 1)), (alpha, membership("obs", 2)), (alpha, membership("pa", 3)),
+        (beta, membership("financial", 2)), (gamma, membership("obs", 1)),
+        (financial_obs, membership("financial", 3)), (financial_obs, membership("obs", 3)),
+        (financial_pa, membership("financial", 4)), (financial_pa, membership("pa", 2)),
+        (obs_pa, membership("obs", 4)), (obs_pa, membership("pa", 4)),
+    ]
+
+    def sieve(sieve_id: str, tickers: list[str]) -> DiscoverySieveOut:
+        return DiscoverySieveOut(
+            id=sieve_id,
+            version=f"{sieve_id}@1",
+            title=sieve_id,
+            question="fixture",
+            status="available",
+            universe_count=7,
+            candidate_count=len(tickers),
+            coverage_count=7,
+            coverage_pct=100,
+            selection_rules=[],
+            factor_coverage=[],
+            source=source_by_sieve[sieve_id],
+            freshness=freshness_by_sieve[sieve_id],
+            candidates=[{"ticker": ticker} for ticker in tickers],
+            gaps=[],
+        )
+
+    result = SimpleNamespace(
+        candidates=[alpha, beta, gamma, financial_obs, financial_pa, obs_pa],
+        source_url="https://example.test/rating",
+        fetched_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+        source_note="fixture",
+        source_version_id=1,
+    )
+    body = _compose_discovery_out(
+        result,
+        candidate_entries=entries,
+        sieves=[
+            sieve("financial", ["AAA", "BBB", "FOP", "FPA"]),
+            sieve("obs", ["AAA", "CCC", "FOP", "OPA"]),
+            sieve("pa", ["AAA", "FPA", "OPA"]),
+        ],
+    )
+
+    all_three = next(candidate for candidate in body.candidates if candidate.ticker == "AAA")
+    assert all_three.overlap.count == 3
+    assert all_three.overlap.sieve_ids == ["financial", "obs", "pa"]
+    assert [item.rank for item in all_three.memberships] == [1, 2, 3]
+    assert all(item.source is not None and item.freshness is not None for item in all_three.memberships)
+    assert [item.source.document_version_id for item in all_three.memberships] == [1, 2, 3]
+    assert [item.freshness.status for item in all_three.memberships] == ["current", "stale", "current"]
+    assert all_three.memberships[1].factor_gaps == ["Brak jednego czynnika"]
+    assert next(candidate for candidate in body.candidates if candidate.ticker == "BBB").overlap.count == 1
+    assert {candidate.ticker for candidate in body.candidates if candidate.overlap.count == 2} == {"FOP", "FPA", "OPA"}
+    assert [[reference.ticker for reference in sieve.candidates] for sieve in body.sieves] == [
+        ["AAA", "BBB", "FOP", "FPA"], ["AAA", "CCC", "FOP", "OPA"], ["AAA", "FPA", "OPA"]
+    ]
+    assert [sieve.source.document_version_id for sieve in body.sieves] == [1, 2, 3]
+    assert [sieve.freshness.status for sieve in body.sieves] == ["current", "stale", "current"]
 
 
 def test_stale_discovery_does_not_expose_a_current_rank():
@@ -476,8 +591,8 @@ def test_stale_discovery_does_not_expose_a_current_rank():
 
     body = _discovery_out(result, limit=10)
     assert body.freshness.status == "stale"
-    assert body.candidates[0].rank is None
-    assert body.candidates[0].membership_factors[0].source_document_version_id == 31
+    assert body.candidates[0].memberships[0].rank is None
+    assert body.candidates[0].memberships[0].factors[0].source_document_version_id == 31
     assert body.candidates[0].neutral_context[0].value is None
 
 
@@ -497,5 +612,5 @@ def test_old_report_period_is_stale_even_after_a_current_source_check():
 
     body = _discovery_out(result, limit=10)
     assert body.freshness.status == "current"
-    assert body.candidates[0].factor_status == "stale"
-    assert body.candidates[0].rank is None
+    assert body.candidates[0].memberships[0].factor_status == "stale"
+    assert body.candidates[0].memberships[0].rank is None

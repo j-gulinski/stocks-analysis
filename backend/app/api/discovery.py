@@ -44,6 +44,8 @@ _FINANCIAL_MIN_RATING = 8.0
 _FINANCIAL_MIN_F_SCORE = 7
 _STALE_AFTER = timedelta(days=7)
 _MAX_REPORT_AGE_QUARTERS = 2
+_FINANCIAL_SIEVE_ID = "financial_health_br_v1"
+_FINANCIAL_SIEVE_VERSION = "financial-health-br-v1"
 
 
 def _sort_key(candidate) -> tuple:
@@ -160,6 +162,123 @@ def _strategy_questions() -> list[str]:
     ]
 
 
+def _financial_source(result) -> dict:
+    return {
+        "name": "BiznesRadar",
+        "version": str(result.source_version_id),
+        "document_version_id": result.source_version_id,
+        "parser_version": getattr(result, "parser_version", PARSER_VERSION),
+        "as_of": result.fetched_at,
+    }
+
+
+def _financial_membership(candidate, *, rank: int, total: int, current: bool, source: dict, freshness: dict) -> dict:
+    factors_current = current and not _report_period_is_stale(
+        candidate.report_period, as_of=freshness["last_successful_source_check_at"]
+    )
+    return {
+        "sieve_id": _FINANCIAL_SIEVE_ID,
+        "sieve_version": _FINANCIAL_SIEVE_VERSION,
+        "rank": rank if factors_current else None,
+        "rank_basis": _rank_basis(candidate, rank if factors_current else None, total),
+        "factor_status": "current" if factors_current else "stale",
+        "factors": [
+            {
+                "id": "altman_em_score",
+                "label": "Wartość Altman EM-Score",
+                "note": "Kondycja finansowa według modelu Altmana.",
+                "value": candidate.rating_value,
+                "report_period": candidate.report_period,
+                "source_document_version_id": source["document_version_id"],
+            },
+            {
+                "id": "piotroski_f_score",
+                "label": "Piotroski F-Score",
+                "note": "Zmiany rentowności, płynności i efektywności.",
+                "value": candidate.piotroski_f_score,
+                "report_period": candidate.report_period,
+                "source_document_version_id": source["document_version_id"],
+            },
+        ],
+        "factor_gaps": (
+            ["Brak F-Score Piotroskiego w zapisanym źródle."]
+            if candidate.piotroski_f_score is None
+            else []
+        ),
+        "strategy_questions": _strategy_questions(),
+        "caveat": (
+            "Czynniki pochodzą ze starego okresu raportowego; kolejność nie jest bieżąca."
+            if current and not factors_current
+            else "Dane są nieaktualne; odśwież źródło przed traktowaniem listy jako bieżącej."
+            if not current
+            else "To wyłącznie wstępne sito kondycji, nie ocena inwestycyjna."
+        ),
+        "source": source,
+        "freshness": freshness,
+    }
+
+
+def _candidate_union(entries: list[tuple[object, dict]]) -> list[DiscoveryCandidateOut]:
+    """Merge per-sieve membership records without creating a global rank."""
+    grouped: dict[str, tuple[object, list[dict]]] = {}
+    for candidate, membership in entries:
+        stored = grouped.get(candidate.ticker)
+        if stored is None:
+            grouped[candidate.ticker] = (candidate, [membership])
+        else:
+            stored[1].append(membership)
+    return [
+        DiscoveryCandidateOut(
+            ticker=ticker,
+            name=candidate.name,
+            neutral_context=_neutral_context(),
+            memberships=memberships,
+            overlap={
+                "sieve_ids": [membership["sieve_id"] for membership in memberships],
+                "count": len(memberships),
+            },
+        )
+        for ticker, (candidate, memberships) in grouped.items()
+    ]
+
+
+def _compose_discovery_out(
+    result,
+    *,
+    candidate_entries: list[tuple[object, dict]],
+    sieves: list[DiscoverySieveOut],
+) -> DiscoveryOut:
+    """Build one union response from independently sourced sieve memberships."""
+    candidates = _candidate_union(candidate_entries)
+    memberships_by_ticker = {
+        candidate.ticker: {membership.sieve_id for membership in candidate.memberships}
+        for candidate in candidates
+    }
+    for sieve in sieves:
+        referenced = {reference.ticker for reference in sieve.candidates}
+        expected = {
+            ticker
+            for ticker, membership_ids in memberships_by_ticker.items()
+            if sieve.id in membership_ids
+        }
+        if referenced != expected:
+            raise ValueError(
+                f"Sieve {sieve.id} candidate references do not match its memberships."
+            )
+    return DiscoveryOut(
+        source="BiznesRadar",
+        source_url=result.source_url,
+        as_of=result.fetched_at,
+        universe_count=len(result.candidates),
+        result_count=len(candidates),
+        source_note=result.source_note,
+        source_version_id=result.source_version_id,
+        freshness=_freshness(result),
+        candidates=candidates,
+        sieves=sieves,
+    )
+
+
 def _discovery_out(result, *, limit: int) -> DiscoveryOut:
     selected = _select_candidates(
         result.candidates,
@@ -182,75 +301,24 @@ def _discovery_out(result, *, limit: int) -> DiscoveryOut:
     )
     freshness = _freshness(result)
     source_current = freshness["status"] == "current"
-    candidates = []
+    source = _financial_source(result)
+    candidate_entries = []
+    financial_refs = []
     selected_page = selected[:limit]
     for rank, candidate in enumerate(selected_page, start=1):
-        factors_current = source_current and not _report_period_is_stale(
-            candidate.report_period, as_of=freshness["last_successful_source_check_at"]
+        membership = _financial_membership(
+            candidate,
+            rank=rank,
+            total=len(selected),
+            current=source_current,
+            source=source,
+            freshness=freshness,
         )
-        reasons = [
-            "Odporność finansowa: "
-            f"{candidate.rating_value:g} (klasa {candidate.rating})"
-        ]
-        if candidate.piotroski_f_score is not None:
-            reasons.append(
-                "Jakość zmian w wynikach: "
-                f"{candidate.piotroski_f_score}/9 pozytywnych sygnałów"
-            )
-        candidates.append(
-            DiscoveryCandidateOut(
-                ticker=candidate.ticker,
-                name=candidate.name,
-                report_period=candidate.report_period,
-                br_rating=candidate.rating,
-                br_rating_value=candidate.rating_value,
-                piotroski_f_score=candidate.piotroski_f_score,
-                rank=rank if factors_current else None,
-                rank_basis=_rank_basis(candidate, rank if factors_current else None, len(selected)),
-                reasons=reasons,
-                caveat=(
-                    "Czynniki pochodzą ze starego okresu raportowego; kolejność nie jest bieżąca."
-                    if source_current and not factors_current
-                    else "Dane są nieaktualne; odśwież źródło przed traktowaniem listy jako bieżącej."
-                    if not source_current
-                    else "To wyłącznie wstępne sito kondycji, nie ocena inwestycyjna."
-                ),
-                factor_status="current" if factors_current else "stale",
-                membership_factors=[
-                    {
-                        "id": "altman_em_score",
-                        "label": "Wartość Altman EM-Score",
-                        "value": candidate.rating_value,
-                        "report_period": candidate.report_period,
-                        "source_document_version_id": result.source_version_id,
-                    },
-                    {
-                        "id": "piotroski_f_score",
-                        "label": "Piotroski F-Score",
-                        "value": candidate.piotroski_f_score,
-                        "report_period": candidate.report_period,
-                        "source_document_version_id": result.source_version_id,
-                    },
-                ],
-                factor_gaps=(
-                    ["Brak F-Score Piotroskiego w zapisanym źródle."]
-                    if candidate.piotroski_f_score is None
-                    else []
-                ),
-                strategy_questions=_strategy_questions(),
-                neutral_context=_neutral_context(),
-            )
-        )
-    return DiscoveryOut(
-        source="BiznesRadar",
-        source_url=result.source_url,
-        as_of=result.fetched_at,
-        universe_count=len(result.candidates),
-        result_count=len(candidates),
-        source_note=result.source_note,
-        source_version_id=result.source_version_id,
-        freshness=freshness,
-        candidates=candidates,
+        candidate_entries.append((candidate, membership))
+        financial_refs.append({"ticker": candidate.ticker})
+    return _compose_discovery_out(
+        result,
+        candidate_entries=candidate_entries,
         sieves=_sieves(
             result,
             universe_count=universe_count,
@@ -258,6 +326,9 @@ def _discovery_out(result, *, limit: int) -> DiscoveryOut:
             altman_count=altman_count,
             piotroski_count=piotroski_count,
             joint_count=joint_count,
+            financial_source=source,
+            financial_freshness=freshness,
+            financial_candidates=financial_refs,
         ),
     )
 
@@ -274,6 +345,9 @@ def _sieves(
     altman_count: int,
     piotroski_count: int,
     joint_count: int,
+    financial_source: dict,
+    financial_freshness: dict,
+    financial_candidates: list[dict],
 ) -> list[DiscoverySieveOut]:
     financial_gaps = []
     if altman_count < universe_count:
@@ -286,8 +360,8 @@ def _sieves(
         )
     return [
         DiscoverySieveOut(
-            id="financial_health_br_v1",
-            version="financial-health-br-v1",
+            id=_FINANCIAL_SIEVE_ID,
+            version=_FINANCIAL_SIEVE_VERSION,
             title="Kondycja finansowa",
             question="Które spółki łączą odporność finansową z poprawą jakości wyników?",
             status="available",
@@ -323,13 +397,9 @@ def _sieves(
                     "total_count": universe_count,
                 },
             ],
-            source={
-                "name": "BiznesRadar",
-                "version": str(result.source_version_id),
-                "document_version_id": result.source_version_id,
-                "parser_version": getattr(result, "parser_version", PARSER_VERSION),
-                "as_of": result.fetched_at,
-            },
+            source=financial_source,
+            freshness=financial_freshness,
+            candidates=financial_candidates,
             gaps=financial_gaps,
         ),
         DiscoverySieveOut(
@@ -352,6 +422,8 @@ def _sieves(
                 {"id": "catalyst", "label": "Katalizator i ocena oczekiwań rynku", "covered_count": 0, "total_count": universe_count},
             ],
             source=None,
+            freshness=None,
+            candidates=[],
             gaps=[
                 "Brak jednego wersjonowanego, rynkowego zestawu trendów wyników, przepływów i wyceny.",
                 "Katalizator i stopień uwzględnienia go w cenie wymagają osobnej, źródłowej oceny.",
@@ -377,6 +449,8 @@ def _sieves(
                 {"id": "asymmetry", "label": "Mechanizm downside/upside i horyzont", "covered_count": 0, "total_count": universe_count},
             ],
             source=None,
+            freshness=None,
+            candidates=[],
             gaps=[
                 "Brak wersjonowanego, rynkowego zestawu wyceny, jakości, bilansu i alokacji kapitału.",
                 "Brak zachowanych źródeł metod Areczeks/Elendix wystarczających do twardej selekcji.",

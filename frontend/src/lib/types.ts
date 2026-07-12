@@ -6,30 +6,35 @@
 export interface DiscoveryCandidate {
   ticker: string;
   name: string | null;
-  report_period: string;
-  br_rating: string | null;
-  br_rating_value: number | null;
-  piotroski_f_score: number | null;
-  rank: number | null;
-  rank_basis: string[];
-  reasons: string[];
-  caveat: string;
-  factor_status: "current" | "stale";
-  membership_factors: Array<{
-    id: string;
-    label: string;
-    value: number | null;
-    report_period: string;
-    source_document_version_id: number;
-  }>;
-  factor_gaps: string[];
-  strategy_questions: string[];
   neutral_context: Array<{
     id: "wig_bucket" | "sector" | "size";
     label: string;
     value: string | null;
     basis: string;
   }>;
+  memberships: DiscoveryCandidateMembership[];
+  overlap: { sieve_ids: string[]; count: number };
+}
+
+export interface DiscoveryCandidateMembership {
+  sieve_id: string;
+  sieve_version: string;
+  rank: number | null;
+  rank_basis: string[];
+  factor_status: "current" | "stale";
+  factors: Array<{
+    id: string;
+    label: string;
+    note: string | null;
+    value: number | null;
+    report_period: string;
+    source_document_version_id: number;
+  }>;
+  factor_gaps: string[];
+  strategy_questions: string[];
+  caveat: string;
+  source: DiscoverySieveSource | null;
+  freshness: DiscoveryFreshness | null;
 }
 
 export interface DiscoveryResult {
@@ -40,14 +45,7 @@ export interface DiscoveryResult {
   result_count: number;
   source_note: string;
   source_version_id: number;
-  freshness: {
-    status: "current" | "stale";
-    content_version_at: string;
-    last_successful_source_check_at: string;
-    last_failed_refresh_at: string | null;
-    last_failed_refresh_reason: string | null;
-    stale_after_hours: number;
-  };
+  freshness: DiscoveryFreshness;
   candidates: DiscoveryCandidate[];
   sieves: DiscoverySieve[];
 }
@@ -74,14 +72,27 @@ export interface DiscoverySieve {
     covered_count: number;
     total_count: number;
   }>;
-  source: {
-    name: string;
-    version: string;
-    document_version_id: number;
-    parser_version: string;
-    as_of: string;
-  } | null;
+  source: DiscoverySieveSource | null;
+  freshness: DiscoveryFreshness | null;
+  candidates: Array<{ ticker: string }>;
   gaps: string[];
+}
+
+export interface DiscoverySieveSource {
+  name: string;
+  version: string;
+  document_version_id: number;
+  parser_version: string;
+  as_of: string;
+}
+
+export interface DiscoveryFreshness {
+  status: "current" | "stale";
+  content_version_at: string;
+  last_successful_source_check_at: string;
+  last_failed_refresh_at: string | null;
+  last_failed_refresh_reason: string | null;
+  stale_after_hours: number;
 }
 
 export interface Company {
