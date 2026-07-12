@@ -23,8 +23,8 @@ function TextList({ items, empty }: { items: string[]; empty: string }) {
 export default function ResearchMethodCatalogView({ methods }: { methods: ResearchMethodCatalog[] }) {
   return (
     <section className="snapshot-section research-method-catalog" aria-labelledby="snapshot-methods">
-      <header><span>06</span><h2 id="snapshot-methods">Katalog metod</h2></header>
-      <p className="snapshot-lead">Katalog pokazuje źródła, gotowość i pytania metod. Nie jest jeszcze odrębną oceną tej spółki ani ukrytym konsensusem.</p>
+      <header><span>07</span><h2 id="snapshot-methods">Katalog metod</h2></header>
+      <p className="snapshot-lead">Katalog pokazuje źródła, gotowość i pytania metod. Perspektywy zapisują się osobno dla konkretnego snapshotu; katalog nie jest oceną spółki ani ukrytym konsensusem.</p>
       <div className="research-method-list">
         {methods.map((method) => {
           const research = method.stages.research;

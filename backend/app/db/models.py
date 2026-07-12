@@ -183,6 +183,71 @@ class ResearchSnapshot(Base):
     )
 
 
+class ResearchMethodPerspective(Base):
+    """Immutable per-method lens over one unchanged canonical Research snapshot."""
+
+    __tablename__ = "research_method_perspectives"
+    __table_args__ = (
+        UniqueConstraint("agent_run_id", name="uq_research_method_perspective_agent_run"),
+        UniqueConstraint(
+            "verification_run_id", name="uq_research_method_perspective_verification_run"
+        ),
+        UniqueConstraint(
+            "research_snapshot_id",
+            "method_manifest_fingerprint",
+            name="uq_research_method_perspective_snapshot_manifest",
+        ),
+        CheckConstraint(
+            "status IN ('provisional', 'verified', 'rejected', 'needs-human')",
+            name="ck_research_method_perspective_status",
+        ),
+        Index(
+            "ix_research_method_perspectives_case_created",
+            "research_case_id",
+            "created_at",
+        ),
+        Index(
+            "ix_research_method_perspectives_snapshot_created",
+            "research_snapshot_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    research_case_id: Mapped[int] = mapped_column(
+        ForeignKey("research_cases.id", ondelete="CASCADE"), index=True
+    )
+    research_snapshot_id: Mapped[int] = mapped_column(
+        ForeignKey("research_snapshots.id", ondelete="RESTRICT"), index=True
+    )
+    agent_run_id: Mapped[int] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="RESTRICT"), index=True
+    )
+    verification_run_id: Mapped[int] = mapped_column(
+        ForeignKey("verification_runs.id", ondelete="RESTRICT"), index=True
+    )
+    method_pack_id: Mapped[str] = mapped_column(String(120), index=True)
+    method_pack_version: Mapped[str] = mapped_column(String(80))
+    contract_version: Mapped[str] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(30), index=True)
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    method_manifest: Mapped[dict] = mapped_column(JSONVariant)
+    method_manifest_fingerprint: Mapped[str] = mapped_column(String(64))
+    applicability: Mapped[dict] = mapped_column(JSONVariant)
+    conclusion: Mapped[dict | None] = mapped_column(JSONVariant)
+    findings: Mapped[list] = mapped_column(JSONVariant)
+    blind_spots: Mapped[list] = mapped_column(JSONVariant)
+    falsifiers: Mapped[list] = mapped_column(JSONVariant)
+    next_checks: Mapped[list] = mapped_column(JSONVariant)
+    gaps: Mapped[list] = mapped_column(JSONVariant)
+    input_fingerprint: Mapped[str] = mapped_column(String(64))
+    artifact_fingerprint: Mapped[str] = mapped_column(String(64))
+    verifier_result: Mapped[dict] = mapped_column(JSONVariant)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
 class ValuationSnapshot(Base):
     """Canonical immutable valuation produced from one research snapshot."""
 

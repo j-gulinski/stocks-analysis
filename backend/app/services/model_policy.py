@@ -34,6 +34,22 @@ _POLICIES: dict[str, dict[str, Any]] = {
             "history delta and explicit gaps"
         ),
     },
+    "stock-research-method-perspective": {
+        "draft_role": "worker_standard",
+        "draft_model": "gpt-5.6-terra",
+        "draft_reasoning_effort": "high",
+        "required_verifier_role": "verifier_strict",
+        "verifier_model": "gpt-5.6-sol",
+        "verifier_reasoning_effort": "high",
+        "reasoning": (
+            "Terra high for one bounded source-frozen method classification; "
+            "Sol high independently checks attribution and non-impersonation"
+        ),
+        "verification_scope": (
+            "parent snapshot and manifest binding, source ids, required-check coverage, "
+            "unknown handling, applicability, no author impersonation and no hidden blend"
+        ),
+    },
     "stock-pre-session-brief": {
         "draft_role": "worker_standard",
         "draft_model": "gpt-5.6-terra",

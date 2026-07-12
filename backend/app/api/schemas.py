@@ -473,8 +473,138 @@ class ResearchMethodCatalogOut(BaseModel):
     required_verifier_role: str | None
     source_manifest: list[ResearchMethodSourceOut]
     required_questions: list[str]
+    required_checks: list["ResearchMethodRequiredCheckOut"]
     blind_spots: list[str]
     gaps: list[str]
+
+
+class ResearchMethodRequiredCheckOut(BaseModel):
+    id: str = Field(pattern=r"^[a-z0-9-]+$", min_length=3, max_length=120)
+    label: str = Field(min_length=1, max_length=1000)
+    origin: Literal[
+        "author-stated", "standard-finance", "workbench-operationalization"
+    ]
+
+
+class ResearchMethodPerspectiveFinding(StrictResearchModel):
+    required_check_id: str = Field(pattern=r"^[a-z0-9-]+$", min_length=3, max_length=120)
+    status: Literal["supports", "contradicts", "unknown", "not-applicable"]
+    claim: ResearchClaim
+
+
+class ResearchMethodPerspectiveApplicability(StrictResearchModel):
+    status: Literal["applicable", "not-applicable"]
+    reason: ResearchClaim
+
+
+class ResearchMethodPerspectiveVerifierChecks(StrictResearchModel):
+    schema_integrity: bool
+    source_integrity: bool
+    snapshot_binding: bool
+    method_manifest_integrity: bool
+    attribution: bool
+    non_impersonation: bool
+    applicability: bool
+    unknown_handling: bool
+    no_hidden_blend: bool
+    look_ahead: bool
+
+
+class ResearchMethodPerspectiveVerifierResult(StrictResearchModel):
+    model_role: Literal["verifier_strict"] = "verifier_strict"
+    verifier_model: str = Field(min_length=1, max_length=80)
+    verdict: Literal["pass", "fail", "needs-human"]
+    checks: ResearchMethodPerspectiveVerifierChecks
+    summary: str = Field(min_length=1, max_length=4000)
+
+
+class ResearchMethodPerspectiveDraftIn(StrictResearchModel):
+    contract_version: Literal["research-method-perspective-v1"] = (
+        "research-method-perspective-v1"
+    )
+    agent_run_id: int = Field(ge=1)
+    lease_owner: str = Field(min_length=1, max_length=200)
+    research_snapshot_id: int = Field(ge=1)
+    method_pack_id: str = Field(pattern=r"^[a-z0-9_-]+$", min_length=3, max_length=120)
+    method_pack_version: str = Field(min_length=1, max_length=80)
+    method_manifest: dict
+    method_manifest_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+    as_of: datetime
+    applicability: ResearchMethodPerspectiveApplicability
+    conclusion: ResearchClaim | None = None
+    findings: list[ResearchMethodPerspectiveFinding] = Field(min_length=1)
+    blind_spots: list[str] = Field(default_factory=list)
+    falsifiers: list[ResearchClaim] = Field(default_factory=list)
+    next_checks: list[ResearchNextCheck] = Field(default_factory=list)
+    gaps: list[ResearchGap] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def require_aware_as_of(self):
+        if self.as_of.tzinfo is None:
+            raise ValueError("as_of must include a timezone")
+        if self.applicability.status == "applicable" and self.conclusion is None:
+            raise ValueError("applicable method perspectives require a conclusion")
+        if self.applicability.status == "not-applicable" and self.conclusion is not None:
+            raise ValueError("not-applicable method perspectives cannot have a conclusion")
+        if self.conclusion is not None and self.conclusion.kind not in {
+            "fact",
+            "calculation",
+            "unknown",
+        }:
+            raise ValueError("method perspective conclusions require factual, calculation, or explicit unknown provenance")
+        return self
+
+
+class ResearchMethodPerspectiveVerificationIn(StrictResearchModel):
+    verifier_worker_id: str = Field(min_length=1, max_length=200)
+    draft: ResearchMethodPerspectiveDraftIn
+    verifier_result: ResearchMethodPerspectiveVerifierResult
+
+
+class ResearchMethodPerspectiveSaveIn(ResearchMethodPerspectiveDraftIn):
+    verification_run_id: int = Field(ge=1)
+
+
+class ResearchMethodPerspectiveOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    research_case_id: int
+    research_snapshot_id: int
+    agent_run_id: int
+    verification_run_id: int
+    method_pack_id: str
+    method_pack_version: str
+    contract_version: Literal["research-method-perspective-v1"]
+    status: ResearchSnapshotStatus
+    as_of: datetime
+    method_manifest: dict
+    method_manifest_fingerprint: str
+    applicability: ResearchMethodPerspectiveApplicability
+    conclusion: ResearchClaim | None
+    findings: list[ResearchMethodPerspectiveFinding]
+    blind_spots: list[str]
+    falsifiers: list[ResearchClaim]
+    next_checks: list[ResearchNextCheck]
+    gaps: list[ResearchGap]
+    input_fingerprint: str
+    artifact_fingerprint: str
+    verifier_result: ResearchMethodPerspectiveVerifierResult
+    created_at: datetime
+
+
+class ResearchMethodPerspectiveQueueIn(StrictResearchModel):
+    research_snapshot_id: int = Field(ge=1)
+    method_pack_id: str = Field(pattern=r"^[a-z0-9_-]+$", min_length=3, max_length=120)
+
+
+class ResearchMethodPerspectiveQueueOut(BaseModel):
+    agent_run_id: int
+    status: str
+    created: bool
+    research_snapshot_id: int
+    method_pack_id: str
+    method_manifest_fingerprint: str
 
 
 class ResearchCaseWorkspaceOut(BaseModel):
@@ -489,6 +619,7 @@ class ResearchCaseWorkspaceOut(BaseModel):
     history: list[ResearchSnapshotHistoryOut]
     archetype_pack: ArchetypePackOut | None = None
     method_catalog: list[ResearchMethodCatalogOut]
+    method_perspectives: list[ResearchMethodPerspectiveOut]
 
 
 # --------------------------------------------------------------- valuation v1

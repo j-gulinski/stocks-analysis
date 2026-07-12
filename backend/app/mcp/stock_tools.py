@@ -15,6 +15,9 @@ from pydantic import ValidationError
 
 from app.api.schemas import (
     DossierOut,
+    ResearchMethodPerspectiveOut,
+    ResearchMethodPerspectiveSaveIn,
+    ResearchMethodPerspectiveVerificationIn,
     ResearchSnapshotOut,
     ResearchSnapshotSaveIn,
     ResearchSnapshotVerificationIn,
@@ -52,6 +55,11 @@ from app.services.research_artifacts import (
     ResearchArtifactError,
     save_research_snapshot as persist_research_snapshot,
     verify_research_snapshot as persist_research_verification,
+)
+from app.services.research_method_perspectives import (
+    ResearchMethodPerspectiveError,
+    save_research_method_perspective as persist_research_method_perspective,
+    verify_research_method_perspective as persist_research_method_perspective_verification,
 )
 from app.services.valuation_artifacts import (
     ValuationArtifactError,
@@ -229,6 +237,11 @@ def list_queued_agent_runs(arguments: dict[str, Any] | None = None) -> dict[str,
 
 def queue_agent_run(arguments: dict[str, Any]) -> dict[str, Any]:
     workflow = _require_text(arguments, "workflow")
+    if workflow == "stock-research-method-perspective":
+        raise ToolInputError(
+            "Use the Research case method-perspective command so the parent snapshot "
+            "and method manifest are frozen."
+        )
     ticker = arguments.get("ticker")
     inputs = _optional_dict(arguments, "inputs")
     db = SessionLocal()
@@ -500,6 +513,69 @@ def verify_research_snapshot(arguments: dict[str, Any]) -> dict[str, Any]:
                 db, case_id=case_id, payload=parsed
             )
         except ResearchArtifactError as exc:
+            raise ToolInputError(str(exc)) from exc
+        return {
+            "ok": True,
+            "verification_run": {
+                "id": verification.id,
+                "agent_run_id": verification.agent_run_id,
+                "model_role": verification.model_role,
+                "verifier_model": verification.verifier_model,
+                "verdict": verification.verdict,
+                "checks": verification.checks,
+                "summary": verification.summary,
+                "created_at": verification.created_at,
+            },
+        }
+    finally:
+        db.close()
+
+
+def save_research_method_perspective(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Thin MCP adapter over the canonical immutable method perspective gate."""
+    case_id = arguments.get("case_id")
+    payload = arguments.get("payload")
+    if not isinstance(case_id, int) or not isinstance(payload, dict):
+        raise ToolInputError("case_id must be an integer and payload an object.")
+    try:
+        parsed = ResearchMethodPerspectiveSaveIn.model_validate(payload)
+    except ValidationError as exc:
+        raise ToolInputError(str(exc)) from exc
+    db = SessionLocal()
+    try:
+        try:
+            perspective = persist_research_method_perspective(
+                db, case_id=case_id, payload=parsed
+            )
+        except ResearchMethodPerspectiveError as exc:
+            raise ToolInputError(str(exc)) from exc
+        return {
+            "ok": True,
+            "research_method_perspective": ResearchMethodPerspectiveOut.model_validate(
+                perspective
+            ).model_dump(mode="json"),
+        }
+    finally:
+        db.close()
+
+
+def verify_research_method_perspective(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Record an independent verdict bound to one exact method perspective draft."""
+    case_id = arguments.get("case_id")
+    payload = arguments.get("payload")
+    if not isinstance(case_id, int) or not isinstance(payload, dict):
+        raise ToolInputError("case_id must be an integer and payload an object.")
+    try:
+        parsed = ResearchMethodPerspectiveVerificationIn.model_validate(payload)
+    except ValidationError as exc:
+        raise ToolInputError(str(exc)) from exc
+    db = SessionLocal()
+    try:
+        try:
+            verification = persist_research_method_perspective_verification(
+                db, case_id=case_id, payload=parsed
+            )
+        except ResearchMethodPerspectiveError as exc:
             raise ToolInputError(str(exc)) from exc
         return {
             "ok": True,

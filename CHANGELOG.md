@@ -3,6 +3,26 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-13 · M1 immutable snapshot-bound Malik/OBS perspectives
+
+- Added a separate immutable `ResearchMethodPerspective` linked to one
+  canonical Research snapshot without rewriting its profile, evidence, status,
+  or history. An explicit user command freezes the full parent bundle and the
+  retained Malik/OBS manifest, source hashes, locators, required checks, and
+  contract fingerprint; identical commands reuse the same job.
+- A claimed worker classifies each frozen check as supporting, contradicting,
+  unknown, or not applicable, then records one separate conclusion only when
+  the method applies. Supporting/contradicting evidence must be a factual or
+  calculation claim tied to a non-lead parent source; assumptions and forum
+  leads cannot become evidence. It cannot refresh, recommend, blend methods,
+  or simulate the author. A distinct strict verifier owns final status and
+  checks binding, attribution, applicability, unknown handling,
+  non-impersonation, and no-hidden-blend.
+- Research now renders each saved perspective separately and exposes an
+  explicit “Utwórz perspektywę” action for the current snapshot. It does not
+  execute the queued job. Areczeks and Elendix remain named draft blocks; no
+  multi-method synthesis has been introduced.
+
 ## 2026-07-13 · M1 source-frozen Research method catalog
 
 - Added a stage-aware, read-only method catalog to every canonical Research

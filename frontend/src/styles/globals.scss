@@ -3409,6 +3409,28 @@ textarea {
 .research-method-detail-content article a { width: fit-content; color: var(--text-accent); font-size: 10px; }
 .research-method-contract { grid-column: 1 / -1; }
 .research-method-contract p { color: var(--text-muted); font-size: 10px; line-height: 1.5; }
+.method-perspective-list { display: grid; gap: 10px; }
+.method-perspective-card, .method-perspective-empty { display: grid; gap: 12px; padding: 14px; border: 0.5px solid var(--border); border-radius: var(--radius); background: var(--surface-1); }
+.method-perspective-card > header, .method-perspective-empty { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.method-perspective-card h3, .method-perspective-empty h3 { margin: 0; font-size: 15px; }
+.method-perspective-card > header span:not(.badge) { display: block; margin-top: 3px; color: var(--text-muted); font-size: 10px; }
+.method-perspective-empty p, .method-perspective-disclaimer { margin: 4px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
+.method-perspective-applicability { display: grid; gap: 4px; padding: 10px 12px; border-radius: var(--radius); background: var(--surface-2); }
+.method-perspective-conclusion { display: grid; gap: 4px; padding: 10px 12px; border-left: 2px solid var(--text-accent); background: var(--surface-2); }
+.method-perspective-findings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.method-perspective-findings > section, .method-perspective-details > section { min-width: 0; padding: 10px 12px; border: 0.5px solid var(--border); border-radius: var(--radius); }
+.method-perspective-findings h4, .method-perspective-details h4 { margin: 0 0 8px; font-size: 12px; }
+.method-perspective-findings article + article { margin-top: 8px; padding-top: 8px; border-top: 0.5px solid var(--border); }
+.method-perspective-findings article > strong { display: block; font-size: 11px; line-height: 1.4; }
+.method-perspective-claim p { margin: 4px 0; font-size: 11px; line-height: 1.45; }
+.method-perspective-claim small { color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+.method-perspective-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.method-perspective-details .snapshot-list { font-size: 11px; }
+.method-perspective-audit { padding-top: 2px; border-top: 0.5px solid var(--border); }
+.method-perspective-audit > summary { padding-top: 10px; cursor: pointer; color: var(--text-secondary); font-size: 11px; }
+.method-perspective-audit p, .method-perspective-audit li { color: var(--text-muted); font-size: 10px; overflow-wrap: anywhere; }
+.method-perspective-history { display: grid; gap: 10px; padding-top: 10px; border-top: 0.5px solid var(--border); }
+.method-perspective-history > summary { cursor: pointer; color: var(--text-secondary); font-size: 11px; }
 
 .research-profile-editor {
   display: grid;
@@ -3955,7 +3977,9 @@ textarea {
   .snapshot-source-row p { grid-column: 1 / -1; }
   .snapshot-pack-groups { grid-template-columns: 1fr; }
   .research-method-stages,
-  .research-method-detail-content { grid-template-columns: 1fr; }
+  .research-method-detail-content,
+  .method-perspective-findings,
+  .method-perspective-details { grid-template-columns: 1fr; }
   .research-method-stages > div { padding: 10px 0; border-left: 0; border-top: 0.5px solid var(--border); }
   .research-method-stages > div:first-child { border-top: 0; }
   .research-profile-overlay { grid-template-columns: 1fr; }

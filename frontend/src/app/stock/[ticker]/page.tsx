@@ -269,6 +269,8 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
             history={researchWorkspace.history}
             archetypePack={researchWorkspace.archetype_pack}
             methodCatalog={researchWorkspace.method_catalog}
+            researchCaseId={researchWorkspace.research_case.id}
+            methodPerspectives={researchWorkspace.method_perspectives}
           />
         </details>
         {researchWorkspace.current_profile && (
@@ -311,6 +313,8 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
           history={researchWorkspace.history}
           archetypePack={researchWorkspace.archetype_pack}
           methodCatalog={researchWorkspace.method_catalog}
+          researchCaseId={researchWorkspace.research_case.id}
+          methodPerspectives={researchWorkspace.method_perspectives}
         />
         {researchWorkspace.current_profile && (
           <ResearchProfileEditor

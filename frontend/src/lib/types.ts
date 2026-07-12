@@ -362,6 +362,7 @@ export interface ResearchWorkspace {
   history: ResearchSnapshotHistory[];
   archetype_pack: ResearchArchetypePack | null;
   method_catalog: ResearchMethodCatalog[];
+  method_perspectives: ResearchMethodPerspective[];
 }
 
 export interface ResearchArchetypePack {
@@ -419,8 +420,93 @@ export interface ResearchMethodCatalog {
     retention_status: "retained";
   }>;
   required_questions: string[];
+  required_checks: Array<{
+    id: string;
+    label: string;
+    origin: "author-stated" | "standard-finance" | "workbench-operationalization";
+  }>;
   blind_spots: string[];
   gaps: string[];
+}
+
+export type ResearchMethodPerspectiveFindingStatus =
+  | "supports"
+  | "contradicts"
+  | "unknown"
+  | "not-applicable";
+
+export interface ResearchMethodManifest {
+  id: string;
+  version: string;
+  label: string;
+  disclaimer: string;
+  research_stage: { status: ResearchMethodStageStatus; reason: string | null };
+  skill: string | null;
+  research_output_schema_version: string | null;
+  required_verifier_role: string | null;
+  source_manifest: ResearchMethodCatalog["source_manifest"];
+  required_checks: ResearchMethodCatalog["required_checks"];
+  blind_spots: string[];
+  gaps: string[];
+}
+
+export interface ResearchMethodPerspective {
+  id: number;
+  research_case_id: number;
+  research_snapshot_id: number;
+  agent_run_id: number;
+  verification_run_id: number;
+  method_pack_id: string;
+  method_pack_version: string;
+  contract_version: "research-method-perspective-v1";
+  status: ResearchSnapshotStatus;
+  as_of: string;
+  method_manifest: ResearchMethodManifest;
+  method_manifest_fingerprint: string;
+  applicability: {
+    status: "applicable" | "not-applicable";
+    reason: ResearchClaim;
+  };
+  conclusion: ResearchClaim | null;
+  findings: Array<{
+    required_check_id: string;
+    status: ResearchMethodPerspectiveFindingStatus;
+    claim: ResearchClaim;
+  }>;
+  blind_spots: string[];
+  falsifiers: ResearchClaim[];
+  next_checks: ResearchNextCheck[];
+  gaps: ResearchGap[];
+  input_fingerprint: string;
+  artifact_fingerprint: string;
+  verifier_result: {
+    model_role: "verifier_strict";
+    verifier_model: string;
+    verdict: "pass" | "fail" | "needs-human";
+    checks: {
+      schema_integrity: boolean;
+      source_integrity: boolean;
+      snapshot_binding: boolean;
+      method_manifest_integrity: boolean;
+      attribution: boolean;
+      non_impersonation: boolean;
+      applicability: boolean;
+      unknown_handling: boolean;
+      no_hidden_blend: boolean;
+      look_ahead: boolean;
+    };
+    summary: string;
+  };
+  created_at: string;
+}
+
+export interface ResearchMethodPerspectiveQueueResult {
+  agent_run_id: number;
+  status: string;
+  created: boolean;
+  research_snapshot_id: number;
+  method_pack_id: string;
+  method_manifest_fingerprint: string;
 }
 
 export interface ResearchCaseCreateResult {

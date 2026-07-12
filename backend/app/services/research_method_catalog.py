@@ -7,6 +7,8 @@ It does not produce a company conclusion, queue work, or replace a verifier.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import hashlib
+import json
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,15 @@ class MethodSource:
 
 
 @dataclass(frozen=True)
+class MethodRequiredCheck:
+    """One stable question that a method perspective must classify once."""
+
+    id: str
+    label: str
+    origin: str
+
+
+@dataclass(frozen=True)
 class ResearchMethodCatalogEntry:
     id: str
     version: str
@@ -45,12 +56,19 @@ class ResearchMethodCatalogEntry:
     required_verifier_role: str | None
     source_manifest: tuple[MethodSource, ...]
     required_questions: tuple[str, ...]
+    required_checks: tuple[MethodRequiredCheck, ...]
     blind_spots: tuple[str, ...]
     gaps: tuple[str, ...]
 
     def to_dict(self) -> dict:
         value = asdict(self)
-        for key in ("source_manifest", "required_questions", "blind_spots", "gaps"):
+        for key in (
+            "source_manifest",
+            "required_questions",
+            "required_checks",
+            "blind_spots",
+            "gaps",
+        ):
             value[key] = list(value[key])
         return value
 
@@ -101,7 +119,7 @@ _MALIK_SOURCES = (
 CATALOG = (
     ResearchMethodCatalogEntry(
         id="malik_obs_v1",
-        version="malik-obs-method-v1",
+        version="malik-obs-method-v2",
         label="Paweł Malik / OBS",
         disclaimer=(
             "To wersjonowana perspektywa Workbench z materiałów źródłowych, nie bieżąca "
@@ -113,14 +131,14 @@ CATALOG = (
                 "Brak zachowanego, rynkowego snapshotu wszystkich wymaganych czynników.",
             ),
             "research": MethodStageReadiness(
-                "planned",
-                "Źródła są zachowane, ale osobna perspektywa spółki związana ze snapshotem i verifierem nie istnieje jeszcze.",
+                "supported",
+                "Perspektywę można utworzyć wyłącznie jawną komendą dla zachowanego snapshotu Research.",
             ),
             "valuation": MethodStageReadiness("supported"),
         },
         evaluation_maturity="untested",
         skill="strategy-malik-obs",
-        research_output_schema_version=None,
+        research_output_schema_version="research-method-perspective-v1",
         valuation_output_schema_version="valuation-snapshot-v1",
         calculation_engine_version="valuation-engine-v2",
         required_verifier_role="verifier_strict",
@@ -132,13 +150,40 @@ CATALOG = (
             "Jaki katalizator, horyzont i falsyfikator można sprawdzić w kolejnych źródłach?",
             "Czy gotówka, kapitał obrotowy, capex i zadłużenie zostawiają margines bezpieczeństwa?",
         ),
+        required_checks=(
+            MethodRequiredCheck(
+                id="result-change-mechanism",
+                label="Obserwowalny mechanizm zmiany wyniku w następnym kwartale lub roku.",
+                origin="author-stated",
+            ),
+            MethodRequiredCheck(
+                id="revenue-margin-cost-bridge",
+                label="Spójność przychodów, marży brutto i kosztów stałych w moście wyniku.",
+                origin="author-stated",
+            ),
+            MethodRequiredCheck(
+                id="durable-versus-one-off",
+                label="Rozdzielenie wyniku trwałego od jednorazowego lub zewnętrznego.",
+                origin="author-stated",
+            ),
+            MethodRequiredCheck(
+                id="catalyst-horizon-falsifier",
+                label="Możliwy do sprawdzenia katalizator, horyzont i falsyfikator.",
+                origin="author-stated",
+            ),
+            MethodRequiredCheck(
+                id="cash-working-capital-capex-debt",
+                label="Margines bezpieczeństwa z gotówki, kapitału obrotowego, capexu i zadłużenia.",
+                origin="author-stated",
+            ),
+        ),
         blind_spots=(
             "Nie zastępuje źródłowego backlogu, cen, marż projektowych ani oceny zarządu.",
             "Nie daje uniwersalnego rankingu ani wyniku inwestycyjnego.",
             "Własna historia mnożnika jest tylko wrażliwością, dopóki brak porównywalnego szeregu point-in-time.",
         ),
         gaps=(
-            "Katalog nie jest jeszcze osobnym, verifier-gated zapisem perspektywy dla tej spółki.",
+            "Perspektywa wymaga osobnej jawnej komendy i nie powstaje przy odczycie katalogu.",
             "Ocena „czy rynek już wycenił zmianę” pozostaje pytaniem Research, nie faktem z katalogu.",
         ),
     ),
@@ -160,6 +205,7 @@ CATALOG = (
         required_verifier_role=None,
         source_manifest=(),
         required_questions=(),
+        required_checks=(),
         blind_spots=(),
         gaps=("Nie aktywować bez zachowanych źródeł z dokładną atrybucją.",),
     ),
@@ -181,6 +227,7 @@ CATALOG = (
         required_verifier_role=None,
         source_manifest=(),
         required_questions=(),
+        required_checks=(),
         blind_spots=(),
         gaps=("Nie aktywować bez zachowanych źródeł z dokładną atrybucją.",),
     ),
@@ -189,3 +236,37 @@ CATALOG = (
 
 def list_research_method_catalog() -> list[dict]:
     return [entry.to_dict() for entry in CATALOG]
+
+
+def get_research_method_catalog_entry(method_pack_id: str) -> ResearchMethodCatalogEntry | None:
+    return next((entry for entry in CATALOG if entry.id == method_pack_id), None)
+
+
+def canonical_manifest_fingerprint(value: object) -> str:
+    encoded = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def freeze_research_method_manifest(method_pack_id: str) -> tuple[dict, str] | None:
+    """Return the exact versioned method contract a perspective job may use."""
+    entry = get_research_method_catalog_entry(method_pack_id)
+    if entry is None:
+        return None
+    catalog = entry.to_dict()
+    manifest = {
+        "id": catalog["id"],
+        "version": catalog["version"],
+        "label": catalog["label"],
+        "disclaimer": catalog["disclaimer"],
+        "research_stage": catalog["stages"]["research"],
+        "skill": catalog["skill"],
+        "research_output_schema_version": catalog["research_output_schema_version"],
+        "required_verifier_role": catalog["required_verifier_role"],
+        "source_manifest": catalog["source_manifest"],
+        "required_checks": catalog["required_checks"],
+        "blind_spots": catalog["blind_spots"],
+        "gaps": catalog["gaps"],
+    }
+    return manifest, canonical_manifest_fingerprint(manifest)

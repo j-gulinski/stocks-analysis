@@ -230,6 +230,34 @@ TOOLS: dict[str, ToolSpec] = {
         },
         stock_tools.verify_research_snapshot,
     ),
+    "save_research_method_perspective": ToolSpec(
+        "save_research_method_perspective",
+        "Validate and persist one immutable snapshot-bound method perspective for a claimed run.",
+        {
+            "type": "object",
+            "properties": {
+                "case_id": {"type": "integer", "minimum": 1},
+                "payload": {"type": "object"},
+            },
+            "required": ["case_id", "payload"],
+            "additionalProperties": False,
+        },
+        stock_tools.save_research_method_perspective,
+    ),
+    "verify_research_method_perspective": ToolSpec(
+        "verify_research_method_perspective",
+        "Persist an independent verdict bound to one exact Research method perspective draft.",
+        {
+            "type": "object",
+            "properties": {
+                "case_id": {"type": "integer", "minimum": 1},
+                "payload": {"type": "object"},
+            },
+            "required": ["case_id", "payload"],
+            "additionalProperties": False,
+        },
+        stock_tools.verify_research_method_perspective,
+    ),
     "save_valuation_snapshot": ToolSpec(
         "save_valuation_snapshot",
         "Save an immutable valuation after exact independent verification.",

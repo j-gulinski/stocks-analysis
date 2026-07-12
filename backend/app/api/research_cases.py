@@ -19,6 +19,11 @@ from app.api.schemas import (
     ResearchCaseSummaryOut,
     ResearchLabCreateIn,
     ResearchLabCreateOut,
+    ResearchMethodPerspectiveOut,
+    ResearchMethodPerspectiveQueueIn,
+    ResearchMethodPerspectiveQueueOut,
+    ResearchMethodPerspectiveSaveIn,
+    ResearchMethodPerspectiveVerificationIn,
     ResearchReviewQueueOut,
     ResearchSnapshotHistoryOut,
     ResearchSnapshotOut,
@@ -33,6 +38,7 @@ from app.db.models import (
     DocumentVersion,
     ResearchCase,
     ResearchCaseStepHistory,
+    ResearchMethodPerspective,
     ResearchSnapshot,
     SourceDocument,
     utcnow,
@@ -45,11 +51,20 @@ from app.services.company_profiles import (
     frozen_profile,
 )
 from app.services.model_policy import default_model_for_workflow
-from app.services.research_method_catalog import list_research_method_catalog
+from app.services.research_method_catalog import (
+    freeze_research_method_manifest,
+    list_research_method_catalog,
+)
 from app.services.research_artifacts import (
     ResearchArtifactError,
     save_research_snapshot,
     verify_research_snapshot,
+)
+from app.services.research_method_perspectives import (
+    ResearchMethodPerspectiveError,
+    frozen_research_snapshot_bundle,
+    save_research_method_perspective,
+    verify_research_method_perspective,
 )
 
 router = APIRouter(prefix="/research-cases", tags=["research-cases"])
@@ -61,6 +76,9 @@ _SKILL_VERSION = "company-research-v2"
 _OUTPUT_CONTRACT_VERSION = "research-snapshot-v2"
 _PROFILE_SCHEMA_VERSION = "company-profile-v2"
 _ARCHETYPE_CONTRACT_VERSION = "archetype-packs-v1"
+_METHOD_PERSPECTIVE_WORKFLOW = "stock-research-method-perspective"
+_METHOD_PERSPECTIVE_SKILL_VERSION = "research-method-perspective-v1"
+_METHOD_PERSPECTIVE_CONTRACT_VERSION = "research-method-perspective-v1"
 _DISCOVERY_SIEVE_ID = "financial_health_br_v1"
 _DISCOVERY_SIEVE_VERSION = "financial-health-br-v1"
 
@@ -235,6 +253,22 @@ def _latest_snapshot(db: Session, case_id: int) -> ResearchSnapshot | None:
         .order_by(ResearchSnapshot.version.desc(), ResearchSnapshot.id.desc())
         .limit(1)
     )
+
+
+def _method_perspective_key(
+    case_id: int,
+    snapshot: ResearchSnapshot,
+    method_manifest_fingerprint: str,
+) -> str:
+    content = ":".join(
+        (
+            str(case_id),
+            str(snapshot.id),
+            snapshot.artifact_fingerprint,
+            method_manifest_fingerprint,
+        )
+    ).encode("utf-8")
+    return f"method-perspective:{hashlib.sha256(content).hexdigest()}"
 
 
 def _latest_research_run(db: Session, case: ResearchCase) -> AgentRun | None:
@@ -455,6 +489,16 @@ def get_research_workspace(
             .order_by(ResearchSnapshot.version.desc(), ResearchSnapshot.id.desc())
         )
     )
+    perspectives = list(
+        db.scalars(
+            select(ResearchMethodPerspective)
+            .where(ResearchMethodPerspective.research_case_id == research_case.id)
+            .order_by(
+                ResearchMethodPerspective.created_at.desc(),
+                ResearchMethodPerspective.id.desc(),
+            )
+        )
+    )
     latest = snapshots[0] if snapshots else None
     snapshot_profile = (
         db.get(CompanyProfile, latest.company_profile_id)
@@ -503,6 +547,9 @@ def get_research_workspace(
             else None
         ),
         method_catalog=list_research_method_catalog(),
+        method_perspectives=[
+            ResearchMethodPerspectiveOut.model_validate(item) for item in perspectives
+        ],
     )
 
 
@@ -699,6 +746,128 @@ def queue_research_review(
     )
 
 
+@router.post(
+    "/{case_id}/method-perspective-runs",
+    response_model=ResearchMethodPerspectiveQueueOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def queue_research_method_perspective(
+    case_id: int,
+    payload: ResearchMethodPerspectiveQueueIn,
+    db: Session = Depends(get_db),
+) -> ResearchMethodPerspectiveQueueOut:
+    """Queue one explicit, source-free method lens over an immutable snapshot."""
+    case = db.scalar(
+        select(ResearchCase).where(ResearchCase.id == case_id).with_for_update()
+    )
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Research case not found."
+        )
+    company = db.get(Company, case.company_id)
+    if company is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Research company is missing."
+        )
+    snapshot = db.scalar(
+        select(ResearchSnapshot).where(
+            ResearchSnapshot.id == payload.research_snapshot_id,
+            ResearchSnapshot.research_case_id == case.id,
+        )
+    )
+    if snapshot is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Research snapshot not found for this case.",
+        )
+    if snapshot.status not in {"provisional", "verified"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A method perspective requires a provisional or verified Research snapshot.",
+        )
+    frozen = freeze_research_method_manifest(payload.method_pack_id)
+    if frozen is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Unknown Research method pack."
+        )
+    method_manifest, method_manifest_fingerprint = frozen
+    if method_manifest["research_stage"]["status"] != "supported":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This method pack is not supported for Research perspectives.",
+        )
+    if method_manifest["research_output_schema_version"] != _METHOD_PERSPECTIVE_CONTRACT_VERSION:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This method pack has no compatible immutable perspective contract.",
+        )
+    key = _method_perspective_key(case.id, snapshot, method_manifest_fingerprint)
+    existing = db.scalar(select(AgentRun).where(AgentRun.idempotency_key == key))
+    if existing is not None:
+        return ResearchMethodPerspectiveQueueOut(
+            agent_run_id=existing.id,
+            status=existing.status,
+            created=False,
+            research_snapshot_id=snapshot.id,
+            method_pack_id=payload.method_pack_id,
+            method_manifest_fingerprint=method_manifest_fingerprint,
+        )
+    model = default_model_for_workflow(_METHOD_PERSPECTIVE_WORKFLOW)
+    agent = AgentRun(
+        workflow=_METHOD_PERSPECTIVE_WORKFLOW,
+        trigger="method-perspective-command",
+        status="queued",
+        company_id=company.id,
+        model_role="worker_standard",
+        model=model,
+        orchestrator_model=model,
+        idempotency_key=key,
+        inputs={
+            "ticker": company.ticker,
+            "research_case_id": case.id,
+            "task": {
+                "skill": "research-method-perspective",
+                "skill_version": _METHOD_PERSPECTIVE_SKILL_VERSION,
+                "output_contract_version": _METHOD_PERSPECTIVE_CONTRACT_VERSION,
+                "objective": (
+                    "Classify one named method over exactly one frozen Research "
+                    "snapshot without collecting evidence or producing a recommendation."
+                ),
+                "required_verification": "verifier_strict",
+                "collection_policy": "no fetch or refresh",
+                "recommendation_policy": "no recommendation, synthesis, or author impersonation",
+            },
+            "method_perspective": {
+                "research_snapshot": frozen_research_snapshot_bundle(db, snapshot),
+                "method_manifest": method_manifest,
+                "method_manifest_fingerprint": method_manifest_fingerprint,
+            },
+        },
+        outputs={},
+    )
+    db.add(agent)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.scalar(select(AgentRun).where(AgentRun.idempotency_key == key))
+        if existing is None:
+            raise
+        agent = existing
+        created = False
+    else:
+        db.refresh(agent)
+        created = True
+    return ResearchMethodPerspectiveQueueOut(
+        agent_run_id=agent.id,
+        status=agent.status,
+        created=created,
+        research_snapshot_id=snapshot.id,
+        method_pack_id=payload.method_pack_id,
+        method_manifest_fingerprint=method_manifest_fingerprint,
+    )
+
+
 @router.post("/{case_id}/snapshots", response_model=ResearchSnapshotOut)
 def create_research_snapshot(
     case_id: int,
@@ -726,6 +895,52 @@ def create_research_snapshot_verification(
     try:
         verification = verify_research_snapshot(db, case_id=case_id, payload=payload)
     except ResearchArtifactError as exc:
+        code = {
+            "not-found": status.HTTP_404_NOT_FOUND,
+            "conflict": status.HTTP_409_CONFLICT,
+        }.get(exc.kind, status.HTTP_422_UNPROCESSABLE_CONTENT)
+        raise HTTPException(status_code=code, detail=str(exc)) from exc
+    return {
+        "id": verification.id,
+        "agent_run_id": verification.agent_run_id,
+        "model_role": verification.model_role,
+        "verifier_model": verification.verifier_model,
+        "verdict": verification.verdict,
+        "checks": verification.checks,
+        "summary": verification.summary,
+        "created_at": verification.created_at,
+    }
+
+
+@router.post("/{case_id}/method-perspectives", response_model=ResearchMethodPerspectiveOut)
+def create_research_method_perspective(
+    case_id: int,
+    payload: ResearchMethodPerspectiveSaveIn,
+    db: Session = Depends(get_db),
+) -> ResearchMethodPerspective:
+    """Worker save adapter for an immutable snapshot-bound method perspective."""
+    try:
+        return save_research_method_perspective(db, case_id=case_id, payload=payload)
+    except ResearchMethodPerspectiveError as exc:
+        code = {
+            "not-found": status.HTTP_404_NOT_FOUND,
+            "conflict": status.HTTP_409_CONFLICT,
+        }.get(exc.kind, status.HTTP_422_UNPROCESSABLE_CONTENT)
+        raise HTTPException(status_code=code, detail=str(exc)) from exc
+
+
+@router.post("/{case_id}/method-perspective-verifications", response_model=dict)
+def create_research_method_perspective_verification(
+    case_id: int,
+    payload: ResearchMethodPerspectiveVerificationIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Persist an independent exact-draft verdict without completing the job."""
+    try:
+        verification = verify_research_method_perspective(
+            db, case_id=case_id, payload=payload
+        )
+    except ResearchMethodPerspectiveError as exc:
         code = {
             "not-found": status.HTTP_404_NOT_FOUND,
             "conflict": status.HTTP_409_CONFLICT,

@@ -124,6 +124,32 @@ def _execution_contract(agent: AgentRun) -> dict[str, Any]:
                 "Add that verification_run_id to the unchanged draft, save with this agent_run_id, then complete only this claimed job.",
             ],
         }
+    if agent.workflow == "stock-research-method-perspective":
+        case_id = (agent.inputs or {}).get("research_case_id")
+        return {
+            **base,
+            "skill": "research-method-perspective",
+            "frozen_contract": frozen_task,
+            "verify_command": (
+                "cd backend && ./.venv/bin/python "
+                f"scripts/codex_verify_research_method_perspective.py --case-id {case_id} "
+                "--input <verification.json>"
+            ),
+            "save_command": (
+                "cd backend && ./.venv/bin/python "
+                f"scripts/codex_save_research_method_perspective.py --case-id {case_id} "
+                "--input <perspective.json>"
+            ),
+            "steps": [
+                "Read docs/PRODUCT.md, docs/ARCHITECTURE.md, docs/STRATEGY.md and only the frozen job inputs.",
+                "Do not collect, refresh, fetch, or replace parent snapshot evidence.",
+                "Classify each frozen required method check exactly once as supports, contradicts, unknown, or not-applicable.",
+                "Cite only document-version ids already present in the frozen parent snapshot; preserve blind spots and named gaps.",
+                "Do not make a recommendation, synthesize across methods, calculate a score, or simulate an author's voice.",
+                "Have an independent verifier_strict context persist the exact-draft verdict with a distinct worker identity.",
+                "Save the unchanged draft with that verification_run_id and stop after this one claimed job.",
+            ],
+        }
     if agent.workflow == "stock-company-valuation":
         case_id = (agent.inputs or {}).get("research_case_id")
         return {

@@ -25,14 +25,22 @@ def test_catalog_freezes_retained_malik_sources_and_keeps_other_authors_draft():
             "reason": "Brak zachowanego, rynkowego snapshotu wszystkich wymaganych czynników.",
         },
         "research": {
-            "status": "planned",
-            "reason": "Źródła są zachowane, ale osobna perspektywa spółki związana ze snapshotem i verifierem nie istnieje jeszcze.",
+            "status": "supported",
+            "reason": "Perspektywę można utworzyć wyłącznie jawną komendą dla zachowanego snapshotu Research.",
         },
         "valuation": {"status": "supported", "reason": None},
     }
     assert malik["evaluation_maturity"] == "untested"
-    assert malik["research_output_schema_version"] is None
+    assert malik["version"] == "malik-obs-method-v2"
+    assert malik["research_output_schema_version"] == "research-method-perspective-v1"
     assert malik["required_verifier_role"] == "verifier_strict"
+    assert [item["id"] for item in malik["required_checks"]] == [
+        "result-change-mechanism",
+        "revenue-margin-cost-bridge",
+        "durable-versus-one-off",
+        "catalyst-horizon-falsifier",
+        "cash-working-capital-capex-debt",
+    ]
     assert [item["locator"] for item in malik["source_manifest"]] == [
         "OBS — 2021-02-02T14:56:44+00:00",
         "OBS — 2024-08-15T15:37:00+00:00",
@@ -92,7 +100,7 @@ def test_research_workspace_catalog_read_is_zero_write(client, db):
     assert first.status_code == second.status_code == 200
     catalog = first.json()["method_catalog"]
     assert catalog[0]["id"] == "malik_obs_v1"
-    assert catalog[0]["stages"]["research"]["status"] == "planned"
+    assert catalog[0]["stages"]["research"]["status"] == "supported"
     assert [entry["stages"]["research"]["status"] for entry in catalog[1:]] == [
         "draft",
         "draft",

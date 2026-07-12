@@ -41,6 +41,7 @@ import type {
   ResearchCase,
   ResearchCaseCreateResult,
   ResearchReviewQueueResult,
+  ResearchMethodPerspectiveQueueResult,
   ResearchCaseSummary,
   CompanyProfile,
   ResearchArchetype,
@@ -114,6 +115,14 @@ export const queueResearchReview = (researchCaseId: number) =>
   request<ResearchReviewQueueResult>(`/research-cases/${researchCaseId}/review-runs`, {
     method: "POST",
   });
+
+export const queueResearchMethodPerspective = (
+  researchCaseId: number,
+  payload: { research_snapshot_id: number; method_pack_id: string },
+) => request<ResearchMethodPerspectiveQueueResult>(
+  `/research-cases/${researchCaseId}/method-perspective-runs`,
+  { method: "POST", body: JSON.stringify(payload) },
+);
 
 export const confirmResearchProfile = (
   researchCaseId: number,
