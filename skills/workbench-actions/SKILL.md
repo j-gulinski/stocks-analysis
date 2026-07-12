@@ -73,10 +73,11 @@ watchlist item never deletes the company, evidence, case, analysis, or history.
    the claimed worker collects evidence, obtains a separate strict verdict and
    saves the next sequential snapshot.
 7. Bounded issuer-IR collection includes ASBIS, Artifex Mundi, Digital Network,
-   CD PROJEKT, cyber_Folks and Benefit Systems official report pages. Report links are extracted only from
+   CD PROJEKT, cyber_Folks, Benefit Systems and Creotech official report pages.
+   Report links are extracted only from
    issuer-specific content (`.ncont-content` / `.investors-page-content` /
    `.files-section` / `.presstype-quarter .entry-content` / `.attachments` /
-   `.news-related-files`);
+   `.news-related-files` / `.investors-content__report`);
    same-host empty redirects may be upgraded from HTTP to HTTPS, but the final
    PDF connection must still pass public-host and connected-peer checks. This
    collection is a worker action, never a Research GET side effect.

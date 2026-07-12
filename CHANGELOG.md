@@ -5,6 +5,18 @@ product reset remains available in Git at and before `2ac75d0`.
 
 ## 2026-07-12 · P4 immutable portfolio and verified review platform
 
+- Completed primary Research coverage for all mapped real holdings with CRI at
+  7.25%. The issuer collector scopes Creotech's periodic archive to
+  `.investors-content__report`; official index/report versions `108/109` retain
+  30 authorized links and 30 bounded report-page claims. Initial run 42 passed
+  corrected VerificationRun 15; a subsequent independent code audit rejected
+  fixed costs as sourced because the report does not split fixed and variable
+  costs. Review run 43 preserved immutable history, passed VerificationRun 16
+  and saved corrected snapshot/profile `13/12` as provisional. Working capital
+  and capex are sourced; volume, price/mix, gross margin, fixed costs, backlog
+  and three additional gaps remain explicit. The artifact separates continuing
+  operations from spun-off Quantum, labels cash flow as combined, and preserves
+  the KIMSF 17 presentation limitation.
 - Continued real portfolio coverage with BFT at 10.00%. The issuer collector
   scopes Benefit Systems' current `.news-related-files`; official index/report
   versions `99/100` retain two links and 30 bounded report claims. Initial run

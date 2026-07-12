@@ -219,6 +219,10 @@ are NON-NEGOTIABLE at every step (see bottom).
 - Benefit Systems report detail pages expose current Polish and English PDFs
   in `.news-related-files`. Scope to that block so report-labelled navigation
   and footer links cannot authorize unrelated detail downloads.
+- Creotech's periodic-report archive exposes dated report tiles inside
+  `.investors-content__report`. Scope to that block; authorize a detail fetch
+  only from the stored same-host link claim and retain the bounded PDF page and
+  size limits even when the report continues beyond the extracted pages.
 
 ## Politeness invariants (never relax while debugging)
 

@@ -25,8 +25,8 @@ from app.services.evidence import (
     record_text_fact,
 )
 
-PARSER_VERSION = "issuer-ir-index@9"
-EXTRACTOR_VERSION = "issuer-ir-links@9"
+PARSER_VERSION = "issuer-ir-index@10"
+EXTRACTOR_VERSION = "issuer-ir-links@10"
 AUTHORIZED_LINK_EXTRACTOR_VERSIONS = frozenset(
     {
         "issuer-ir-links@4",
@@ -34,6 +34,7 @@ AUTHORIZED_LINK_EXTRACTOR_VERSIONS = frozenset(
         "issuer-ir-links@6",
         "issuer-ir-links@7",
         "issuer-ir-links@8",
+        "issuer-ir-links@9",
         EXTRACTOR_VERSION,
     }
 )
@@ -55,6 +56,7 @@ ISSUER_IR_SOURCES = {
     "CDR": "https://www.cdprojekt.com/en/investors/result-center/?presstype=quarter",
     "CBF": "https://investors.cyberfolks.pl/raporty/raport-kwartalny-za-q1-2026/",
     "BFT": "https://corp.benefitsystems.pl/en/for-investors/article/consolidated-quarterly-report-for-1q-2026/",
+    "CRI": "https://creotech.pl/pl/relacje-inwestorskie/raporty/okresowe/",
 }
 
 REPORT_TERMS = re.compile(
@@ -82,6 +84,7 @@ def parse_issuer_ir_index(html: str, *, base_url: str) -> ParsedIssuerIrIndex:
     soup = BeautifulSoup(html, "html.parser")
     root = (
         soup.select_one(".presstype-quarter .entry-content")
+        or soup.select_one(".investors-content__report")
         or soup.select_one(".attachments")
         or soup.select_one(".news-related-files")
         or soup.select_one(".ncont-content")

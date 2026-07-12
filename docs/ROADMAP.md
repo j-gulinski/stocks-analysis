@@ -14,25 +14,15 @@ artifact. Valuation now turns a frozen Research snapshot and explicit human
 assumptions into deterministic quarter/F12M/cash-flow/price scenarios; a
 separate verifier owns final probabilities and status.
 
-Current delivery focus: **P4 portfolio Research coverage** — the immutable sync,
-deterministic dashboard and verifier-gated review workflow are implemented and
-have passed the real `Kuba` pilot. Parser v2, stable explicit mappings, repeated
-snapshot reuse, complete provider history and one persisted strict-verifier
-review are proven. Coverage work now includes ASB, the largest uncovered
-holding at the frozen snapshot's 21.65% allocation: Research snapshot/profile/
-verification `4/4/7` passed the strict gate and remains honestly provisional
-with three of seven industrial/consumer markers sourced and eight named gaps.
-The older OPM queue blocker also completed as provisional snapshot/profile/
-verification `3/3/6`. Existing cases can now explicitly queue one content-
-idempotent `stock-company-review` bound to the prior snapshot and current
-source identities, so primary evidence can advance company memory without
-mutating history. The first real review run 35 bound ASB snapshot 4, found no
-new DocumentVersion, passed VerificationRun 8 and saved snapshot 5/version 2
-with the same profile, claims and eight gaps plus an exact no-new-evidence
-history delta. None of the eight mapped holdings yet has an eligible
-verified company valuation; six still lack Research, while ASB and SNT remain
-provisional. P4 closes only when a real portfolio review can cite verified
-company scenarios.
+Current delivery focus: **P4 verified scenario coverage** — the immutable sync,
+deterministic dashboard, verifier-gated review workflow and primary-source
+Research coverage are implemented for all eight mapped holdings in real
+portfolio snapshot 2: ASB, ART, DIG, SNT, CDR, CBF, BFT and CRI. Every Research
+artifact passed an independent strict verifier and remains honestly
+`provisional` where source gaps remain. No holding yet has an eligible verified
+valuation/scenario, so scenario coverage is still 0%; P4 closes only when a
+real portfolio review can cite verified company scenarios built from explicit
+human assumptions rather than fabricated inputs.
 
 | Stage | Outcome | Exit gate | Status |
 |---|---|---|---|
@@ -272,6 +262,19 @@ consumes only verified company scenarios.
   generations `@4` through `@9`; Research explicitly separates MAC scope and
   the IAS 29 monetary gain from organic operating performance. Portfolio
   snapshot 2 remains unchanged.
+- CRI at 7.25% now has official index/report versions `108/109` and corrected
+  Research snapshot/profile/verification `13/12/16`. Working capital and capex
+  are sourced; volume, price/mix, gross margin, fixed costs, backlog and three
+  further gaps keep it provisional. The adapter scopes
+  `.investors-content__report` and trusts scoped extractor generations `@4`
+  through `@10`. Research separates continuing operations from the spun-off
+  Quantum business, labels CFO as combined, preserves the KIMSF 17 presentation
+  boundary and treats two-customer concentration as customers rather than
+  unsupported contract identities. An independent code audit rejected the
+  initial sourced fixed-cost marker; immutable review v2 moved it to a gap
+  because the report does not split fixed and variable costs. All eight mapped
+  holdings now have strict-verifier-passed Research; portfolio snapshot 2 and
+  verified scenario coverage remain unchanged.
 
 ## Verification commands
 
