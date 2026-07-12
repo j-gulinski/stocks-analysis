@@ -179,11 +179,23 @@ def _get_page(
     """
     if not force and _is_fresh(db, url):
         return None
-    response = polite_http.fetch(url, session=session)
+    try:
+        response = polite_http.fetch(url, session=session)
+    except (requests.RequestException, polite_http.FetchError):
+        # Source attempts are durable even when no response exists, so stored
+        # views can distinguish stale evidence from a failed refresh.
+        _log_fetch(db, url, None)
+        db.commit()
+        raise
     fetch_log = _log_fetch(db, url, response.status_code)
     if response.status_code == 404:
+        db.commit()
         raise LookupError(f"404 for {url}")
-    response.raise_for_status()  # non-retryable, non-404 errors are real errors
+    try:
+        response.raise_for_status()  # non-retryable, non-404 errors are real errors
+    except requests.RequestException:
+        db.commit()
+        raise
     content = getattr(response, "content", None) or response.text.encode("utf-8")
     headers = getattr(response, "headers", {}) or {}
     mime_type = headers.get("content-type", "text/html").split(";", 1)[0].strip()

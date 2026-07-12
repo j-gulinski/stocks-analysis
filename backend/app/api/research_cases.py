@@ -54,6 +54,8 @@ _SKILL_VERSION = "company-research-v2"
 _OUTPUT_CONTRACT_VERSION = "research-snapshot-v2"
 _PROFILE_SCHEMA_VERSION = "company-profile-v2"
 _ARCHETYPE_CONTRACT_VERSION = "archetype-packs-v1"
+_DISCOVERY_SIEVE_ID = "financial_health_br_v1"
+_DISCOVERY_SIEVE_VERSION = "financial-health-br-v1"
 
 
 @dataclass(frozen=True)
@@ -105,6 +107,55 @@ def _source_for_request(db: Session, payload: ResearchLabCreateIn) -> _ResolvedS
 
 def _initial_run_key(case_id: int) -> str:
     return f"research-case-initial-research:{case_id}"
+
+
+def _discovery_origin(source: _ResolvedSource) -> dict | None:
+    """Freeze why a Discover click admitted this company to Research."""
+    if source.version is None or source.candidate is None:
+        return None
+    candidate = source.candidate
+    as_of = source.version.fetched_at
+    if as_of.tzinfo is None:
+        as_of = as_of.replace(tzinfo=timezone.utc)
+    return {
+        "sieve_id": _DISCOVERY_SIEVE_ID,
+        "sieve_version": _DISCOVERY_SIEVE_VERSION,
+        "source_document_version_id": source.version.id,
+        "parser_version": source.version.parser_version,
+        "as_of": as_of.isoformat(),
+        "report_period": candidate.report_period,
+        "membership_factors": [
+            {
+                "id": "altman_em_score",
+                "label": "Wartość Altman EM-Score",
+                "value": candidate.rating_value,
+                "report_period": candidate.report_period,
+                "source_document_version_id": source.version.id,
+            },
+            {
+                "id": "piotroski_f_score",
+                "label": "Piotroski F-Score",
+                "value": candidate.piotroski_f_score,
+                "report_period": candidate.report_period,
+                "source_document_version_id": source.version.id,
+            },
+        ],
+        "factor_gaps": (
+            ["Brak F-Score Piotroskiego w zapisanym źródle."]
+            if candidate.piotroski_f_score is None
+            else []
+        ),
+        "strategy_questions": [
+            "Jaki mechanizm może poprawić wyniki w kolejnym kwartale lub roku?",
+            "Czy wynik bazowy i przepływy pieniężne potwierdzają jakość poprawy?",
+            "Jaki katalizator i falsyfikator uzasadniają dalszy Research?",
+        ],
+        "neutral_context": [
+            {"id": "wig_bucket", "value": None, "basis": "Brak w zapisanym źródle rynkowego ratingu."},
+            {"id": "sector", "value": None, "basis": "Brak w zapisanym źródle rynkowego ratingu."},
+            {"id": "size", "value": None, "basis": "Brak raportowanej kapitalizacji w zapisanym źródle rynkowego ratingu."},
+        ],
+    }
 
 
 def _review_source_state(db: Session, company_id: int) -> tuple[str, list[dict]]:
@@ -308,6 +359,7 @@ def _ensure_research_case(
                 "source_document_version_id": (
                     source.version.id if source.version is not None else None
                 ),
+                "discovery_origin": _discovery_origin(source),
                 "task": {
                     "skill": "company-research",
                     "skill_version": _SKILL_VERSION,

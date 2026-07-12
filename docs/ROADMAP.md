@@ -47,7 +47,7 @@ evidence, scalar lineage, and explicit user assumptions are available.
 
 | Order | Outcome | Exit gate | Status |
 |---|---|---|---|
-| D1 | trustworthy Discover integrity and context | complete-universe and freshness gates, decision context, correct add/reactivate behavior | next |
+| D1 | trustworthy Discover integrity and context | complete-universe and freshness gates, decision context, correct add/reactivate behavior | in progress · integrity/freshness/provenance implemented; final user-flow gate remains |
 | D2 | comparable sourced sieves and overlap | three per-sieve candidate views share one contract and controlled overlap renders correctly | waits for D1 and market-wide facts |
 | R1 | user-owned Research memory | confirmed/corrected profile produces a new version and review without rewriting history | after D1 |
 | M1 | named method catalog and Codex perspectives | supported packs render separately over one evidence snapshot; synthesis preserves disagreement | after R1 and retained method sources |
@@ -72,10 +72,9 @@ Do not add a crawler or model call to Discover reads.
   source/parser identity, and as-of time. Typed-ticker entry remains available.
 - Fix closed-case reactivation and keep Discover usable when the Research list
   read fails independently.
-- Rename or retire the stored-company `rank_candidates` score unless it becomes
-  an honest data-readiness tool. If retained, it evaluates the full eligible
-  stored-company set before applying the output limit; it must not masquerade
-  as investment potential.
+- Keep the stored-company data-readiness tool explicitly separate from Discover
+  and investment potential. It evaluates the full eligible stored-company set
+  before applying its output limit.
 
 Gate: parser fixtures reject truncated universes; stale-company fixtures show
 the explicit state; repeated GETs remain zero-write; the production build and a

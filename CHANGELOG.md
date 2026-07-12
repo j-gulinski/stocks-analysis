@@ -3,6 +3,25 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-12 · D1 Discover integrity and provenance
+
+- Discover now rejects structurally incomplete or implausibly small first
+  market-rating pages, plus a material (>30%) count drop or insufficient
+  ticker continuity from a prior substantial good snapshot; failed refreshes
+  retain their raw evidence and the stored read continues to serve the last
+  parsed universe.
+- The Discover contract and UI separate immutable content time, last successful
+  source check, and the latest failed refresh. Stale lists remain visible but
+  cannot present their ordering as current; the source version, report period,
+  factor values/gaps, and explicit neutral-context unknowns are visible.
+- A Discover admission freezes its sieve/version, parser/source identity,
+  report period, membership factors, gaps, and context in the initial Research
+  job. Closed cases can be reactivated from Discover, and an independent
+  Research-list read failure no longer hides the stored Discover list.
+- Replaced the misleading `rank_candidates` MCP tool with
+  `assess_data_readiness`, which evaluates the full eligible stored-company set
+  before applying its output limit.
+
 ## 2026-07-12 · Default GPW analysis workspace contract
 
 - Refined the Product north star from a generic research second brain into the

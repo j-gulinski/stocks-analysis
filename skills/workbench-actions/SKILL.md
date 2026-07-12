@@ -39,9 +39,14 @@ state, queues work, claims a lease, or calls a model.
 - Discover currently produces candidates only from the financial-health sieve.
   OBS and Portal Analiz expose honest source/factor gaps but no candidates,
   cross-sieve comparison, or overlap yet.
-- `rank_candidates` and `codex_candidate_scan.py` measure stored-company data
-  readiness, not investment potential; do not present their score as a stock
-  opportunity rank.
+- `assess_data_readiness` and `codex_candidate_scan.py` measure stored-company
+  data readiness, not investment potential; do not present their score as a
+  stock opportunity rank.
+- Discover reads expose the immutable source version separately from the last
+  successful source check and the latest failed refresh. A stale list remains
+  inspectable but does not show a current rank. WIG bucket, sector, and size
+  stay explicit unknowns until sourced; opening Discover still performs no
+  fetch, write, queue, or model call.
 - Malik/OBS has a source-grounded Codex lens and the only ready Valuation pack;
   its market-wide Discover sieve and canonical persisted/rendered Research
   perspective remain planned. Areczeks and Elendix stay draft until retained

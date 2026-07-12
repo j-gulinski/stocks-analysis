@@ -520,6 +520,28 @@ _CANDIDATE_RATING_RE = re.compile(
 )
 
 
+def _market_rating_rows(soup: BeautifulSoup):
+    """Return the one table that declares the two required rating factors.
+
+    A page with a few rating-looking links is not enough evidence for a market
+    universe.  The source table must still declare both of the columns that
+    define this sieve; otherwise a partial/error page could silently replace a
+    good stored snapshot.
+    """
+    for table in soup.find_all("table"):
+        headers = " ".join(
+            cell.get_text(" ", strip=True).lower()
+            for cell in table.find_all("th")
+        )
+        has_rating = "rating" in headers or "altman" in headers
+        has_f_score = "f-score" in headers or "fscore" in headers or "piotroski" in headers
+        if has_rating and has_f_score:
+            return table.find_all("tr")
+    raise ParseError(
+        "No market-rating candidates found: table is missing required rating/F-Score headers."
+    )
+
+
 def parse_market_rating(html: str) -> list[MarketCandidate]:
     """Parse the single-page GPW rating universe used for candidate discovery.
 
@@ -530,7 +552,7 @@ def parse_market_rating(html: str) -> list[MarketCandidate]:
     soup = BeautifulSoup(html, "html.parser")
     candidates: list[MarketCandidate] = []
     seen: set[str] = set()
-    for row in soup.find_all("tr"):
+    for row in _market_rating_rows(soup):
         cells = row.find_all(["td", "th"])
         if len(cells) < 3:
             continue

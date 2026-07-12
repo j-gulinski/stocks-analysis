@@ -1,5 +1,7 @@
 """Stored market candidate sieve plus one explicit refresh command."""
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
@@ -9,6 +11,7 @@ from app.api.schemas import (
     DiscoverySieveOut,
 )
 from app.db.base import get_db
+from app.scrapers import http as polite_http
 from app.scrapers.biznesradar import ParseError
 from app.services.discovery import (
     PARSER_VERSION,
@@ -39,6 +42,8 @@ _RATING_RANK = {
 
 _FINANCIAL_MIN_RATING = 8.0
 _FINANCIAL_MIN_F_SCORE = 7
+_STALE_AFTER = timedelta(days=7)
+_MAX_REPORT_AGE_QUARTERS = 2
 
 
 def _sort_key(candidate) -> tuple:
@@ -72,7 +77,7 @@ def _select_candidates(candidates, *, min_rating: float, min_f_score: int | None
     return selected
 
 
-def _rank_basis(candidate, rank: int, total: int) -> list[str]:
+def _rank_basis(candidate, rank: int | None, total: int) -> list[str]:
     f_score = (
         f"Jakość zmian w wynikach: {candidate.piotroski_f_score}/9 pozytywnych "
         "sygnałów Piotroskiego."
@@ -80,7 +85,11 @@ def _rank_basis(candidate, rank: int, total: int) -> list[str]:
         else "Brak danych o jakości zmian w wynikach; kryterium pozostaje luką."
     )
     return [
-        f"Pozycja {rank}/{total} w sicie kondycji finansowej.",
+        (
+            f"Pozycja {rank}/{total} w sicie kondycji finansowej."
+            if rank is not None
+            else "Dane są nieaktualne; kolejność nie jest bieżącą pozycją w sicie."
+        ),
         "Kolejność: klasa odporności finansowej, jakość zmian w wynikach, wartość modelu, ticker.",
         (
             "Odporność finansowa według modelu Altmana: "
@@ -88,6 +97,66 @@ def _rank_basis(candidate, rank: int, total: int) -> list[str]:
             f"(klasa {candidate.rating or 'brak'})."
         ),
         f_score,
+    ]
+
+
+def _freshness(result):
+    content_at = getattr(result, "content_version_at", result.fetched_at)
+    last_check_at = getattr(result, "last_successful_source_check_at", content_at)
+    if content_at.tzinfo is None:
+        content_at = content_at.replace(tzinfo=timezone.utc)
+    if last_check_at.tzinfo is None:
+        last_check_at = last_check_at.replace(tzinfo=timezone.utc)
+    status_name = "stale" if datetime.now(timezone.utc) - last_check_at > _STALE_AFTER else "current"
+    return {
+        "status": status_name,
+        "content_version_at": content_at,
+        "last_successful_source_check_at": last_check_at,
+        "last_failed_refresh_at": getattr(result, "last_failed_refresh_at", None),
+        "last_failed_refresh_reason": getattr(result, "last_failed_refresh_reason", None),
+        "stale_after_hours": int(_STALE_AFTER.total_seconds() // 3600),
+    }
+
+
+def _report_period_is_stale(report_period: str, *, as_of: datetime) -> bool:
+    try:
+        year = int(report_period[:4])
+        quarter = int(report_period[-1])
+    except (TypeError, ValueError):
+        return True
+    current_quarter = (as_of.month - 1) // 3 + 1
+    age = (as_of.year - year) * 4 + current_quarter - quarter
+    return age > _MAX_REPORT_AGE_QUARTERS
+
+
+def _neutral_context() -> list[dict]:
+    return [
+        {
+            "id": "wig_bucket",
+            "label": "Indeks WIG",
+            "value": None,
+            "basis": "Brak w zapisanym źródle rynkowego ratingu.",
+        },
+        {
+            "id": "sector",
+            "label": "Sektor",
+            "value": None,
+            "basis": "Brak w zapisanym źródle rynkowego ratingu.",
+        },
+        {
+            "id": "size",
+            "label": "Wielkość",
+            "value": None,
+            "basis": "Brak raportowanej kapitalizacji w zapisanym źródle rynkowego ratingu.",
+        },
+    ]
+
+
+def _strategy_questions() -> list[str]:
+    return [
+        "Jaki mechanizm może poprawić wyniki w kolejnym kwartale lub roku?",
+        "Czy wynik bazowy i przepływy pieniężne potwierdzają jakość poprawy?",
+        "Jaki katalizator i falsyfikator uzasadniają dalszy Research?",
     ]
 
 
@@ -111,9 +180,14 @@ def _discovery_out(result, *, limit: int) -> DiscoveryOut:
         and item.piotroski_f_score is not None
         for item in result.candidates
     )
+    freshness = _freshness(result)
+    source_current = freshness["status"] == "current"
     candidates = []
     selected_page = selected[:limit]
     for rank, candidate in enumerate(selected_page, start=1):
+        factors_current = source_current and not _report_period_is_stale(
+            candidate.report_period, as_of=freshness["last_successful_source_check_at"]
+        )
         reasons = [
             "Odporność finansowa: "
             f"{candidate.rating_value:g} (klasa {candidate.rating})"
@@ -131,14 +205,40 @@ def _discovery_out(result, *, limit: int) -> DiscoveryOut:
                 br_rating=candidate.rating,
                 br_rating_value=candidate.rating_value,
                 piotroski_f_score=candidate.piotroski_f_score,
-                rank=rank,
-                rank_basis=_rank_basis(candidate, rank, len(selected)),
+                rank=rank if factors_current else None,
+                rank_basis=_rank_basis(candidate, rank if factors_current else None, len(selected)),
                 reasons=reasons,
                 caveat=(
-                    "Brak danych o jakości zmian w wynikach; czynnik pozostaje luką."
-                    if candidate.piotroski_f_score is None
+                    "Czynniki pochodzą ze starego okresu raportowego; kolejność nie jest bieżąca."
+                    if source_current and not factors_current
+                    else "Dane są nieaktualne; odśwież źródło przed traktowaniem listy jako bieżącej."
+                    if not source_current
                     else "To wyłącznie wstępne sito kondycji, nie ocena inwestycyjna."
                 ),
+                factor_status="current" if factors_current else "stale",
+                membership_factors=[
+                    {
+                        "id": "altman_em_score",
+                        "label": "Wartość Altman EM-Score",
+                        "value": candidate.rating_value,
+                        "report_period": candidate.report_period,
+                        "source_document_version_id": result.source_version_id,
+                    },
+                    {
+                        "id": "piotroski_f_score",
+                        "label": "Piotroski F-Score",
+                        "value": candidate.piotroski_f_score,
+                        "report_period": candidate.report_period,
+                        "source_document_version_id": result.source_version_id,
+                    },
+                ],
+                factor_gaps=(
+                    ["Brak F-Score Piotroskiego w zapisanym źródle."]
+                    if candidate.piotroski_f_score is None
+                    else []
+                ),
+                strategy_questions=_strategy_questions(),
+                neutral_context=_neutral_context(),
             )
         )
     return DiscoveryOut(
@@ -149,6 +249,7 @@ def _discovery_out(result, *, limit: int) -> DiscoveryOut:
         result_count=len(candidates),
         source_note=result.source_note,
         source_version_id=result.source_version_id,
+        freshness=freshness,
         candidates=candidates,
         sieves=_sieves(
             result,
@@ -226,7 +327,7 @@ def _sieves(
                 "name": "BiznesRadar",
                 "version": str(result.source_version_id),
                 "document_version_id": result.source_version_id,
-                "parser_version": PARSER_VERSION,
+                "parser_version": getattr(result, "parser_version", PARSER_VERSION),
                 "as_of": result.fetched_at,
             },
             gaps=financial_gaps,
@@ -295,6 +396,16 @@ def _parse_error(exc: ParseError) -> HTTPException:
     )
 
 
+def _source_error(exc: polite_http.FetchError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=(
+            "BiznesRadar discovery wymaga uwagi: ostatnie odświeżenie źródła "
+            f"nie powiodło się ({exc}). Wyświetlone pozostają ostatnie poprawne dane."
+        ),
+    )
+
+
 @router.get("", response_model=DiscoveryOut)
 def list_candidates(
     limit: int = Query(default=300, ge=1, le=300),
@@ -323,4 +434,6 @@ def refresh_candidates(
         result = discover_candidates(db, force=True)
     except ParseError as exc:
         raise _parse_error(exc) from exc
+    except polite_http.FetchError as exc:
+        raise _source_error(exc) from exc
     return _discovery_out(result, limit=limit)

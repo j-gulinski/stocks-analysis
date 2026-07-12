@@ -300,9 +300,9 @@ TOOLS: dict[str, ToolSpec] = {
         },
         lambda args: stock_tools.prepare_pre_session_brief(args),
     ),
-    "rank_candidates": ToolSpec(
-        "rank_candidates",
-        "Run the conservative stored-company candidate prescreen.",
+    "assess_data_readiness": ToolSpec(
+        "assess_data_readiness",
+        "Assess stored-company research-data readiness; this is not an investment rank.",
         {
             "type": "object",
             "properties": {
@@ -316,7 +316,7 @@ TOOLS: dict[str, ToolSpec] = {
             },
             "additionalProperties": False,
         },
-        lambda args: stock_tools.rank_candidates(args),
+        lambda args: stock_tools.assess_data_readiness(args),
     ),
     "run_backtest": ToolSpec(
         "run_backtest",

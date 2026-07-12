@@ -21,7 +21,7 @@ def test_mcp_lists_core_tools():
         "mark_verification_result",
         "complete_agent_run",
         "prepare_pre_session_brief",
-        "rank_candidates",
+        "assess_data_readiness",
         "run_backtest",
         "evaluate_agent_runs",
         "poll_espi_watchlist",
@@ -677,11 +677,11 @@ def test_mcp_contract_and_espi_tools_return_honest_status(db, monkeypatch):
             "jsonrpc": "2.0",
             "id": 9,
             "method": "tools/call",
-            "params": {"name": "rank_candidates", "arguments": {"ticker": "DGN"}},
+            "params": {"name": "assess_data_readiness", "arguments": {"ticker": "DGN"}},
         }
     )["result"]["structuredContent"]
-    assert candidates["workflow"] == "stock-candidate-scout"
-    assert candidates["candidates"][0]["ticker"] == "DGN"
+    assert candidates["workflow"] == "stored-company-data-readiness"
+    assert candidates["data_readiness"][0]["ticker"] == "DGN"
 
     monkeypatch.setattr(
         stock_tools.espi,

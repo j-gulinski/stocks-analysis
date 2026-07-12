@@ -933,10 +933,30 @@ class DiscoveryCandidateOut(BaseModel):
     br_rating: str | None
     br_rating_value: float | None
     piotroski_f_score: int | None
-    rank: int
+    rank: int | None
     rank_basis: list[str]
     reasons: list[str]
     caveat: str
+    factor_status: Literal["current", "stale"]
+    membership_factors: list["DiscoveryMembershipFactorOut"]
+    factor_gaps: list[str]
+    strategy_questions: list[str]
+    neutral_context: list["DiscoveryContextOut"]
+
+
+class DiscoveryMembershipFactorOut(BaseModel):
+    id: str
+    label: str
+    value: float | int | None
+    report_period: str
+    source_document_version_id: int
+
+
+class DiscoveryContextOut(BaseModel):
+    id: Literal["wig_bucket", "sector", "size"]
+    label: str
+    value: str | None
+    basis: str
 
 
 class DiscoverySieveFactorCoverageOut(BaseModel):
@@ -959,6 +979,15 @@ class DiscoverySieveSourceOut(BaseModel):
     document_version_id: int
     parser_version: str
     as_of: datetime
+
+
+class DiscoveryFreshnessOut(BaseModel):
+    status: Literal["current", "stale"]
+    content_version_at: datetime
+    last_successful_source_check_at: datetime
+    last_failed_refresh_at: datetime | None = None
+    last_failed_refresh_reason: str | None = None
+    stale_after_hours: int
 
 
 class DiscoverySieveOut(BaseModel):
@@ -985,6 +1014,7 @@ class DiscoveryOut(BaseModel):
     result_count: int
     source_note: str
     source_version_id: int
+    freshness: DiscoveryFreshnessOut
     candidates: list[DiscoveryCandidateOut]
     sieves: list[DiscoverySieveOut]
 

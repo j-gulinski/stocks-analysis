@@ -226,9 +226,9 @@ def _execution_contract(agent: AgentRun) -> dict[str, Any]:
         source = (agent.inputs or {}).get("source")
         source_step = (
             "Use inputs.candidates as the immutable source shortlist; do not replace "
-            "it with rank_candidates and do not broad-refresh companies."
+            "it with assess_data_readiness and do not broad-refresh companies."
             if source == "biznesradar-market-rating"
-            else "Run rank_candidates or backend/scripts/codex_candidate_scan.py."
+            else "Run assess_data_readiness or backend/scripts/codex_candidate_scan.py."
         )
         return {
             **base,

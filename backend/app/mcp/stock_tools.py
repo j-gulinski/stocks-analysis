@@ -754,7 +754,8 @@ def get_recent_source_deltas(arguments: dict[str, Any] | None = None) -> dict[st
         db.close()
 
 
-def rank_candidates(arguments: dict[str, Any] | None = None) -> dict[str, Any]:
+def assess_data_readiness(arguments: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Describe stored-company research inputs; this is not an opportunity rank."""
     arguments = arguments or {}
     limit = _bounded_limit(arguments.get("limit"), default=20)
     tickers = arguments.get("ticker")
@@ -772,7 +773,7 @@ def rank_candidates(arguments: dict[str, Any] | None = None) -> dict[str, Any]:
         stmt = select(Company).order_by(Company.ticker)
         if ticker_filter:
             stmt = stmt.where(Company.ticker.in_(ticker_filter))
-        companies = list(db.scalars(stmt.limit(limit)))
+        companies = list(db.scalars(stmt))
         rows = sorted(
             (_score_candidate(db, company) for company in companies),
             key=lambda row: (row["score"], row["ticker"]),
@@ -780,9 +781,9 @@ def rank_candidates(arguments: dict[str, Any] | None = None) -> dict[str, Any]:
         )
         return {
             "ok": True,
-            "workflow": "stock-candidate-scout",
+            "workflow": "stored-company-data-readiness",
             "source": "stored-companies",
-            "candidates": rows,
+            "data_readiness": rows[:limit],
         }
     finally:
         db.close()

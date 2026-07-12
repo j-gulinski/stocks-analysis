@@ -39,6 +39,40 @@ def test_market_rating_parser_rejects_wrong_page():
         raise AssertionError("wrong page must not look like an empty universe")
 
 
+def test_market_rating_parser_rejects_table_without_both_declared_factors():
+    html = """
+    <table><tr><th>Profil</th><th>Rating</th></tr>
+    <tr><td><a href=\"/notowania/DEKPOL\">DEK (DEKPOL)</a></td><td>AAA (8,6)</td></tr>
+    </table>
+    """
+
+    try:
+        parse_market_rating(html)
+    except ParseError as exc:
+        assert "required rating/F-Score headers" in str(exc)
+    else:  # pragma: no cover - assertion clarity
+        raise AssertionError("a structurally incomplete rating table must fail")
+
+
+def test_first_discovery_refresh_rejects_a_one_row_universe(client, monkeypatch, no_sleep):
+    html = """
+    <table><tr><th>Profil</th><th>Rating</th><th>F-Score</th></tr>
+    <tr><td><a href="/notowania/DEKPOL">DEK (DEKPOL)</a></td><td>2026/Q1</td><td>AAA (8,6)</td><td>8</td></tr>
+    </table>
+    """
+
+    def fake_fetch(url, **_kwargs):
+        response = FakeResponse(html)
+        response.url = url
+        return response
+
+    monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
+    response = client.post("/api/discovery/refresh")
+
+    assert response.status_code == 503
+    assert "only 1 rows" in response.json()["detail"]
+
+
 def test_retired_discovery_workflows_are_not_exposed(client):
     assert client.get("/api/discovery/forecast-growth").status_code == 404
     assert client.get("/api/discovery/universe-policy").status_code == 404
@@ -127,6 +161,35 @@ def test_discovery_reparses_cached_failed_snapshot_without_a_new_request(db, mon
 
     assert [candidate.ticker for candidate in result.candidates] == ["IFR"]
     assert recorded.version.parse_status == "parsed"
+
+
+def test_discovery_reports_the_immutable_parser_version_for_a_stored_snapshot(client, db):
+    from app.services import evidence
+    from app.services.discovery import DISCOVERY_URL
+
+    html = load_fixture("br_market_rating.html")
+    recorded = evidence.record_market_document_version(
+        db,
+        market_key="__GPW__",
+        source_name="biznesradar",
+        source_type="market_rating",
+        scope_key="akcje_gpw",
+        requested_url=DISCOVERY_URL,
+        effective_url=DISCOVERY_URL,
+        content=html.encode(),
+        text=html,
+        response_status=200,
+        mime_type="text/html",
+        parser_version="biznesradar-market-rating@legacy",
+        fetched_at=datetime.now(timezone.utc),
+    )
+    evidence.mark_parse_result(recorded.version, success=True)
+    db.commit()
+
+    response = client.get("/api/discovery")
+
+    assert response.status_code == 200
+    assert response.json()["sieves"][0]["source"]["parser_version"] == "biznesradar-market-rating@legacy"
 
 
 def test_discovery_refresh_is_explicit_and_reads_use_immutable_cache_without_jobs(
@@ -218,6 +281,115 @@ def test_changed_market_snapshot_persists_without_scheduling_jobs(
     assert db.scalar(select(func.count()).select_from(AgentRun)) == 0
 
 
+def test_failed_discovery_refresh_keeps_last_good_snapshot_and_reports_failure(
+    client, db, monkeypatch, no_sleep
+):
+    responses = iter([
+        load_fixture("br_market_rating.html"),
+        "<table><tr><th>Profil</th><th>Rating</th></tr></table>",
+    ])
+
+    def fake_fetch(url, **_kwargs):
+        response = FakeResponse(next(responses))
+        response.url = url
+        return response
+
+    monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
+
+    first = client.post("/api/discovery/refresh")
+    assert first.status_code == 200
+    source_version_id = first.json()["source_version_id"]
+
+    failed = client.post("/api/discovery/refresh")
+    assert failed.status_code == 503
+
+    stored = client.get("/api/discovery")
+    assert stored.status_code == 200
+    body = stored.json()
+    assert body["source_version_id"] == source_version_id
+    assert body["freshness"]["last_failed_refresh_at"] is not None
+    assert "Nie rozpoznano źródła" in body["freshness"]["last_failed_refresh_reason"]
+    assert db.scalar(select(func.count()).select_from(DocumentVersion)) == 2
+
+
+def test_discovery_rejects_implausibly_truncated_universe(client, monkeypatch, no_sleep):
+    def universe_html(count: int, *, offset: int = 0) -> str:
+        rows = "".join(
+            f'<tr><td><a href="/notowania/T{index + offset:03}">T{index + offset:03} (TEST)</a></td>'
+            '<td>2026/Q1</td><td>AAA (8,6)</td><td>7</td></tr>'
+            for index in range(count)
+        )
+        return f"<table><tr><th>Profil</th><th>Rating</th><th>F-Score</th></tr>{rows}</table>"
+
+    responses = iter([universe_html(100), universe_html(50)])
+
+    def fake_fetch(url, **_kwargs):
+        response = FakeResponse(next(responses))
+        response.url = url
+        return response
+
+    monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
+
+    first = client.post("/api/discovery/refresh")
+    assert first.status_code == 200
+    failed = client.post("/api/discovery/refresh")
+    assert failed.status_code == 503
+    assert "dropped from 100 to 50" in failed.json()["detail"]
+    assert client.get("/api/discovery").json()["universe_count"] == 100
+
+
+def test_discovery_rejects_same_size_universe_without_ticker_continuity(client, monkeypatch, no_sleep):
+    def universe_html(offset: int) -> str:
+        rows = "".join(
+            f'<tr><td><a href="/notowania/T{index + offset:03}">T{index + offset:03} (TEST)</a></td>'
+            '<td>2026/Q1</td><td>AAA (8,6)</td><td>7</td></tr>'
+            for index in range(100)
+        )
+        return f"<table><tr><th>Profil</th><th>Rating</th><th>F-Score</th></tr>{rows}</table>"
+
+    responses = iter([universe_html(0), universe_html(200)])
+
+    def fake_fetch(url, **_kwargs):
+        response = FakeResponse(next(responses))
+        response.url = url
+        return response
+
+    monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
+    assert client.post("/api/discovery/refresh").status_code == 200
+    failed = client.post("/api/discovery/refresh")
+
+    assert failed.status_code == 503
+    assert "retains only 0/100 prior tickers" in failed.json()["detail"]
+    assert client.get("/api/discovery").json()["universe_count"] == 100
+
+
+def test_blocked_discovery_refresh_logs_failure_and_keeps_last_good_snapshot(
+    client, db, monkeypatch, no_sleep
+):
+    from app.scrapers.http import FetchBlockedError
+
+    def good_fetch(url, **_kwargs):
+        response = FakeResponse(load_fixture("br_market_rating.html"))
+        response.url = url
+        return response
+
+    monkeypatch.setattr("app.scrapers.http.fetch", good_fetch)
+    assert client.post("/api/discovery/refresh").status_code == 200
+    monkeypatch.setattr(
+        "app.scrapers.http.fetch",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(FetchBlockedError("blocked")),
+    )
+
+    failed = client.post("/api/discovery/refresh")
+    assert failed.status_code == 503
+    stored = client.get("/api/discovery")
+    assert stored.status_code == 200
+    assert stored.json()["freshness"]["last_failed_refresh_reason"] == "Błąd sieci"
+    assert db.scalar(
+        select(func.count()).select_from(FetchLog).where(FetchLog.status.is_(None))
+    ) == 1
+
+
 def test_explicit_discovery_refresh_explains_rank_without_scheduling_research(
     client, db, monkeypatch, no_sleep
 ):
@@ -288,3 +460,42 @@ def test_three_sieves_report_market_wide_coverage_and_limit_does_not_change_coun
         assert blocked.source is None
         assert blocked.factor_coverage
         assert blocked.gaps
+
+
+def test_stale_discovery_does_not_expose_a_current_rank():
+    from app.api.discovery import _discovery_out
+    from app.scrapers.biznesradar import MarketCandidate
+
+    result = SimpleNamespace(
+        candidates=[MarketCandidate("TST", None, "Test", "2020Q1", "AAA", 8.6, 8)],
+        source_url="https://example.test/rating",
+        fetched_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        source_note="fixture",
+        source_version_id=31,
+    )
+
+    body = _discovery_out(result, limit=10)
+    assert body.freshness.status == "stale"
+    assert body.candidates[0].rank is None
+    assert body.candidates[0].membership_factors[0].source_document_version_id == 31
+    assert body.candidates[0].neutral_context[0].value is None
+
+
+def test_old_report_period_is_stale_even_after_a_current_source_check():
+    from app.api.discovery import _discovery_out
+    from app.scrapers.biznesradar import MarketCandidate
+
+    now = datetime.now(timezone.utc)
+    result = SimpleNamespace(
+        candidates=[MarketCandidate("TST", None, "Test", "2020Q1", "AAA", 8.6, 8)],
+        source_url="https://example.test/rating",
+        fetched_at=now,
+        source_note="fixture",
+        source_version_id=31,
+        last_successful_source_check_at=now,
+    )
+
+    body = _discovery_out(result, limit=10)
+    assert body.freshness.status == "current"
+    assert body.candidates[0].factor_status == "stale"
+    assert body.candidates[0].rank is None

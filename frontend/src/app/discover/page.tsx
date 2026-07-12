@@ -17,7 +17,7 @@ import {
 } from "@/lib/api";
 import { LoadingMessages, SkeletonRows } from "@/components/Loading";
 import { fmtDate, fmtNumber } from "@/lib/format";
-import type { DiscoveryCandidate, DiscoveryResult } from "@/lib/types";
+import type { DiscoveryCandidate, DiscoveryResult, ResearchCaseSummary } from "@/lib/types";
 
 const CANDIDATE_PAGE_SIZE = 12;
 
@@ -39,29 +39,37 @@ function financialFactors(candidate: DiscoveryCandidate) {
 export default function DiscoverPage() {
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const [addedTickers, setAddedTickers] = useState<Set<string>>(new Set());
+  const [closedTickers, setClosedTickers] = useState<Set<string>>(new Set());
   const [addingTickers, setAddingTickers] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [visibleCount, setVisibleCount] = useState(CANDIDATE_PAGE_SIZE);
   const [error, setError] = useState<string | null>(null);
+  const [researchReadWarning, setResearchReadWarning] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    try {
-      const [discovery, cases] = await Promise.all([
-        getDiscovery(),
-        getResearchCases(),
-      ]);
-      setResult(discovery);
-      setAddedTickers(new Set(cases.map((item) => item.ticker)));
+    setResearchReadWarning(null);
+    const [discoveryResult, casesResult] = await Promise.allSettled([
+      getDiscovery(),
+      getResearchCases(),
+    ]);
+    if (discoveryResult.status === "fulfilled") {
+      setResult(discoveryResult.value);
       setVisibleCount(CANDIDATE_PAGE_SIZE);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
+    } else {
+      setError(discoveryResult.reason instanceof Error ? discoveryResult.reason.message : String(discoveryResult.reason));
     }
+    if (casesResult.status === "fulfilled") {
+      const rows: ResearchCaseSummary[] = casesResult.value;
+      setAddedTickers(new Set(rows.filter((item) => item.state !== "closed").map((item) => item.ticker)));
+      setClosedTickers(new Set(rows.filter((item) => item.state === "closed").map((item) => item.ticker)));
+    } else {
+      setResearchReadWarning("Nie udało się odczytać listy Research. Nadal możesz dodać spółkę — zapis zweryfikuje stan po stronie serwera.");
+    }
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -96,6 +104,11 @@ export default function DiscoverPage() {
         source_document_version_id: result.source_version_id,
       });
       setAddedTickers((current) => new Set(current).add(ticker));
+      setClosedTickers((current) => {
+        const next = new Set(current);
+        next.delete(ticker);
+        return next;
+      });
       setSuccess(
         response.created_case
           ? `${ticker} dodano do Research. Możesz dodać kolejną spółkę.`
@@ -182,17 +195,29 @@ export default function DiscoverPage() {
 
       {success && <div className="success-box" role="status">{success}</div>}
       {error && <div className="error-box" role="alert">{error}</div>}
+      {researchReadWarning && <div className="error-box" role="status">{researchReadWarning}</div>}
 
       {result && activeSieve && (
         <section className="discovery-source-strip" aria-label="Stan aktywnego sita">
           <div>
             <IconDatabaseSearch size={17} />
             <span>
-              {activeSieve.title} · {activeSieve.candidate_count} kandydatów · dane {fmtDate(activeSieve.source?.as_of ?? result.as_of)}
+              {activeSieve.title} · {activeSieve.candidate_count} kandydatów · {activeSieve.source?.name ?? result.source} · zapis #{activeSieve.source?.document_version_id ?? result.source_version_id} · dane {fmtDate(activeSieve.source?.as_of ?? result.as_of)}
             </span>
           </div>
-          <span className="badge neutral">{activeSieve.source?.name ?? result.source}</span>
+          <div>
+            <span className={`badge ${result.freshness.status === "stale" ? "warning" : "neutral"}`}>
+              {result.freshness.status === "stale" ? "Dane nieaktualne" : "Źródło sprawdzone"}
+            </span>
+            <small> treść: {fmtDate(result.freshness.content_version_at)} · sprawdzono: {fmtDate(result.freshness.last_successful_source_check_at)}</small>
+          </div>
         </section>
+      )}
+
+      {result?.freshness.last_failed_refresh_at && new Date(result.freshness.last_failed_refresh_at) >= new Date(result.freshness.last_successful_source_check_at) && (
+        <div className="error-box" role="status">
+          Ostatnia nieudana próba odświeżenia ({fmtDate(result.freshness.last_failed_refresh_at)}): {result.freshness.last_failed_refresh_reason ?? "nieznany błąd"}. Wyświetlane są ostatnie poprawne dane.
+        </div>
       )}
 
       <section className="candidate-section" aria-labelledby="candidate-title">
@@ -225,6 +250,7 @@ export default function DiscoverPage() {
           <div className="candidate-list" aria-live="polite">
             {result.candidates.slice(0, visibleCount).map((candidate) => {
               const added = addedTickers.has(candidate.ticker);
+              const closed = closedTickers.has(candidate.ticker);
               const adding = addingTickers.has(candidate.ticker);
               return (
                 <article className="candidate-row" key={candidate.ticker}>
@@ -233,6 +259,9 @@ export default function DiscoverPage() {
                     <div>
                       <strong>{candidate.name ?? "Nazwa do uzupełnienia"}</strong>
                       <small>Raport {candidate.report_period}</small>
+                      <small>{candidate.neutral_context.map((item) => `${item.label}: ${item.value ?? "brak"}`).join(" · ")}</small>
+                      <small>Do sprawdzenia: {candidate.strategy_questions[0]}</small>
+                      {candidate.factor_status === "stale" && <small className="warning">{candidate.caveat}</small>}
                     </div>
                   </div>
 
@@ -247,7 +276,7 @@ export default function DiscoverPage() {
                   </div>
 
                   <div className="candidate-source-meta">
-                    <span className="badge muted">#{candidate.rank} w tym sicie</span>
+                    <span className="badge muted">{candidate.rank == null ? "Ranking nieaktualny" : `#${candidate.rank} w tym sicie`}</span>
                   </div>
 
                   <button
@@ -258,11 +287,13 @@ export default function DiscoverPage() {
                     aria-label={
                       added
                         ? `${candidate.ticker} jest w Research`
-                        : `Dodaj ${candidate.ticker} do Research`
+                        : closed
+                          ? `Wznów ${candidate.ticker} w Research`
+                          : `Dodaj ${candidate.ticker} do Research`
                     }
                   >
                     {added ? <IconCircleCheck size={14} /> : <IconPlus size={14} />}
-                    {added ? "Dodano" : adding ? "Dodaję…" : "Dodaj do Research"}
+                    {added ? "Dodano" : adding ? "Dodaję…" : closed ? "Wznów Research" : "Dodaj do Research"}
                   </button>
                 </article>
               );

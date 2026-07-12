@@ -54,6 +54,29 @@ def test_research_lab_creates_one_idempotent_case_and_initial_job_from_discovery
         f"research-case-initial-research:{body['research_case']['id']}"
     )
     assert run.inputs["source_document_version_id"] == source_version_id
+    assert run.inputs["discovery_origin"] == {
+        "sieve_id": "financial_health_br_v1",
+        "sieve_version": "financial-health-br-v1",
+        "source_document_version_id": source_version_id,
+        "parser_version": "biznesradar-market-rating@3",
+        "as_of": run.inputs["discovery_origin"]["as_of"],
+        "report_period": "2026Q1",
+        "membership_factors": [
+            {"id": "altman_em_score", "label": "Wartość Altman EM-Score", "value": 8.6, "report_period": "2026Q1", "source_document_version_id": source_version_id},
+            {"id": "piotroski_f_score", "label": "Piotroski F-Score", "value": 6, "report_period": "2026Q1", "source_document_version_id": source_version_id},
+        ],
+        "factor_gaps": [],
+        "strategy_questions": [
+            "Jaki mechanizm może poprawić wyniki w kolejnym kwartale lub roku?",
+            "Czy wynik bazowy i przepływy pieniężne potwierdzają jakość poprawy?",
+            "Jaki katalizator i falsyfikator uzasadniają dalszy Research?",
+        ],
+        "neutral_context": [
+            {"id": "wig_bucket", "value": None, "basis": "Brak w zapisanym źródle rynkowego ratingu."},
+            {"id": "sector", "value": None, "basis": "Brak w zapisanym źródle rynkowego ratingu."},
+            {"id": "size", "value": None, "basis": "Brak raportowanej kapitalizacji w zapisanym źródle rynkowego ratingu."},
+        ],
+    }
     assert run.inputs["task"]["skill"] == "company-research"
     assert run.inputs["task"]["skill_version"] == "company-research-v2"
     assert run.inputs["task"]["output_contract_version"] == "research-snapshot-v2"

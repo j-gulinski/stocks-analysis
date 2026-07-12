@@ -10,10 +10,26 @@ export interface DiscoveryCandidate {
   br_rating: string | null;
   br_rating_value: number | null;
   piotroski_f_score: number | null;
-  rank: number;
+  rank: number | null;
   rank_basis: string[];
   reasons: string[];
   caveat: string;
+  factor_status: "current" | "stale";
+  membership_factors: Array<{
+    id: string;
+    label: string;
+    value: number | null;
+    report_period: string;
+    source_document_version_id: number;
+  }>;
+  factor_gaps: string[];
+  strategy_questions: string[];
+  neutral_context: Array<{
+    id: "wig_bucket" | "sector" | "size";
+    label: string;
+    value: string | null;
+    basis: string;
+  }>;
 }
 
 export interface DiscoveryResult {
@@ -24,6 +40,14 @@ export interface DiscoveryResult {
   result_count: number;
   source_note: string;
   source_version_id: number;
+  freshness: {
+    status: "current" | "stale";
+    content_version_at: string;
+    last_successful_source_check_at: string;
+    last_failed_refresh_at: string | null;
+    last_failed_refresh_reason: string | null;
+    stale_after_hours: number;
+  };
   candidates: DiscoveryCandidate[];
   sieves: DiscoverySieve[];
 }
