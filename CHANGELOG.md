@@ -5,6 +5,14 @@ product reset remains available in Git at and before `2ac75d0`.
 
 ## 2026-07-12 · P4 immutable portfolio and verified review platform
 
+- Continued real portfolio coverage with BFT at 10.00%. The issuer collector
+  scopes Benefit Systems' current `.news-related-files`; official index/report
+  versions `99/100` retain two links and 30 bounded report claims. Initial run
+  41 passed VerificationRun 14 and saved snapshot/profile `11/10` as
+  provisional. Volume, gross margin, working capital and capex are sourced;
+  price/mix, fixed costs, backlog and four additional gaps remain explicit.
+  MAC consolidation and the 109.8m PLN IAS 29 monetary gain are separated from
+  organic operating interpretation.
 - Continued real portfolio coverage with CBF at 10.05%. The bounded issuer
   collector scopes cyber_Folks' Q1 attachment block to `.attachments`;
   official index/presentation/statement versions `89/90/91` retain seven

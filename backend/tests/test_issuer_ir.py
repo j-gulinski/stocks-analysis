@@ -101,6 +101,12 @@ def _seed_report_link(db, report_url: str, *, extractor_version: str | None = No
             "Raport kwartalny za Q1 2026 - cyber_Folks Investors",
             7,
         ),
+        (
+            "issuer_ir_bft.html",
+            "https://corp.benefitsystems.pl/en/for-investors/article/consolidated-quarterly-report-for-1q-2026/",
+            "Consolidated quarterly report for 1Q 2026 - Benefit Systems",
+            2,
+        ),
     ],
 )
 def test_parse_issuer_ir_index_shapes(
@@ -132,6 +138,7 @@ def test_ingest_issuer_ir_pilot_records_versions_and_unverified_link_claims(
             Company(ticker="DIG", name="DIGITAL NETWORK SA"),
             Company(ticker="CDR", name="CDPROJEKT"),
             Company(ticker="CBF", name="CYBER_FOLKS SA"),
+            Company(ticker="BFT", name="BENEFIT SYSTEMS SA"),
         ]
     )
     db.commit()
@@ -144,6 +151,7 @@ def test_ingest_issuer_ir_pilot_records_versions_and_unverified_link_claims(
         "DIG": "issuer_ir_dig.html",
         "CDR": "issuer_ir_cdr.html",
         "CBF": "issuer_ir_cbf.html",
+        "BFT": "issuer_ir_bft.html",
     }
     calls = []
 
@@ -158,24 +166,24 @@ def test_ingest_issuer_ir_pilot_records_versions_and_unverified_link_claims(
     results = [issuer_ir.ingest_issuer_ir_index(db, ticker) for ticker in fixtures]
 
     assert all(result["ok"] for result in results)
-    assert len(calls) == 8
-    assert db.scalar(select(func.count()).select_from(SourceDocument)) == 8
-    assert db.scalar(select(func.count()).select_from(DocumentVersion)) == 8
-    assert db.scalar(select(func.count()).select_from(Fact)) == 17
+    assert len(calls) == 9
+    assert db.scalar(select(func.count()).select_from(SourceDocument)) == 9
+    assert db.scalar(select(func.count()).select_from(DocumentVersion)) == 9
+    assert db.scalar(select(func.count()).select_from(Fact)) == 19
     assert db.scalar(
         select(func.count())
         .select_from(Fact)
         .where(Fact.verification_state == "unverified")
-    ) == 17
+    ) == 19
     assert db.scalar(
         select(func.count())
         .select_from(FetchLog)
         .where(FetchLog.document_version_id.is_not(None))
-    ) == 8
+    ) == 9
 
     cached = issuer_ir.ingest_issuer_ir_index(db, "SNT")
     assert cached["status"] == "cached"
-    assert len(calls) == 8
+    assert len(calls) == 9
 
 
 def test_ingest_issuer_ir_returns_temporary_state_on_polite_hard_stop(db, monkeypatch):

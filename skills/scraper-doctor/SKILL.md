@@ -216,6 +216,9 @@ are NON-NEGOTIABLE at every step (see bottom).
   Polish/English reports, statements and presentations. Scope to that block;
   retain the 15 MB PDF limit and use smaller authorized primary documents when
   a full report exceeds it rather than weakening the safety boundary.
+- Benefit Systems report detail pages expose current Polish and English PDFs
+  in `.news-related-files`. Scope to that block so report-labelled navigation
+  and footer links cannot authorize unrelated detail downloads.
 
 ## Politeness invariants (never relax while debugging)
 

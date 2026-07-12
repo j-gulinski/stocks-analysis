@@ -264,6 +264,14 @@ consumes only verified company scenarios.
   `@8`. The full management report exceeded the fixed 15 MB safety cap and was
   not used; the draft keeps NER distinct from logo retention and acquisition
   cash flow distinct from CFO. Portfolio snapshot 2 remains unchanged.
+- BFT at 10.00% now has official index/report versions `99/100` and initial
+  Research snapshot/profile/verification `11/10/14`. Four of seven industrial
+  markers are sourced: volume, gross margin, working capital and capex.
+  Price/mix, fixed costs, backlog and four further gaps keep it provisional.
+  The adapter scopes `.news-related-files` and trusts scoped extractor
+  generations `@4` through `@9`; Research explicitly separates MAC scope and
+  the IAS 29 monetary gain from organic operating performance. Portfolio
+  snapshot 2 remains unchanged.
 
 ## Verification commands
 
