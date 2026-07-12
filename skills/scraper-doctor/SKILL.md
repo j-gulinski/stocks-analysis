@@ -200,6 +200,10 @@ are NON-NEGOTIABLE at every step (see bottom).
   same-host target to HTTPS, then requires the final PDF response's connected
   peer to be public. Never relax the final peer check or follow a cross-host
   redirect.
+- Artifex Mundi report pages repeat periodic-report labels in the investor
+  navigation. Extract only from `.investors-page-content`; the official PDF is
+  a same-host `/wp-content/uploads/...pdf` link and must still be discovered in
+  the stored index evidence before detail ingestion.
 
 ## Politeness invariants (never relax while debugging)
 

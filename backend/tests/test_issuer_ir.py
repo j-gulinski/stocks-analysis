@@ -13,7 +13,7 @@ def public_issuer_hosts(monkeypatch):
     monkeypatch.setattr(issuer_ir, "_peer_is_public", lambda _response: True)
 
 
-def _seed_report_link(db, report_url: str):
+def _seed_report_link(db, report_url: str, *, extractor_version: str | None = None):
     from app.db.models import Company
     from app.scrapers import issuer_ir
     from app.services import evidence
@@ -44,7 +44,7 @@ def _seed_report_link(db, report_url: str):
         text="Seed report",
         locator={"url": report_url},
         verification_state="unverified",
-        extractor_version=issuer_ir.EXTRACTOR_VERSION,
+        extractor_version=extractor_version or issuer_ir.EXTRACTOR_VERSION,
     )
     db.commit()
     return company
@@ -77,6 +77,12 @@ def _seed_report_link(db, report_url: str):
             "Financial Reports 2026 - ASBIS",
             1,
         ),
+        (
+            "issuer_ir_art.html",
+            "https://www.artifexmundi.com/en/quarterly-report-for-the-first-quarter-of-2026/",
+            "Artifex Mundi - Quarterly report for the first quarter of 2026",
+            1,
+        ),
     ],
 )
 def test_parse_issuer_ir_index_shapes(
@@ -104,6 +110,7 @@ def test_ingest_issuer_ir_pilot_records_versions_and_unverified_link_claims(
             Company(ticker="ABS", name="ASSECO BUSINESS SOLUTIONS SA"),
             Company(ticker="OPM", name="OPTEAM SA"),
             Company(ticker="ASB", name="ASBISc ENTERPRISES PLC"),
+            Company(ticker="ART", name="ARTIFEX MUNDI SA"),
         ]
     )
     db.commit()
@@ -112,6 +119,7 @@ def test_ingest_issuer_ir_pilot_records_versions_and_unverified_link_claims(
         "ABS": "issuer_ir_abs.html",
         "OPM": "issuer_ir_opm.html",
         "ASB": "issuer_ir_asb.html",
+        "ART": "issuer_ir_art.html",
     }
     calls = []
 
@@ -126,24 +134,24 @@ def test_ingest_issuer_ir_pilot_records_versions_and_unverified_link_claims(
     results = [issuer_ir.ingest_issuer_ir_index(db, ticker) for ticker in fixtures]
 
     assert all(result["ok"] for result in results)
-    assert len(calls) == 4
-    assert db.scalar(select(func.count()).select_from(SourceDocument)) == 4
-    assert db.scalar(select(func.count()).select_from(DocumentVersion)) == 4
-    assert db.scalar(select(func.count()).select_from(Fact)) == 5
+    assert len(calls) == 5
+    assert db.scalar(select(func.count()).select_from(SourceDocument)) == 5
+    assert db.scalar(select(func.count()).select_from(DocumentVersion)) == 5
+    assert db.scalar(select(func.count()).select_from(Fact)) == 6
     assert db.scalar(
         select(func.count())
         .select_from(Fact)
         .where(Fact.verification_state == "unverified")
-    ) == 5
+    ) == 6
     assert db.scalar(
         select(func.count())
         .select_from(FetchLog)
         .where(FetchLog.document_version_id.is_not(None))
-    ) == 4
+    ) == 5
 
     cached = issuer_ir.ingest_issuer_ir_index(db, "SNT")
     assert cached["status"] == "cached"
-    assert len(calls) == 4
+    assert len(calls) == 5
 
 
 def test_ingest_issuer_ir_returns_temporary_state_on_polite_hard_stop(db, monkeypatch):
@@ -286,6 +294,33 @@ def test_ingest_issuer_pdf_rejects_url_not_discovered_in_index(db):
 
     with pytest.raises(ValueError, match="not present"):
         ingest_issuer_ir_report(db, "ABS", "https://other.example/report.pdf")
+
+
+def test_prior_scoped_extractor_can_authorize_report_fetch(db, monkeypatch):
+    from app.scrapers import issuer_ir
+
+    report_url = "https://assecobs.pl/reports/prior-scoped.pdf"
+    _seed_report_link(db, report_url, extractor_version="issuer-ir-links@4")
+    response = FakeResponse("", 200)
+    response.url = report_url
+    response.content = b"%PDF-prior"
+    response.headers = {"content-type": "application/pdf"}
+    monkeypatch.setattr(issuer_ir.http, "fetch", lambda _url, **_kwargs: response)
+    monkeypatch.setattr(issuer_ir, "extract_pdf_pages", lambda _content: ["Prior claim"])
+
+    result = issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+
+    assert result["status"] == "fetched"
+
+
+def test_noisy_legacy_extractor_cannot_authorize_report_fetch(db):
+    from app.scrapers import issuer_ir
+
+    report_url = "https://assecobs.pl/reports/noisy-legacy.pdf"
+    _seed_report_link(db, report_url, extractor_version="issuer-ir-links@3")
+
+    with pytest.raises(ValueError, match="not present"):
+        issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
 
 
 def test_ingest_issuer_pdf_rejects_cross_host_redirect(db, monkeypatch):

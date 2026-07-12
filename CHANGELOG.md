@@ -5,6 +5,17 @@ product reset remains available in Git at and before `2ac75d0`.
 
 ## 2026-07-12 · P4 immutable portfolio and verified review platform
 
+- Continued real portfolio coverage with ART, the largest remaining uncovered
+  holding at 14.37%. The bounded issuer collector now scopes Artifex Mundi to
+  `.investors-page-content`; official landing/report versions `61/62` retain
+  one report link and 13 page claims. Trusted scoped link generations `@4/@5`
+  may authorize detail fetches while noisy legacy `@3` remains excluded.
+  Initial run 37 passed corrected VerificationRun 10 and saved snapshot/profile
+  `7/6` as provisional. Launch timing, platform share, pipeline and runway are
+  sourced; sales units and price remain exact gaming-marker gaps, with four
+  further evidence gaps. Alpha participants are explicitly not reported as
+  unit sales. The first strict pass rejected a missing landing-page date source
+  and fact-labelled archetype judgment before persistence.
 - Added ASBIS to the bounded issuer-IR collector and ingested its official
   2026Q1 report as immutable source/index versions `52/53` with 24 page claims.
   The parser now scopes ASBIS extraction to article content so report-heavy
@@ -43,7 +54,7 @@ product reset remains available in Git at and before `2ac75d0`.
   An independent implementation audit rejected and then closed two queue/save
   bypasses: the strict gate now rechecks frozen prior ID/artifact/source hash
   and immediate-latest identity, while the generic agent endpoint cannot create
-  malformed company-review rows. 618 backend tests and the production build pass.
+  malformed company-review rows. The full backend suite and production build pass.
 - Closed the real-provider integration gate with the exact portfolio `Kuba`.
   Parser-v2 snapshot 2 reconciles, retains complete provider history, maps all
   eight GPW holdings (one exact existing identity and seven explicit confirmed

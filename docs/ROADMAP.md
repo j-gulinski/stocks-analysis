@@ -197,7 +197,7 @@ consumes only verified company scenarios.
 - Fixture contracts prove zero-write reads, durable failed sync, repeated
   sync/reversion behavior, mapping correction, point-in-time scenario math and
   exact review verification/save retry and strict model roles. The production
-  build, 618 backend tests, PostgreSQL migration `0026`, three skill validators
+  build, 621 backend tests, PostgreSQL migration `0026`, three skill validators
   and browser interaction pass. The live page remains zero-write until its
   explicit sync button is used.
 - The exact real portfolio name `Kuba` produced reconciled parser-v2 snapshot 2
@@ -228,6 +228,13 @@ consumes only verified company scenarios.
   and an explicit USD/PLN translation conflict correctly keep the result
   provisional; the strict verifier rejected three overbroad statements before
   passing the corrected exact draft. Portfolio snapshot 2 remains unchanged.
+- ART, the next-largest uncovered position at 14.37%, now has official issuer
+  landing/report versions `61/62` and initial Research snapshot/profile/
+  verification `7/6/10`. Four of six gaming markers are sourced; sales units,
+  price and four additional evidence gaps keep it provisional. The parser
+  scopes Artifex report content and permits only trusted scoped extractor
+  generations `@4/@5`; the noisy legacy `@3` lineage cannot authorize a PDF.
+  Alpha-test participants remain clearly separated from sales units.
 
 ## Verification commands
 

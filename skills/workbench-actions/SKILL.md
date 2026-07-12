@@ -72,8 +72,9 @@ watchlist item never deletes the company, evidence, case, analysis, or history.
    collection. Reads never queue it. The prior snapshot remains canonical until
    the claimed worker collects evidence, obtains a separate strict verdict and
    saves the next sequential snapshot.
-7. Bounded issuer-IR collection includes ASBIS's official English financial-
-   reports page. Its report links are extracted only from article content;
+7. Bounded issuer-IR collection includes ASBIS and Artifex Mundi official
+   English report pages. Report links are extracted only from issuer-specific
+   article content (`.ncont-content` / `.investors-page-content`);
    same-host empty redirects may be upgraded from HTTP to HTTPS, but the final
    PDF connection must still pass public-host and connected-peer checks. This
    collection is a worker action, never a Research GET side effect.

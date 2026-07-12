@@ -25,8 +25,11 @@ from app.services.evidence import (
     record_text_fact,
 )
 
-PARSER_VERSION = "issuer-ir-index@4"
-EXTRACTOR_VERSION = "issuer-ir-links@4"
+PARSER_VERSION = "issuer-ir-index@5"
+EXTRACTOR_VERSION = "issuer-ir-links@5"
+AUTHORIZED_LINK_EXTRACTOR_VERSIONS = frozenset(
+    {"issuer-ir-links@4", EXTRACTOR_VERSION}
+)
 MAX_LINKS_PER_INDEX = 30
 MAX_PDF_BYTES = 15 * 1024 * 1024
 MAX_PDF_PAGES = 200
@@ -40,6 +43,7 @@ ISSUER_IR_SOURCES = {
     "ABS": "https://assecobs.pl/inwestor/raporty-biezace/",
     "OPM": "https://opteam.pl/firma/relacje-inwestorskie",
     "ASB": "https://investor.asbis.com/news/financial-reports-archive/financial-reports-2026",
+    "ART": "https://www.artifexmundi.com/en/quarterly-report-for-the-first-quarter-of-2026/",
 }
 
 REPORT_TERMS = re.compile(
@@ -65,7 +69,13 @@ class ParsedIssuerIrIndex:
 
 def parse_issuer_ir_index(html: str, *, base_url: str) -> ParsedIssuerIrIndex:
     soup = BeautifulSoup(html, "html.parser")
-    root = soup.select_one(".ncont-content") or soup.find("main") or soup.body or soup
+    root = (
+        soup.select_one(".ncont-content")
+        or soup.select_one(".investors-page-content")
+        or soup.find("main")
+        or soup.body
+        or soup
+    )
     page_title = _clean_text(soup.title.get_text(" ", strip=True) if soup.title else "")
     if not page_title:
         heading = root.find(["h1", "h2"])
@@ -458,7 +468,7 @@ def _issuer_link_fact(db: Session, company: Company, report_url: str) -> Fact | 
         .where(
             Fact.company_id == company.id,
             Fact.fact_type == "issuer_ir_link",
-            Fact.extractor_version == EXTRACTOR_VERSION,
+            Fact.extractor_version.in_(AUTHORIZED_LINK_EXTRACTOR_VERSIONS),
             DocumentVersion.parse_status == "parsed",
             SourceDocument.source_type == "issuer_ir",
             SourceDocument.scope_key == "reports-index",
