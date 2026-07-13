@@ -64,8 +64,10 @@ recommendation, or a simulation of the author's voice.
 Goal: compare a small number of genuinely different, explainable sieves and
 choose which companies deserve deeper work.
 
-- Show three sieve columns: financial health, Malik/OBS operating improvement,
-  and Portal Analiz value/catalyst opportunities.
+- Show the three sieve filters in one compact row: financial health, Malik/OBS
+  operating improvement, and Portal Analiz value/catalyst opportunities. Below
+  the active filter, show its locally ordered stock list and the evidence for
+  that order.
 - A company may appear in more than one sieve. Comparison and overlap matter
   more than a universal rank.
 - Every result shows the two or three factors that caused membership, factor

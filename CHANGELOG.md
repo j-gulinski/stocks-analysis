@@ -3,6 +3,15 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-13 · D2 Discover filter and ranked-list layout
+
+- Replaced the three-card layout with an inline sieve selector and one active,
+  locally ordered candidate list. Unavailable sieves remain visible but cannot
+  be selected until their declared source coverage exists.
+- Each row now shows its local rank, concise ordering basis, and expandable
+  source/factor-gap rationale. No global ranking, data semantics, or explicit
+  add/reactivate command changed.
+
 ## 2026-07-13 · M1 partial Elendix source provenance
 
 - The draft Elendix catalog now freezes two dated, hash-checked thread locators:

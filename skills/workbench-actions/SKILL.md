@@ -15,7 +15,7 @@ state, queues work, claims a lease, or calls a model.
 | Check the app | `./workbench doctor` then `./workbench status` | Read-only health report |
 | Start or stop | `./workbench start` / `./workbench stop` | Local services only; no queue claim |
 | Refresh Discover | `POST /api/discovery/refresh` | One stored source snapshot; no research jobs |
-| Inspect Discover | `GET /api/discovery` | Three server-owned status/coverage views plus the sourced financial-health candidate list |
+| Inspect Discover | `GET /api/discovery` | Inline sieve selector with server-owned status/coverage and the selected sieve's sourced candidate list |
 | Add a company | `POST /api/research-cases` with a ticker or frozen Discover version | One company, one active case, at most one initial-research job |
 | Run queued research | Invoke `$workbench-run-queue` | Exactly one claimed and completed job |
 | Open company research | `GET /api/research-cases/by-ticker/{ticker}` | Read-only snapshot-bound profile, current profile, immutable histories, source-frozen catalog and saved method perspectives |
@@ -42,9 +42,8 @@ state, queues work, claims a lease, or calls a model.
 
 - Discover currently produces candidates only from the financial-health sieve.
   OBS and Portal Analiz expose honest source/factor gaps but no candidates,
-  while the UI renders the same per-sieve candidate/overlap contract for all
-  three columns. Do not describe the empty blocked columns as live comparison
-  or market-wide coverage.
+  while the UI presents each typed sieve state in its inline selector. Do not
+  describe disabled sieve filters as live comparison or market-wide coverage.
 - `assess_data_readiness` and `codex_candidate_scan.py` measure stored-company
   data readiness, not investment potential; do not present their score as a
   stock opportunity rank.
@@ -94,10 +93,11 @@ watchlist item never deletes the company, evidence, case, analysis, or history.
 3. The company page renders versioned `research-snapshot-v1`/`v2` artifacts as
    the canonical six-section workspace when one exists. The prior dossier
    remains a labelled secondary audit view and cannot override snapshot status.
-4. Discover shows status and coverage for three typed sieve contracts, but only
-   the financial-health sieve currently supplies candidate rows. Do not claim
-   per-sieve candidate comparison or overlap yet, and do not describe Altman or
-   Piotroski values as a recommendation. Its v1 membership thresholds
+4. Discover shows three typed sieve contracts in an inline selector and the
+   local candidate list for the selected sieve. Only the financial-health sieve
+   currently supplies candidate rows. Do not claim per-sieve comparison or
+   overlap yet, and do not describe Altman or Piotroski values as a
+   recommendation. Its v1 membership thresholds
    (Altman `>= 8`, Piotroski `>= 7`) belong to the server contract, not the UI.
    Keep OBS and Portal Analiz candidates blocked while their server-provided
    market-wide coverage is incomplete.

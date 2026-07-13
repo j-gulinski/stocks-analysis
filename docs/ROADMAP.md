@@ -54,7 +54,7 @@ scalar lineage, and explicit user assumptions are available.
 | Order | Outcome | Exit gate | Status |
 |---|---|---|---|
 | D1 | trustworthy Discover integrity and context | complete-universe and freshness gates, decision context, correct add/reactivate behavior | in progress · integrity/freshness/provenance implemented; final user-flow gate remains |
-| D2 | comparable sourced sieves and overlap | three per-sieve candidate views share one contract and controlled overlap renders correctly | in progress · union contract/renderer ready; OBS/PA market-wide facts blocked |
+| D2 | comparable sourced sieves and overlap | three selectable per-sieve views share one contract and controlled overlap renders correctly | in progress · union contract, compact selector and local-list renderer ready; OBS/PA market-wide facts blocked |
 | R1 | user-owned Research memory | confirmed/corrected profile produces a new version and review without rewriting history | in progress · immutable human profile/review-freeze contract and editor ready; real browser mutation and verifier-save gate await a user-confirmed company change |
 | M1 | named method catalog and Codex perspectives | supported packs render separately over one evidence snapshot; synthesis preserves disagreement | in progress · source-frozen catalog and first verifier-gated Malik/OBS perspective artifact/rendering are implemented; partial Elendix provenance is visible but a second supported corpus and synthesis remain pending |
 | V1 / P4 | verified valuation and portfolio scenario coverage | real portfolio review consumes at least two eligible verified scenarios | in progress · evidence/user-input dependent |
@@ -98,7 +98,8 @@ and closed-case reactivation.
 - Populate `pa_value_catalyst_v1` only after retained Areczeks/Elendix method
   sources and bounded market-wide inputs exist. Attribute each factor to the
   author source, standard finance, or Workbench operationalization.
-- Compare columns and overlap rather than producing a universal expert rank.
+- Let the user select a sieve, inspect its locally ordered list and ranking
+  rationale, and see overlap without producing a universal expert rank.
 
 Gate: one frozen fixture contains companies unique to each sieve, overlapping
 two, overlapping all three, and missing factors. API and browser tests prove
