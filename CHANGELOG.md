@@ -3,6 +3,17 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-13 · M1 partial Elendix source provenance
+
+- The draft Elendix catalog now freezes two dated, hash-checked thread locators:
+  one author-stated discount-rate explanation and one explicit risk/reward and
+  investment-cycle question. They make partial evidence inspectable without
+  treating a question as a rule or adding a company conclusion.
+- Elendix remains draft for Discover, Research and Valuation. The version bump
+  records the source-manifest change; no skill, required check, worker command,
+  perspective, valuation template or synthesis is enabled until a fuller
+  primary corpus receives an independent strict review.
+
 ## 2026-07-13 · M1 immutable snapshot-bound Malik/OBS perspectives
 
 - Added a separate immutable `ResearchMethodPerspective` linked to one

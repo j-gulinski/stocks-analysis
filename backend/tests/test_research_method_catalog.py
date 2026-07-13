@@ -9,7 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_catalog_freezes_retained_malik_sources_and_keeps_other_authors_draft():
+def test_catalog_freezes_retained_sources_and_keeps_incomplete_authors_draft():
     from app.services.research_method_catalog import list_research_method_catalog
 
     catalog = list_research_method_catalog()
@@ -52,10 +52,20 @@ def test_catalog_freezes_retained_malik_sources_and_keeps_other_authors_draft():
         assert source["retention_status"] == "retained"
         assert source["repo_path"] is not None and source["sha256"] is not None
         assert sha256((ROOT / source["repo_path"]).read_bytes()).hexdigest() == source["sha256"]
-    for draft in (areczeks, elendix):
-        assert {stage["status"] for stage in draft["stages"].values()} == {"draft"}
-        assert draft["source_manifest"] == []
-        assert draft["gaps"]
+    assert {stage["status"] for stage in areczeks["stages"].values()} == {"draft"}
+    assert areczeks["source_manifest"] == []
+    assert areczeks["gaps"]
+    assert elendix["version"] == "elendix-method-draft-v2"
+    assert {stage["status"] for stage in elendix["stages"].values()} == {"draft"}
+    assert [source["locator"] for source in elendix["source_manifest"]] == [
+        "Elendix — 2022-04-05T15:13:37+00:00",
+        "Elendix — 2024-08-15T18:20:54+00:00",
+    ]
+    for source in elendix["source_manifest"]:
+        assert source["retention_status"] == "retained"
+        assert source["author_identity"] == "Elendix (pseudonym)"
+        assert sha256((ROOT / source["repo_path"]).read_bytes()).hexdigest() == source["sha256"]
+    assert "Nie wyprowadzać" in elendix["gaps"][1]
 
 
 def test_retained_method_source_schema_rejects_weak_provenance():

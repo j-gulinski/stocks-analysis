@@ -58,9 +58,11 @@ state, queues work, claims a lease, or calls a model.
   remains planned. A user may explicitly queue one perspective only for a
   provisional/verified canonical Research snapshot; the queued worker reads
   only the frozen snapshot and method manifest, never refreshes sources, and
-  saves no recommendation or cross-method synthesis. Areczeks and Elendix stay
-  draft until retained sources and stage-specific inputs satisfy the Strategy
-  contract. Never simulate their company conclusions or blend methods implicitly.
+  saves no recommendation or cross-method synthesis. Areczeks stays source-
+  blocked. Elendix exposes two retained dated fragments as partial provenance
+  but remains draft: neither fragment authorizes a method rule, perspective,
+  valuation, company conclusion or blend. Never simulate either author's
+  company conclusions or blend methods implicitly.
 - A company profile may be confirmed or corrected only with an explicit reason.
   The page keeps the old snapshot-bound profile visible until a separately
   requested review saves the next verifier-gated snapshot. Every review freezes

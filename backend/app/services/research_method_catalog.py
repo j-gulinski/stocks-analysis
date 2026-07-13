@@ -116,6 +116,36 @@ _MALIK_SOURCES = (
 )
 
 
+_ELENDIX_SOURCES = (
+    MethodSource(
+        id="elendix-portfolio-thread-2022-discount-rate",
+        label="Elendix · stopa dyskontowa a wartość przyszłych zysków",
+        repo_path="docs/source-materials/obs.txt",
+        sha256="7445d7c59f6e0a020c61fc3a0d2bc48fc890ae76043ee18a5d9c732560e99771",
+        author_identity="Elendix (pseudonym)",
+        source_url="https://portalanaliz.pl/forum/viewtopic.php?f=7&t=569",
+        locator="Elendix — 2022-04-05T15:13:37+00:00",
+        publication_at="2022-04-05T15:13:37+00:00",
+        known_at=None,
+        date_note=None,
+        retention_status="retained",
+    ),
+    MethodSource(
+        id="elendix-portfolio-thread-2024-risk-reward",
+        label="Elendix · pytanie o risk/reward, płynność i pełny cykl inwestycji",
+        repo_path="docs/source-materials/obs.txt",
+        sha256="7445d7c59f6e0a020c61fc3a0d2bc48fc890ae76043ee18a5d9c732560e99771",
+        author_identity="Elendix (pseudonym)",
+        source_url="https://portalanaliz.pl/forum/viewtopic.php?f=7&t=569",
+        locator="Elendix — 2024-08-15T18:20:54+00:00",
+        publication_at="2024-08-15T18:20:54+00:00",
+        known_at=None,
+        date_note=None,
+        retention_status="retained",
+    ),
+)
+
+
 CATALOG = (
     ResearchMethodCatalogEntry(
         id="malik_obs_v1",
@@ -211,13 +241,13 @@ CATALOG = (
     ),
     ResearchMethodCatalogEntry(
         id="elendix_v1",
-        version="elendix-method-draft-v1",
+        version="elendix-method-draft-v2",
         label="Elendix",
         disclaimer="Metoda pozostaje szkicem; Workbench nie symuluje głosu ani wniosków autora.",
         stages={
-            "discover": MethodStageReadiness("draft", "Brak zachowanych, datowanych materiałów źródłowych i danych rynkowych."),
-            "research": MethodStageReadiness("draft", "Brak pełnego, zachowanego materiału źródłowego."),
-            "valuation": MethodStageReadiness("draft", "Brak zweryfikowanych reguł wyceny i kompatybilnego szablonu."),
+            "discover": MethodStageReadiness("draft", "Częściowy korpus nie określa reguł selekcji ani rynkowych danych wejściowych."),
+            "research": MethodStageReadiness("draft", "Dwa datowane fragmenty nie ustanawiają pełnej, odtwarzalnej metody Research."),
+            "valuation": MethodStageReadiness("draft", "Jeden opis mechaniki stopy dyskontowej nie jest zweryfikowaną regułą wyceny ani szablonem."),
         },
         evaluation_maturity="untested",
         skill=None,
@@ -225,11 +255,15 @@ CATALOG = (
         valuation_output_schema_version=None,
         calculation_engine_version=None,
         required_verifier_role=None,
-        source_manifest=(),
+        source_manifest=_ELENDIX_SOURCES,
         required_questions=(),
         required_checks=(),
         blind_spots=(),
-        gaps=("Nie aktywować bez zachowanych źródeł z dokładną atrybucją.",),
+        gaps=(
+            "Zachowano dwa datowane fragmenty: jeden wyjaśnia mechanikę stopy dyskontowej, drugi jest pytaniem o risk/reward i proces inwestycji.",
+            "Nie wyprowadzać z tych fragmentów reguł selekcji, wniosków spółkowych ani perspektywy autora.",
+            "Przed aktywacją potrzebny jest pełniejszy, datowany materiał pierwotny z regułami oraz niezależny strict review.",
+        ),
     ),
 )
 

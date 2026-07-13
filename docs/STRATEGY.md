@@ -58,7 +58,7 @@ represents disagreement.
 |---|---|---|---|
 | Malik/OBS | `planned` — market-wide factors are missing | source-grounded Codex lens exists; canonical persisted/rendered perspective is planned in M1 | `supported` — `malik_obs_v1` is ready |
 | Areczeks | `draft` — retained method evidence and market inputs are incomplete | `draft` | `draft` |
-| Elendix | `draft` — retained method evidence and market inputs are incomplete | `draft` | `draft` |
+| Elendix | `draft` — partial retained evidence and market inputs are incomplete | `draft` — two dated fragments are not a reproducible method | `draft` |
 
 The financial-health BiznesRadar sieve is a supported deterministic data lens,
 not an expert-derived method pack.
@@ -79,11 +79,18 @@ Retained local method-source evidence includes:
 - `docs/source-materials/transkrypcja_biznesradar_excel.docx` — Malik's
   BiznesRadar-to-Excel workflow transcript.
 
+The retained OBS thread also contains two dated Elendix entries that establish
+only partial provenance: a 2022 discussion of discount-rate mechanics and a
+2024 question about risk/reward, liquidity, and a complete investment cycle.
+They are visible in the draft catalog with their exact locators and hash. They
+do not establish selection rules, a company conclusion, or a reproducible
+method.
+
 Useful public references include the PortalAnaliz OBS thread, PortalAnaliz
 author/about pages, and investor portfolio threads. Forum statements are
-opinions and require attribution. The repository currently has only partial,
-unretained source coverage for Areczeks and Elendix; their packs remain draft
-until the relevant snapshots and citations are stored.
+opinions and require attribution. The repository has no retained Areczeks
+corpus and only the partial Elendix coverage above. Both packs remain draft
+until relevant source snapshots and citations establish their methods.
 
 Reference URLs:
 
@@ -177,10 +184,13 @@ capital returns, and disciplined position/risk framing.
 
 ### Elendix
 
-Draft until fuller source snapshots are retained. Expected emphasis: normalized
-earnings, event/unit-economics modelling, adjusted enterprise value, relative
-opportunity cost, explicit upside/downside asymmetry, and adding only when the
-catalyst confirms.
+Draft. Two retained thread fragments establish only a discount-rate explanation
+and questions about risk/reward/process; they do not justify the expected
+emphases below as author-stated rules. Fuller dated source snapshots are needed
+before any Research or Valuation pack can be reconstructed. Until then,
+normalized earnings, event/unit-economics modelling, adjusted enterprise value,
+relative opportunity cost, upside/downside asymmetry, and catalyst confirmation
+remain unverified hypotheses—not Elendix method claims.
 
 Each pack supplies questions, compatible templates, valuation lenses, red
 flags, and falsifiers. It never supplies unsourced company numbers.
