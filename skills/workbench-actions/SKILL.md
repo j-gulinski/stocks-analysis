@@ -14,9 +14,9 @@ calls a model. Only the commands below may mutate durable state.
 |---|---|---|
 | Check the app | `./workbench doctor` then `./workbench status` | Read-only health report |
 | Start or stop | `./workbench start` / `./workbench stop` | Local services only |
-| Refresh Discover evidence | `POST /api/discovery/refresh` | One immutable source version; no Research job |
-| Inspect Discover | `GET /api/discovery` | One `workbench_sieve_v1` state with coverage, survivors, exclusions and gaps |
-| Add a company | `POST /api/research-cases` with ticker or eligible frozen Discover version | One company, one active case, at most one initial Research job |
+| Refresh Discover evidence | `POST /api/discovery/refresh` | One immutable all-page market-factor batch; no Research job |
+| Inspect Discover | `GET /api/discovery` | One `workbench_sieve_v1` state with full survivor count, at most 100 potential-scored rows, exclusions and gaps |
+| Add a company | `POST /api/research-cases` with ticker, or `ticker` + typed frozen Discover `batch_id`/sieve version | One company, one active case, at most one initial Research job; Discover origin is server-recomputed and frozen |
 | Inspect Research | `GET /api/research-cases` / `GET /api/research-cases/by-ticker/{ticker}` | Phase-aware list or one canonical snapshot workspace |
 | Refresh company evidence | `POST /api/companies/{ticker}/refresh?scope=all` | Bounded stored evidence refresh; no snapshot or model result |
 | Confirm/correct profile | `POST /api/research-cases/{id}/profiles` | Next immutable human-confirmed/corrected profile |
@@ -34,10 +34,14 @@ calls a model. Only the commands below may mutate durable state.
 
 ## Honest current limits
 
-- Discover currently retains only the legacy market-rating source page. It is
-  insufficient to execute the full Workbench exclusion/improvement rules, so
-  the single sieve is `blocked`, has no fabricated survivors or exclusions,
-  and names the missing market-factor batch. S1 supplies that batch.
+- Discover refreshes the declared immutable rating, C/Z, operating-margin,
+  debt, revenue, net-profit and equity pages as one batch. It publishes only
+  when every page parses; reads reuse the last complete batch. Turnover and
+  raw-net-debt change and point-in-time trailing income are not yet exposed by
+  this manifest, so A6/B5/A7 remain named coverage gaps and B4 starts after an
+  earlier positive C/Z batch is at least 30 days old. The one potential score
+  uses only mutually aligned, recent factor periods; stale survivors remain
+  visible but unscored.
 - Company refresh and Research collection may retain forum material only as a
   labelled lead. Conclusions require permitted primary or normalized evidence.
 - Research writes only `company-research-v3` / `research-snapshot-v3`.

@@ -78,7 +78,14 @@ export const getResearchWorkspace = (ticker: string) =>
     `/research-cases/by-ticker/${encodeURIComponent(ticker)}`,
   );
 
-export const addResearchCase = (payload: { ticker: string }) => request<ResearchCaseCreateResult>("/research-cases", {
+export const addResearchCase = (payload: {
+  ticker: string;
+  discovery?: {
+    batch_id: number;
+    sieve_id: "workbench_sieve_v1";
+    sieve_version: "workbench-sieve-v1";
+  };
+}) => request<ResearchCaseCreateResult>("/research-cases", {
   method: "POST",
   body: JSON.stringify(payload),
 });

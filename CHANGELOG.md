@@ -22,6 +22,22 @@ product reset remains available in Git at and before `2ac75d0`.
   historical PostgreSQL JSON columns with the ORM's JSONB contract in migration
   0032. Further delivery starts with S1; missing factor coverage remains visible
   rather than producing false candidates or false sieve provenance.
+- Delivered S1's one exclusion-first Discover outcome: a guarded immutable
+  seven-page BiznesRadar batch, source-provenanced `workbench_sieve_v1`,
+  inspectable survivor/exclusion evidence, and server-recomputed frozen
+  Discover-to-Research handoff. A live 384-company batch exposes 93.2% of its
+  declared A1–A5/B1–B3 base coverage; A6, A7 and B5 remain named gaps rather
+  than fabricated signals. Browser acceptance renders the source batch,
+  per-factor provenance and visible gaps, then expands the survivor list
+  without a filter selector. Discover now surfaces at most 100 survivors in
+  one deterministic 0–100 potential order: the equal-weight mean of sourced
+  revenue, net-profit, margin-change, current-profitability and current-C/Z
+  percentiles. Explicit caps prevent low-base outliers from taking extra rank;
+  report-period recency/alignment gates keep stale rows out of the percentile
+  cohort, and own-history cheapness requires a snapshot at least 30 days old.
+  Composite health ratings and leverage remain exclusion gates rather than
+  score points. There is no imputation, hidden tie-break factor, or probability
+  claim, and the full survivor count remains visible.
 - Structural valuation-gate failures now durably override any requested
   verifier verdict to `rejected` with computed reasons. Portfolio keeps partial
   risk, liquidity, scenario and review analytics visible when retained rows do

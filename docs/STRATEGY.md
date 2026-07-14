@@ -10,9 +10,9 @@ for audit; their authors are never displayed.
 
 ## What was actually taken from the sources (synthesis, not attribution)
 
-From the retained materials (a PortalAnaliz portfolio thread, a
-BiznesRadar-to-Excel workflow transcript, and PA opportunity write-ups) the
-Workbench keeps these mechanics, merged into one strategy:
+From the retained and authenticated materials (three PortalAnaliz portfolio
+threads, a BiznesRadar-to-Excel workflow transcript, and PA opportunity
+write-ups) the Workbench keeps these mechanics, merged into one strategy:
 
 1. **Improvement beats cheapness.** The core question is "what can be better
    next quarter/year, and is it already priced in?" — revenue drivers,
@@ -28,7 +28,16 @@ Workbench keeps these mechanics, merged into one strategy:
 5. **Every thesis needs a falsifier** — a dated, checkable statement that
    would prove it wrong.
 6. **Financial health is a floor, not a verdict** — Altman EM-Score and
-   Piotroski F-Score narrow the universe; they never conclude it.
+   Piotroski F-Score narrow the universe; they never add potential points or
+   conclude it.
+7. **Execution rules are not company quality.** Personal concentration,
+   staged selling after a price gain, and portfolio rebalancing stay in the
+   human-owned Portfolio process. "Quiet" sentiment is a research lead, not a
+   measurable Discover input.
+8. **Company-specific asymmetry belongs in Valuation.** Product launches,
+   certifications, contracts, dilution, insider reference prices and explicit
+   downside/upside probabilities are useful only after evidence collection;
+   they are not fabricated market-wide factors.
 
 Anything not listed here that appears in the sources is deliberately unused.
 New source material may extend this list only through a new strategy
@@ -49,27 +58,57 @@ single exception of fundamentals that must exist (equity).
 |---|---|
 | A1 zagrożenie wypłacalności | Altman EM-Score value < 4.0 (distress zone) |
 | A2 zapaść jakości | Piotroski F-Score ≤ 3 |
-| A3 ujemny kapitał własny | book value ≤ 0 (C/WK non-computable from negative equity) |
+| A3 kapitał własny | book value ≤ 0 **or no publishable equity** (the documented required-fundamental exception; C/WK is non-computable from negative equity) |
 | A4 trwały regres | revenue r/r < 0 **and** operating profitability falling in the same snapshot |
-| A5 dźwignia ekstremalna | net debt / EBITDA > 6 (where EBITDA > 0; else general debt ratio ceiling) |
+| A5 dźwignia ekstremalna | published net debt / EBITDA > 6; the unparameterized debt-ratio fallback is a visible gap until a source and threshold are versioned |
 | A6 brak obrotu | no price/turnover data in the snapshot window |
 | A7 chroniczna strata | trailing net loss **and** F-Score ≤ 5 (loss without improvement signal) |
 
 **Layer B — wymóg poprawy (survivors must show ≥ 2, else out as
 `stagnacja`):**
 
-- B1 F-Score ≥ 6 (year-over-year quality improving);
-- B2 revenue r/r > 0;
-- B3 operating margin / profitability trend up vs prior period;
+- B1 revenue r/r > 0;
+- B2 operating margin / profitability trend up vs prior period;
+- B3 net profit r/r > 0;
 - B4 C/Z (or sector-appropriate multiple) below the company's own snapshot
   history median — cheaper than usual *while* B1–B3 give a mechanism;
 - B5 net cash or falling net debt.
 
-Survivor ordering: count of B-signals, then magnitude of improvement deltas.
-Ordering is presentation; membership is the contract. Every survivor row
-exposes its passed/failed factors with values, deltas vs own history,
-source document version, and freshness. Excluded companies keep kill
-reasons and stay inspectable.
+The first S1 market manifest does not yet expose raw net debt/change, a
+turnover window, or point-in-time trailing net income. B5, A6 and A7 are
+therefore named per-batch coverage gaps: they do not become zeroes, synthetic
+signals, or silent exclusions. B4 starts only after an immutable positive C/Z
+snapshot at least 30 days older than the evaluated batch exists; repeated
+same-day refreshes never constitute history.
+
+Survivor ordering is one deterministic potential score on a comparable
+`0–100` scale. For the survivors in one immutable batch, compute average-rank
+percentiles for five measurable inputs — revenue r/r, net-profit r/r,
+operating-margin change in percentage points, current operating margin, and
+current positive C/Z (lower is better) — then take their equal-weight mean.
+The own-history discount remains only B4 evidence; it is not a score input.
+Altman
+EM-Score, Piotroski F-Score and net debt / EBITDA remain exclusion gates only
+and never contribute points. This avoids treating an ambiguous negative
+net-debt/EBITDA ratio as proof of net cash.
+
+Before percentile ranking, base-effect-prone inputs are bounded at explicit
+economic limits: revenue and net-profit change at `[-100%, +100%]`, operating-
+margin change at `[-20 pp, +20 pp]`, current operating margin at
+`[-20%, +40%]`, and current C/Z at `[0, 50]` (ranked lower-is-better). Raw and
+bounded values remain inspectable; hitting a cap ties peers at the cap instead
+of rewarding a still larger low-base percentage. All five score inputs are
+required; a missing input yields no score and is never imputed. Every score
+period must be recognizable, at most two quarters older than the latest market
+period, and at most one quarter apart from the other inputs. Ineligible stale
+survivors remain visible and unscored and do not enter the percentile cohort. Scored
+survivors sort descending, incomplete survivors follow with their gap, and
+ticker is the final stable tie-break.
+The API exposes at most the first 100 while retaining the full survivor count.
+This is a relative attention priority inside one batch, not a probability or
+an investment verdict. Ordering is presentation; membership remains the
+contract. Component percentiles, raw values, source versions and freshness
+stay inspectable. Excluded companies keep kill reasons and remain inspectable.
 
 Thresholds are v1 starting points, expected to be tuned — every tune is a
 new version with a one-line rationale in this file's changelog section.
@@ -129,5 +168,12 @@ replays.
 
 ## Changelog
 
+- Replaced health-score contributions with sourced net-profit momentum and
+  current profitability; bounded base-effect-prone score inputs and kept
+  health/leverage composites as hard floors only (2026-07-14).
+- Added one max-100 Discover attention order from the equal-weight mean of
+  five complete, batch-relative potential percentiles; incomplete candidates
+  remain unscored and no probability or investment conclusion is implied
+  (2026-07-14).
 - `workbench_sieve_v1`, valuation lens v1 — initial synthesis replacing the
   three author-branded sieves and method packs (2026-07, per VISION).

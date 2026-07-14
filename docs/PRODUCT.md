@@ -26,20 +26,32 @@ out the worst and the not-improving — with every kill explainable.
      extreme leverage, illiquidity. Any hit excludes the company and stores
      the reason.
   2. **Wymóg poprawy** — survivors must show real improvement signals
-     (profitability trend, revenue dynamics, quality score, valuation below
-     own history). Standing still is grounds for exclusion; cheapness alone
-     is not admission.
-- Survivors are ordered by improvement evidence, but the order is secondary;
-  membership is the product. Each row shows the two-to-four factors that
-  mattered: value, direction vs own history, source, freshness.
+     (revenue, net-profit and profitability trends, valuation below own
+     history). Standing still is grounds for exclusion; cheapness alone is not
+     admission. Composite health ratings remain safety gates, not improvement
+     points.
+- Survivors are ordered by one comparable `0–100` potential score: the equal-
+  weight mean of within-batch percentiles for revenue momentum, net-profit
+  momentum, operating-margin momentum, current operating profitability, and
+  current positive C/Z (lower is better). Auditable economic caps prevent
+  tiny-base percentage rebounds or extreme multiples from dominating. Health
+  composites and leverage are exclusion gates only. The score is an attention
+  priority, not a probability forecast. A score requires all five inputs; gaps
+  are never imputed. Its factor periods must be recognizable, no more than two
+  quarters behind the latest market period, and no more than one quarter apart.
+  Stale or misaligned survivors remain visible but unscored and cannot affect
+  the score percentiles. Discover returns at most the first 100 ordered
+  survivors while preserving the full survivor count.
+  The row leads with the single score; its normalized contributions, raw
+  values, source versions and freshness stay inspectable one click deeper.
 - Excluded companies remain inspectable in an `Odrzucone` drawer with their
   kill reasons — the sieve is auditable and tunable, never a black box.
 - Factor coverage gaps are visible; missing data is a gap, never a negative
   fact and never silent exclusion (except where the rule itself is about
   missing fundamentals, e.g. no publishable equity).
 - One action per row: `Dodaj do Research`. Reading Discover writes nothing.
-- Explain domain terms in Polish (Altman EM-Score, F-Score) as data lenses,
-  never as verdicts.
+- Explain domain terms in Polish (Altman EM-Score, F-Score) as safety gates,
+  never as score contributions or verdicts.
 
 ## Stage 2 — Research: collect broadly, understand one company
 

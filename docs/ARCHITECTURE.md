@@ -207,20 +207,32 @@ archetype version. Frozen inputs are never edited to repair a handoff.
 ## Discover market snapshot and the one sieve (V1)
 
 An explicit refresh command fetches the declared set of BiznesRadar
-market-wide pages (rating, value multiples, profitability, debt, dynamics)
-through the standard HTTP layer — using the authenticated premium session
-where anonymous content truncates — and stores each page as an immutable
-`DocumentVersion`. Parsers project them into `MarketFactorSnapshot` rows
-keyed by company and snapshot batch; a batch records which pages/versions it
-contains and its coverage per factor.
+market-wide pages (rating, C/Z, operating margin, net-debt/EBITDA, revenue,
+net profit and equity) through the standard HTTP layer — using the
+authenticated premium session where anonymous content truncates — and stores
+each page as an immutable `DocumentVersion`. Parsers project them into
+`MarketFactorSnapshot` rows keyed by company and snapshot batch; a batch
+records its exact page/version manifest and coverage per factor. A failed or
+partial refresh retains its raw/fetch evidence but cannot publish a batch or
+replace the latest complete one.
 
-`workbench_sieve_vN` is a pure server-side function over one batch: layer A
-hard kills, layer B improvement requirement, ordering (see
-`docs/STRATEGY.md`). The API returns the sieve id/version, thresholds,
-survivors with per-factor evidence, excluded companies with kill reasons,
-and coverage gaps. There is exactly one sieve; alternative strategies are a
-new version, never a parallel filter (V1). Reading Discover writes nothing;
-`Dodaj do Research` is the only per-row command.
+`workbench_sieve_vN` is a pure server-side function over one batch plus its
+earlier immutable C/Z rows: layer A hard kills, layer B improvement
+requirement, ordering (see `docs/STRATEGY.md`). The API returns the sieve
+id/version, batch id, exact page provenance, thresholds, survivors with
+per-factor evidence, excluded companies with kill reasons, and coverage gaps.
+It preserves the complete survivor count but returns at most 100 rows ordered
+by the deterministic five-component potential score defined in Strategy. The
+score is emitted only with all five source-backed inputs; its raw values,
+percentiles and equal weights remain machine-inspectable.
+There is exactly one sieve; alternative strategies are a new version, never a
+parallel filter (V1). Reading Discover writes nothing; `Dodaj do Research` is
+the only per-row command. Its typed handoff names the batch and sieve version;
+the server recomputes membership and freezes its factor evidence/page manifest
+(including B4's earlier C/Z batch/document inputs) in the initial Research run
+rather than trusting client rank or factors. A rule whose market source cannot
+prove its stated period, such as trailing income for A7, is a coverage gap and
+does not fire.
 
 ## Source architecture
 

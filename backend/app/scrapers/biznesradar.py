@@ -134,10 +134,26 @@ class MarketCandidate:
     piotroski_f_score: int | None
 
 
+@dataclass(frozen=True)
+class MarketFactorEntry:
+    """One value/delta fragment from a market-wide BiznesRadar factor page.
+
+    The market pages intentionally do not share the company-profile links used
+    by ``parse_market_rating``.  Their identity is the displayed ticker; the
+    parenthesised label is retained as a name, never promoted to a report URL.
+    """
+
+    ticker: str
+    name: str | None
+    report_period: str
+    value: float | None
+    delta_rr_pct: float | None
+
+
 # --------------------------------------------------------------- primitives
 
 _SPACE_CHARS = "\u00a0\u2009\u202f "  # nbsp, thin, narrow-nbsp, regular (escaped: editor-proof)
-_NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?")
+_NUMBER_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?")
 _QUARTER_RE = re.compile(r"(\d{4})\s*/?\s*Q([1-4])")
 _DATE_RE = re.compile(r"(\d{4})-(\d{2})(?:-\d{2})?")  # 2025-03-31 or 2025-03
 _YEAR_RE = re.compile(r"^(\d{4})$")
@@ -604,6 +620,71 @@ def parse_market_rating(html: str) -> list[MarketCandidate]:
     if not candidates:
         raise ParseError("No market-rating candidates found on page.")
     return candidates
+
+
+def _market_factor_rows(soup: BeautifulSoup, expected_header: str):
+    """Find a declared market-factor table instead of guessing from cells."""
+    expected = _norm_label(expected_header)
+    for table in soup.find_all("table"):
+        header_cells = table.find_all("th")
+        headers = [_norm_label(cell.get_text(" ", strip=True)) for cell in header_cells]
+        if len(headers) < 3:
+            continue
+        if "profil" not in headers[0] or "raport" not in headers[1]:
+            continue
+        if expected not in headers[2]:
+            continue
+        return table.find_all("tr")
+    raise ParseError(
+        "No market-factor rows found: table is missing Profil/Raport/"
+        f"{expected_header} headers."
+    )
+
+
+def parse_market_factor_page(html: str, *, expected_header: str) -> list[MarketFactorEntry]:
+    """Parse one declared ``Profil | Raport | metric | r/r`` market page.
+
+    A missing value remains ``None`` so later sieve rules can expose a coverage
+    gap.  A malformed table is rejected rather than quietly becoming an empty
+    factor vector.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    entries: list[MarketFactorEntry] = []
+    seen: set[str] = set()
+    for row in _market_factor_rows(soup, expected_header):
+        cells = row.find_all(["td", "th"])
+        if len(cells) < 3:
+            continue
+        profile_link = cells[0].find("a")
+        profile_text = (
+            profile_link.get_text(" ", strip=True)
+            if profile_link is not None
+            else cells[0].get_text(" ", strip=True)
+        )
+        profile_match = _CANDIDATE_NAME_RE.match(profile_text.upper())
+        period_match = _CANDIDATE_PERIOD_RE.search(cells[1].get_text(" ", strip=True))
+        if profile_match is None or period_match is None:
+            continue
+        ticker = profile_match.group(1)
+        if ticker in seen:
+            continue
+        entries.append(
+            MarketFactorEntry(
+                ticker=ticker,
+                name=(profile_match.group(2) or "").strip() or None,
+                report_period=f"{period_match.group(1)}Q{period_match.group(2)}",
+                value=parse_number(cells[2].get_text(" ", strip=True)),
+                delta_rr_pct=(
+                    parse_number(cells[3].get_text(" ", strip=True))
+                    if len(cells) > 3
+                    else None
+                ),
+            )
+        )
+        seen.add(ticker)
+    if not entries:
+        raise ParseError(f"No market-factor entries found for {expected_header}.")
+    return entries
 
 
 # ------------------------------------------------------------ report tables

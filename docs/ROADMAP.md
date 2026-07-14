@@ -19,7 +19,7 @@ database; they have no compatibility API or UI (V10).
 | # | Outcome | Exit gate | Status |
 |---|---|---|---|
 | S0 | Binding docs + executable drift gate | VISION/PRODUCT/STRATEGY/AGENTS rewritten; `test_vision_contract.py` passes and fails on planted drift | complete · 2026-07-14 |
-| S1 | One exclusion-first sieve over expanded market snapshot | multi-page market snapshot stored immutably; `workbench_sieve_v1` returns survivors + inspectable kills; single-sieve UI; forbidden: filter tabs | next · sieve honestly blocked until factor batch exists |
+| S1 | One exclusion-first sieve over expanded market snapshot | seven-page market snapshot stored immutably; `workbench_sieve_v1` returns at most 100 survivors ordered by one measurable 0–100 score + inspectable kills; single-sieve UI; forbidden: filter tabs | complete · 2026-07-14 |
 | S2 | Phase-aware Research list, single detail renderer | list rows render per-phase substance incl. valuation strip; legacy dossier tabs deleted; agenda on top | implemented · browser gate pending |
 | S3 | Company-specific valuation with structural gates | Codex-drafted assumptions/probabilities bound to evidence; backend auto-rejects seed-equality, near-duplicates, default mixes, missing rationale; adversarial verifier contract; legacy scenario defaults deleted | implemented · live/browser gate pending |
 | S4 | Portfolio precision + auto-coverage | real TWR/XIRR from daily series (+operations when available); robust mapping with overrides; warning-not-blackout reconciliation; sync auto-queues research/valuation for uncovered or stale holdings by weight × staleness | in progress |

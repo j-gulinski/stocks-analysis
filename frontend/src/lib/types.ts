@@ -11,6 +11,17 @@ export interface DiscoveryCandidate {
   factors: DiscoveryFactor[];
   factor_gaps: string[];
   improvement_signals: string[];
+  potential_score: number | null;
+  score_components: DiscoveryScoreComponent[];
+}
+
+export interface DiscoveryScoreComponent {
+  id: string;
+  label: string;
+  raw_value: number;
+  ranking_value: number;
+  percentile: number;
+  weight: number;
 }
 
 export interface DiscoveryExcluded {
@@ -29,16 +40,18 @@ export interface DiscoveryFactor {
   delta: number | null;
   period: string | null;
   source_document_version_id: number | null;
+  source_as_of: string | null;
+  source_freshness: "current" | "stale" | null;
+  history_median: number | null;
+  history_batch_ids: number[];
+  history_document_version_ids: number[];
 }
 
 export interface DiscoveryResult {
-  source: string;
-  source_url: string;
   as_of: string;
   universe_count: number;
   result_count: number;
   source_note: string;
-  source_version_id: number;
   freshness: DiscoveryFreshness;
   sieve: DiscoverySieve;
   candidates: DiscoveryCandidate[];
@@ -56,6 +69,7 @@ export interface DiscoverySieve {
   excluded_count: number;
   coverage_count: number;
   coverage_pct: number;
+  coverage_label: string;
   rules: Array<{
     layer: "hard_kill" | "improvement";
     factor_id: string;
@@ -69,17 +83,21 @@ export interface DiscoverySieve {
     covered_count: number;
     total_count: number;
   }>;
-  source: DiscoverySieveSource | null;
+  batch_id: number | null;
+  sources: DiscoverySieveSource[];
   freshness: DiscoveryFreshness | null;
   gaps: string[];
 }
 
 export interface DiscoverySieveSource {
+  id: string;
+  label: string;
   name: string;
-  version: string;
+  url: string;
   document_version_id: number;
   parser_version: string;
   as_of: string;
+  fields: string[];
 }
 
 export interface DiscoveryFreshness {

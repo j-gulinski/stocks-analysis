@@ -56,12 +56,23 @@ CaseStep = Literal[
 ]
 
 
+class DiscoveryResearchOriginIn(BaseModel):
+    """A typed, server-recomputed handoff from the one Discover sieve."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    batch_id: int = Field(gt=0)
+    sieve_id: Literal["workbench_sieve_v1"]
+    sieve_version: Literal["workbench-sieve-v1"]
+
+
 class ResearchLabCreateIn(BaseModel):
     """Create or reopen the durable research identity for one ticker."""
 
     model_config = ConfigDict(extra="forbid")
 
     ticker: str = Field(min_length=1, max_length=12)
+    discovery: DiscoveryResearchOriginIn | None = None
 
 
 class ResearchCollectionProgressOut(BaseModel):
@@ -1058,6 +1069,20 @@ class DiscoveryFactorOut(BaseModel):
     delta: float | None = None
     period: str | None = None
     source_document_version_id: int | None = None
+    source_as_of: datetime | None = None
+    source_freshness: Literal["current", "stale"] | None = None
+    history_median: float | None = None
+    history_batch_ids: list[int] = Field(default_factory=list)
+    history_document_version_ids: list[int] = Field(default_factory=list)
+
+
+class DiscoveryScoreComponentOut(BaseModel):
+    id: str
+    label: str
+    raw_value: float
+    ranking_value: float
+    percentile: float = Field(ge=0.0, le=100.0)
+    weight: float = Field(gt=0.0, le=1.0)
 
 
 class DiscoveryCandidateOut(BaseModel):
@@ -1068,6 +1093,8 @@ class DiscoveryCandidateOut(BaseModel):
     factors: list[DiscoveryFactorOut]
     factor_gaps: list[str]
     improvement_signals: list[str]
+    potential_score: float | None = Field(default=None, ge=0.0, le=100.0)
+    score_components: list[DiscoveryScoreComponentOut] = Field(default_factory=list)
 
 
 class DiscoveryExcludedOut(BaseModel):
@@ -1094,11 +1121,14 @@ class DiscoverySieveRuleOut(BaseModel):
 
 
 class DiscoverySieveSourceOut(BaseModel):
+    id: str
+    label: str
     name: str
-    version: str
+    url: str
     document_version_id: int
     parser_version: str
     as_of: datetime
+    fields: list[str]
 
 
 class DiscoveryFreshnessOut(BaseModel):
@@ -1121,21 +1151,20 @@ class DiscoverySieveOut(BaseModel):
     excluded_count: int
     coverage_count: int
     coverage_pct: float
+    coverage_label: str
     rules: list[DiscoverySieveRuleOut]
     factor_coverage: list[DiscoverySieveFactorCoverageOut]
-    source: DiscoverySieveSourceOut | None = None
+    batch_id: int | None = None
+    sources: list[DiscoverySieveSourceOut] = Field(default_factory=list)
     freshness: DiscoveryFreshnessOut | None = None
     gaps: list[str]
 
 
 class DiscoveryOut(BaseModel):
-    source: str
-    source_url: str
     as_of: datetime
     universe_count: int
     result_count: int
     source_note: str
-    source_version_id: int
     freshness: DiscoveryFreshnessOut
     sieve: DiscoverySieveOut
     candidates: list[DiscoveryCandidateOut]

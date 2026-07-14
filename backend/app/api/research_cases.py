@@ -43,6 +43,7 @@ from app.services.company_profiles import (
     append_human_profile,
     frozen_profile,
 )
+from app.services.discovery import DiscoveryAdmission, admit_discovery_candidate
 from app.services.model_policy import default_model_for_workflow
 from app.services.research_artifacts import (
     ResearchArtifactError,
@@ -282,15 +283,31 @@ def _initial_research_run(db: Session, case: ResearchCase) -> AgentRun | None:
     )
 
 
+def _frozen_discovery_origin(admission: DiscoveryAdmission) -> dict:
+    """Freeze server-recomputed Discover membership into the initial job."""
+    return {
+        "batch_id": admission.batch.id,
+        "sieve_id": "workbench_sieve_v1",
+        "sieve_version": "workbench-sieve-v1",
+        "page_document_versions": admission.page_document_versions,
+        "batch_fingerprint": admission.fingerprint,
+        "candidate": admission.candidate.frozen_evidence(),
+    }
+
+
 def _ensure_research_case(
     db: Session,
     *,
     ticker: str,
+    discovery_origin: dict | None = None,
 ) -> tuple[Company, ResearchCase, AgentRun, bool, bool, bool, bool]:
     company = db.scalar(select(Company).where(Company.ticker == ticker))
     created_company = company is None
     if company is None:
-        company = Company(ticker=ticker)
+        company = Company(
+            ticker=ticker,
+            name=(discovery_origin or {}).get("candidate", {}).get("name"),
+        )
         db.add(company)
         db.flush()
 
@@ -371,6 +388,26 @@ def _ensure_research_case(
     created_job = agent is None
     if agent is None:
         model = default_model_for_workflow(_WORKFLOW)
+        inputs = {
+            "ticker": company.ticker,
+            "research_case_id": research_case.id,
+            "task": {
+                "skill": "company-research",
+                "skill_version": _SKILL_VERSION,
+                "output_contract_version": _OUTPUT_CONTRACT_VERSION,
+                "company_profile_schema_version": _PROFILE_SCHEMA_VERSION,
+                "archetype_contract_version": _ARCHETYPE_CONTRACT_VERSION,
+                "objective": (
+                    "Refresh one company, resolve its source questions and save a "
+                    "tailored forward-looking first snapshot."
+                ),
+                "refresh_scope": "all",
+                "required_verification": "verifier_strict",
+                "watchlist_policy": "do not add automatically",
+            },
+        }
+        if discovery_origin is not None:
+            inputs["discovery_origin"] = discovery_origin
         agent = AgentRun(
             workflow=_WORKFLOW,
             trigger="research-lab",
@@ -380,24 +417,7 @@ def _ensure_research_case(
             model=model,
             orchestrator_model=model,
             idempotency_key=run_key,
-            inputs={
-                "ticker": company.ticker,
-                "research_case_id": research_case.id,
-                "task": {
-                    "skill": "company-research",
-                    "skill_version": _SKILL_VERSION,
-                    "output_contract_version": _OUTPUT_CONTRACT_VERSION,
-                    "company_profile_schema_version": _PROFILE_SCHEMA_VERSION,
-                    "archetype_contract_version": _ARCHETYPE_CONTRACT_VERSION,
-                    "objective": (
-                        "Refresh one company, resolve its source questions and save a "
-                        "tailored forward-looking first snapshot."
-                    ),
-                    "refresh_scope": "all",
-                    "required_verification": "verifier_strict",
-                    "watchlist_policy": "do not add automatically",
-                },
-            },
+            inputs=inputs,
             outputs={},
         )
         db.add(agent)
@@ -781,12 +801,31 @@ def create_research_case(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Ticker cannot be blank.",
         )
+    discovery_origin = None
+    if payload.discovery is not None:
+        try:
+            admission = admit_discovery_candidate(
+                db,
+                batch_id=payload.discovery.batch_id,
+                ticker=ticker,
+                sieve_id=payload.discovery.sieve_id,
+                sieve_version=payload.discovery.sieve_version,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+            ) from exc
+        except (LookupError, PermissionError) as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        discovery_origin = _frozen_discovery_origin(admission)
     # Company, case and job each have a database uniqueness boundary. A
     # concurrent identical request can win one of them; retrying after rollback
     # then returns that complete committed unit rather than duplicating work.
     for attempt in range(2):
         try:
-            ensured = _ensure_research_case(db, ticker=ticker)
+            ensured = _ensure_research_case(
+                db, ticker=ticker, discovery_origin=discovery_origin
+            )
             db.commit()
             (
                 company,
