@@ -72,12 +72,14 @@ Discover rows — never job IDs first:
 - **Wyceniona** — adds the valuation strip: bad/base/good (+event) price
   range, probability-weighted value vs current price, upside %, catalyst,
   and verification status.
-- **W portfelu** — adds position weight and portfolio priority; holdings
-  sort first (weight × staleness), then Discover candidates, then the rest.
+- **W portfelu** *(enabled by the S4 portfolio-coverage gate)* — adds position
+  weight and portfolio priority; holdings sort first (weight × staleness), then
+  Discover candidates, then the rest.
 
 The list opens with the `Do sprawdzenia` agenda derived only from stored
 state: new evidence since last snapshot, stale cases, fired falsifiers,
-valuations awaiting assumptions, uncovered holdings. Zero-write to open.
+valuations awaiting assumptions and, once S4 enables portfolio auto-coverage,
+uncovered holdings. Zero-write to open.
 
 ### The company view
 

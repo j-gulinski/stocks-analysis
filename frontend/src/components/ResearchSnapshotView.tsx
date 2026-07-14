@@ -1,17 +1,18 @@
 "use client";
 
 /** Fixed renderer for versioned canonical research-snapshot artifacts. */
+import Link from "next/link";
 import {
   IconAlertTriangle,
   IconArrowRight,
-  IconCheck,
   IconChevronRight,
   IconDatabase,
   IconHistory,
 } from "@tabler/icons-react";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, fmtPct, fmtPln } from "@/lib/format";
 import type {
   CompanyProfile,
+  ResearchCaseSummary,
   ResearchClaim,
   ResearchClaimKind,
   ResearchArchetypePack,
@@ -47,12 +48,17 @@ const CLAIM_KIND: Record<ResearchClaimKind, string> = {
   unknown: "niewiadoma",
 };
 
-const CHECK_LABELS: Record<keyof ResearchSnapshot["verifier_result"]["checks"], string> = {
-  schema_integrity: "Schemat",
-  source_integrity: "Źródła",
-  company_identity: "Tożsamość spółki",
-  look_ahead: "Point-in-time",
-  math_integrity: "Obliczenia",
+const VERIFIER_JUSTIFICATIONS = [
+  ["evidence_and_claim_fit", "Dopasowanie dowodów do twierdzeń"],
+  ["company_specificity", "Specyfika spółki"],
+  ["outlook_and_thesis_plausibility", "Wiarygodność perspektywy i tezy"],
+] as const;
+
+const SCENARIO_LABELS: Record<string, string> = {
+  negative: "spadkowy",
+  base: "bazowy",
+  positive: "wzrostowy",
+  event: "zdarzeniowy",
 };
 
 const OUTLOOK_DIRECTION: Record<ResearchOutlookDirection, string> = {
@@ -136,6 +142,7 @@ export default function ResearchSnapshotView({
   snapshot,
   history,
   archetypePack,
+  valuationStrip,
 }: {
   ticker: string;
   companyName: string | null;
@@ -143,6 +150,7 @@ export default function ResearchSnapshotView({
   snapshot: ResearchSnapshot;
   history: ResearchSnapshotHistory[];
   archetypePack: ResearchArchetypePack | null;
+  valuationStrip: ResearchCaseSummary["valuation_strip"];
 }) {
   const sections = snapshot.sections;
   const outlook = sections.outlook;
@@ -172,6 +180,9 @@ export default function ResearchSnapshotView({
     ...snapshot.next_checks.map((item) => `${item.question} — ${item.suggested_source}`),
   ]));
   const status = STATUS[snapshot.status];
+  const sectionNumbers = outlook
+    ? { thesis: "06", valuation: "07", history: "08" }
+    : { thesis: "05", valuation: "06", history: "07" };
 
   return (
     <article className="research-snapshot">
@@ -342,7 +353,7 @@ export default function ResearchSnapshotView({
       )}
 
       <section className="snapshot-section" aria-labelledby="snapshot-thesis">
-        <header><span>{outlook ? "06" : "05"}</span><h2 id="snapshot-thesis">Teza</h2></header>
+        <header><span>{sectionNumbers.thesis}</span><h2 id="snapshot-thesis">Teza</h2></header>
         <div className="snapshot-thesis-core">
           <div><span className="snapshot-label">Dlaczego teraz</span><p>{sections.thesis.why_now}</p></div>
           <div><span className="snapshot-label">Kontrteza</span><p>{sections.thesis.counter_thesis}</p></div>
@@ -360,8 +371,41 @@ export default function ResearchSnapshotView({
         </div>
       </section>
 
+      <section className="snapshot-section" aria-labelledby="snapshot-valuation">
+        <header><span>{sectionNumbers.valuation}</span><h2 id="snapshot-valuation">Valuation</h2></header>
+        {valuationStrip ? (
+          <div className="snapshot-valuation-summary">
+            <div className="research-valuation-prices">
+              {Object.entries(valuationStrip.scenario_prices_pln).map(([kind, price]) => (
+                <span key={kind}>
+                  {SCENARIO_LABELS[kind] ?? kind}
+                  <strong>{fmtPln(price)}</strong>
+                  {valuationStrip.scenario_probabilities_pct[kind] != null && <small>{fmtPct(valuationStrip.scenario_probabilities_pct[kind])}</small>}
+                </span>
+              ))}
+            </div>
+            <dl>
+              <div><dt>Wartość ważona</dt><dd>{fmtPln(valuationStrip.weighted_value_pln)}</dd></div>
+              <div><dt>Kurs odniesienia</dt><dd>{fmtPln(valuationStrip.current_price_pln)}</dd></div>
+              <div><dt>Potencjał</dt><dd className={valuationStrip.upside_pct != null && valuationStrip.upside_pct >= 0 ? "pos" : "neg"}>{fmtPct(valuationStrip.upside_pct, { signed: true })}</dd></div>
+            </dl>
+            {valuationStrip.catalyst && <p><span className="snapshot-label">Katalizator</span>{valuationStrip.catalyst}</p>}
+            <div className="snapshot-valuation-action">
+              <span className={`badge ${valuationStrip.verification_status === "verified" ? "success" : valuationStrip.verification_status === "rejected" ? "danger" : "warning"}`}>Wycena {valuationStrip.verification_status}</span>
+              <small>Stan na {fmtDate(valuationStrip.as_of)}</small>
+              <Link className="btn" href={`/valuation/${ticker}`}>Otwórz pełną wycenę <IconArrowRight size={14} /></Link>
+            </div>
+          </div>
+        ) : (
+          <div className="snapshot-valuation-empty">
+            <p>Brak bieżącej wyceny powiązanej z tym snapshotem Research.</p>
+            <Link className="btn accent" href={`/valuation/${ticker}`}>Uzupełnij założenia scenariuszy <IconArrowRight size={14} /></Link>
+          </div>
+        )}
+      </section>
+
       <section className="snapshot-section" aria-labelledby="snapshot-history">
-        <header><span>{outlook ? "07" : "06"}</span><h2 id="snapshot-history">Historia</h2></header>
+        <header><span>{sectionNumbers.history}</span><h2 id="snapshot-history">Historia</h2></header>
         <TextList items={sections.history.changes_since_previous} empty="To pierwszy zapisany snapshot — nie ma jeszcze zmian do porównania." />
         <ClaimList claims={sections.history.claims} />
         <div className="snapshot-timeline">
@@ -445,9 +489,18 @@ export default function ResearchSnapshotView({
           <section>
             <h3>Wynik verifiera</h3>
             <p>{snapshot.verifier_result.summary}</p>
-            <div className="snapshot-checks">
-              {Object.entries(snapshot.verifier_result.checks).map(([key, passed]) => <span key={key} className={passed ? "passed" : "failed"}>{passed ? <IconCheck size={13} /> : <IconAlertTriangle size={13} />}{CHECK_LABELS[key as keyof typeof CHECK_LABELS]}</span>)}
-            </div>
+            {snapshot.verifier_result.verification_standard === "legacy-incomplete" ? (
+              <div className="snapshot-verifier-warning"><IconAlertTriangle size={15} /><span>Ten historyczny zapis nie zawiera trzech adversarialnych uzasadnień V5. Dawne pola kontrolne nie są prezentowane jako dowód weryfikacji.</span></div>
+            ) : snapshot.verifier_result.justifications && (
+              <dl className="snapshot-verifier-justifications">
+                {VERIFIER_JUSTIFICATIONS.map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{snapshot.verifier_result.justifications?.[key]}</dd></div>)}
+              </dl>
+            )}
+            {snapshot.verifier_result.findings.length > 0 && (
+              <div className="snapshot-verifier-findings">
+                {snapshot.verifier_result.findings.map((finding, index) => <article key={`${finding.area}-${index}`}><span className={`badge ${finding.severity === "minor" ? "warning" : "danger"}`}>{finding.severity}</span><div><strong>{finding.area}</strong><p>{finding.detail}</p></div></article>)}
+              </div>
+            )}
           </section>
           <section className="snapshot-run-meta">
             <h3>Metadane artefaktu</h3>

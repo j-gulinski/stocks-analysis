@@ -175,6 +175,7 @@ export interface ResearchCaseSummary {
   phase_label: string;
   phase_summary: string;
   main_gap: string | null;
+  agenda_reasons: string[];
   latest_snapshot_status: ResearchSnapshotStatus | null;
   latest_snapshot_as_of: string | null;
   collection_progress: {
@@ -387,14 +388,18 @@ export interface ResearchVerifierResult {
   model_role: "verifier_strict";
   verifier_model: string;
   verdict: "pass" | "fail" | "needs-human";
-  checks: {
-    schema_integrity: boolean;
-    source_integrity: boolean;
-    company_identity: boolean;
-    look_ahead: boolean;
-    math_integrity: boolean;
-  };
+  findings: Array<{
+    severity: "minor" | "major" | "blocking";
+    area: string;
+    detail: string;
+  }>;
+  justifications: {
+    evidence_and_claim_fit: string;
+    company_specificity: string;
+    outlook_and_thesis_plausibility: string;
+  } | null;
   summary: string;
+  verification_standard: "adversarial-v1" | "legacy-incomplete";
 }
 
 export interface ResearchStatementProvenance {
@@ -1138,89 +1143,6 @@ export interface Valuation {
   disclaimer: string;
   engine: "deterministic" | "ai";
   ai_notes: AiNotes | null;
-}
-
-// Shared shape for market_data.forecast_consensus / advanced_metrics cells
-// (backend: services/market_data.py, services/refresh.py). `period` shows up
-// on a couple of legacy indicator-sourced entries (roic/fcf) instead of
-// `unit` — keep both optional rather than modelling two variants.
-export interface MarketDataMetric {
-  value: number | null;
-  unit?: string;
-  period?: string;
-  source?: string;
-}
-
-export interface Dossier {
-  company: Company;
-  freshness: {
-    financials_scraped_at: string | null;
-    last_price_date: string | null;
-    forum_last_synced_at: string | null;
-  };
-  quarters: QuarterMetrics[];
-  ttm: Ttm;
-  result_quality: ResultQuality;
-  pe_history: PeHistory;
-  net_cash: { value: number | null; note: string };
-  market_data: {
-    industry_type: string | null;
-    priority_values: Record<string, unknown>;
-    // Keyed by YEAR (e.g. "2025", "2026" — raw BiznesRadar consensus column
-    // labels), then by metric code (revenue/ebitda/operating_profit/
-    // net_income/capex/depreciation/ebitda_margin_pct/operating_margin_pct/
-    // net_margin_pct/pe) — mirrors services/refresh.py::_upsert_forecasts +
-    // services/market_data.py::merge_premium_market_data. Money metrics
-    // arrive in tys. PLN (unit "tys. PLN"); margins in "%"; pe in "x".
-    forecast_consensus: Record<string, Record<string, MarketDataMetric>>;
-    // Polish trust caveat (services/market_data.py::FORECAST_CONSENSUS_NOTE)
-    // — sibling key, NOT nested inside forecast_consensus (that dict is
-    // keyed purely by year). Optional: absent on dossiers built before this
-    // field existed.
-    forecast_consensus_note?: string;
-    // roic/fcf/enterprise_value plus (new) ebitda_ttm/capex_ttm/
-    // depreciation_ttm from the /prognozy O4K column — all {value, unit,
-    // source} shaped, but some legacy entries carry `period` instead of
-    // `unit`, so keep the value type loose.
-    advanced_metrics: Record<string, MarketDataMetric>;
-    dividend_coverage: Record<string, unknown>;
-  };
-  analysis_context_status?: {
-    ready_for_ai: boolean;
-    missing: string[];
-    industry_type: string | null;
-    premium: {
-      forecast_years: string[];
-      has_roic: boolean;
-      has_fcf: boolean;
-      has_enterprise_value: boolean;
-      dividend_coverage_status: string | null;
-    };
-    forum: {
-      has_intelligence: boolean;
-      distilled_facts_count: number;
-      last_30d_post_count: number;
-      last_30d_active_user_count: number;
-    };
-  } | null;
-  dividends: Dividend[];
-  prescore: Prescore;
-  insights: Insights;
-  // Optional on purpose: older cached dossiers predate the thesis layer, so the
-  // UI must render gracefully when it is absent (backend shape has it required).
-  thesis?: Thesis;
-  // Same graceful-degradation contract for the scenario layer (stage SC).
-  scenarios?: ScenarioSet;
-  // And for the AI valuation layer (stage SC / WP4); backend shape has it
-  // required, older cached dossiers predate it → optional here.
-  valuation?: Valuation;
-  latest_forecast: Forecast | null;
-  forum: {
-    topics: number;
-    posts: number;
-    last_post_at: string | null;
-    intelligence?: ForumIntelligence | null;
-  };
 }
 
 export interface ForumDistilledFact {

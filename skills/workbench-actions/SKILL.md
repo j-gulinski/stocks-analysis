@@ -17,7 +17,7 @@ calls a model. Only the commands below may mutate durable state.
 | Refresh Discover evidence | `POST /api/discovery/refresh` | One immutable all-page market-factor batch; no Research job |
 | Inspect Discover | `GET /api/discovery` | One `workbench_sieve_v1` state with full survivor count, at most 100 potential-scored rows, exclusions and gaps |
 | Add a company | `POST /api/research-cases` with ticker, or `ticker` + typed frozen Discover `batch_id`/sieve version | One company, one active case, at most one initial Research job; Discover origin is server-recomputed and frozen |
-| Inspect Research | `GET /api/research-cases` / `GET /api/research-cases/by-ticker/{ticker}` | Phase-aware list or one canonical snapshot workspace |
+| Inspect Research | `GET /api/research-cases` / `GET /api/research-cases/by-ticker/{ticker}` | Stored-state agenda plus phase-aware rows, or one canonical Research → Valuation → History workspace |
 | Refresh company evidence | `POST /api/companies/{ticker}/refresh?scope=all` | Bounded stored evidence refresh; no snapshot or model result |
 | Confirm/correct profile | `POST /api/research-cases/{id}/profiles` | Next immutable human-confirmed/corrected profile |
 | Queue Research review | `POST /api/research-cases/{id}/review-runs` | One content-idempotent review job |
@@ -45,7 +45,10 @@ calls a model. Only the commands below may mutate durable state.
 - Company refresh and Research collection may retain forum material only as a
   labelled lead. Conclusions require permitted primary or normalized evidence.
 - Research writes only `company-research-v3` / `research-snapshot-v3`.
-  Historical snapshots remain readable; there is no legacy write path.
+  Historical snapshots remain readable; a verifier payload without the three
+  adversarial V5 justifications is labelled `legacy-incomplete`, and its old
+  boolean checks are not surfaced as verification evidence. There is no legacy
+  write path.
 - Valuation queueing freezes the Research/base boundary. Scenario mechanisms,
   assumptions and probability rationales belong to the company-specific Codex
   draft; there are no default grids or probabilities.

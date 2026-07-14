@@ -2,7 +2,7 @@
 
 Everything here is a pure function over plain dicts/dataclasses — no DB, no
 framework (unit-testable like a C# domain library). Input series come from
-services/dossier.py which maps stored rows to canonical fields.
+typed artifact services which map stored rows to canonical fields.
 
 Units, once and for all:
 - statement values: tys. PLN (as reported by BiznesRadar)

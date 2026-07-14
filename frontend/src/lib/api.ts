@@ -7,7 +7,6 @@ import type {
   AgentRun,
   Dividend,
   DiscoveryResult,
-  Dossier,
   EvidenceDocument,
   Financials,
   Falsifier,
@@ -111,9 +110,6 @@ export const confirmResearchProfile = (
 });
 
 // ---------------------------------------------------------------- companies
-export const getDossier = (ticker: string) =>
-  request<Dossier>(`/companies/${encodeURIComponent(ticker)}`);
-
 export const getEvidenceDocuments = (ticker: string) =>
   request<EvidenceDocument[]>(
     `/companies/${encodeURIComponent(ticker)}/evidence/documents`,

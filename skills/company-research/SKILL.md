@@ -50,7 +50,7 @@ Contract version: `company-research-v3`. Output contract:
   post-collection freeze boundary. If a replacement run reuses collection from
   a superseded run, its inputs must instead freeze the exact company identity,
   source IDs/times/parser/content hashes, failed-source attempts, deterministic
-  dossier projection/hash, calculation payload/hash and archetype pack before
+  research projection/hash, calculation payload/hash and archetype pack before
   it is claimed. Never mutate a frozen row to repair a missing boundary.
 - Run the explicit bounded company refresh requested by the job. All HTTP must
   remain inside existing polite adapters.

@@ -42,6 +42,15 @@ product reset remains available in Git at and before `2ac75d0`.
   verifier verdict to `rejected` with computed reasons. Portfolio keeps partial
   risk, liquidity, scenario and review analytics visible when retained rows do
   not reconcile to the provider total.
+- Completed S2's canonical Research flow. The list agenda is now derived from
+  stored collection/snapshot/valuation state, newly parsed evidence, staleness
+  and fired falsifiers; each detail renders Research → Valuation → History in
+  one page. Historical verifier payloads remain readable but are explicitly
+  labelled `legacy-incomplete`: their old boolean checks are neither displayed
+  nor upgraded into V5 evidence, while all new writes keep the strict
+  adversarial contract. The remaining MCP dossier tool, standalone dossier
+  script/service and dead frontend dossier client/types were deleted so the
+  Research workspace is the only company-analysis read path.
 
 ## 2026-07-13 · V1 first live non-industrial valuation checkpoint
 

@@ -14,7 +14,6 @@ from sqlalchemy import select
 from pydantic import ValidationError
 
 from app.api.schemas import (
-    DossierOut,
     ResearchSnapshotOut,
     ResearchSnapshotSaveIn,
     ResearchSnapshotVerificationIn,
@@ -32,7 +31,6 @@ from app.db.models import (
 )
 from app.services import (
     agent_queue,
-    dossier as dossier_service,
     codex_context,
     model_policy,
 )
@@ -118,25 +116,6 @@ def get_archetype_pack(arguments: dict[str, Any]) -> dict[str, Any]:
     if pack is None:
         raise ToolInputError(f"Unknown archetype '{archetype}'.")
     return {"ok": True, "archetype_pack": pack_payload(pack)}
-
-
-def get_company_dossier(arguments: dict[str, Any]) -> dict[str, Any]:
-    ticker = _require_text(arguments, "ticker").upper()
-    db = SessionLocal()
-    try:
-        company = _get_company(db, ticker)
-        dossier = dossier_service.build_dossier(db, company)
-        ui_contract = DossierOut.model_validate(dossier).model_dump(mode="json")
-        return {
-            "ok": True,
-            "ticker": ticker,
-            "dossier": ui_contract,
-            "codex_context": codex_context.source_data_context(
-                "company-dossier", "issuer-data", "forum-opinions"
-            ),
-        }
-    finally:
-        db.close()
 
 
 def list_queued_agent_runs(arguments: dict[str, Any] | None = None) -> dict[str, Any]:

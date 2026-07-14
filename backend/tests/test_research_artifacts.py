@@ -373,6 +373,8 @@ def test_verified_snapshot_is_immutable_terminal_and_read_only(client, db):
     body = saved.json()
     assert body["contract_version"] == "research-snapshot-v3"
     assert body["status"] == "verified"
+    assert body["verifier_result"]["verification_standard"] == "adversarial-v1"
+    assert body["verifier_result"]["justifications"] == _verifier_result()["justifications"]
     assert len(body["artifact_fingerprint"]) == 64
     assert db.query(CompanyProfile).one().version == 1
     assert db.query(ResearchSnapshot).one().agent_run_id == run.id
@@ -389,6 +391,7 @@ def test_verified_snapshot_is_immutable_terminal_and_read_only(client, db):
     workspace = client.get("/api/research-cases/by-ticker/SNT")
     assert workspace.status_code == 200
     assert workspace.json()["latest_snapshot"]["id"] == body["id"]
+    assert workspace.json()["latest_snapshot"]["verifier_result"]["verification_standard"] == "adversarial-v1"
     assert workspace.json()["profile"]["archetype"] == "industrial-consumer"
     assert workspace.json()["history"] == [{
         "id": body["id"], "version": 1, "status": "verified",
@@ -404,6 +407,85 @@ def test_verified_snapshot_is_immutable_terminal_and_read_only(client, db):
     changed = deepcopy(payload)
     changed["sections"]["brief"]["current_understanding"] = "Changed replay."
     assert client.post(f"/api/research-cases/{case_id}/snapshots", json=changed).status_code == 409
+
+
+def test_legacy_verifier_snapshot_remains_readable_without_v5_upgrade(client, db):
+    from app.db.models import ResearchSnapshot
+
+    case_id, run, company = _claimed_case(client, db)
+    version = _document(db, company)
+    draft = _payload(run.id, version.id)
+    payload = _approve(client, case_id, draft)
+    saved = client.post(f"/api/research-cases/{case_id}/snapshots", json=payload)
+    assert saved.status_code == 200, saved.text
+
+    snapshot = db.query(ResearchSnapshot).one()
+    snapshot.verifier_result = {
+        "model_role": "verifier_strict",
+        "verifier_model": "legacy-judge",
+        "verdict": "pass",
+        "checks": {
+            "schema_integrity": True,
+            "source_integrity": True,
+            "company_identity": True,
+            "look_ahead": True,
+            "math_integrity": True,
+        },
+        "summary": "Historyczna kontrola techniczna.",
+    }
+    db.commit()
+
+    workspace = client.get("/api/research-cases/by-ticker/SNT")
+    assert workspace.status_code == 200, workspace.text
+    verifier = workspace.json()["latest_snapshot"]["verifier_result"]
+    assert verifier["verification_standard"] == "legacy-incomplete"
+    assert verifier["justifications"] is None
+    assert verifier["findings"] == []
+    assert "checks" not in verifier
+    assert any(
+        "pełnego standardu V5" in reason
+        for reason in workspace.json()["research_case"]["agenda_reasons"]
+    )
+
+
+def test_research_agenda_is_derived_from_stored_case_state(client, db):
+    from app.db.models import ResearchSnapshot, ThesisFalsifier, utcnow
+
+    case_id, run, company = _claimed_case(client, db)
+    version = _document(db, company)
+    draft = _payload(run.id, version.id)
+    payload = _approve(client, case_id, draft)
+    saved = client.post(f"/api/research-cases/{case_id}/snapshots", json=payload)
+    assert saved.status_code == 200, saved.text
+
+    first_reasons = client.get("/api/research-cases").json()[0]["agenda_reasons"]
+    assert first_reasons == [
+        "Brak bieżącej wyceny — założenia scenariuszy czekają na uzupełnienie."
+    ]
+
+    snapshot = db.query(ResearchSnapshot).one()
+    snapshot.as_of = utcnow() - timedelta(days=31)
+    db.add(ThesisFalsifier(
+        company_id=company.id,
+        key="margin-collapse",
+        statement="Marża spada poniżej progu tezy.",
+        status="fired",
+        reason="Próg został przekroczony w zapisanym odczycie.",
+    ))
+    db.commit()
+    _document(
+        db,
+        company,
+        source_name="Issuer IR update",
+        source_type="issuer_ir_update",
+        canonical_url="https://investor.example.test/update",
+    )
+
+    reasons = client.get("/api/research-cases").json()[0]["agenda_reasons"]
+    assert "Research ma ponad 30 dni i wymaga sprawdzenia aktualności." in reasons
+    assert "Od ostatniego snapshotu pojawiły się nowe sparsowane dowody." in reasons
+    assert "Co najmniej jeden zapisany falsyfikator został uruchomiony." in reasons
+    assert "Brak bieżącej wyceny — założenia scenariuszy czekają na uzupełnienie." in reasons
 
 
 def test_schema_and_verifier_gates_reject_invalid_payload(client, db):

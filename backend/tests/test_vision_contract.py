@@ -93,6 +93,7 @@ def test_v3_research_list_contract_is_phase_aware_and_not_job_led() -> None:
         "phase_label",
         "phase_summary",
         "main_gap",
+        "agenda_reasons",
         "collection_progress",
         "valuation_strip",
     } <= fields
@@ -107,6 +108,7 @@ def test_v3_research_list_contract_is_phase_aware_and_not_job_led() -> None:
     assert "phase_summary" in ui_source
     assert "collection_progress" in ui_source
     assert "valuation_strip" in ui_source
+    assert "agenda_reasons" in ui_source
     assert "latest_research_run_status" not in ui_source
 
 
@@ -171,6 +173,7 @@ def test_v5_verifier_contract_is_adversarial_and_backend_recomputes() -> None:
     """V5: booleans cannot replace evidence, findings or deterministic checks."""
     from app.api.schemas import (
         PortfolioReviewVerifierResult,
+        ResearchSnapshotOut,
         ResearchVerifierResult,
         ValuationVerifierResult,
     )
@@ -185,6 +188,11 @@ def test_v5_verifier_contract_is_adversarial_and_backend_recomputes() -> None:
             field.annotation is str
             for field in justification_model.model_fields.values()
         )
+    research_read_verifier = ResearchSnapshotOut.model_fields["verifier_result"].annotation
+    assert "checks" not in research_read_verifier.model_fields
+    assert {"findings", "justifications", "verification_standard"} <= set(
+        research_read_verifier.model_fields
+    )
 
     justification = (
         "Examined the frozen facts, assumption bindings, scenario mechanism, "
@@ -267,6 +275,9 @@ def test_v10_deleted_legacy_modules_and_routes_stay_deleted(client) -> None:
         "backend/app/services/thesis.py",
         "backend/app/services/valuation_ai.py",
         "backend/app/services/research_method_perspectives.py",
+        "backend/app/services/dossier.py",
+        "backend/scripts/codex_get_dossier.py",
+        "frontend/src/lib/dossier.ts",
     )
     assert [path for path in deleted_paths if (ROOT / path).exists()] == []
 
@@ -283,6 +294,7 @@ def test_v10_deleted_legacy_modules_and_routes_stay_deleted(client) -> None:
 def test_v10_only_canonical_workflows_and_artifact_gates_are_exposed() -> None:
     """V10: generic completion/verifier adapters cannot bypass stage artifacts."""
     from app.api.agent_runs import ALLOWED_WORKFLOWS
+    from app.mcp import stock_tools
     from app.mcp.stock_workbench_server import TOOLS
     from app.services.model_policy import _POLICIES
 
@@ -299,8 +311,12 @@ def test_v10_only_canonical_workflows_and_artifact_gates_are_exposed() -> None:
         "save_analysis_run",
         "complete_agent_run",
         "mark_verification_result",
+        "get_company_dossier",
     }
     assert generic_bypasses.isdisjoint(TOOLS)
+    assert not hasattr(stock_tools, "get_company_dossier")
+    assert "getDossier" not in _read("frontend/src/lib/api.ts")
+    assert "interface Dossier" not in _read("frontend/src/lib/types.ts")
 
     agent_api = _read("backend/app/api/agent_runs.py")
     assert "/companies/{ticker}/analysis-runs" not in agent_api

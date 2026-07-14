@@ -57,17 +57,6 @@ TOOLS: dict[str, ToolSpec] = {
         },
         stock_tools.get_archetype_pack,
     ),
-    "get_company_dossier": ToolSpec(
-        "get_company_dossier",
-        "Return the deterministic company dossier used by the UI and Codex skills.",
-        {
-            "type": "object",
-            "properties": {"ticker": {"type": "string"}},
-            "required": ["ticker"],
-            "additionalProperties": False,
-        },
-        stock_tools.get_company_dossier,
-    ),
     "list_queued_agent_runs": ToolSpec(
         "list_queued_agent_runs",
         "List queued or filtered Codex workflow runs.",

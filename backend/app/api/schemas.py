@@ -113,6 +113,7 @@ class ResearchCaseSummaryOut(BaseModel):
     phase_label: str
     phase_summary: str
     main_gap: str | None
+    agenda_reasons: list[str] = Field(default_factory=list)
     collection_progress: ResearchCollectionProgressOut | None
     valuation_strip: ResearchValuationStripOut | None
     latest_snapshot_status: str | None = None
@@ -468,6 +469,45 @@ class ResearchVerifierResult(StrictResearchModel):
         return self
 
 
+class ResearchVerifierResultOut(StrictResearchModel):
+    """Read projection that keeps legacy snapshots visible without upgrading them."""
+
+    model_role: Literal["verifier_strict"] = "verifier_strict"
+    verifier_model: str = Field(min_length=1, max_length=80)
+    verdict: Literal["pass", "fail", "needs-human"]
+    findings: list[ResearchVerifierFinding] = Field(default_factory=list, max_length=20)
+    justifications: ResearchVerifierJustifications | None = None
+    summary: str = Field(min_length=1, max_length=4000)
+    verification_standard: Literal["adversarial-v1", "legacy-incomplete"]
+
+    @model_validator(mode="before")
+    @classmethod
+    def project_legacy_verifier_result(cls, value):
+        if not isinstance(value, dict):
+            return value
+        projected = dict(value)
+        has_adversarial_justifications = isinstance(
+            projected.get("justifications"), dict
+        )
+        projected.pop("checks", None)
+        projected.setdefault("model_role", "verifier_strict")
+        projected.setdefault("verifier_model", "unknown-legacy-verifier")
+        projected.setdefault("verdict", "needs-human")
+        projected.setdefault("findings", [])
+        projected.setdefault(
+            "summary",
+            "Historyczny wynik verifiera nie zawiera pełnego uzasadnienia V5.",
+        )
+        projected["verification_standard"] = (
+            "adversarial-v1"
+            if has_adversarial_justifications
+            else "legacy-incomplete"
+        )
+        if not has_adversarial_justifications:
+            projected["justifications"] = None
+        return projected
+
+
 class ResearchSnapshotDraftIn(StrictResearchModel):
     contract_version: Literal["research-snapshot-v3"] = "research-snapshot-v3"
     agent_run_id: int = Field(ge=1)
@@ -525,7 +565,7 @@ class ResearchSnapshotOut(BaseModel):
     gaps: list[ResearchGap]
     next_checks: list[ResearchNextCheck]
     statement_provenance: list[ResearchStatementProvenance]
-    verifier_result: ResearchVerifierResult
+    verifier_result: ResearchVerifierResultOut
     created_at: datetime
 
 
@@ -1771,22 +1811,3 @@ class FalsifierUpdateIn(BaseModel):
     status: str = Field(min_length=1, max_length=20)
     reason: str = Field(min_length=1, max_length=2000)
     review_date: date | None = None
-
-
-class DossierOut(BaseModel):
-    company: CompanyOut
-    freshness: FreshnessOut
-    quarters: list[QuarterMetricsOut]
-    ttm: TtmOut
-    result_quality: ResultQualityOut
-    pe_history: PeHistoryOut
-    net_cash: NetCashOut
-    market_data: dict
-    analysis_context_status: dict | None = None
-    dividends: list[DividendOut]
-    prescore: PrescoreOut
-    insights: InsightsOut
-    thesis: ThesisOut
-    scenarios: ScenarioSetOut
-    valuation: ValuationOut
-    forum: ForumStatsOut

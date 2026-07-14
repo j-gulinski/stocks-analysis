@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import timedelta, timezone
 import hashlib
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -34,6 +34,7 @@ from app.db.models import (
     ResearchCaseStepHistory,
     ResearchSnapshot,
     SourceDocument,
+    ThesisFalsifier,
     ValuationSnapshot,
     utcnow,
 )
@@ -60,6 +61,9 @@ _SKILL_VERSION = "company-research-v3"
 _OUTPUT_CONTRACT_VERSION = "research-snapshot-v3"
 _PROFILE_SCHEMA_VERSION = "company-profile-v2"
 _ARCHETYPE_CONTRACT_VERSION = "archetype-packs-v1"
+_RESEARCH_STALE_AFTER = timedelta(days=30)
+
+
 def _initial_run_key(case_id: int) -> str:
     return f"research-case-initial-research:{case_id}"
 
@@ -98,7 +102,82 @@ def _review_source_state(db: Session, company_id: int) -> tuple[str, list[dict]]
     return hashlib.sha256(encoded).hexdigest(), manifest
 
 
+def _agenda_reasons(
+    db: Session,
+    *,
+    company: Company,
+    latest_snapshot: ResearchSnapshot | None,
+    latest_agent: AgentRun | None,
+    latest_valuation: ValuationSnapshot | None,
+) -> list[str]:
+    reasons: list[str] = []
+    if latest_snapshot is None:
+        if latest_agent is not None and latest_agent.status in {
+            "rejected",
+            "needs-human",
+            "failed",
+        }:
+            reasons.append("Zbieranie źródeł wymaga interwencji.")
+        return reasons
+
+    if latest_snapshot.status in {"rejected", "needs-human"}:
+        reasons.append("Snapshot Research wymaga decyzji lub ponownej weryfikacji.")
+
+    verifier_result = latest_snapshot.verifier_result or {}
+    if not isinstance(verifier_result.get("justifications"), dict):
+        reasons.append("Historyczna weryfikacja nie spełnia pełnego standardu V5.")
+
+    snapshot_as_of = latest_snapshot.as_of
+    if snapshot_as_of.tzinfo is None:
+        snapshot_as_of = snapshot_as_of.replace(tzinfo=timezone.utc)
+    if snapshot_as_of <= utcnow() - _RESEARCH_STALE_AFTER:
+        reasons.append("Research ma ponad 30 dni i wymaga sprawdzenia aktualności.")
+
+    new_evidence_id = db.scalar(
+        select(DocumentVersion.id)
+        .join(
+            SourceDocument,
+            DocumentVersion.source_document_id == SourceDocument.id,
+        )
+        .where(
+            or_(
+                SourceDocument.company_id == company.id,
+                SourceDocument.company_ticker == company.ticker,
+            ),
+            DocumentVersion.parse_status == "parsed",
+            DocumentVersion.fetched_at > snapshot_as_of,
+        )
+        .limit(1)
+    )
+    if new_evidence_id is not None:
+        reasons.append("Od ostatniego snapshotu pojawiły się nowe sparsowane dowody.")
+
+    fired_falsifier_id = db.scalar(
+        select(ThesisFalsifier.id)
+        .where(
+            ThesisFalsifier.company_id == company.id,
+            ThesisFalsifier.status == "fired",
+        )
+        .limit(1)
+    )
+    if fired_falsifier_id is not None:
+        reasons.append("Co najmniej jeden zapisany falsyfikator został uruchomiony.")
+
+    if (
+        latest_valuation is None
+        and latest_snapshot.status in {"provisional", "verified"}
+    ):
+        reasons.append("Brak bieżącej wyceny — założenia scenariuszy czekają na uzupełnienie.")
+    elif latest_valuation is not None and latest_valuation.status in {
+        "rejected",
+        "needs-human",
+    }:
+        reasons.append("Wycena wymaga decyzji lub ponownej weryfikacji.")
+    return reasons
+
+
 def _summary(
+    db: Session,
     case: ResearchCase,
     company: Company,
     agent: AgentRun | None,
@@ -215,6 +294,13 @@ def _summary(
         phase_label=phase_label,
         phase_summary=phase_summary,
         main_gap=main_gap,
+        agenda_reasons=_agenda_reasons(
+            db,
+            company=company,
+            latest_snapshot=latest_snapshot,
+            latest_agent=current_agent,
+            latest_valuation=latest_valuation,
+        ),
         collection_progress=collection_progress,
         valuation_strip=valuation_strip,
         latest_snapshot_status=latest_snapshot.status if latest_snapshot else None,
@@ -446,6 +532,7 @@ def list_research_cases(db: Session = Depends(get_db)) -> list[ResearchCaseSumma
         latest_snapshot = _latest_snapshot(db, research_case.id)
         result.append(
             _summary(
+                db,
                 research_case,
                 company,
                 agent,
@@ -502,6 +589,7 @@ def get_research_workspace(
     snapshot_out = ResearchSnapshotOut.model_validate(latest) if latest else None
     return ResearchCaseWorkspaceOut(
         research_case=_summary(
+            db,
             research_case,
             company,
             agent,
@@ -837,7 +925,7 @@ def create_research_case(
                 created_job,
             ) = ensured
             return ResearchLabCreateOut(
-                research_case=_summary(research_case, company, agent),
+                research_case=_summary(db, research_case, company, agent),
                 agent_run=agent,
                 created_company=created_company,
                 created_case=created_case,

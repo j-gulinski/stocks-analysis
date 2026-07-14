@@ -713,6 +713,7 @@ def test_queue_is_idempotent_and_exact_independent_save_is_provisional(client, d
         "deterministic_outputs"
     ]["probability_weighted"]["price_pln"]
     assert research_row["valuation_strip"]["verification_status"] == "provisional"
+    assert all("Brak bieżącej wyceny" not in reason for reason in research_row["agenda_reasons"])
     db.refresh(agent)
     assert agent.lease_owner is None and agent.status == "provisional"
 

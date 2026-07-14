@@ -127,6 +127,7 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
   }
 
   const blockedSnapshot = ["rejected", "needs-human"].includes(snapshot.status);
+  const legacyVerification = snapshot.verifier_result.verification_standard === "legacy-incomplete";
   return (
     <main className="page-stack stock-workspace snapshot-workspace">
       {blockedSnapshot && (
@@ -137,6 +138,14 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
         </section>
       )}
 
+      {legacyVerification && (
+        <section className="snapshot-blocked" role="alert">
+          <IconAlertTriangle size={20} />
+          <h2>Historyczna weryfikacja wymaga odświeżenia</h2>
+          <p>Snapshot pozostaje czytelny, ale zapisany verifier nie zawiera adversarialnego uzasadnienia wymaganego przez V5. Nie traktuj go jako ponownie zatwierdzonego.</p>
+        </section>
+      )}
+
       <ResearchSnapshotView
         ticker={ticker}
         companyName={workspace.research_case.name}
@@ -144,6 +153,7 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
         snapshot={snapshot}
         history={workspace.history}
         archetypePack={workspace.archetype_pack}
+        valuationStrip={workspace.research_case.valuation_strip}
       />
 
       {currentProfile && (

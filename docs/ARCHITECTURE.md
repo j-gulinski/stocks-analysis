@@ -201,7 +201,7 @@ A run that collects its own evidence freezes the exact post-collection source
 manifest and cutoff in the draft before independent verification. A replacement
 run may reuse earlier collection only when its queued inputs already bind the
 company identity, immutable source versions and parser/content hashes, failed
-source attempts, deterministic dossier projection, calculation payload and
+source attempts, deterministic research projection, calculation payload and
 archetype version. Frozen inputs are never edited to repair a handoff.
 
 ## Discover market snapshot and the one sieve (V1)

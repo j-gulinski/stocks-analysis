@@ -70,13 +70,7 @@ export default function ResearchPage() {
   };
 
   const activeCases = cases.filter((item) => item.state !== "closed");
-  const agenda = activeCases.filter((item) =>
-    item.collection_progress?.state === "attention"
-    || item.latest_snapshot_status === "needs-human"
-    || item.latest_snapshot_status === "rejected"
-    || item.valuation_strip?.verification_status === "rejected"
-    || item.valuation_strip?.verification_status === "needs-human",
-  );
+  const agenda = activeCases.filter((item) => item.agenda_reasons.length > 0);
 
   return (
     <main className="page-stack research-page">
@@ -109,7 +103,7 @@ export default function ResearchPage() {
           <section className="research-agenda" aria-labelledby="research-agenda-title">
             <div><p className="section-label">Agenda</p><h2 id="research-agenda-title">Do sprawdzenia</h2></div>
             {agenda.length === 0 ? <p>Brak zapisanych stanów wymagających interwencji.</p> : (
-              <ul>{agenda.map((item) => <li key={item.id}><Link href={`/stock/${item.ticker}`}><strong>{item.ticker}</strong><span>{item.main_gap ?? item.phase_summary}</span></Link></li>)}</ul>
+              <ul>{agenda.map((item) => <li key={item.id}><Link href={`/stock/${item.ticker}`}><strong>{item.ticker}</strong><span>{item.agenda_reasons.join(" · ")}</span></Link></li>)}</ul>
             )}
           </section>
 
