@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -40,19 +42,76 @@ ALLOWED_WORKFLOWS = {
 }
 SKILL = "company-research"
 WRITE_CONTRACTS = {
-    "research-snapshot-v1": {
-        "skill_version": "company-research-v1",
-        "profile_schema_version": "company-profile-v1",
-        "strict_archetype_focus": False,
-        "archetype_contract_version": None,
-    },
-    "research-snapshot-v2": {
-        "skill_version": "company-research-v2",
+    "research-snapshot-v3": {
+        "skill_version": "company-research-v3",
         "profile_schema_version": "company-profile-v2",
-        "strict_archetype_focus": True,
         "archetype_contract_version": "archetype-packs-v1",
     },
 }
+
+REQUIRED_SOURCE_CHANNELS = {
+    "issuer-primary",
+    "regulatory-primary",
+    "biznesradar",
+    "portalanaliz",
+    "other-web",
+}
+REQUIRED_STANDING_RESOLUTIONS = {"catalyst", "visibility", "governance"}
+
+
+def _source_host(url: str | None) -> str:
+    host = (urlparse(url or "").hostname or "").casefold()
+    return host.removeprefix("www.")
+
+
+def _matches_host(hosts: set[str], domain: str) -> bool:
+    return any(host == domain or host.endswith(f".{domain}") for host in hosts)
+
+
+def _stored_source_policy(
+    *,
+    source_name: str,
+    source_type: str,
+    canonical_url: str,
+    effective_url: str,
+) -> dict[str, set[str]]:
+    """Derive v3 channel/role eligibility from server-owned source identity."""
+    hosts = {
+        host
+        for host in (_source_host(canonical_url), _source_host(effective_url))
+        if host
+    }
+    normalized_name = source_name.strip().casefold()
+    normalized_type = source_type.strip().casefold()
+
+    # Provider hosts win over draft-assigned roles, including when stored
+    # metadata is internally inconsistent. This keeps aggregator/forum rows
+    # from being promoted to primary evidence by a model-authored manifest.
+    if _matches_host(hosts, "biznesradar.pl"):
+        if not normalized_name.startswith("biznesradar"):
+            return {}
+        return {
+            "biznesradar": {
+                "context" if normalized_type == "market_rating" else "normalized"
+            }
+        }
+    if _matches_host(hosts, "portalanaliz.pl"):
+        return {"portalanaliz": {"lead"}}
+    if _matches_host(hosts, "gpw.pl"):
+        return (
+            {"regulatory-primary": {"primary"}}
+            if normalized_type == "espi_ebi"
+            else {}
+        )
+    if normalized_type in {"issuer_ir", "issuer_ir_report"}:
+        return {"issuer-primary": {"primary"}}
+    if normalized_type == "espi_ebi":
+        return {"regulatory-primary": {"primary"}}
+    if normalized_type == "forum":
+        return {"other-web": {"lead"}}
+    if hosts:
+        return {"other-web": {"primary", "context"}}
+    return {}
 
 
 class ResearchArtifactError(ValueError):
@@ -189,6 +248,20 @@ def _material_statements(payload: ResearchSnapshotDraftIn) -> dict[str, str]:
         "/sections/thesis/counter_thesis": payload.sections.thesis.counter_thesis,
         "/sections/thesis/governance": payload.sections.thesis.governance,
     }
+    outlook = payload.sections.outlook
+    if outlook is not None:
+        statements["/sections/outlook/summary"] = outlook.summary
+        for index, item in enumerate(outlook.driver_outlooks):
+            statements[
+                f"/sections/outlook/driver_outlooks/{index}/next_quarter/assessment"
+            ] = item.next_quarter.assessment.text
+            statements[
+                f"/sections/outlook/driver_outlooks/{index}/next_12_months/assessment"
+            ] = item.next_12_months.assessment.text
+        for index, item in enumerate(outlook.question_resolutions):
+            statements[
+                f"/sections/outlook/question_resolutions/{index}/answer"
+            ] = item.answer.text
     overlay = payload.profile.company_overlay
     for field in ("segments", "competitors", "unusual_risks"):
         statements.update(
@@ -226,6 +299,17 @@ def _referenced_source_ids(payload: ResearchSnapshotDraftIn) -> tuple[set[int], 
         payload.sections.history,
     ):
         for claim in section.claims:
+            referenced.update(claim.source_document_version_ids)
+    outlook = payload.sections.outlook
+    if outlook is not None:
+        for item in outlook.source_searches:
+            referenced.update(item.document_version_ids)
+        for item in outlook.driver_outlooks:
+            referenced.update(item.next_quarter.assessment.source_document_version_ids)
+            referenced.update(item.next_12_months.assessment.source_document_version_ids)
+        for item in outlook.question_resolutions:
+            referenced.update(item.answer.source_document_version_ids)
+        for claim in outlook.claims:
             referenced.update(claim.source_document_version_ids)
     for item in payload.statement_provenance:
         referenced.update(item.claim.source_document_version_ids)
@@ -273,16 +357,10 @@ def _validate_run(
         or task.get("skill") != SKILL
         or task.get("skill_version") != contract["skill_version"]
         or task.get("output_contract_version") != payload.contract_version
-        or (
-            contract["strict_archetype_focus"]
-            and task.get("company_profile_schema_version")
-            != contract["profile_schema_version"]
-        )
-        or (
-            contract["strict_archetype_focus"]
-            and task.get("archetype_contract_version")
-            != contract["archetype_contract_version"]
-        )
+        or task.get("company_profile_schema_version")
+        != contract["profile_schema_version"]
+        or task.get("archetype_contract_version")
+        != contract["archetype_contract_version"]
     ):
         raise ResearchArtifactError(
             "Frozen job skill/version/output contract does not authorize this artifact.",
@@ -350,16 +428,89 @@ def _validate_run(
 
 
 def _final_status(result: ResearchVerifierResult, gaps: list) -> str:
-    checks_pass = all(result.checks.model_dump().values())
     if result.verdict == "pass":
-        if not checks_pass:
-            raise ResearchArtifactError("A passing verifier verdict requires every integrity check.")
         return "provisional" if gaps else "verified"
     if result.verdict == "fail":
         return "rejected"
     if result.verdict == "needs-human":
         return "needs-human"
     raise ResearchArtifactError("Unsupported verifier verdict.")
+
+
+def _validate_self_resolving_outlook(payload: ResearchSnapshotDraftIn) -> None:
+    outlook = payload.sections.outlook
+    if outlook is None:
+        raise ResearchArtifactError(
+            "research-snapshot-v3 requires a future-oriented outlook section."
+        )
+
+    search_channels = [item.channel for item in outlook.source_searches]
+    if len(search_channels) != len(set(search_channels)):
+        raise ResearchArtifactError("Outlook source-search channels must be unique.")
+    supplied_channels = set(search_channels)
+    if supplied_channels != REQUIRED_SOURCE_CHANNELS:
+        raise ResearchArtifactError(
+            "Outlook must record one bounded attempt for every required source "
+            f"channel; missing={sorted(REQUIRED_SOURCE_CHANNELS - supplied_channels)}, "
+            f"extra={sorted(supplied_channels - REQUIRED_SOURCE_CHANNELS)}."
+        )
+
+    driver_keys = [item.key for item in payload.profile.drivers]
+    outlook_driver_keys = [item.driver_key for item in outlook.driver_outlooks]
+    if Counter(outlook_driver_keys) != Counter(driver_keys):
+        raise ResearchArtifactError(
+            "Outlook must assess next-quarter and next-12-month effects exactly once "
+            "for every company-profile driver."
+        )
+
+    profile_questions = payload.profile.company_overlay.source_questions
+    if not profile_questions:
+        raise ResearchArtifactError(
+            "A v3 company profile requires at least one company-specific source question."
+        )
+    if len(profile_questions) != len(set(profile_questions)):
+        raise ResearchArtifactError("Company-profile source questions must be unique.")
+    profile_resolutions = [
+        item.question for item in outlook.question_resolutions if item.scope == "profile"
+    ]
+    if Counter(profile_resolutions) != Counter(profile_questions):
+        raise ResearchArtifactError(
+            "Outlook must resolve every frozen company-profile source question exactly once."
+        )
+    standing = Counter(
+        item.scope for item in outlook.question_resolutions if item.scope != "profile"
+    )
+    if set(standing) != REQUIRED_STANDING_RESOLUTIONS or any(
+        standing[scope] != 1 for scope in REQUIRED_STANDING_RESOLUTIONS
+    ):
+        raise ResearchArtifactError(
+            "Outlook requires exactly one catalyst, visibility and governance resolution."
+        )
+
+    gap_topics = {item.topic for item in payload.gaps}
+    linked_gap_topics: list[str] = []
+    for item in outlook.question_resolutions:
+        if not set(item.source_channels).issubset(supplied_channels):
+            raise ResearchArtifactError(
+                f"Question resolution cites an unsearched channel: {item.question}."
+            )
+        if item.gap_topic:
+            linked_gap_topics.append(item.gap_topic)
+    for item in outlook.driver_outlooks:
+        for assessment in (item.next_quarter, item.next_12_months):
+            if not set(assessment.source_channels).issubset(supplied_channels):
+                raise ResearchArtifactError(
+                    "Driver outlook cites an unsearched channel: "
+                    f"{item.driver_key}."
+                )
+            if assessment.gap_topic:
+                linked_gap_topics.append(assessment.gap_topic)
+    missing_gaps = set(linked_gap_topics) - gap_topics
+    if missing_gaps:
+        raise ResearchArtifactError(
+            "Unknown outlooks and unresolved answers must link to top-level named "
+            f"gaps; missing={sorted(missing_gaps)}."
+        )
 
 
 def _validate_contract(
@@ -381,27 +532,18 @@ def _validate_contract(
         raise ResearchArtifactError(
             f"{payload.contract_version} requires {contract['profile_schema_version']}."
         )
-    if not contract["strict_archetype_focus"]:
-        pack = None
-    else:
-        pack = get_pack(payload.profile.archetype)
-    if not contract["strict_archetype_focus"]:
-        pass
-    elif pack is None:  # Pydantic currently makes this defensive only.
+    _validate_self_resolving_outlook(payload)
+    pack = get_pack(payload.profile.archetype)
+    if pack is None:  # Pydantic currently makes this defensive only.
         raise ResearchArtifactError("Unknown company-profile archetype.")
     elif payload.profile.archetype_version != pack.version:
         raise ResearchArtifactError(
             f"Archetype {pack.id} requires canonical pack version {pack.version}."
         )
-    if contract["strict_archetype_focus"]:
-        assert pack is not None
-        allowed_focus = known_marker_ids(pack)
-    else:
-        allowed_focus = set()
+    assert pack is not None
+    allowed_focus = known_marker_ids(pack)
     evidence_focus: list[str] = []
     for item in [*payload.profile.drivers, *payload.profile.kpis]:
-        if not contract["strict_archetype_focus"]:
-            continue
         if len(item.focus_tags) > 1:
             raise ResearchArtifactError(
                 f"Profile item {item.key} may address at most one archetype marker."
@@ -420,8 +562,6 @@ def _validate_contract(
 
     gap_focus: list[str] = []
     for gap in payload.gaps:
-        if not contract["strict_archetype_focus"]:
-            continue
         if len(gap.focus_tags) > 1:
             raise ResearchArtifactError(
                 f"Research gap {gap.topic} may address at most one archetype marker."
@@ -479,6 +619,10 @@ def _validate_contract(
     manifest_ids, referenced_ids = _referenced_source_ids(payload)
     if not manifest_ids:
         raise ResearchArtifactError("A research snapshot draft requires sources.")
+    if len(manifest_ids) != len(payload.source_manifest):
+        raise ResearchArtifactError(
+            "Source-manifest document versions must be unique."
+        )
     outside_manifest = referenced_ids - manifest_ids
     if outside_manifest:
         raise ResearchArtifactError(
@@ -491,8 +635,12 @@ def _validate_contract(
                 select(
                     DocumentVersion.id,
                     DocumentVersion.fetched_at,
+                    DocumentVersion.effective_url,
                     SourceDocument.company_id,
                     SourceDocument.company_ticker,
+                    SourceDocument.source_name,
+                    SourceDocument.source_type,
+                    SourceDocument.canonical_url,
                 )
                 .join(SourceDocument, DocumentVersion.source_document_id == SourceDocument.id)
                 .where(DocumentVersion.id.in_(referenced_ids))
@@ -509,21 +657,114 @@ def _validate_contract(
         )
     company = _case_company(db, case)
     manifest_roles = {item.document_version_id: item.role for item in payload.source_manifest}
-    for version_id, fetched_at, company_id, company_ticker in rows:
-        if company_id is not None:
-            identity_ok = company_id == case.company_id
+    outlook = payload.sections.outlook
+    if outlook is not None:
+        source_policies = {
+            row.id: _stored_source_policy(
+                source_name=row.source_name,
+                source_type=row.source_type,
+                canonical_url=row.canonical_url,
+                effective_url=row.effective_url,
+            )
+            for row in rows
+        }
+        for version_id, role in manifest_roles.items():
+            policy = source_policies.get(version_id, {})
+            allowed_manifest_roles = set().union(*policy.values()) if policy else set()
+            if role not in allowed_manifest_roles:
+                raise ResearchArtifactError(
+                    "Source-manifest role conflicts with stored source identity; "
+                    f"document_version_id={version_id}, role={role!r}."
+                )
+        for search in outlook.source_searches:
+            mismatched = [
+                version_id
+                for version_id in search.document_version_ids
+                if search.channel not in source_policies.get(version_id, {})
+                or manifest_roles.get(version_id)
+                not in source_policies[version_id][search.channel]
+            ]
+            if mismatched:
+                raise ResearchArtifactError(
+                    f"Source-search channel {search.channel} conflicts with stored "
+                    "source identity or manifest role "
+                    f"for document versions {sorted(mismatched)}."
+                )
+        searched_version_ids = {
+            search.channel: set(search.document_version_ids)
+            for search in outlook.source_searches
+        }
+        for resolution in outlook.question_resolutions:
+            cited = set(resolution.answer.source_document_version_ids)
+            allowed = set().union(
+                *(searched_version_ids[channel] for channel in resolution.source_channels)
+            )
+            outside_declared_channels = cited - allowed
+            if outside_declared_channels:
+                raise ResearchArtifactError(
+                    "Question-resolution evidence must come from its declared searched "
+                    f"channels; question={resolution.question!r}, "
+                    f"outside={sorted(outside_declared_channels)}."
+                )
+        for driver in outlook.driver_outlooks:
+            for horizon, assessment in (
+                ("next_quarter", driver.next_quarter),
+                ("next_12_months", driver.next_12_months),
+            ):
+                cited = set(assessment.assessment.source_document_version_ids)
+                allowed = set().union(
+                    *(
+                        searched_version_ids[channel]
+                        for channel in assessment.source_channels
+                    )
+                )
+                outside_declared_channels = cited - allowed
+                if outside_declared_channels:
+                    raise ResearchArtifactError(
+                        "Driver-outlook evidence must come from its declared searched "
+                        f"channels; driver={driver.driver_key!r}, horizon={horizon}, "
+                        f"outside={sorted(outside_declared_channels)}."
+                    )
+        material_claims = [
+            *(
+                item.answer
+                for item in outlook.question_resolutions
+                if item.status in {"confirmed", "partial", "not_applicable"}
+            ),
+            *(
+                assessment.assessment
+                for item in outlook.driver_outlooks
+                for assessment in (item.next_quarter, item.next_12_months)
+                if assessment.direction != "unknown"
+            ),
+        ]
+        for claim in material_claims:
+            if not claim.source_document_version_ids:
+                raise ResearchArtifactError(
+                    "Supported outlook conclusions require at least one cited document version."
+                )
+            if claim.source_document_version_ids and all(
+                manifest_roles.get(version_id) in {"lead", "context"}
+                for version_id in claim.source_document_version_ids
+            ):
+                raise ResearchArtifactError(
+                    "A lead/context-only source set cannot support an outlook conclusion."
+                )
+    for row in rows:
+        if row.company_id is not None:
+            identity_ok = row.company_id == case.company_id
         else:
-            identity_ok = company_ticker.upper() == company.ticker.upper()
-            if company_ticker == "__GPW__":
-                identity_ok = manifest_roles.get(version_id) == "context"
+            identity_ok = row.company_ticker.upper() == company.ticker.upper()
+            if row.company_ticker == "__GPW__":
+                identity_ok = manifest_roles.get(row.id) == "context"
         if not identity_ok:
             raise ResearchArtifactError(
-                f"Document version {version_id} belongs to another company.",
+                f"Document version {row.id} belongs to another company.",
                 kind="conflict",
             )
-        if _aware(fetched_at) > _aware(payload.as_of):
+        if _aware(row.fetched_at) > _aware(payload.as_of):
             raise ResearchArtifactError(
-                f"Document version {version_id} was fetched after snapshot as_of.",
+                f"Document version {row.id} was fetched after snapshot as_of.",
                 kind="conflict",
             )
     if _aware(payload.as_of) > utcnow() + timedelta(minutes=1):
@@ -577,7 +818,20 @@ def verify_research_snapshot(
     _validate_version_history(db, case, payload.draft)
     final_status = _final_status(payload.verifier_result, payload.draft.gaps)
     checks = {
-        **payload.verifier_result.checks.model_dump(mode="json"),
+        "computed_evidence": {
+            "source_manifest_count": len(payload.draft.source_manifest),
+            "statement_provenance_count": len(payload.draft.statement_provenance),
+            "conflict_count": len(payload.draft.conflicts),
+            "gap_count": len(payload.draft.gaps),
+            "next_check_count": len(payload.draft.next_checks),
+        },
+        "findings": [
+            item.model_dump(mode="json")
+            for item in payload.verifier_result.findings
+        ],
+        "justifications": payload.verifier_result.justifications.model_dump(
+            mode="json"
+        ),
         "verifier_worker_id": payload.verifier_worker_id,
         "research_case_id": case.id,
         "research_draft_fingerprint": research_draft_fingerprint(payload.draft),
@@ -605,16 +859,8 @@ def _verification_result(verification: VerificationRun) -> ResearchVerifierResul
             "model_role": verification.model_role,
             "verifier_model": verification.verifier_model,
             "verdict": verification.verdict,
-            "checks": {
-                key: checks.get(key)
-                for key in (
-                    "schema_integrity",
-                    "source_integrity",
-                    "company_identity",
-                    "look_ahead",
-                    "math_integrity",
-                )
-            },
+            "findings": checks.get("findings") or [],
+            "justifications": checks.get("justifications"),
             "summary": verification.summary,
         }
     )

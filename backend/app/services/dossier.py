@@ -9,8 +9,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
-    AssumptionSet,
-    AnalysisRun,
     Company,
     CompanyMarketData,
     Dividend,
@@ -21,20 +19,12 @@ from app.db.models import (
     IndicatorValue,
     Price,
     ReportValue,
-    ResearchCase,
-    VerificationRun,
 )
 from app.services import (
     fields,
-    insights,
     metrics,
-    operating_scenarios,
-    scenarios,
-    thesis,
-    valuation_ai,
     market_data,
 )
-from app.services.strategies import malik
 
 
 def load_income_series(db: Session, company_id: int, freq: str = "Q") -> metrics.IncomeSeries:
@@ -139,66 +129,6 @@ def load_cashflow_latest(db: Session, company_id: int) -> dict[str, tuple[str, f
         if current is None or row.period > current[0]:
             latest[canonical] = (row.period, float(row.value))
     return latest
-
-
-def load_latest_priced_outcome_verification(db: Session, company_id: int) -> dict | None:
-    """Read only the latest strict verifier result for scenario simulation."""
-    row = db.scalar(
-        select(VerificationRun)
-        .join(AnalysisRun, AnalysisRun.id == VerificationRun.analysis_run_id)
-        .where(
-            AnalysisRun.company_id == company_id,
-            AnalysisRun.workflow == "scenario-simulation",
-            VerificationRun.model_role == "verifier_strict",
-        )
-        .order_by(VerificationRun.created_at.desc(), VerificationRun.id.desc())
-        .limit(1)
-    )
-    if row is None:
-        return None
-    return {
-        "model_role": row.model_role,
-        "verifier_model": row.verifier_model,
-        "verdict": row.verdict,
-        "checks": row.checks or {},
-        "summary": row.summary,
-        "created_at": row.created_at,
-    }
-
-
-def load_approved_assumption_sets(db: Session, company_id: int) -> list[dict]:
-    """Expose only approved case inputs as scenario context.
-
-    This is deliberately a dossier composition concern: the deterministic
-    scenario engine stays pure and its current valuation equations remain
-    unchanged. Drafts and rejected inputs must never leak into UI-visible
-    scenario context, while each approved item keeps its provenance fields.
-    """
-    rows = db.scalars(
-        select(AssumptionSet)
-        .join(ResearchCase, ResearchCase.id == AssumptionSet.research_case_id)
-        .where(
-            ResearchCase.company_id == company_id,
-            ResearchCase.purpose == "investment-research",
-            AssumptionSet.status == "approved",
-        )
-        .order_by(AssumptionSet.scenario_kind, AssumptionSet.id)
-    ).all()
-    return [
-        {
-            "id": row.id,
-            "research_case_id": row.research_case_id,
-            "scenario_kind": row.scenario_kind,
-            "label": row.label,
-            "status": row.status,
-            "as_of": row.as_of,
-            "assumptions": row.assumptions,
-            "created_by": row.created_by,
-            "created_at": row.created_at,
-            "updated_at": row.updated_at,
-        }
-        for row in rows
-    ]
 
 
 def latest_price(db: Session, company_id: int) -> tuple[float | None, object | None]:
@@ -388,10 +318,7 @@ def _result_quality_block(
     }
 
 
-def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = False) -> dict:
-    # Compatibility argument only: dossier reads stay deterministic and
-    # provider work belongs to explicit, audited analysis runs.
-    _ = use_ai_refiners
+def build_dossier(db: Session, company: Company) -> dict:
     income = load_income_series(db, company.id)
     quarters = metrics.compute_quarter_metrics(income)[-12:]
 
@@ -461,181 +388,22 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
         (float(d.yield_pct) for d in dividends if d.yield_pct is not None), None
     )
     indicators_latest = load_indicators_latest(db, company.id)
-    company_insights = insights.build_insights(
-        sector=company.sector,
-        quarters=quarters_dicts,
-        ttm=ttm_dict,
-        pe_history=pe_history_dict,
-        net_cash_value=net_cash_value,
-        balance_latest=balance_latest,
-        indicators_latest=indicators_latest,
-        dividend_years=[d.year for d in dividends],
-        dividend_yield_latest=dividend_yield_latest,
-        price_age_days=price_age_days,
-    )
+    _ = indicators_latest  # served raw via the companies API; no verdict layer
     existing_market_row = db.scalar(
         select(CompanyMarketData).where(CompanyMarketData.company_id == company.id)
     )
     computed_market = market_data.build_snapshot(
         db,
         company,
-        sector_group=company_insights.sector_group,
         existing=existing_market_row,
     )
     market_snapshot = {
         "industry_type": computed_market["industry_type"],
         "priority_values": computed_market["priority_values"],
         "forecast_consensus": computed_market["forecast_consensus"],
-        # Caveat for both the AI prompt (market_data flows verbatim into the
-        # prompt, see services/prompts.py) and the frontend — kept as its own
-        # sibling key, NOT inside forecast_consensus itself, because that dict
-        # is keyed purely by year (_analysis_context_status does
-        # `sorted(forecast_consensus.keys())` to build `forecast_years`; a
-        # "note" key there would masquerade as a bogus year).
         "forecast_consensus_note": market_data.FORECAST_CONSENSUS_NOTE,
         "advanced_metrics": computed_market["advanced_metrics"],
         "dividend_coverage": computed_market["dividend_coverage"],
-    }
-
-    # Investment-thesis layer: synthesise the insights into an entry-point read
-    # (weighted pros/cons + "what to check next") for the Malik profile — the
-    # only registered legacy strategy. Pure composition on top of the insights
-    # above; it recomputes nothing.
-    thesis_inputs = thesis.ThesisInputs(
-        insights=company_insights,
-        ttm=ttm_dict,
-        pe_history=pe_history_dict,
-        net_cash={"value": net_cash_value, "note": net_cash_note},
-        latest_forecast=(
-            {"result": latest_forecast.result}
-            if latest_forecast is not None
-            else None
-        ),
-        prescore=prescore.to_dict(),
-    )
-    company_thesis = thesis.build_thesis(thesis_inputs, profile=malik.MALIK)
-    # Read paths are deterministic and network-free. Optional model refinement
-    # belongs to an explicit analysis run with quota/provenance, never a GET.
-    thesis_block = {
-        **company_thesis.to_dict(),
-        "engine": "deterministic",
-        "ai_notes": None,
-    }
-
-    # Scenario-simulation layer (stage SC / WP3): a coherent negative/base/
-    # positive trio reverting the SECTOR-relevant multiple toward the company's
-    # own-history quartiles. Pure composition on top of the pieces above;
-    # recomputes no indicator. Load the own-history series for the
-    # sector-appropriate multiple (C/Z generally, C/WK finance/realestate,
-    # EV/EBITDA energy) — parametrised by indicator code, same query shape as cz.
-    selected_multiple = scenarios.select_valuation_multiple(
-        company_insights.sector_group, malik.MALIK
-    )
-    if selected_multiple == "cz":
-        multiple_series, multiple_current = cz_values, ttm.valuation_pe
-    else:
-        multiple_series = [
-            float(v)
-            for v in db.scalars(
-                select(IndicatorValue.value).where(
-                    IndicatorValue.company_id == company.id,
-                    IndicatorValue.indicator == selected_multiple,
-                    IndicatorValue.value.is_not(None),
-                )
-            )
-        ]
-        latest_entry = indicators_latest.get(selected_multiple)
-        multiple_current = latest_entry[1] if latest_entry else None
-    multiple_history = metrics.compute_multiple_history(multiple_series, multiple_current)
-
-    # O4K (trailing-4-quarters) EBITDA from BiznesRadar /prognozy, tys. PLN —
-    # see app.scrapers.biznesradar.parse_forecasts + refresh._upsert_forecasts.
-    # Previously always None (labelled gap): energy names fell back to their
-    # own C/Z history instead of a real EV/EBITDA scenario. Still None (same
-    # fallback) whenever the page had no O4K column or the row was empty.
-    ebitda_ttm_item = (market_snapshot.get("advanced_metrics") or {}).get("ebitda_ttm")
-    ebitda_ttm = (
-        float(ebitda_ttm_item["value"])
-        if isinstance(ebitda_ttm_item, dict) and ebitda_ttm_item.get("value") is not None
-        else None
-    )
-    consensus_eps_basis = _consensus_eps_basis(
-        market_snapshot,
-        shares_outstanding=company.shares_outstanding,
-        current_price=ttm.price,
-    )
-    scenario_eps = (
-        consensus_eps_basis["eps"]
-        if consensus_eps_basis is not None
-        else ttm.valuation_eps
-    )
-
-    scenario_inputs = scenarios.ScenarioInputs(
-        thesis_inputs=thesis_inputs,
-        multiple_history=multiple_history.to_dict(),
-        eps=scenario_eps,
-        book_value=balance_latest.get("equity"),  # equity, tys. PLN (C/WK driver)
-        ebitda_ttm=ebitda_ttm,
-        shares_outstanding=company.shares_outstanding,
-        current_price=ttm.price,
-        net_cash=net_cash_value,
-        market_data=market_snapshot,
-        earnings_basis=consensus_eps_basis or {
-            "source": "ttm_continuing" if ttm.valuation_basis == "continuing" else "ttm",
-            "source_field": (
-                "ttm.continuing_eps"
-                if ttm.valuation_basis == "continuing"
-                else "ttm.eps"
-            ),
-            "eps": ttm.valuation_eps,
-        },
-    )
-    scenario_set = scenarios.build_scenario_set(scenario_inputs, malik.MALIK)
-    approved_assumption_sets = load_approved_assumption_sets(db, company.id)
-    operating_bridge = operating_scenarios.build_operating_bridge(
-        scenario_inputs,
-        income,
-        malik.MALIK,
-        approved_assumption_sets,
-        cashflow_latest=cashflow_latest,
-        balance_series=balance_series,
-    )
-    operating_bridge_fingerprint = operating_scenarios.operating_bridge_fingerprint(
-        operating_bridge
-    )
-    priced_verification = load_latest_priced_outcome_verification(db, company.id)
-    priced_gate = operating_scenarios.evaluate_priced_outcome_gate(
-        operating_bridge, priced_verification, operating_bridge_fingerprint
-    )
-    simulation_verification = scenarios.verify_scenario_simulation(
-        scenario_set.to_dict()
-    )
-    scenarios_block = {
-        **scenario_set.to_dict(),
-        "approved_assumption_sets": approved_assumption_sets,
-        "driver_sensitivity": scenarios.build_driver_sensitivity(
-            scenario_inputs, malik.MALIK, approved_assumption_sets
-        ),
-        "operating_bridge": operating_bridge,
-        "priced_operating_outcomes": priced_gate,
-        "simulation_verification": simulation_verification,
-        "engine": "deterministic",
-        "ai_notes": None,
-    }
-    if priced_gate["status"] == "approved":
-        scenarios_block["scenarios"] = operating_scenarios.attach_priced_company_outcomes(
-            scenarios_block["scenarios"], operating_bridge["fcf_lens"]
-        )
-
-    # AI valuation layer (stage SC / WP4): a stock-potential read on TOP of the
-    # scenario set — how much potential (anchored to the weighted EV), at what
-    # confidence (a deterministic coverage heuristic), and what would change the
-    # assessment. This public deterministic entry point does not resolve model
-    # settings; explicit analysis jobs own every provider call.
-    valuation_block = {
-        **valuation_ai.build_potential(scenario_inputs, scenarios_block, malik.MALIK),
-        "engine": "deterministic",
-        "ai_notes": None,
     }
 
     topics_count = db.scalar(
@@ -687,11 +455,6 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
         )
     )
 
-    insights_block = {
-        **company_insights.to_dict(),
-        "engine": "deterministic",
-        "ai_notes": None,
-    }
 
     return {
         "company": company,
@@ -709,10 +472,6 @@ def build_dossier(db: Session, company: Company, *, use_ai_refiners: bool = Fals
         "analysis_context_status": _analysis_context_status(market_snapshot, forum_snapshot),
         "dividends": dividends,
         "prescore": prescore.to_dict(),
-        "insights": insights_block,
-        "thesis": thesis_block,
-        "scenarios": scenarios_block,
-        "valuation": valuation_block,
         "latest_forecast": (
             {
                 "id": latest_forecast.id,

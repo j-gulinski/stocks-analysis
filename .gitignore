@@ -33,3 +33,6 @@ backend/.cache/
 
 # Local workbench process state/logs (managed by ./workbench)
 .workbench/
+
+# Local review captures (may contain personal portfolio/research state)
+.artifacts/

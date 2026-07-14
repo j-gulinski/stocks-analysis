@@ -437,19 +437,32 @@ def portfolio_workspace(db: Session, snapshot: PortfolioSnapshot) -> dict[str, A
         "provider_total": round(total, 2),
         "delta": round(delta, 2),
         "tolerance": round(tolerance, 2),
+        "affected_figures": (
+            []
+            if reconciled
+            else [
+                "udziały liczone względem sumy zachowanych pozycji",
+                "pokrycie względem sumy raportowanej przez dostawcę",
+                "wartości scenariuszy obejmują tylko zachowane pozycje",
+            ]
+        ),
     }
-    weights = [float(r.value) / total for r in rows] if reconciled and total > 0 else []
-    concentration = (
-        {
-            "top1_pct": round(max(weights, default=0) * 100, 2),
-            "top3_pct": round(sum(sorted(weights, reverse=True)[:3]) * 100, 2),
-            "hhi": round(sum(w * w for w in weights), 6),
-            "sectors": _shares(sectors, total),
-            "asset_types": _shares(types, total),
-        }
-        if reconciled
-        else None
+    analytics_total = retained_value if retained_value > 0 else total
+    weights = (
+        [float(row.value) / analytics_total for row in rows]
+        if analytics_total > 0
+        else []
     )
+    concentration = {
+        "status": "complete" if reconciled else "partial",
+        "basis": "provider_total" if reconciled else "retained_positions_total",
+        "basis_value": round(analytics_total, 2),
+        "top1_pct": round(max(weights, default=0) * 100, 2),
+        "top3_pct": round(sum(sorted(weights, reverse=True)[:3]) * 100, 2),
+        "hhi": round(sum(weight * weight for weight in weights), 6),
+        "sectors": _shares(sectors, analytics_total),
+        "asset_types": _shares(types, analytics_total),
+    }
     history = [
         {
             "date": p.date,
@@ -466,11 +479,11 @@ def portfolio_workspace(db: Session, snapshot: PortfolioSnapshot) -> dict[str, A
             .order_by(PortfolioValuePoint.date)
         ).all()
     ]
-    liquidity = _liquidity(db, snapshot, rows, mappings) if reconciled else []
-    scenarios = (
-        _scenario_sensitivity(db, snapshot, rows, mappings) if reconciled else None
-    )
-    risk_context = _risk_context(db, snapshot, rows, mappings) if reconciled else None
+    liquidity = _liquidity(db, snapshot, rows, mappings)
+    scenarios = _scenario_sensitivity(db, snapshot, rows, mappings)
+    if scenarios is not None:
+        scenarios["reconciliation_status"] = reconciliation["status"]
+    risk_context = _risk_context(db, snapshot, rows, mappings)
     history_gaps = [
         gap for gap in (snapshot.gaps or []) if str(gap).startswith("Historia ")
     ]
@@ -507,15 +520,16 @@ def portfolio_workspace(db: Session, snapshot: PortfolioSnapshot) -> dict[str, A
         },
         "coverage": {
             "mapped_company_value_pct": (
-                round(mapped_value / total * 100, 2) if reconciled and total else None
+                round(mapped_value / total * 100, 2) if total else None
             ),
             "unmapped_positions": sum(
                 mappings[r.mapping_id].mapping_status == "unmatched" for r in rows
             ),
             "retained_position_value_pct": (
-                round(retained_value / total * 100, 2) if reconciled and total else None
+                round(retained_value / total * 100, 2) if total else None
             ),
-            "analytics_available": reconciled,
+            "analytics_available": bool(rows),
+            "analytics_status": "complete" if reconciled else "partial",
         },
     }
 

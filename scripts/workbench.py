@@ -30,8 +30,6 @@ FRONTEND = ROOT / "frontend"
 STATE_DIR = ROOT / ".workbench"
 BACKEND_URL = "http://127.0.0.1:8000"
 FRONTEND_URL = "http://127.0.0.1:3000"
-SESSION_HOOK_PID = STATE_DIR / "session-hook.pid"
-SESSION_HOOK_LOG = STATE_DIR / "session-hook.log"
 
 
 @dataclass(frozen=True)
@@ -167,22 +165,6 @@ def _pid_alive(pid: int | None) -> bool:
         return True
     except OSError:
         return False
-
-
-def _start_session_hook() -> Check:
-    """Keep app startup free of source polling and abandoned queue leases."""
-    return Check(
-        "session hook",
-        "info",
-        "disabled; an explicit executing Codex worker owns queue claims",
-    )
-
-
-def _read_pid_file(path: Path) -> int | None:
-    try:
-        return int(path.read_text(encoding="utf-8").strip())
-    except (OSError, ValueError):
-        return None
 
 
 def _owned_status(name: str, port: int) -> dict[str, Any]:
@@ -479,9 +461,6 @@ def start_services(open_browser: bool = False) -> list[Check]:
         )
     )
 
-    if backend_ok and frontend_ok:
-        checks.append(_start_session_hook())
-
     if open_browser and frontend_ok:
         opener = _run(["open", FRONTEND_URL])
         checks.append(
@@ -492,28 +471,6 @@ def start_services(open_browser: bool = False) -> list[Check]:
 
 def stop_services() -> list[Check]:
     checks: list[Check] = []
-    session_pid = _read_pid_file(SESSION_HOOK_PID)
-    if not _pid_alive(session_pid):
-        SESSION_HOOK_PID.unlink(missing_ok=True)
-        checks.append(Check("session hook", "info", "no active workbench-owned hook"))
-    else:
-        try:
-            if os.name == "posix":
-                os.killpg(session_pid, signal.SIGTERM)
-            else:  # pragma: no cover - Windows fallback
-                os.kill(session_pid, signal.SIGTERM)
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline and _pid_alive(session_pid):
-                time.sleep(0.1)
-            if _pid_alive(session_pid):
-                if os.name == "posix":
-                    os.killpg(session_pid, signal.SIGKILL)
-                else:  # pragma: no cover
-                    os.kill(session_pid, signal.SIGKILL)
-            SESSION_HOOK_PID.unlink(missing_ok=True)
-            checks.append(Check("session hook", "pass", f"stopped workbench-owned pid {session_pid}"))
-        except OSError as exc:
-            checks.append(Check("session hook", "warn", f"could not stop pid {session_pid}: {exc}"))
     for name in ("frontend", "backend"):
         pid = _read_pid(name)
         if not _pid_alive(pid):

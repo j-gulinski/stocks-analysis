@@ -20,9 +20,9 @@ from app.db.models import (
     Price,
     ResearchCase,
     ResearchSnapshot,
+    SourceDocument,
 )
-from app.services import metrics
-from app.services.valuation_method_packs import get_method_pack
+from app.services import fields, metrics
 from app.services.valuation_templates import get_template
 
 ENGINE_VERSION = "valuation-engine-v2"
@@ -189,8 +189,138 @@ def _financial_base(rows: list[Fact]) -> tuple[dict, list[int], list[str]]:
     )
 
 
-def _price_base(
+def _mutable_company_scalar_base(
+    company: Company, as_of: datetime
+) -> tuple[dict, dict, list[str]]:
+    if company.updated_at is None or _aware(company.updated_at) > _aware(as_of):
+        raise ValuationInputError(
+            "Company shares/market-cap state was updated after valuation as_of.",
+            kind="conflict",
+        )
+    values = {
+        "shares_outstanding": company.shares_outstanding,
+        "market_cap_pln": float(company.market_cap) if company.market_cap else None,
+    }
+    provenance = {
+        "kind": "company_scalar_freeze",
+        "updated_at": company.updated_at.isoformat(),
+        "fields": ["shares_outstanding", "market_cap"],
+        "fact_ids": [],
+        "source_document_version_id": None,
+        "immutable_fact_bound": False,
+    }
+    return values, provenance, [
+        "Shares and reported market cap are mutable Company scalars frozen at company.updated_at, not immutable Fact IDs."
+    ]
+
+
+def _company_scalar_base(
     db: Session, company: Company, as_of: datetime
+) -> tuple[dict, dict, list[str]]:
+    """Resolve one same-version profile identity or retain the legacy gap."""
+    source_row = db.execute(
+        select(DocumentVersion, SourceDocument)
+        .join(SourceDocument, DocumentVersion.source_document_id == SourceDocument.id)
+        .where(
+            SourceDocument.company_ticker == company.ticker,
+            SourceDocument.source_name == "biznesradar",
+            SourceDocument.source_type == "company_profile",
+            SourceDocument.scope_key == "current",
+            DocumentVersion.parse_status == "parsed",
+            DocumentVersion.fetched_at <= as_of,
+        )
+        .order_by(DocumentVersion.fetched_at.desc(), DocumentVersion.id.desc())
+        .limit(1)
+    ).first()
+    if source_row is None:
+        return _mutable_company_scalar_base(company, as_of)
+
+    version, document = source_row
+    if document.company_id != company.id:
+        raise ValuationInputError(
+            "Company-profile source version does not match canonical company identity.",
+            kind="conflict",
+        )
+    expected = {
+        fields.COMPANY_SCALAR_FACT_KEYS["shares_outstanding"],
+        fields.COMPANY_SCALAR_FACT_KEYS["market_cap"],
+    }
+    facts = list(
+        db.scalars(
+            select(Fact)
+            .where(
+                Fact.source_version_id == version.id,
+                Fact.fact_type == "company_scalar",
+                Fact.fact_key.in_(expected),
+                Fact.numeric_value.is_not(None),
+                Fact.known_at <= as_of,
+                Fact.verification_state == "parsed",
+            )
+            .order_by(Fact.fact_key, Fact.id)
+        ).all()
+    )
+    if any(
+        fact.company_id != company.id or fact.company_ticker != company.ticker
+        for fact in facts
+    ):
+        raise ValuationInputError(
+            "Immutable company scalar facts do not match canonical company identity.",
+            kind="conflict",
+        )
+    by_key: dict[str, list[Fact]] = {}
+    for fact in facts:
+        by_key.setdefault(fact.fact_key, []).append(fact)
+    if set(by_key) != expected:
+        return _mutable_company_scalar_base(company, as_of)
+
+    resolved: dict[str, Fact] = {}
+    for key, candidates in by_key.items():
+        signatures = {(row.numeric_value, row.unit) for row in candidates}
+        if len(signatures) != 1:
+            raise ValuationInputError(
+                f"Conflicting immutable company scalar facts for {key}.",
+                kind="conflict",
+            )
+        resolved[key] = max(candidates, key=lambda row: row.id)
+
+    shares_fact = resolved[fields.COMPANY_SCALAR_FACT_KEYS["shares_outstanding"]]
+    market_cap_fact = resolved[fields.COMPANY_SCALAR_FACT_KEYS["market_cap"]]
+    shares_value = float(shares_fact.numeric_value)
+    market_cap_value = float(market_cap_fact.numeric_value)
+    if shares_fact.unit != "shares" or not shares_value.is_integer() or shares_value <= 0:
+        raise ValuationInputError(
+            "Immutable share-count fact must be a positive whole number of shares.",
+            kind="conflict",
+        )
+    if market_cap_fact.unit != "PLN" or market_cap_value <= 0:
+        raise ValuationInputError(
+            "Immutable market-cap fact must be positive PLN.", kind="conflict"
+        )
+    values = {
+        "shares_outstanding": int(shares_value),
+        "market_cap_pln": market_cap_value,
+    }
+    provenance = {
+        "kind": "immutable_company_profile_facts",
+        "fields": ["shares_outstanding", "market_cap"],
+        "fact_ids": sorted(row.id for row in resolved.values()),
+        "source_document_id": document.id,
+        "source_document_version_id": version.id,
+        "source_content_hash": version.content_hash,
+        "known_at": version.fetched_at.isoformat(),
+        "immutable_fact_bound": True,
+    }
+    return values, provenance, []
+
+
+def _price_base(
+    db: Session,
+    company: Company,
+    as_of: datetime,
+    *,
+    shares_outstanding: int | None,
+    market_cap_pln: float | None,
+    scalar_fact_bound: bool,
 ) -> tuple[dict, list[str]]:
     row = db.scalar(
         select(Price)
@@ -216,10 +346,10 @@ def _price_base(
     gaps: list[str] = []
     implied_market_cap = None
     difference_pct = None
-    if company.shares_outstanding and company.market_cap:
-        implied_market_cap = close * company.shares_outstanding
+    if shares_outstanding and market_cap_pln:
+        implied_market_cap = close * shares_outstanding
         difference_pct = round(
-            abs(implied_market_cap / float(company.market_cap) - 1.0) * 100.0, 2
+            abs(implied_market_cap / market_cap_pln - 1.0) * 100.0, 2
         )
         if difference_pct > 2:
             gaps.append(
@@ -229,6 +359,36 @@ def _price_base(
         gaps.append("Price cannot be corroborated with reported market cap and shares.")
     if not row.source_name or not row.series_key or not row.basis_version:
         gaps.append("Raw price series has incomplete source/series/basis identity.")
+    source_version = db.get(DocumentVersion, row.source_version_id) if row.source_version_id else None
+    source_document = (
+        db.get(SourceDocument, source_version.source_document_id)
+        if source_version is not None
+        else None
+    )
+    if source_version is None or source_document is None:
+        gaps.append("Reference price row is not bound to an immutable source document version.")
+    elif (
+        source_document.company_id != company.id
+        or source_document.company_ticker != company.ticker
+        or source_document.source_name != "biznesradar"
+        or source_document.source_type not in {"price_history", "company_profile"}
+        or source_version.parse_status != "parsed"
+        or _aware(source_version.fetched_at) > _aware(as_of)
+    ):
+        raise ValuationInputError(
+            "Reference price source version does not match company/cutoff identity.",
+            kind="conflict",
+        )
+    if difference_pct is None:
+        reference_price_status = "not_corroborated"
+    elif difference_pct > 2:
+        reference_price_status = "market_cap_mismatch"
+    elif source_version is None:
+        reference_price_status = "source_unbound"
+    elif not scalar_fact_bound:
+        reference_price_status = "mutable_scalar_corroboration_only"
+    else:
+        reference_price_status = "market_cap_corroborated"
     return {
         "price_row_id": row.id,
         "date": row.date.isoformat(),
@@ -238,36 +398,31 @@ def _price_base(
         "series_key": row.series_key,
         "basis_version": row.basis_version,
         "scraped_at": row.scraped_at.isoformat() if row.scraped_at else None,
+        "source_document_id": source_document.id if source_document else None,
+        "source_document_version_id": source_version.id if source_version else None,
+        "source_content_hash": source_version.content_hash if source_version else None,
+        "reference_price_status": reference_price_status,
+        "return_series_eligible": row.adjustment_status in {"split_adjusted", "total_return"},
         "implied_market_cap_pln": implied_market_cap,
-        "reported_market_cap_pln": float(company.market_cap) if company.market_cap else None,
+        "reported_market_cap_pln": market_cap_pln,
         "corroboration_difference_pct": difference_pct,
     }, gaps
 
 
 def load_immutable_base(
-    db: Session, *, case: ResearchCase, request: ValuationRequestIn
+    db: Session, *, case: ResearchCase, research_snapshot_id: int, as_of: datetime
 ) -> dict:
-    snapshot = db.get(ResearchSnapshot, request.research_snapshot_id)
+    snapshot = db.get(ResearchSnapshot, research_snapshot_id)
     if snapshot is None or snapshot.research_case_id != case.id:
         raise ValuationInputError("Research snapshot does not belong to the case.", kind="not-found")
     if snapshot.status not in {"provisional", "verified"}:
         raise ValuationInputError("Valuation requires a usable research snapshot.", kind="conflict")
-    if _aware(request.as_of) < _aware(snapshot.as_of):
+    if _aware(as_of) < _aware(snapshot.as_of):
         raise ValuationInputError("Valuation as_of cannot precede research as_of.", kind="conflict")
     company = db.get(Company, case.company_id)
     profile = db.get(CompanyProfile, snapshot.company_profile_id)
     if company is None or profile is None:
         raise ValuationInputError("Research company/profile is missing.", kind="conflict")
-    if company.updated_at is None or _aware(company.updated_at) > _aware(request.as_of):
-        raise ValuationInputError(
-            "Company shares/market-cap state was updated after valuation as_of.",
-            kind="conflict",
-        )
-    method = get_method_pack(request.method_pack_id)
-    if method is None:
-        raise ValuationInputError("Unknown valuation method pack.", kind="not-found")
-    if method.status != "ready":
-        raise ValuationInputError(method.reason or "Valuation method pack is blocked.", kind="conflict")
     template = get_template(profile.archetype)
     if template is None:
         raise ValuationInputError(
@@ -283,38 +438,14 @@ def load_immutable_base(
                 Fact.source_version_id.in_(version_ids),
                 Fact.company_ticker == company.ticker,
                 Fact.numeric_value.is_not(None),
-                Fact.known_at <= request.as_of,
+                Fact.known_at <= as_of,
                 DocumentVersion.fetched_at <= snapshot.as_of,
             )
             .order_by(Fact.period, Fact.id)
         ).all()
     )
-    referenced_fact_ids = {
-        fact_id
-        for scenario in request.assumptions
-        for name in ASSUMPTION_VALUE_FIELDS
-        for fact_id in (
-            getattr(getattr(scenario, name), "source_fact_ids", [])
-            if getattr(scenario, name, None) is not None
-            else []
-        )
-    }
     available_fact_ids = {row.id for row in facts}
-    outside = referenced_fact_ids - available_fact_ids
-    if outside:
-        raise ValuationInputError(
-            f"Assumption evidence facts are outside the research manifest: {sorted(outside)}.",
-            kind="conflict",
-        )
-    referenced_groups = {
-        (row.fact_key, row.period) for row in facts if row.id in referenced_fact_ids
-    }
-    valuation_facts = [
-        row
-        for row in facts
-        if row.fact_key in BASE_FINANCIAL_KEYS
-        or (row.fact_key, row.period) in referenced_groups
-    ]
+    valuation_facts = [row for row in facts if row.fact_key in BASE_FINANCIAL_KEYS]
     version_times = dict(
         db.execute(
             select(DocumentVersion.id, DocumentVersion.fetched_at).where(
@@ -324,29 +455,38 @@ def load_immutable_base(
     )
     resolved_facts = _resolve_manifest_facts(valuation_facts, version_times)
     base_financials, used_fact_ids, gaps = _financial_base(resolved_facts)
-    used_fact_ids = sorted(set(used_fact_ids) | referenced_fact_ids)
-    price, price_gaps = _price_base(db, company, request.as_of)
+    used_fact_ids = sorted(set(used_fact_ids))
+    scalar_values, scalar_provenance, scalar_gaps = _company_scalar_base(
+        db, company, as_of
+    )
+    gaps.extend(scalar_gaps)
+    price, price_gaps = _price_base(
+        db,
+        company,
+        as_of,
+        shares_outstanding=scalar_values["shares_outstanding"],
+        market_cap_pln=scalar_values["market_cap_pln"],
+        scalar_fact_bound=scalar_provenance["immutable_fact_bound"],
+    )
     gaps.extend(price_gaps)
     if snapshot.status == "provisional":
         gaps.append("Upstream research snapshot is provisional.")
     if snapshot.gaps:
         gaps.append(f"Upstream research contains {len(snapshot.gaps)} explicit gap(s).")
-    gaps.append(
-        "Shares and reported market cap are mutable Company scalars frozen at company.updated_at, not immutable Fact IDs."
-    )
     base_values = {
         **base_financials,
         "company": {
             "id": company.id,
             "ticker": company.ticker,
             "name": company.name,
-            "shares_outstanding": company.shares_outstanding,
-            "market_cap_pln": float(company.market_cap) if company.market_cap else None,
+            "shares_outstanding": scalar_values["shares_outstanding"],
+            "market_cap_pln": scalar_values["market_cap_pln"],
             "updated_at": company.updated_at.isoformat(),
+            "scalar_known_at": scalar_provenance.get("known_at"),
         },
         "price": price,
     }
-    if not company.shares_outstanding or company.shares_outstanding <= 0:
+    if not scalar_values["shares_outstanding"] or scalar_values["shares_outstanding"] <= 0:
         raise ValuationInputError("A positive share count is required.", kind="conflict")
     manifest = {
         "research_snapshot_id": snapshot.id,
@@ -354,18 +494,13 @@ def load_immutable_base(
         "research_artifact_fingerprint": snapshot.artifact_fingerprint,
         "document_version_ids": version_ids,
         "fact_ids": used_fact_ids,
+        "bindable_fact_ids": sorted(available_fact_ids),
         "price": price,
         "company_identity": base_values["company"],
-        "company_scalar_provenance": {
-            "kind": "company_scalar_freeze",
-            "updated_at": company.updated_at.isoformat(),
-            "fields": ["shares_outstanding", "market_cap"],
-            "immutable_fact_bound": False,
-        },
+        "company_scalar_provenance": scalar_provenance,
     }
     return {
         "snapshot": snapshot,
-        "method": method,
         "template": template,
         "base_values": base_values,
         "input_manifest": manifest,
@@ -474,23 +609,44 @@ def calculate_valuation(base_values: dict, assumptions: list) -> dict:
     return result
 
 
-def prepare_valuation(db: Session, *, case: ResearchCase, request: ValuationRequestIn) -> dict:
-    loaded = load_immutable_base(db, case=case, request=request)
-    outputs = calculate_valuation(loaded["base_values"], request.assumptions)
-    calculation_gaps = [
-        f"{row['kind']}: {row['valuation_gap']}"
-        for row in outputs["scenarios"]
-        if row.get("valuation_gap")
-    ]
-    gaps = sorted(set(loaded["gaps"] + calculation_gaps))
+def validate_assumption_bindings(assumptions: list, manifest: dict) -> None:
+    """Every evidence-bound assumption must cite facts inside the frozen manifest."""
+    bindable = set(manifest.get("bindable_fact_ids") or manifest.get("fact_ids") or [])
+    referenced = {
+        fact_id
+        for scenario in assumptions
+        for name in ASSUMPTION_VALUE_FIELDS
+        for fact_id in (
+            getattr(getattr(scenario, name), "source_fact_ids", [])
+            if getattr(scenario, name, None) is not None
+            else []
+        )
+    }
+    outside = referenced - bindable
+    if outside:
+        raise ValuationInputError(
+            f"Assumption evidence facts are outside the research manifest: {sorted(outside)}.",
+            kind="conflict",
+        )
+
+
+def prepare_valuation_base(
+    db: Session, *, case: ResearchCase, research_snapshot_id: int, as_of: datetime
+) -> dict:
+    """Frozen queue-time bundle: everything deterministic, no assumptions yet.
+
+    `input_fingerprint` covers only this base; drafted assumptions live in the
+    draft/artifact fingerprints (VISION V4 — the drafter owns them).
+    """
+    loaded = load_immutable_base(
+        db, case=case, research_snapshot_id=research_snapshot_id, as_of=as_of
+    )
+    gaps = sorted(set(loaded["gaps"]))
     input_payload = {
-        "research_snapshot_id": request.research_snapshot_id,
-        "method_pack_id": loaded["method"].id,
-        "method_pack_version": loaded["method"].version,
+        "research_snapshot_id": research_snapshot_id,
         "template": loaded["template"].to_dict(),
         "engine_version": ENGINE_VERSION,
-        "as_of": request.as_of,
-        "assumptions": [row.model_dump(mode="json") for row in request.assumptions],
+        "as_of": as_of,
         "base_values": loaded["base_values"],
         "input_manifest": loaded["input_manifest"],
         "gaps": gaps,
@@ -498,10 +654,35 @@ def prepare_valuation(db: Session, *, case: ResearchCase, request: ValuationRequ
     return {
         **loaded,
         "gaps": gaps,
-        "deterministic_outputs": outputs,
         "input_fingerprint": canonical_hash(input_payload),
+    }
+
+
+def compute_scenarios(base: dict, assumptions: list) -> dict:
+    """Deterministic outputs + gaps + fingerprint for one assumption grid."""
+    validate_assumption_bindings(assumptions, base["input_manifest"])
+    outputs = calculate_valuation(base["base_values"], assumptions)
+    calculation_gaps = [
+        f"{row['kind']}: {row['valuation_gap']}"
+        for row in outputs["scenarios"]
+        if row.get("valuation_gap")
+    ]
+    return {
+        "deterministic_outputs": outputs,
+        "gaps": sorted(set(list(base["gaps"]) + calculation_gaps)),
         "calculation_fingerprint": canonical_hash(outputs),
     }
+
+
+def prepare_valuation(db: Session, *, case: ResearchCase, request: ValuationRequestIn) -> dict:
+    base = prepare_valuation_base(
+        db,
+        case=case,
+        research_snapshot_id=request.research_snapshot_id,
+        as_of=request.as_of,
+    )
+    computed = compute_scenarios(base, request.assumptions)
+    return {**base, **computed}
 
 
 def probability_weighted(outputs: dict, probabilities: list[dict]) -> dict:

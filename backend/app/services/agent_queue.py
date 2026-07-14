@@ -15,6 +15,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import AgentRun, utcnow
+from app.services.model_policy import CANONICAL_WORKFLOWS
 
 DEFAULT_LEASE_MINUTES = 45
 DEFAULT_MAX_ATTEMPTS = 3
@@ -50,6 +51,7 @@ def claim_agent_run(
     for _ in range(3):
         now = utcnow()
         stmt = select(AgentRun.id).where(
+            AgentRun.workflow.in_(CANONICAL_WORKFLOWS),
             AgentRun.status == "queued",
             or_(AgentRun.available_at.is_(None), AgentRun.available_at <= now),
         )
@@ -64,6 +66,11 @@ def claim_agent_run(
                 raise AgentQueueError(f"Unknown agent_run_id {agent_run_id}.")
             if agent_run_id is not None:
                 current = db.get(AgentRun, agent_run_id)
+                if current.workflow not in CANONICAL_WORKFLOWS:
+                    raise AgentQueueError(
+                        f"Agent run {agent_run_id} uses deleted workflow "
+                        f"'{current.workflow}'."
+                    )
                 raise AgentQueueError(
                     f"Agent run {agent_run_id} has status '{current.status}', not 'queued'."
                 )
@@ -113,6 +120,10 @@ def heartbeat_agent_run(
     agent = db.get(AgentRun, agent_run_id)
     if agent is None:
         raise AgentQueueError(f"Unknown agent_run_id {agent_run_id}.")
+    if agent.workflow not in CANONICAL_WORKFLOWS:
+        raise AgentQueueError(
+            f"Agent run {agent_run_id} uses deleted workflow '{agent.workflow}'."
+        )
     if agent.status != "running":
         raise AgentQueueError(
             f"Agent run {agent_run_id} has status '{agent.status}', not 'running'."
@@ -147,6 +158,7 @@ def recover_expired_agent_runs(
         db.scalars(
             select(AgentRun)
             .where(
+                AgentRun.workflow.in_(CANONICAL_WORKFLOWS),
                 AgentRun.status == "running",
                 AgentRun.lease_expires_at.is_not(None),
                 AgentRun.lease_expires_at < now,

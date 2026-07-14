@@ -22,7 +22,11 @@ from app.db.models import (
     utcnow,
 )
 from app.services.agent_queue import claim_agent_run
-from app.services.valuation_engine import ValuationInputError, calculate_valuation
+from app.services.valuation_engine import (
+    ValuationInputError,
+    calculate_valuation,
+    compute_scenarios,
+)
 
 
 def _value(value, provenance="human_assumption", fact_ids=None):
@@ -53,16 +57,22 @@ def _scenario(kind, *, growth=10.0, margin=40.0, costs=20.0, cash=100.0, event=N
     return row
 
 
-def _request(snapshot_id, as_of, *, scenarios=None, method="malik_obs_v1"):
+def _request(snapshot_id, as_of, *, scenarios=None):
     return {
         "research_snapshot_id": snapshot_id,
-        "method_pack_id": method,
         "as_of": as_of.isoformat(),
         "assumptions": scenarios or [
             _scenario("negative", growth=-10),
             _scenario("base"),
             _scenario("positive", growth=20),
         ],
+    }
+
+
+def _queue_request(snapshot_id, as_of):
+    return {
+        "research_snapshot_id": snapshot_id,
+        "as_of": as_of.isoformat(),
     }
 
 
@@ -198,6 +208,108 @@ def _research_fixture(db, *, ticker="ABS", archetype="software-services"):
     return case, snapshot, now
 
 
+def _attach_immutable_market_lineage(db, case, now):
+    company = db.get(Company, case.company_id)
+    fetched_at = now - timedelta(hours=2)
+    profile_document = SourceDocument(
+        company_id=company.id,
+        company_ticker=company.ticker,
+        source_name="biznesradar",
+        source_type="company_profile",
+        scope_key="current",
+        canonical_url=f"https://www.biznesradar.pl/notowania/{company.ticker}",
+        first_seen_at=fetched_at,
+        last_fetched_at=fetched_at,
+        latest_content_hash="8" * 64,
+        mime_type="text/html",
+        parser_version="biznesradar-html@1",
+        last_fetch_status=200,
+    )
+    db.add(profile_document)
+    db.flush()
+    profile_version = DocumentVersion(
+        source_document_id=profile_document.id,
+        content_hash="8" * 64,
+        fetched_at=fetched_at,
+        requested_url=profile_document.canonical_url,
+        effective_url=profile_document.canonical_url,
+        response_status=200,
+        mime_type="text/html",
+        parser_version="biznesradar-html@1",
+        parse_status="parsed",
+        byte_size=7,
+        raw_content="profile",
+    )
+    db.add(profile_version)
+    db.flush()
+    scalar_rows = (
+        ("company.shares_outstanding", 1_000_000, "shares", "6" * 64),
+        ("company.market_cap", 10_000_000, "PLN", "7" * 64),
+    )
+    scalar_facts = []
+    for key, value, unit, fact_hash in scalar_rows:
+        fact = Fact(
+            company_id=company.id,
+            company_ticker=company.ticker,
+            source_version_id=profile_version.id,
+            fact_type="company_scalar",
+            fact_key=key,
+            fact_hash=fact_hash,
+            numeric_value=value,
+            text_value=None,
+            unit=unit,
+            period="current",
+            effective_date=None,
+            known_at=fetched_at,
+            locator={"page": "profile", "key": key},
+            extractor_version="biznesradar-profile-scalars@1",
+            confidence=1,
+            verification_state="parsed",
+        )
+        db.add(fact)
+        scalar_facts.append(fact)
+
+    price_document = SourceDocument(
+        company_id=company.id,
+        company_ticker=company.ticker,
+        source_name="biznesradar",
+        source_type="price_history",
+        scope_key="raw-close",
+        canonical_url=f"https://www.biznesradar.pl/notowania-historyczne/{company.ticker}",
+        first_seen_at=fetched_at,
+        last_fetched_at=fetched_at,
+        latest_content_hash="9" * 64,
+        mime_type="text/html",
+        parser_version="biznesradar-html@1",
+        last_fetch_status=200,
+    )
+    db.add(price_document)
+    db.flush()
+    price_version = DocumentVersion(
+        source_document_id=price_document.id,
+        content_hash="9" * 64,
+        fetched_at=fetched_at,
+        requested_url=price_document.canonical_url,
+        effective_url=price_document.canonical_url,
+        response_status=200,
+        mime_type="text/html",
+        parser_version="biznesradar-html@1",
+        parse_status="parsed",
+        byte_size=7,
+        raw_content="history",
+    )
+    db.add(price_version)
+    db.flush()
+    price = db.query(Price).filter(Price.company_id == company.id).one()
+    price.source_version_id = price_version.id
+    price.source_name = "biznesradar_history"
+    price.series_key = f"biznesradar:{company.ticker}:raw-close"
+    price.basis_version = "br-price-history@1"
+    price.scraped_at = fetched_at
+    db.commit()
+    return profile_version, scalar_facts, price_version
+
+
 def _append_duplicate_fact_version(
     db,
     snapshot,
@@ -320,6 +432,67 @@ def test_preview_uses_manifest_facts_without_serving_rows_and_writes_nothing(cli
     assert counts_before == (db.query(AgentRun).count(), db.query(ValuationSnapshot).count())
 
 
+def test_preview_binds_profile_scalars_and_price_to_immutable_versions(client, db):
+    case, snapshot, now = _research_fixture(db, ticker="LINEAGE")
+    profile_version, scalar_facts, price_version = _attach_immutable_market_lineage(
+        db, case, now
+    )
+
+    response = client.post(
+        f"/api/research-cases/{case.id}/valuation-preview",
+        json=_request(snapshot.id, now),
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    provenance = body["input_manifest"]["company_scalar_provenance"]
+    assert provenance["immutable_fact_bound"] is True
+    assert provenance["source_document_version_id"] == profile_version.id
+    assert provenance["fact_ids"] == sorted(row.id for row in scalar_facts)
+    price = body["input_manifest"]["price"]
+    assert price["source_document_version_id"] == price_version.id
+    assert price["reference_price_status"] == "market_cap_corroborated"
+    assert price["return_series_eligible"] is False
+    assert not any("mutable Company scalars" in gap for gap in body["gaps"])
+    assert not any("not bound to an immutable source" in gap for gap in body["gaps"])
+
+
+def test_profile_scalar_fact_with_wrong_company_identity_is_rejected(client, db):
+    case, snapshot, now = _research_fixture(db, ticker="SCALAR-ID")
+    _profile_version, scalar_facts, _price_version = _attach_immutable_market_lineage(
+        db, case, now
+    )
+    scalar_facts[0].company_id = None
+    db.commit()
+
+    response = client.post(
+        f"/api/research-cases/{case.id}/valuation-preview",
+        json=_request(snapshot.id, now),
+    )
+
+    assert response.status_code == 409
+    assert "scalar facts do not match canonical company identity" in response.text
+
+
+def test_price_source_with_wrong_company_identity_is_rejected(client, db):
+    case, snapshot, now = _research_fixture(db, ticker="PRICE-ID")
+    _profile_version, _scalar_facts, price_version = _attach_immutable_market_lineage(
+        db, case, now
+    )
+    version = db.get(DocumentVersion, price_version.id)
+    source = db.get(SourceDocument, version.source_document_id)
+    source.company_id = None
+    db.commit()
+
+    response = client.post(
+        f"/api/research-cases/{case.id}/valuation-preview",
+        json=_request(snapshot.id, now),
+    )
+
+    assert response.status_code == 409
+    assert "source version does not match company/cutoff identity" in response.text
+
+
 @pytest.mark.parametrize(
     ("numeric_value", "unit"),
     [(4001.0, "tys_pln"), (4000.0, "PLN")],
@@ -403,50 +576,73 @@ def test_raw_price_must_be_finite_and_positive(client, db, close):
     assert "finite and positive" in response.text
 
 
-def test_reads_are_zero_write_and_blocked_packs_are_honest(client, db):
+def test_reads_are_zero_write_and_method_pack_endpoint_is_deleted(client, db):
     case, snapshot, now = _research_fixture(db)
     before = db.query(AgentRun).count()
-    packs = client.get("/api/valuation-method-packs").json()
-    assert [row["status"] for row in packs] == ["ready", "blocked", "blocked"]
-    assert all(row["reason"] for row in packs[1:])
+    assert client.get("/api/valuation-method-packs").status_code == 404
     workspace = client.get(f"/api/research-cases/{case.id}/valuation-workspace")
     assert workspace.status_code == 200
     assert workspace.json()["template"]["id"] == "software-services-earnings-pe-v1"
+    assert "method_packs" not in workspace.json()
     assert db.query(AgentRun).count() == before
-    blocked = client.post(
-        f"/api/research-cases/{case.id}/valuation-preview",
-        json=_request(snapshot.id, now, method="areczeks_v1"),
-    )
-    assert blocked.status_code == 409
 
 
 def _draft_from_run(agent):
     frozen = agent.inputs["valuation"]
-    kinds = [row["kind"] for row in frozen["assumptions"]]
+    fact_id = frozen["input_manifest"]["bindable_fact_ids"][0]
+    assumptions = [
+        _scenario("negative", growth=-12, margin=36, costs=23),
+        _scenario("base", growth=7, margin=41, costs=19),
+        _scenario("positive", growth=19, margin=45, costs=17),
+    ]
+    for row in assumptions:
+        row["year_revenue_growth_pct"] = _value(
+            row["year_revenue_growth_pct"]["value"],
+            provenance="evidence",
+            fact_ids=[fact_id],
+        )
+    parsed = [ValuationScenarioAssumptions.model_validate(row) for row in assumptions]
+    computed = compute_scenarios(
+        {
+            "base_values": frozen["base_values"],
+            "input_manifest": frozen["input_manifest"],
+            "gaps": frozen["gaps"],
+        },
+        parsed,
+    )
+    probabilities = {"negative": 22, "base": 47, "positive": 31}
     return {
-        "contract_version": "valuation-snapshot-v1",
+        "contract_version": "valuation-snapshot-v2",
         "engine_version": "valuation-engine-v2",
         "template_contract_version": "valuation-templates-v1",
         "agent_run_id": agent.id,
         "lease_owner": agent.lease_owner,
         "version": 1,
         **{key: frozen[key] for key in (
-            "research_snapshot_id", "as_of", "method_pack_id",
-            "method_pack_version", "template_id", "template_version", "assumptions",
-            "base_values", "deterministic_outputs", "input_manifest", "gaps",
-            "input_fingerprint", "calculation_fingerprint",
+            "research_snapshot_id", "as_of", "template_id", "template_version",
+            "base_values", "input_manifest", "input_fingerprint",
         )},
+        "assumptions": assumptions,
+        "deterministic_outputs": computed["deterministic_outputs"],
+        "gaps": computed["gaps"],
+        "calculation_fingerprint": computed["calculation_fingerprint"],
         "codex_judgment": {
-            "method_read": "Jawny odczyt metody.",
+            "strategy_read": "Company-specific read of the frozen Research evidence.",
             "scenarios": [{
-                "kind": kind,
-                "mechanism": "Jawny mechanizm wyniku.",
-                "proposed_probability_pct": {"negative": 25, "base": 50, "positive": 25}.get(kind, 0),
-                "probability_rationale": "Rationale oparte na zamrożonych wejściach.",
-                "catalyst_or_counter_driver": "Konkretny driver.",
-                "falsifier": "Jawny falsyfikator.",
+                "kind": row["kind"],
+                "mechanism": (
+                    f"{row['kind']} mechanism follows the company's frozen revenue "
+                    "and margin evidence through operating leverage."
+                ),
+                "probability_pct": probabilities[row["kind"]],
+                "probability_rationale": (
+                    f"{row['kind']} probability reflects the retained fact and the "
+                    "scenario-specific distance from the reported revenue base."
+                ),
+                "catalyst_or_counter_driver": f"{row['kind']} company driver.",
+                "falsifier": f"2026Q4 threshold for the {row['kind']} mechanism.",
                 "gaps": [],
-            } for kind in kinds],
+            } for row in assumptions],
             "catalysts": ["Driver"],
             "falsifiers": ["Falsifier"],
         },
@@ -454,11 +650,11 @@ def _draft_from_run(agent):
 
 
 def _verifier(draft, *, verdict="pass", verifier="verifier-1"):
-    probabilities = [] if verdict != "pass" else [
-        {"kind": "negative", "probability_pct": 25, "rationale": "Downside."},
-        {"kind": "base", "probability_pct": 50, "rationale": "Base."},
-        {"kind": "positive", "probability_pct": 25, "rationale": "Upside."},
-    ]
+    findings = [] if verdict == "pass" else [{
+        "severity": "major",
+        "area": "evidence-fit",
+        "detail": "The draft overstates the evidence fit for the selected growth mechanism.",
+    }]
     return {
         "verifier_worker_id": verifier,
         "draft": draft,
@@ -466,11 +662,12 @@ def _verifier(draft, *, verdict="pass", verifier="verifier-1"):
             "model_role": "verifier_strict",
             "verifier_model": "gpt-5.6-sol",
             "verdict": verdict,
-            "checks": {key: verdict == "pass" for key in (
-                "schema_integrity", "source_integrity", "company_identity", "look_ahead",
-                "math_integrity", "probability_coherence", "method_integrity",
-            )},
-            "final_probabilities": probabilities,
+            "findings": findings,
+            "judgment_review": {
+                "evidence_fit": "Reviewed the frozen fact ids, Research fingerprint, and each assumption binding; the cited revenue base supports this judgment.",
+                "mechanism_plausibility": "Compared each distinct revenue and margin path with deterministic operating leverage outputs and the named company driver.",
+                "probability_reasonableness": "Examined the distinct scenario distances and rationales; the non-default probability mix is coherent with those frozen inputs.",
+            },
             "summary": "Independent verdict.",
         },
     }
@@ -478,7 +675,7 @@ def _verifier(draft, *, verdict="pass", verifier="verifier-1"):
 
 def test_queue_is_idempotent_and_exact_independent_save_is_provisional(client, db):
     case, snapshot, now = _research_fixture(db)
-    payload = _request(snapshot.id, now)
+    payload = _queue_request(snapshot.id, now)
     first = client.post(f"/api/research-cases/{case.id}/valuation-runs", json=payload)
     assert first.status_code == 201, first.text
     second = client.post(f"/api/research-cases/{case.id}/valuation-runs", json=payload)
@@ -504,19 +701,30 @@ def test_queue_is_idempotent_and_exact_independent_save_is_provisional(client, d
     body = saved.json()
     assert body["status"] == "provisional"
     assert body["deterministic_outputs"]["probability_weighted"]["status"] == "calculated"
+    research_row = client.get("/api/research-cases").json()[0]
+    assert research_row["phase"] == "valued"
+    assert research_row["phase_label"] == "Wyceniona"
+    assert research_row["valuation_strip"]["scenario_probabilities_pct"] == {
+        "negative": 22.0,
+        "base": 47.0,
+        "positive": 31.0,
+    }
+    assert research_row["valuation_strip"]["weighted_value_pln"] == body[
+        "deterministic_outputs"
+    ]["probability_weighted"]["price_pln"]
+    assert research_row["valuation_strip"]["verification_status"] == "provisional"
     db.refresh(agent)
     assert agent.lease_owner is None and agent.status == "provisional"
 
 
 def test_distinct_active_valuation_is_rejected_without_creating_peer(client, db):
     case, snapshot, now = _research_fixture(db, ticker="SERIAL")
-    first_payload = _request(snapshot.id, now)
+    first_payload = _queue_request(snapshot.id, now)
     first = client.post(
         f"/api/research-cases/{case.id}/valuation-runs", json=first_payload
     )
     assert first.status_code == 201
-    second_payload = _request(snapshot.id, now)
-    second_payload["assumptions"][2]["year_revenue_growth_pct"]["value"] = 21.0
+    second_payload = _queue_request(snapshot.id, now + timedelta(minutes=1))
     second = client.post(
         f"/api/research-cases/{case.id}/valuation-runs", json=second_payload
     )
@@ -534,7 +742,7 @@ def test_fail_verdict_saves_rejected_without_probabilities(client, db):
     case, snapshot, now = _research_fixture(db, ticker="FAIL")
     queued = client.post(
         f"/api/research-cases/{case.id}/valuation-runs",
-        json=_request(snapshot.id, now),
+        json=_queue_request(snapshot.id, now),
     ).json()
     agent = claim_agent_run(db, agent_run_id=queued["agent_run_id"], worker_id="drafter")
     draft = _draft_from_run(agent)
@@ -549,7 +757,52 @@ def test_fail_verdict_saves_rejected_without_probabilities(client, db):
     )
     assert saved.status_code == 201, saved.text
     assert saved.json()["status"] == "rejected"
-    assert saved.json()["deterministic_outputs"]["probability_weighted"] is None
+    assert saved.json()["deterministic_outputs"]["probability_weighted"]["status"] == "calculated"
+
+
+@pytest.mark.parametrize("requested_verdict", ["pass", "needs-human"])
+def test_failing_structural_gate_is_durably_auto_rejected(
+    client, db, requested_verdict
+):
+    case, snapshot, now = _research_fixture(
+        db, ticker=f"GATE-{requested_verdict[:4].upper()}"
+    )
+    queued = client.post(
+        f"/api/research-cases/{case.id}/valuation-runs",
+        json=_queue_request(snapshot.id, now),
+    ).json()
+    agent = claim_agent_run(
+        db, agent_run_id=queued["agent_run_id"], worker_id="drafter"
+    )
+    draft = _draft_from_run(agent)
+    for scenario, probability in zip(
+        draft["codex_judgment"]["scenarios"], [20.0, 60.0, 20.0], strict=True
+    ):
+        scenario["probability_pct"] = probability
+
+    verification = client.post(
+        f"/api/research-cases/{case.id}/valuation-verifications",
+        json=_verifier(draft, verdict=requested_verdict),
+    )
+
+    assert verification.status_code == 200, verification.text
+    verification_body = verification.json()
+    assert verification_body["verdict"] == "fail"
+    assert verification_body["checks"]["requested_verdict"] == requested_verdict
+    assert verification_body["checks"]["final_status"] == "rejected"
+    assert verification_body["checks"]["automatic_rejection_reasons"]
+    assert any(
+        finding["area"].startswith("structural_gate:")
+        for finding in verification_body["checks"]["findings"]
+    )
+
+    saved = client.post(
+        f"/api/research-cases/{case.id}/valuation-snapshots",
+        json={**draft, "verification_run_id": verification_body["id"]},
+    )
+    assert saved.status_code == 201, saved.text
+    assert saved.json()["status"] == "rejected"
+    assert saved.json()["verifier_result"]["structural_gates"]["passed"] is False
 
 
 def test_policy_picker_mcp_and_script_contracts(client, db):
@@ -563,20 +816,19 @@ def test_policy_picker_mcp_and_script_contracts(client, db):
     case, snapshot, now = _research_fixture(db, ticker="WIRE")
     queued = client.post(
         f"/api/research-cases/{case.id}/valuation-runs",
-        json=_request(snapshot.id, now),
+        json=_queue_request(snapshot.id, now),
     ).json()
     agent = db.get(AgentRun, queued["agent_run_id"])
     contract = _execution_contract(agent)
     assert contract["skill"] == "company-valuation"
     assert "codex_verify_valuation_snapshot.py" in contract["verify_command"]
     policy = get_model_policy("stock-company-valuation")
-    assert policy["draft_model"] == "gpt-5.6-terra"
-    assert policy["draft_role"] == "worker_standard"
+    assert policy["draft_model"] == "gpt-5.6-sol"
+    assert policy["draft_role"] == "analyst_deep"
     assert policy["required_verifier_role"] == "verifier_strict"
-    assert [row["status"] for row in stock_tools.get_valuation_method_packs()["method_packs"]] == [
-        "ready", "blocked", "blocked"
-    ]
-    assert {"get_valuation_method_packs", "verify_valuation_snapshot", "save_valuation_snapshot"}.issubset(TOOLS)
+    assert not hasattr(stock_tools, "get_valuation_method_packs")
+    assert {"verify_valuation_snapshot", "save_valuation_snapshot"}.issubset(TOOLS)
     scripts = Path(__file__).resolve().parents[1] / "scripts"
+    assert (scripts / "codex_compute_valuation_draft.py").is_file()
     assert (scripts / "codex_verify_valuation_snapshot.py").is_file()
     assert (scripts / "codex_save_valuation_snapshot.py").is_file()

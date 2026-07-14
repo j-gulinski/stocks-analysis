@@ -63,7 +63,13 @@ def _seed_report_link(db, report_url: str, *, extractor_version: str | None = No
             "issuer_ir_abs.html",
             "https://assecobs.pl/inwestor/raporty-biezace/",
             "Raporty bieżące - Asseco Business Solutions",
-            1,
+            2,
+        ),
+        (
+            "issuer_ir_abs_periodic.html",
+            "https://assecobs.pl/inwestor/raporty-okresowe/",
+            "Raporty okresowe - Asseco Business Solutions",
+            2,
         ),
         (
             "issuer_ir_opm.html",
@@ -125,7 +131,10 @@ def test_parse_issuer_ir_index_shapes(
     assert parsed.title == expected_title
     assert len(parsed.links) == expected_count
     assert all(link.url.startswith("https://") for link in parsed.links)
-    assert all(link.locator["tag"] == "a" for link in parsed.links)
+    assert all(link.locator["tag"] in {"a", "div"} for link in parsed.links)
+    assert all(
+        link.locator["tag"] != "div" or "#" in link.url for link in parsed.links
+    )
 
 
 def test_ingest_issuer_ir_pilot_records_versions_and_unverified_link_claims(
@@ -177,12 +186,12 @@ def test_ingest_issuer_ir_pilot_records_versions_and_unverified_link_claims(
     assert len(calls) == 10
     assert db.scalar(select(func.count()).select_from(SourceDocument)) == 10
     assert db.scalar(select(func.count()).select_from(DocumentVersion)) == 10
-    assert db.scalar(select(func.count()).select_from(Fact)) == 20
+    assert db.scalar(select(func.count()).select_from(Fact)) == 21
     assert db.scalar(
         select(func.count())
         .select_from(Fact)
         .where(Fact.verification_state == "unverified")
-    ) == 20
+    ) == 21
     assert db.scalar(
         select(func.count())
         .select_from(FetchLog)
@@ -214,6 +223,57 @@ def test_ingest_issuer_ir_returns_temporary_state_on_polite_hard_stop(db, monkey
     assert result["status"] == "temporarily_unavailable"
     assert result["retry_later"] is True
     assert db.query(FetchLog).one().status == 403
+
+
+def test_ingest_all_abs_issuer_indexes_preserves_current_and_periodic_evidence(
+    db, monkeypatch
+):
+    from app.db.models import Company, Fact, SourceDocument
+    from app.scrapers import issuer_ir
+
+    db.add(Company(ticker="ABS", name="ASSECO BUSINESS SOLUTIONS SA"))
+    db.commit()
+    pages = {
+        "https://assecobs.pl/inwestor/raporty-biezace/": "issuer_ir_abs.html",
+        "https://assecobs.pl/inwestor/raporty-okresowe/": "issuer_ir_abs_periodic.html",
+    }
+
+    def fake_fetch(url, **_kwargs):
+        response = FakeResponse(load_fixture(pages[url]), 200)
+        response.url = url
+        return response
+
+    monkeypatch.setattr(issuer_ir.http, "fetch", fake_fetch)
+
+    result = issuer_ir.ingest_issuer_ir_indexes(db, "ABS")
+
+    assert result["ok"] is True
+    assert result["source_count"] == 2
+    assert result["claim_count"] == 4
+    assert {row.scope_key for row in db.query(SourceDocument)} == {
+        "reports-index",
+        "periodic-reports-index",
+    }
+    q1_url = (
+        "https://assecobs.pl/wp-content/uploads/2026/04/"
+        "Grupa_ABS_I_kwartal_2026_sig.pdf"
+    )
+    q1_fact = next(
+        fact
+        for fact in db.query(Fact).filter(Fact.fact_type == "issuer_ir_link")
+        if fact.locator["url"] == q1_url
+    )
+    assert q1_fact.extractor_version == issuer_ir.EXTRACTOR_VERSION
+    assert issuer_ir._issuer_link_fact(
+        db, db.query(Company).filter(Company.ticker == "ABS").one(), q1_url
+    ) == q1_fact
+    current_fact = next(
+        fact
+        for fact in db.query(Fact).filter(Fact.fact_type == "issuer_ir_link")
+        if fact.locator.get("id") == "block_report_20_2026"
+    )
+    assert "200 000 akcji własnych po 80 zł" in current_fact.text_value
+    assert current_fact.locator["url"].endswith("#block_report_20_2026")
 
 
 def test_parse_issuer_ir_caps_links_and_rejects_external_or_malformed_urls():
@@ -358,6 +418,16 @@ def test_noisy_legacy_extractor_cannot_authorize_report_fetch(db):
 
     report_url = "https://assecobs.pl/reports/noisy-legacy.pdf"
     _seed_report_link(db, report_url, extractor_version="issuer-ir-links@3")
+
+    with pytest.raises(ValueError, match="not present"):
+        issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)
+
+
+def test_misclassified_v12_extractor_cannot_authorize_report_fetch(db):
+    from app.scrapers import issuer_ir
+
+    report_url = "https://assecobs.pl/reports/misclassified-v12.pdf"
+    _seed_report_link(db, report_url, extractor_version="issuer-ir-links@12")
 
     with pytest.raises(ValueError, match="not present"):
         issuer_ir.ingest_issuer_ir_report(db, "ABS", report_url)

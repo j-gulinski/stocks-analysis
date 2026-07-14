@@ -15,6 +15,23 @@ from __future__ import annotations
 import re
 
 
+# Point-in-time company scalars extracted from the BiznesRadar profile page.
+# These keys are consumed by valuation separately from financial-statement
+# facts because they describe the current per-share identity, not a report
+# period.  Keep the meaning here so refresh and valuation cannot drift.
+COMPANY_SCALAR_FACT_KEYS: dict[str, str] = {
+    "shares_outstanding": "company.shares_outstanding",
+    "market_cap": "company.market_cap",
+    "enterprise_value": "company.enterprise_value",
+}
+
+COMPANY_SCALAR_UNITS: dict[str, str] = {
+    "shares_outstanding": "shares",
+    "market_cap": "PLN",
+    "enterprise_value": "PLN",
+}
+
+
 def normalize_label(label: str) -> str:
     text = label.lower().strip()
     text = re.sub(r"[*†]+$", "", text).strip()  # footnote markers
@@ -74,8 +91,8 @@ INCOME_ALIASES: dict[str, tuple[str, ...]] = {
 
 # data-field attribute values — verified against the LIVE SNT page (2026-07).
 # TRAP: BiznesRadar codes its "Zysk ze sprzedaży" row (profit AFTER SG&A) as
-# IncomeGrossProfit. It is NOT gross profit; true gross (Malik's marża brutto)
-# has no row in this layout and is derived as revenue − cogs.
+# IncomeGrossProfit. It is NOT gross profit; the true gross-sales result has no
+# row in this layout and is derived as revenue − cogs.
 INCOME_FIELD_CODES: dict[str, tuple[str, ...]] = {
     "revenue": ("IncomeRevenues",),
     "cogs": ("IncomeCostOfSales",),

@@ -8,7 +8,7 @@ from datetime import date, timedelta
 
 from sqlalchemy import select
 
-from app.db.models import Company, Price
+from app.db.models import Company, DocumentVersion, Price, SourceDocument
 from tests.conftest import FakeResponse, load_fixture
 
 BR_PROFILE_URL = "https://www.biznesradar.pl/notowania/DEC"
@@ -68,6 +68,12 @@ def test_incremental_uses_br_archiwum_only(client, db, monkeypatch):
     assert prices[-1]["close"] == 24.80
     assert prices[-1]["source_name"] == "biznesradar_history"
     assert prices[-1]["adjustment_status"] == "raw_unverified"
+    assert prices[-1]["source_version_id"] is not None
+    version = db.get(DocumentVersion, prices[-1]["source_version_id"])
+    document = db.get(SourceDocument, version.source_document_id)
+    assert document.source_type == "price_history"
+    assert document.scope_key == "raw-close"
+    assert version.parse_status == "parsed"
 
 
 def test_br_profile_quote_fallback_when_history_unavailable(client, db, monkeypatch):
@@ -96,6 +102,9 @@ def test_br_profile_quote_fallback_when_history_unavailable(client, db, monkeypa
     assert stored[0].close == 24.5
     assert stored[0].source_name == "biznesradar_profile"
     assert stored[0].adjustment_status == "raw_unverified"
+    version = db.get(DocumentVersion, stored[0].source_version_id)
+    document = db.get(SourceDocument, version.source_document_id)
+    assert document.source_type == "company_profile"
 
 
 def test_future_rows_are_purged(client, db, monkeypatch):
@@ -126,14 +135,21 @@ def test_future_bars_are_never_stored(client, db, monkeypatch):
     db.add(company)
     db.commit()
 
-    def fake_history(db, company, session=None):
+    def fake_history(_html):
         return [
             PriceBar(day=date.today() - timedelta(days=1), close=10.0, volume=1),
             PriceBar(day=date.today() + timedelta(days=1), close=11.0, volume=1),
         ]
 
-    monkeypatch.setattr("app.services.refresh._fetch_br_history", fake_history)
-    _stub(monkeypatch, [], {BR_PROFILE_URL: FakeResponse("", 200)})
+    monkeypatch.setattr("app.scrapers.biznesradar.parse_price_history", fake_history)
+    _stub(
+        monkeypatch,
+        [],
+        {
+            BR_PROFILE_URL: FakeResponse("", 200),
+            BR_HISTORY_URL: FakeResponse("<html>history</html>", 200),
+        },
+    )
 
     summary = client.post("/api/companies/DEC/refresh?scope=prices").json()["summary"]
 
@@ -141,3 +157,29 @@ def test_future_bars_are_never_stored(client, db, monkeypatch):
     stored = db.scalars(select(Price).where(Price.company_id == company.id)).all()
     assert len(stored) == 1
     assert stored[0].date <= date.today()
+    assert stored[0].source_version_id is not None
+
+
+def test_existing_history_row_is_rebound_to_immutable_source(client, db, monkeypatch):
+    company = _company_with_prices(db, rows=35, last_day=HISTORY_NEWEST)
+    seen: list[str] = []
+    _stub(
+        monkeypatch,
+        seen,
+        {
+            BR_PROFILE_URL: FakeResponse("", 200),
+            BR_HISTORY_URL: FakeResponse(load_fixture("br_price_history.html"), 200),
+        },
+    )
+
+    summary = client.post("/api/companies/DEC/refresh?scope=prices").json()["summary"]
+
+    assert summary["prices"].startswith("ok (0 new days")
+    assert "powiazano" in summary["prices"]
+    latest = db.scalar(
+        select(Price)
+        .where(Price.company_id == company.id, Price.date == HISTORY_NEWEST)
+    )
+    assert latest.source_version_id is not None
+    version = db.get(DocumentVersion, latest.source_version_id)
+    assert version.parse_status == "parsed"

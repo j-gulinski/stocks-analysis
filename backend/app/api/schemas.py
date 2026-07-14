@@ -56,51 +56,36 @@ CaseStep = Literal[
 ]
 
 
-class ResearchCaseCreateIn(BaseModel):
-    purpose: str = Field(default="investment-research", min_length=1, max_length=80)
-    state: CaseState = "new"
-    current_step: CaseStep = "ingest"
-    as_of: datetime | None = None
-    blocked_reason: str | None = Field(default=None, max_length=2000)
-
-
-class ResearchCaseUpdateIn(BaseModel):
-    state: CaseState | None = None
-    current_step: CaseStep | None = None
-    as_of: datetime | None = None
-    blocked_reason: str | None = Field(default=None, max_length=2000)
-    change_reason: str | None = Field(default=None, max_length=2000)
-
-
-class ResearchCaseOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    company_id: int
-    purpose: str
-    state: CaseState
-    current_step: CaseStep
-    as_of: datetime | None
-    blocked_reason: str | None
-    promotion_triage_review_id: int | None
-    promotion_review_price_pln: float | None
-    promotion_note: str | None
-    promotion_evidence_reason: str | None
-    quarterly_review_due_on: date | None
-    material_event_review_policy: str | None
-    created_at: datetime
-    updated_at: datetime
-
-
 class ResearchLabCreateIn(BaseModel):
     """Create or reopen the durable research identity for one ticker."""
 
+    model_config = ConfigDict(extra="forbid")
+
     ticker: str = Field(min_length=1, max_length=12)
-    source_document_version_id: int | None = Field(default=None, ge=1)
+
+
+class ResearchCollectionProgressOut(BaseModel):
+    state: Literal["waiting", "collecting", "attention"]
+    summary: str
+    completed_sources: list[str] = Field(default_factory=list)
+    remaining_sources: list[str] = Field(default_factory=list)
+    percent: int | None = Field(default=None, ge=0, le=100)
+
+
+class ResearchValuationStripOut(BaseModel):
+    scenario_prices_pln: dict[str, float | None]
+    scenario_probabilities_pct: dict[str, float]
+    price_range_pln: list[float] | None
+    weighted_value_pln: float | None
+    current_price_pln: float | None
+    upside_pct: float | None
+    catalyst: str | None
+    verification_status: str
+    as_of: datetime
 
 
 class ResearchCaseSummaryOut(BaseModel):
-    """Compact Research Lab row with its one initial-research queue item."""
+    """Phase-aware Research row; queue metadata belongs in the audit path."""
 
     id: int
     company_id: int
@@ -113,10 +98,12 @@ class ResearchCaseSummaryOut(BaseModel):
     blocked_reason: str | None
     created_at: datetime
     updated_at: datetime
-    initial_research_run_id: int | None
-    initial_research_status: str | None
-    latest_research_run_id: int | None = None
-    latest_research_run_status: str | None = None
+    phase: Literal["collecting", "researched", "valued"]
+    phase_label: str
+    phase_summary: str
+    main_gap: str | None
+    collection_progress: ResearchCollectionProgressOut | None
+    valuation_strip: ResearchValuationStripOut | None
     latest_snapshot_status: str | None = None
     latest_snapshot_as_of: datetime | None = None
 
@@ -262,6 +249,133 @@ class EvidenceSection(StrictResearchModel):
     claims: list[ResearchClaim] = Field(default_factory=list)
 
 
+ResearchSourceChannel = Literal[
+    "issuer-primary",
+    "regulatory-primary",
+    "biznesradar",
+    "portalanaliz",
+    "other-web",
+]
+ResearchResolutionStatus = Literal[
+    "confirmed",
+    "partial",
+    "not_found",
+    "not_applicable",
+]
+ResearchOutlookDirection = Literal[
+    "positive",
+    "neutral",
+    "negative",
+    "mixed",
+    "unknown",
+]
+
+
+class ResearchSourceSearch(StrictResearchModel):
+    """One required source-channel attempt in the bounded completion loop."""
+
+    channel: ResearchSourceChannel
+    status: Literal["found", "not_found", "unavailable"]
+    summary: str = Field(min_length=1, max_length=2000)
+    document_version_ids: list[int] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def require_found_source(self):
+        if len(self.document_version_ids) != len(set(self.document_version_ids)):
+            raise ValueError("source-search document versions must be unique")
+        if self.status == "found" and not self.document_version_ids:
+            raise ValueError("a found source search requires a document version")
+        if self.status != "found" and self.document_version_ids:
+            raise ValueError(
+                "a not-found or unavailable source search cannot cite document versions"
+            )
+        return self
+
+
+class ResearchOutlookAssessment(StrictResearchModel):
+    direction: ResearchOutlookDirection
+    assessment: ResearchClaim
+    source_channels: list[ResearchSourceChannel] = Field(min_length=1)
+    watch_items: list[str] = Field(min_length=1)
+    gap_topic: str | None = Field(default=None, min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def keep_unknown_direction_explicit(self):
+        if len(self.source_channels) != len(set(self.source_channels)):
+            raise ValueError("outlook-assessment source channels must be unique")
+        if self.direction == "unknown" and self.assessment.kind != "unknown":
+            raise ValueError("an unknown outlook direction requires an unknown claim")
+        if self.direction == "unknown" and not self.gap_topic:
+            raise ValueError("an unknown outlook direction requires a named gap")
+        if self.direction != "unknown" and self.assessment.kind == "unknown":
+            raise ValueError("a known outlook direction cannot use an unknown claim")
+        if self.direction != "unknown" and self.gap_topic is not None:
+            raise ValueError("a known outlook direction cannot point to an unknown gap")
+        if self.assessment.kind == "lead":
+            raise ValueError("a lead cannot become a directional outlook conclusion")
+        return self
+
+
+class ResearchDriverOutlook(StrictResearchModel):
+    driver_key: str = Field(min_length=1, max_length=80)
+    next_quarter: ResearchOutlookAssessment
+    next_12_months: ResearchOutlookAssessment
+
+
+class ResearchQuestionResolution(StrictResearchModel):
+    scope: Literal["profile", "catalyst", "visibility", "governance"]
+    question: str = Field(min_length=1, max_length=1000)
+    status: ResearchResolutionStatus
+    answer: ResearchClaim
+    source_channels: list[ResearchSourceChannel] = Field(min_length=1)
+    remaining_gap: str | None = Field(default=None, max_length=2000)
+    gap_topic: str | None = Field(default=None, min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def preserve_resolution_certainty(self):
+        if len(self.source_channels) != len(set(self.source_channels)):
+            raise ValueError("question-resolution source channels must be unique")
+        if self.status == "confirmed":
+            if self.answer.kind not in {"fact", "calculation"}:
+                raise ValueError("a confirmed answer must be a fact or calculation")
+            if self.remaining_gap is not None:
+                raise ValueError("a confirmed answer cannot retain a remaining gap")
+            if self.gap_topic is not None:
+                raise ValueError("a confirmed answer cannot point to a gap")
+        elif self.status == "partial":
+            if self.answer.kind not in {"fact", "calculation"}:
+                raise ValueError("a partial answer requires a fact or calculation")
+            if not self.remaining_gap:
+                raise ValueError("a partial answer requires a remaining gap")
+            if not self.gap_topic:
+                raise ValueError("a partial answer requires a named gap")
+        elif self.status == "not_found":
+            if self.answer.kind != "unknown":
+                raise ValueError("a not-found answer requires an unknown claim")
+            if not self.remaining_gap:
+                raise ValueError("a not-found answer requires a remaining gap")
+            if not self.gap_topic:
+                raise ValueError("a not-found answer requires a named gap")
+        elif self.status == "not_applicable":
+            if self.answer.kind not in {"fact", "calculation"}:
+                raise ValueError(
+                    "a not-applicable answer requires a sourced fact or calculation"
+                )
+            if self.remaining_gap is not None:
+                raise ValueError("a not-applicable answer cannot retain a gap")
+            if self.gap_topic is not None:
+                raise ValueError("a not-applicable answer cannot point to a gap")
+        return self
+
+
+class ResearchOutlookSection(StrictResearchModel):
+    summary: str = Field(min_length=1, max_length=6000)
+    driver_outlooks: list[ResearchDriverOutlook] = Field(min_length=1)
+    question_resolutions: list[ResearchQuestionResolution] = Field(min_length=3)
+    source_searches: list[ResearchSourceSearch] = Field(min_length=5)
+    claims: list[ResearchClaim] = Field(default_factory=list)
+
+
 class ThesisSection(StrictResearchModel):
     why_now: str = Field(min_length=1, max_length=4000)
     counter_thesis: str = Field(min_length=1, max_length=4000)
@@ -284,6 +398,7 @@ class ResearchSections(StrictResearchModel):
     business_and_drivers: BusinessAndDriversSection
     performance: PerformanceSection
     evidence: EvidenceSection
+    outlook: ResearchOutlookSection | None = None
     thesis: ThesisSection
     history: HistorySection
 
@@ -312,26 +427,38 @@ class ResearchNextCheck(StrictResearchModel):
     suggested_source: str = Field(min_length=1, max_length=500)
 
 
-class ResearchVerifierChecks(StrictResearchModel):
-    schema_integrity: bool
-    source_integrity: bool
-    company_identity: bool
-    look_ahead: bool
-    math_integrity: bool
+class ResearchVerifierFinding(StrictResearchModel):
+    severity: Literal["minor", "major", "blocking"]
+    area: str = Field(min_length=1, max_length=120)
+    detail: str = Field(min_length=20, max_length=2000)
+
+
+class ResearchVerifierJustifications(StrictResearchModel):
+    evidence_and_claim_fit: str = Field(min_length=60, max_length=3000)
+    company_specificity: str = Field(min_length=60, max_length=3000)
+    outlook_and_thesis_plausibility: str = Field(min_length=60, max_length=3000)
 
 
 class ResearchVerifierResult(StrictResearchModel):
     model_role: Literal["verifier_strict"] = "verifier_strict"
     verifier_model: str = Field(min_length=1, max_length=80)
     verdict: Literal["pass", "fail", "needs-human"]
-    checks: ResearchVerifierChecks
+    findings: list[ResearchVerifierFinding] = Field(default_factory=list, max_length=20)
+    justifications: ResearchVerifierJustifications
     summary: str = Field(min_length=1, max_length=4000)
+
+    @model_validator(mode="after")
+    def validate_adversarial_contract(self):
+        blocking = [item for item in self.findings if item.severity in {"major", "blocking"}]
+        if self.verdict == "pass" and blocking:
+            raise ValueError("a passing verdict cannot carry major/blocking findings")
+        if self.verdict == "fail" and not self.findings:
+            raise ValueError("a failing verdict must name concrete findings")
+        return self
 
 
 class ResearchSnapshotDraftIn(StrictResearchModel):
-    contract_version: Literal["research-snapshot-v1", "research-snapshot-v2"] = (
-        "research-snapshot-v2"
-    )
+    contract_version: Literal["research-snapshot-v3"] = "research-snapshot-v3"
     agent_run_id: int = Field(ge=1)
     lease_owner: str = Field(min_length=1, max_length=200)
     version: int = Field(ge=1)
@@ -348,6 +475,8 @@ class ResearchSnapshotDraftIn(StrictResearchModel):
     def require_aware_as_of(self):
         if self.as_of.tzinfo is None:
             raise ValueError("as_of must include a timezone")
+        if self.sections.outlook is None:
+            raise ValueError("research-snapshot-v3 requires an outlook section")
         return self
 
 
@@ -370,7 +499,11 @@ class ResearchSnapshotOut(BaseModel):
     agent_run_id: int
     verification_run_id: int
     version: int
-    contract_version: Literal["research-snapshot-v1", "research-snapshot-v2"]
+    contract_version: Literal[
+        "research-snapshot-v1",
+        "research-snapshot-v2",
+        "research-snapshot-v3",
+    ]
     status: ResearchSnapshotStatus
     as_of: datetime
     input_fingerprint: str
@@ -419,194 +552,6 @@ class ArchetypePackOut(BaseModel):
     coverage_pct: float
 
 
-class MethodStageReadinessOut(BaseModel):
-    status: Literal["supported", "planned", "draft", "retired"]
-    reason: str | None = None
-
-
-class ResearchMethodStagesOut(BaseModel):
-    discover: MethodStageReadinessOut
-    research: MethodStageReadinessOut
-    valuation: MethodStageReadinessOut
-
-
-class ResearchMethodSourceOut(BaseModel):
-    id: str = Field(min_length=1, max_length=120)
-    label: str = Field(min_length=1, max_length=300)
-    repo_path: str = Field(pattern=r"^docs/source-materials/.+")
-    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    author_identity: str | None
-    source_url: str | None
-    locator: str = Field(min_length=1, max_length=1000)
-    publication_at: datetime | None
-    known_at: datetime | None
-    date_note: str | None
-    retention_status: Literal["retained"]
-
-    @field_validator("publication_at", "known_at")
-    @classmethod
-    def require_timezone_when_dated(cls, value: datetime | None) -> datetime | None:
-        if value is not None and value.tzinfo is None:
-            raise ValueError("method source dates must be timezone-aware")
-        return value
-
-    @model_validator(mode="after")
-    def require_date_or_explicit_unknown(self):
-        if self.publication_at is None and self.known_at is None and not self.date_note:
-            raise ValueError("an undated retained method source requires an explicit date note")
-        return self
-
-
-class ResearchMethodCatalogOut(BaseModel):
-    id: str
-    version: str
-    label: str
-    disclaimer: str
-    stages: ResearchMethodStagesOut
-    evaluation_maturity: Literal[
-        "untested", "diagnostic-cases", "point-in-time-calibrated"
-    ]
-    skill: str | None
-    research_output_schema_version: str | None
-    valuation_output_schema_version: str | None
-    calculation_engine_version: str | None
-    required_verifier_role: str | None
-    source_manifest: list[ResearchMethodSourceOut]
-    required_questions: list[str]
-    required_checks: list["ResearchMethodRequiredCheckOut"]
-    blind_spots: list[str]
-    gaps: list[str]
-
-
-class ResearchMethodRequiredCheckOut(BaseModel):
-    id: str = Field(pattern=r"^[a-z0-9-]+$", min_length=3, max_length=120)
-    label: str = Field(min_length=1, max_length=1000)
-    origin: Literal[
-        "author-stated", "standard-finance", "workbench-operationalization"
-    ]
-
-
-class ResearchMethodPerspectiveFinding(StrictResearchModel):
-    required_check_id: str = Field(pattern=r"^[a-z0-9-]+$", min_length=3, max_length=120)
-    status: Literal["supports", "contradicts", "unknown", "not-applicable"]
-    claim: ResearchClaim
-
-
-class ResearchMethodPerspectiveApplicability(StrictResearchModel):
-    status: Literal["applicable", "not-applicable"]
-    reason: ResearchClaim
-
-
-class ResearchMethodPerspectiveVerifierChecks(StrictResearchModel):
-    schema_integrity: bool
-    source_integrity: bool
-    snapshot_binding: bool
-    method_manifest_integrity: bool
-    attribution: bool
-    non_impersonation: bool
-    applicability: bool
-    unknown_handling: bool
-    no_hidden_blend: bool
-    look_ahead: bool
-
-
-class ResearchMethodPerspectiveVerifierResult(StrictResearchModel):
-    model_role: Literal["verifier_strict"] = "verifier_strict"
-    verifier_model: str = Field(min_length=1, max_length=80)
-    verdict: Literal["pass", "fail", "needs-human"]
-    checks: ResearchMethodPerspectiveVerifierChecks
-    summary: str = Field(min_length=1, max_length=4000)
-
-
-class ResearchMethodPerspectiveDraftIn(StrictResearchModel):
-    contract_version: Literal["research-method-perspective-v1"] = (
-        "research-method-perspective-v1"
-    )
-    agent_run_id: int = Field(ge=1)
-    lease_owner: str = Field(min_length=1, max_length=200)
-    research_snapshot_id: int = Field(ge=1)
-    method_pack_id: str = Field(pattern=r"^[a-z0-9_-]+$", min_length=3, max_length=120)
-    method_pack_version: str = Field(min_length=1, max_length=80)
-    method_manifest: dict
-    method_manifest_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
-    as_of: datetime
-    applicability: ResearchMethodPerspectiveApplicability
-    conclusion: ResearchClaim | None = None
-    findings: list[ResearchMethodPerspectiveFinding] = Field(min_length=1)
-    blind_spots: list[str] = Field(default_factory=list)
-    falsifiers: list[ResearchClaim] = Field(default_factory=list)
-    next_checks: list[ResearchNextCheck] = Field(default_factory=list)
-    gaps: list[ResearchGap] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def require_aware_as_of(self):
-        if self.as_of.tzinfo is None:
-            raise ValueError("as_of must include a timezone")
-        if self.applicability.status == "applicable" and self.conclusion is None:
-            raise ValueError("applicable method perspectives require a conclusion")
-        if self.applicability.status == "not-applicable" and self.conclusion is not None:
-            raise ValueError("not-applicable method perspectives cannot have a conclusion")
-        if self.conclusion is not None and self.conclusion.kind not in {
-            "fact",
-            "calculation",
-            "unknown",
-        }:
-            raise ValueError("method perspective conclusions require factual, calculation, or explicit unknown provenance")
-        return self
-
-
-class ResearchMethodPerspectiveVerificationIn(StrictResearchModel):
-    verifier_worker_id: str = Field(min_length=1, max_length=200)
-    draft: ResearchMethodPerspectiveDraftIn
-    verifier_result: ResearchMethodPerspectiveVerifierResult
-
-
-class ResearchMethodPerspectiveSaveIn(ResearchMethodPerspectiveDraftIn):
-    verification_run_id: int = Field(ge=1)
-
-
-class ResearchMethodPerspectiveOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    research_case_id: int
-    research_snapshot_id: int
-    agent_run_id: int
-    verification_run_id: int
-    method_pack_id: str
-    method_pack_version: str
-    contract_version: Literal["research-method-perspective-v1"]
-    status: ResearchSnapshotStatus
-    as_of: datetime
-    method_manifest: dict
-    method_manifest_fingerprint: str
-    applicability: ResearchMethodPerspectiveApplicability
-    conclusion: ResearchClaim | None
-    findings: list[ResearchMethodPerspectiveFinding]
-    blind_spots: list[str]
-    falsifiers: list[ResearchClaim]
-    next_checks: list[ResearchNextCheck]
-    gaps: list[ResearchGap]
-    input_fingerprint: str
-    artifact_fingerprint: str
-    verifier_result: ResearchMethodPerspectiveVerifierResult
-    created_at: datetime
-
-
-class ResearchMethodPerspectiveQueueIn(StrictResearchModel):
-    research_snapshot_id: int = Field(ge=1)
-    method_pack_id: str = Field(pattern=r"^[a-z0-9_-]+$", min_length=3, max_length=120)
-
-
-class ResearchMethodPerspectiveQueueOut(BaseModel):
-    agent_run_id: int
-    status: str
-    created: bool
-    research_snapshot_id: int
-    method_pack_id: str
-    method_manifest_fingerprint: str
-
-
 class ResearchCaseWorkspaceOut(BaseModel):
     research_case: ResearchCaseSummaryOut
     # Profile bound to latest_snapshot (or the only profile before first save).
@@ -618,23 +563,12 @@ class ResearchCaseWorkspaceOut(BaseModel):
     latest_snapshot: ResearchSnapshotOut | None
     history: list[ResearchSnapshotHistoryOut]
     archetype_pack: ArchetypePackOut | None = None
-    method_catalog: list[ResearchMethodCatalogOut]
-    method_perspectives: list[ResearchMethodPerspectiveOut]
 
 
 # --------------------------------------------------------------- valuation v1
 
 ValuationScenarioKind = Literal["negative", "base", "positive", "event"]
 ValuationStatus = Literal["provisional", "verified", "rejected", "needs-human"]
-
-
-class ValuationMethodPackOut(BaseModel):
-    id: str
-    version: str
-    label: str
-    status: Literal["ready", "blocked"]
-    reason: str | None = None
-    skill: str | None = None
 
 
 class ValuationAssumptionValue(StrictResearchModel):
@@ -703,8 +637,9 @@ class ValuationScenarioAssumptions(StrictResearchModel):
 
 
 class ValuationRequestIn(StrictResearchModel):
+    """Deterministic preview/override input: explicit assumption grid."""
+
     research_snapshot_id: int = Field(ge=1)
-    method_pack_id: str = "malik_obs_v1"
     assumptions: list[ValuationScenarioAssumptions] = Field(min_length=3, max_length=4)
     as_of: datetime
 
@@ -723,17 +658,19 @@ class ValuationRequestIn(StrictResearchModel):
 
 
 class ValuationScenarioJudgment(StrictResearchModel):
+    """Drafter-owned, company-specific scenario judgment (VISION V4)."""
+
     kind: ValuationScenarioKind
-    mechanism: str = Field(min_length=1, max_length=2000)
-    proposed_probability_pct: int = Field(ge=0, le=100)
-    probability_rationale: str = Field(min_length=1, max_length=1000)
+    mechanism: str = Field(min_length=30, max_length=2000)
+    probability_pct: int = Field(ge=0, le=100)
+    probability_rationale: str = Field(min_length=30, max_length=1000)
     catalyst_or_counter_driver: str = Field(min_length=1, max_length=1000)
     falsifier: str = Field(min_length=1, max_length=1000)
     gaps: list[str] = Field(default_factory=list)
 
 
 class ValuationDraftJudgment(StrictResearchModel):
-    method_read: str = Field(min_length=1, max_length=4000)
+    strategy_read: str = Field(min_length=1, max_length=4000)
     scenarios: list[ValuationScenarioJudgment] = Field(min_length=3, max_length=4)
     catalysts: list[str] = Field(default_factory=list)
     falsifiers: list[str] = Field(default_factory=list)
@@ -743,11 +680,14 @@ class ValuationDraftJudgment(StrictResearchModel):
         kinds = [row.kind for row in self.scenarios]
         if len(kinds) != len(set(kinds)):
             raise ValueError("judgment scenario kinds must be unique")
+        total = sum(row.probability_pct for row in self.scenarios)
+        if not 99 <= total <= 101:
+            raise ValueError("scenario probabilities must sum to 100")
         return self
 
 
 class ValuationSnapshotDraftIn(StrictResearchModel):
-    contract_version: Literal["valuation-snapshot-v1"] = "valuation-snapshot-v1"
+    contract_version: Literal["valuation-snapshot-v2"] = "valuation-snapshot-v2"
     engine_version: Literal["valuation-engine-v2"] = "valuation-engine-v2"
     template_contract_version: Literal["valuation-templates-v1"] = (
         "valuation-templates-v1"
@@ -757,8 +697,6 @@ class ValuationSnapshotDraftIn(StrictResearchModel):
     version: int = Field(ge=1)
     research_snapshot_id: int = Field(ge=1)
     as_of: datetime
-    method_pack_id: str
-    method_pack_version: str
     template_id: str
     template_version: str
     assumptions: list[ValuationScenarioAssumptions]
@@ -777,44 +715,41 @@ class ValuationSnapshotDraftIn(StrictResearchModel):
         return self
 
 
-class ValuationVerifierChecks(StrictResearchModel):
-    schema_integrity: bool
-    source_integrity: bool
-    company_identity: bool
-    look_ahead: bool
-    math_integrity: bool
-    probability_coherence: bool
-    method_integrity: bool
+class ValuationVerifierFinding(StrictResearchModel):
+    severity: Literal["minor", "major", "blocking"]
+    area: str = Field(min_length=1, max_length=120)
+    detail: str = Field(min_length=20, max_length=2000)
 
 
-class ValuationFinalProbability(StrictResearchModel):
-    kind: ValuationScenarioKind
-    probability_pct: int = Field(ge=0, le=100)
-    rationale: str = Field(min_length=1, max_length=1000)
+class ValuationJudgmentReview(StrictResearchModel):
+    """Adversarial review of what cannot be computed (VISION V5).
+
+    Each field must reference the evidence examined; empty confirmations are
+    rejected by the artifact boundary.
+    """
+
+    evidence_fit: str = Field(min_length=60, max_length=3000)
+    mechanism_plausibility: str = Field(min_length=60, max_length=3000)
+    probability_reasonableness: str = Field(min_length=60, max_length=3000)
 
 
 class ValuationVerifierResult(StrictResearchModel):
     model_role: Literal["verifier_strict"] = "verifier_strict"
     verifier_model: str = Field(min_length=1, max_length=80)
     verdict: Literal["pass", "fail", "needs-human"]
-    checks: ValuationVerifierChecks
-    final_probabilities: list[ValuationFinalProbability] = Field(
-        default_factory=list, max_length=4
-    )
+    findings: list[ValuationVerifierFinding] = Field(default_factory=list, max_length=20)
+    judgment_review: ValuationJudgmentReview
     summary: str = Field(min_length=1, max_length=4000)
 
     @model_validator(mode="after")
-    def validate_probabilities(self):
-        kinds = [row.kind for row in self.final_probabilities]
-        if len(kinds) != len(set(kinds)):
-            raise ValueError("final probability kinds must be unique")
-        if self.verdict == "pass":
-            if len(self.final_probabilities) < 3:
-                raise ValueError("passing verification requires final probabilities")
-            if sum(row.probability_pct for row in self.final_probabilities) != 100:
-                raise ValueError("final probabilities must sum exactly to 100")
-        elif self.final_probabilities:
-            raise ValueError("fail/needs-human verdicts do not own final probabilities")
+    def validate_adversarial_contract(self):
+        blocking = [f for f in self.findings if f.severity in {"major", "blocking"}]
+        if self.verdict == "pass" and blocking:
+            raise ValueError(
+                "a passing verdict cannot carry major/blocking findings"
+            )
+        if self.verdict == "fail" and not self.findings:
+            raise ValueError("a failing verdict must name concrete findings")
         return self
 
 
@@ -828,20 +763,38 @@ class ValuationSnapshotSaveIn(ValuationSnapshotDraftIn):
     verification_run_id: int = Field(ge=1)
 
 
+class ValuationQueueIn(StrictResearchModel):
+    """Queue a Codex-drafted valuation: the drafter owns the assumptions."""
+
+    research_snapshot_id: int | None = Field(default=None, ge=1)
+    as_of: datetime | None = None
+
+    @model_validator(mode="after")
+    def require_aware_as_of(self):
+        if self.as_of is not None and self.as_of.tzinfo is None:
+            raise ValueError("as_of must include a timezone")
+        return self
+
+
+class ValuationOverrideIn(ValuationRequestIn):
+    """Human correction: explicit grid saved as a provisional override version."""
+
+    note: str = Field(min_length=1, max_length=2000)
+
+
 class ValuationSnapshotOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     research_case_id: int
     research_snapshot_id: int
-    agent_run_id: int
-    verification_run_id: int
+    agent_run_id: int | None
+    verification_run_id: int | None
     version: int
     contract_version: str
     status: ValuationStatus
+    origin: Literal["codex", "human-override"]
     as_of: datetime
-    method_pack_id: str
-    method_pack_version: str
     template_id: str
     template_version: str
     calculation_engine_version: str
@@ -862,8 +815,8 @@ class ValuationHistoryOut(BaseModel):
     id: int
     version: int
     status: ValuationStatus
+    origin: str
     as_of: datetime
-    method_pack_id: str
     template_id: str
     created_at: datetime
 
@@ -871,7 +824,6 @@ class ValuationHistoryOut(BaseModel):
 class ValuationWorkspaceOut(BaseModel):
     research_case_id: int
     latest_research_snapshot_id: int | None
-    method_packs: list[ValuationMethodPackOut]
     template: dict | None
     latest_valuation: ValuationSnapshotOut | None
     history: list[ValuationHistoryOut]
@@ -950,16 +902,16 @@ class PortfolioReviewDraftIn(StrictResearchModel):
         return self
 
 
-class PortfolioReviewVerifierChecks(StrictResearchModel):
-    snapshot_source_identity: bool
-    reconciliation: bool
-    mapping_set: bool
-    method_labels: bool
-    scenario_arithmetic: bool
-    eligible_valuations: bool
-    look_ahead: bool
-    draft_fingerprint: bool
-    no_recommendation: bool
+class PortfolioReviewVerifierFinding(StrictResearchModel):
+    severity: Literal["minor", "major", "blocking"]
+    area: str = Field(min_length=1, max_length=120)
+    detail: str = Field(min_length=20, max_length=2000)
+
+
+class PortfolioReviewVerifierJustifications(StrictResearchModel):
+    concentration_and_liquidity: str = Field(min_length=60, max_length=3000)
+    history_and_scenario_exposure: str = Field(min_length=60, max_length=3000)
+    risks_and_decision_support_boundary: str = Field(min_length=60, max_length=3000)
 
 
 class PortfolioReviewVerifierResult(StrictResearchModel):
@@ -969,7 +921,10 @@ class PortfolioReviewVerifierResult(StrictResearchModel):
     actual_host_model: str = Field(min_length=1, max_length=160)
     substitution_or_escalation: str | None = Field(default=None, max_length=1000)
     verdict: Literal["pass", "fail", "needs-human"]
-    checks: PortfolioReviewVerifierChecks
+    findings: list[PortfolioReviewVerifierFinding] = Field(
+        default_factory=list, max_length=20
+    )
+    justifications: PortfolioReviewVerifierJustifications
     summary: str = Field(min_length=1, max_length=3000)
 
     @model_validator(mode="after")
@@ -979,6 +934,11 @@ class PortfolioReviewVerifierResult(StrictResearchModel):
             self.actual_host_model,
             self.substitution_or_escalation,
         )
+        blocking = [item for item in self.findings if item.severity in {"major", "blocking"}]
+        if self.verdict == "pass" and blocking:
+            raise ValueError("a passing verdict cannot carry major/blocking findings")
+        if self.verdict == "fail" and not self.findings:
+            raise ValueError("a failing verdict must name concrete findings")
         return self
 
 
@@ -1022,7 +982,6 @@ class PortfolioReviewSnapshotOut(BaseModel):
 
 class ValuationPreviewOut(BaseModel):
     research_snapshot_id: int
-    method_pack: ValuationMethodPackOut
     template: dict
     base_values: dict
     deterministic_outputs: dict
@@ -1039,22 +998,7 @@ class ValuationQueueOut(BaseModel):
     input_fingerprint: str
 
 
-class ResearchCaseStepHistoryOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    research_case_id: int
-    from_state: CaseState | None
-    from_step: CaseStep | None
-    to_state: CaseState
-    to_step: CaseStep
-    reason: str
-    changed_by: str | None
-    created_at: datetime
-
-
 AssumptionScenarioKind = Literal["negative", "base", "positive", "event"]
-AssumptionStatus = Literal["draft", "approved", "rejected"]
 AssumptionProvenance = Literal["evidence", "human_assumption", "model_suggestion"]
 
 
@@ -1065,36 +1009,6 @@ class AssumptionItemIn(BaseModel):
     provenance: AssumptionProvenance
     source_ref: str | None = Field(default=None, max_length=240)
     rationale: str = Field(min_length=1, max_length=1000)
-
-
-class AssumptionSetCreateIn(BaseModel):
-    scenario_kind: AssumptionScenarioKind
-    label: str = Field(min_length=1, max_length=120)
-    status: AssumptionStatus = "draft"
-    as_of: datetime | None = None
-    assumptions: list[AssumptionItemIn] = Field(max_length=30)
-
-
-class AssumptionSetUpdateIn(BaseModel):
-    label: str | None = Field(default=None, min_length=1, max_length=120)
-    status: AssumptionStatus | None = None
-    as_of: datetime | None = None
-    assumptions: list[AssumptionItemIn] | None = Field(default=None, max_length=30)
-
-
-class AssumptionSetOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    research_case_id: int
-    scenario_kind: AssumptionScenarioKind
-    label: str
-    status: AssumptionStatus
-    as_of: datetime | None
-    assumptions: list[AssumptionItemIn]
-    created_by: str | None
-    created_at: datetime
-    updated_at: datetime
 
 
 # -------------------------------------------------------- decision journal
@@ -1136,47 +1050,32 @@ class DecisionJournalEntryCreateIn(BaseModel):
 # --------------------------------------------------------------- discovery
 
 
-class DiscoveryCandidateOut(BaseModel):
-    ticker: str
-    name: str | None
-    neutral_context: list["DiscoveryContextOut"]
-    memberships: list["DiscoveryCandidateMembershipOut"]
-    overlap: "DiscoveryOverlapOut"
-
-
-class DiscoveryMembershipFactorOut(BaseModel):
+class DiscoveryFactorOut(BaseModel):
     id: str
     label: str
     note: str | None = None
     value: float | int | None
-    report_period: str
-    source_document_version_id: int
+    delta: float | None = None
+    period: str | None = None
+    source_document_version_id: int | None = None
 
 
-class DiscoveryCandidateMembershipOut(BaseModel):
-    sieve_id: str
-    sieve_version: str
+class DiscoveryCandidateOut(BaseModel):
+    ticker: str
+    name: str | None
     rank: int | None
     rank_basis: list[str]
-    factor_status: Literal["current", "stale"]
-    factors: list[DiscoveryMembershipFactorOut]
+    factors: list[DiscoveryFactorOut]
     factor_gaps: list[str]
-    strategy_questions: list[str]
-    caveat: str
-    source: "DiscoverySieveSourceOut | None" = None
-    freshness: "DiscoveryFreshnessOut | None" = None
+    improvement_signals: list[str]
 
 
-class DiscoveryOverlapOut(BaseModel):
-    sieve_ids: list[str]
-    count: int
-
-
-class DiscoveryContextOut(BaseModel):
-    id: Literal["wig_bucket", "sector", "size"]
-    label: str
-    value: str | None
-    basis: str
+class DiscoveryExcludedOut(BaseModel):
+    ticker: str
+    name: str | None
+    kill_reasons: list[str] = Field(min_length=1)
+    factors: list[DiscoveryFactorOut]
+    factor_gaps: list[str]
 
 
 class DiscoverySieveFactorCoverageOut(BaseModel):
@@ -1187,10 +1086,11 @@ class DiscoverySieveFactorCoverageOut(BaseModel):
 
 
 class DiscoverySieveRuleOut(BaseModel):
+    layer: Literal["hard_kill", "improvement"]
     factor_id: str
     label: str
-    operator: Literal["gte"]
-    threshold: float
+    operator: Literal["lt", "lte", "gt", "gte", "eq", "composite"]
+    threshold: float | None = None
 
 
 class DiscoverySieveSourceOut(BaseModel):
@@ -1217,19 +1117,15 @@ class DiscoverySieveOut(BaseModel):
     question: str
     status: Literal["available", "blocked"]
     universe_count: int
-    candidate_count: int
+    survivor_count: int
+    excluded_count: int
     coverage_count: int
     coverage_pct: float
-    selection_rules: list[DiscoverySieveRuleOut]
+    rules: list[DiscoverySieveRuleOut]
     factor_coverage: list[DiscoverySieveFactorCoverageOut]
     source: DiscoverySieveSourceOut | None = None
     freshness: DiscoveryFreshnessOut | None = None
-    candidates: list["DiscoverySieveCandidateRefOut"]
     gaps: list[str]
-
-
-class DiscoverySieveCandidateRefOut(BaseModel):
-    ticker: str
 
 
 class DiscoveryOut(BaseModel):
@@ -1241,8 +1137,9 @@ class DiscoveryOut(BaseModel):
     source_note: str
     source_version_id: int
     freshness: DiscoveryFreshnessOut
+    sieve: DiscoverySieveOut
     candidates: list[DiscoveryCandidateOut]
-    sieves: list[DiscoverySieveOut]
+    excluded: list[DiscoveryExcludedOut]
 
 
 # ---------------------------------------------------------------- companies
@@ -1295,6 +1192,7 @@ class DividendOut(BaseModel):
 class PriceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    source_version_id: int | None
     date: date
     close: float
     volume: int | None
@@ -1343,37 +1241,6 @@ class ForumPageOut(BaseModel):
     page: int
     page_size: int
     posts: list[ForumPostOut]
-
-
-# ----------------------------------------------------------------- forecast
-
-
-class ForecastAssumptionsIn(BaseModel):
-    """Next-quarter assumptions; every value in tys. PLN unless stated."""
-
-    period: str = Field(pattern=r"^\d{4}Q[1-4]$")
-    revenue: float
-    gross_margin_pct: float = Field(ge=-100, le=100)
-    selling_costs_pct: float = Field(ge=0, le=100)
-    admin_costs: float
-    other_operating: float = 0.0
-    financial_net: float = 0.0
-    tax_rate: float = Field(default=0.19, ge=0, le=1)
-    depreciation: float | None = None
-
-
-class ForecastCreateIn(BaseModel):
-    assumptions: ForecastAssumptionsIn
-    label: str | None = Field(default=None, max_length=120)
-    save: bool = True
-
-
-class ForecastOut(BaseModel):
-    id: int | None  # None when computed without saving
-    label: str | None
-    assumptions: dict
-    result: dict
-    created_at: datetime | None
 
 
 # ------------------------------------------------------------------ dossier
@@ -1685,11 +1552,6 @@ class ScenarioSetOut(BaseModel):
     framing: str  # fixed "punkt wejścia w analizę, nie sygnał"
     disclaimer: str
     quality_warnings: list[str] = Field(default_factory=list)
-    # Approved case inputs are shown as context only until RT4.3b wires them
-    # into operating equations. Keeping the full provenance-bearing contract
-    # here prevents sourced facts and human/model assumptions from collapsing
-    # into one unlabeled number.
-    approved_assumption_sets: list[AssumptionSetOut] = Field(default_factory=list)
     driver_sensitivity: ScenarioDriverSensitivityOut = Field(
         default_factory=lambda: ScenarioDriverSensitivityOut(
             status="none",
@@ -1816,35 +1678,6 @@ class AgentRunOut(BaseModel):
     updated_at: datetime
 
 
-class AgentRunCreateIn(BaseModel):
-    """Queue a provider-neutral Codex/GPT workflow for later execution."""
-
-    workflow: str = Field(min_length=1, max_length=80)
-    ticker: str | None = Field(default=None, min_length=1, max_length=12)
-    trigger: str = Field(default="ui-request", min_length=1, max_length=30)
-    model_role: str | None = Field(default=None, max_length=40)
-    model: str | None = Field(default=None, max_length=80)
-    orchestrator_model: str | None = Field(default=None, max_length=80)
-    available_at: datetime | None = None
-    inputs: dict = Field(default_factory=dict)
-
-
-class PreSessionBriefIn(BaseModel):
-    """HTTP/n8n-friendly trigger for the pre-session Codex workflow."""
-
-    ticker: str | None = Field(default=None, min_length=1, max_length=12)
-    trigger: str = Field(default="ui-request", min_length=1, max_length=30)
-    orchestrator_model: str | None = Field(default=None, max_length=80)
-    fetch_details: bool = True
-    queue: bool = True
-
-
-class PreSessionBriefOut(BaseModel):
-    ok: bool
-    espi_poll: dict
-    agent_run: AgentRunOut | None
-
-
 class ResearchLabCreateOut(BaseModel):
     research_case: ResearchCaseSummaryOut
     agent_run: AgentRunOut
@@ -1911,133 +1744,6 @@ class FalsifierUpdateIn(BaseModel):
     review_date: date | None = None
 
 
-class AnalysisRunOut(BaseModel):
-    """Provider-neutral analysis result, used by Codex/MCP workflows."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    company_id: int
-    agent_run_id: int | None
-    source: str
-    workflow: str
-    model_role: str
-    model: str
-    status: str
-    verification_status: str
-    input_snapshot: dict
-    output: dict
-    output_contract_version: str
-    verification: dict
-    alignment_score: int | None
-    created_by: str | None
-    created_at: datetime
-
-
-class EventReportOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    company_id: int | None
-    source: str
-    external_id: str
-    raw_url: str | None
-    published_at: datetime | None
-    scraped_at: datetime
-    title: str | None
-    parsed: dict
-    materiality: dict
-
-
-class BacktestRunOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    agent_run_id: int | None
-    strategy: str
-    from_date: date | None
-    to_date: date | None
-    status: str
-    model_role: str | None
-    model: str | None
-    parameters: dict
-    summary: dict
-    verification_status: str
-    created_at: datetime
-
-
-class BacktestObservationOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    backtest_run_id: int
-    company_id: int
-    as_of_date: date
-    known_inputs: dict
-    signal: dict
-    outcome: dict
-    created_at: datetime
-
-
-class BacktestRunDetailOut(BacktestRunOut):
-    observations: list[BacktestObservationOut]
-
-
-class BacktestRunCreateIn(BaseModel):
-    strategy: str = Field(default="malik_v1", min_length=1, max_length=80)
-    from_date: date
-    to_date: date
-    ticker: str | None = Field(default=None, min_length=1, max_length=12)
-    outcome_windows: list[int] = Field(default_factory=lambda: [30, 90, 180, 365])
-    financial_availability_policy: str = Field(default="scraped_at")
-    report_lag_days: int = Field(default=120, ge=0, le=730)
-
-
-class AgentEvaluationRunOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    agent_run_id: int | None
-    strategy: str
-    from_date: date | None
-    to_date: date | None
-    status: str
-    model_role: str | None
-    model: str | None
-    parameters: dict
-    summary: dict
-    verification_status: str
-    created_at: datetime
-
-
-class AgentEvaluationObservationOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    evaluation_run_id: int
-    analysis_run_id: int
-    company_id: int
-    as_of_date: date
-    known_inputs: dict
-    prediction: dict
-    outcome: dict
-    score: dict
-    created_at: datetime
-
-
-class AgentEvaluationRunDetailOut(AgentEvaluationRunOut):
-    observations: list[AgentEvaluationObservationOut]
-
-
-class AgentEvaluationRunCreateIn(BaseModel):
-    strategy: str = Field(default="valuation_direction_v1", min_length=1, max_length=80)
-    from_date: date | None = None
-    to_date: date | None = None
-    ticker: str | None = Field(default=None, min_length=1, max_length=12)
-    workflow: str | None = Field(default=None, min_length=1, max_length=80)
-    outcome_windows: list[int] = Field(default_factory=lambda: [30, 90, 180, 365])
-
-
 class DossierOut(BaseModel):
     company: CompanyOut
     freshness: FreshnessOut
@@ -2054,5 +1760,4 @@ class DossierOut(BaseModel):
     thesis: ThesisOut
     scenarios: ScenarioSetOut
     valuation: ValuationOut
-    latest_forecast: ForecastOut | None
     forum: ForumStatsOut

@@ -44,27 +44,10 @@ def test_health(client):
     assert response.json() == {"status": "ok"}
 
 
-def test_watchlist_crud(client):
-    created = client.post("/api/watchlist", json={"ticker": "dec", "note": "test"})
-    assert created.status_code == 201
-    assert created.json()["ticker"] == "DEC"
+def test_refresh_and_read_endpoints(client, stub_fetch, db):
+    from sqlalchemy import select
+    from app.db.models import DocumentVersion, Fact, SourceDocument
 
-    assert client.post("/api/watchlist", json={"ticker": "DEC"}).status_code == 409
-
-    items = client.get("/api/watchlist").json()
-    assert [item["ticker"] for item in items] == ["DEC"]
-    assert client.get("/api/companies/DEC").status_code == 200
-
-    assert client.delete("/api/watchlist/DEC").status_code == 204
-    assert client.get("/api/companies/DEC").status_code == 200
-    assert client.delete("/api/watchlist/DEC").status_code == 404
-
-    recreated = client.post("/api/watchlist", json={"ticker": "DEC"})
-    assert recreated.status_code == 201
-    assert recreated.json()["name"] is None
-
-
-def test_refresh_and_read_endpoints(client, stub_fetch):
     response = client.post("/api/companies/DEC/refresh")
     assert response.status_code == 200
     summary = response.json()["summary"]
@@ -105,6 +88,31 @@ def test_refresh_and_read_endpoints(client, stub_fetch):
     assert info["market_cap"] == 258_877_658
     assert info["enterprise_value"] == 236_877_658
 
+    profile_version = db.scalar(
+        select(DocumentVersion)
+        .join(SourceDocument, DocumentVersion.source_document_id == SourceDocument.id)
+        .where(
+            SourceDocument.company_ticker == "DEC",
+            SourceDocument.source_type == "company_profile",
+            SourceDocument.scope_key == "current",
+        )
+    )
+    assert profile_version is not None and profile_version.parse_status == "parsed"
+    scalar_facts = {
+        row.fact_key: (float(row.numeric_value), row.unit)
+        for row in db.scalars(
+            select(Fact).where(
+                Fact.source_version_id == profile_version.id,
+                Fact.fact_type == "company_scalar",
+            )
+        )
+    }
+    assert scalar_facts == {
+        "company.enterprise_value": (236_877_658.0, "PLN"),
+        "company.market_cap": (258_877_658.0, "PLN"),
+        "company.shares_outstanding": (10_566_435.0, "shares"),
+    }
+
     financials = client.get(
         "/api/companies/DEC/financials", params={"statement": "income", "freq": "Q"}
     ).json()
@@ -127,25 +135,7 @@ def test_refresh_and_read_endpoints(client, stub_fetch):
 
     prices = client.get("/api/companies/DEC/prices").json()
     assert prices[-1]["close"] == 24.80  # chronological, newest from BR archive
-
-
-def test_refresh_never_runs_forum_expectation_model_inline(
-    client, stub_fetch, monkeypatch
-):
-    def forbidden(*_args, **_kwargs):
-        raise AssertionError("forum interpretation must run only in a claimed AgentRun")
-
-    monkeypatch.setattr(
-        "app.services.refresh._refresh_forum_expectations",
-        forbidden,
-    )
-
-    response = client.post("/api/companies/DEC/refresh")
-
-    assert response.status_code == 200
-    assert response.json()["summary"]["forum_expectations"] == (
-        "pominięto (wykonuje kolejka Codex)"
-    )
+    assert prices[-1]["source_version_id"] is not None
 
 
 def test_refresh_reports_empty_forecast_consensus_columns(client, db, monkeypatch):

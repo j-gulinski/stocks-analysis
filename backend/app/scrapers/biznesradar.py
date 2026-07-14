@@ -119,7 +119,7 @@ class MarketCandidate:
 
     This is discovery evidence, not our strategy score.  Keeping the source
     fields verbatim lets the research layer explain why a ticker surfaced
-    without pretending the BR rating is a Malik/OBS recommendation.
+    without pretending the source rating is a Workbench recommendation.
     """
 
     ticker: str

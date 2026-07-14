@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import timezone
 import hashlib
 import json
@@ -19,11 +18,6 @@ from app.api.schemas import (
     ResearchCaseSummaryOut,
     ResearchLabCreateIn,
     ResearchLabCreateOut,
-    ResearchMethodPerspectiveOut,
-    ResearchMethodPerspectiveQueueIn,
-    ResearchMethodPerspectiveQueueOut,
-    ResearchMethodPerspectiveSaveIn,
-    ResearchMethodPerspectiveVerificationIn,
     ResearchReviewQueueOut,
     ResearchSnapshotHistoryOut,
     ResearchSnapshotOut,
@@ -38,12 +32,11 @@ from app.db.models import (
     DocumentVersion,
     ResearchCase,
     ResearchCaseStepHistory,
-    ResearchMethodPerspective,
     ResearchSnapshot,
     SourceDocument,
+    ValuationSnapshot,
     utcnow,
 )
-from app.scrapers.biznesradar import MarketCandidate, ParseError, parse_market_rating
 from app.services.archetype_packs import coverage_payload
 from app.services.company_profiles import (
     CompanyProfileError,
@@ -51,20 +44,10 @@ from app.services.company_profiles import (
     frozen_profile,
 )
 from app.services.model_policy import default_model_for_workflow
-from app.services.research_method_catalog import (
-    freeze_research_method_manifest,
-    list_research_method_catalog,
-)
 from app.services.research_artifacts import (
     ResearchArtifactError,
     save_research_snapshot,
     verify_research_snapshot,
-)
-from app.services.research_method_perspectives import (
-    ResearchMethodPerspectiveError,
-    frozen_research_snapshot_bundle,
-    save_research_method_perspective,
-    verify_research_method_perspective,
 )
 
 router = APIRouter(prefix="/research-cases", tags=["research-cases"])
@@ -72,115 +55,12 @@ router = APIRouter(prefix="/research-cases", tags=["research-cases"])
 _PURPOSE = "investment-research"
 _WORKFLOW = "stock-initial-research"
 _REVIEW_WORKFLOW = "stock-company-review"
-_SKILL_VERSION = "company-research-v2"
-_OUTPUT_CONTRACT_VERSION = "research-snapshot-v2"
+_SKILL_VERSION = "company-research-v3"
+_OUTPUT_CONTRACT_VERSION = "research-snapshot-v3"
 _PROFILE_SCHEMA_VERSION = "company-profile-v2"
 _ARCHETYPE_CONTRACT_VERSION = "archetype-packs-v1"
-_METHOD_PERSPECTIVE_WORKFLOW = "stock-research-method-perspective"
-_METHOD_PERSPECTIVE_SKILL_VERSION = "research-method-perspective-v1"
-_METHOD_PERSPECTIVE_CONTRACT_VERSION = "research-method-perspective-v1"
-_DISCOVERY_SIEVE_ID = "financial_health_br_v1"
-_DISCOVERY_SIEVE_VERSION = "financial-health-br-v1"
-
-
-@dataclass(frozen=True)
-class _ResolvedSource:
-    version: DocumentVersion | None
-    candidate: MarketCandidate | None
-
-
-def _source_for_request(db: Session, payload: ResearchLabCreateIn) -> _ResolvedSource:
-    if payload.source_document_version_id is None:
-        return _ResolvedSource(version=None, candidate=None)
-
-    version = db.scalar(
-        select(DocumentVersion)
-        .join(SourceDocument, DocumentVersion.source_document_id == SourceDocument.id)
-        .where(
-            DocumentVersion.id == payload.source_document_version_id,
-            SourceDocument.company_ticker == "__GPW__",
-            SourceDocument.source_type == "market_rating",
-            DocumentVersion.parse_status == "parsed",
-        )
-    )
-    if version is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Unknown parsed discovery source version.",
-        )
-    try:
-        candidate = next(
-            (
-                row
-                for row in parse_market_rating(version.raw_content)
-                if row.ticker == payload.ticker.strip().upper()
-            ),
-            None,
-        )
-    except ParseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="The frozen discovery source can no longer be parsed.",
-        ) from exc
-    if candidate is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Ticker is not present in this immutable discovery version.",
-        )
-    return _ResolvedSource(version=version, candidate=candidate)
-
-
 def _initial_run_key(case_id: int) -> str:
     return f"research-case-initial-research:{case_id}"
-
-
-def _discovery_origin(source: _ResolvedSource) -> dict | None:
-    """Freeze why a Discover click admitted this company to Research."""
-    if source.version is None or source.candidate is None:
-        return None
-    candidate = source.candidate
-    as_of = source.version.fetched_at
-    if as_of.tzinfo is None:
-        as_of = as_of.replace(tzinfo=timezone.utc)
-    return {
-        "sieve_id": _DISCOVERY_SIEVE_ID,
-        "sieve_version": _DISCOVERY_SIEVE_VERSION,
-        "source_document_version_id": source.version.id,
-        "parser_version": source.version.parser_version,
-        "as_of": as_of.isoformat(),
-        "report_period": candidate.report_period,
-        "membership_factors": [
-            {
-                "id": "altman_em_score",
-                "label": "Wartość Altman EM-Score",
-                "value": candidate.rating_value,
-                "report_period": candidate.report_period,
-                "source_document_version_id": source.version.id,
-            },
-            {
-                "id": "piotroski_f_score",
-                "label": "Piotroski F-Score",
-                "value": candidate.piotroski_f_score,
-                "report_period": candidate.report_period,
-                "source_document_version_id": source.version.id,
-            },
-        ],
-        "factor_gaps": (
-            ["Brak F-Score Piotroskiego w zapisanym źródle."]
-            if candidate.piotroski_f_score is None
-            else []
-        ),
-        "strategy_questions": [
-            "Jaki mechanizm może poprawić wyniki w kolejnym kwartale lub roku?",
-            "Czy wynik bazowy i przepływy pieniężne potwierdzają jakość poprawy?",
-            "Jaki katalizator i falsyfikator uzasadniają dalszy Research?",
-        ],
-        "neutral_context": [
-            {"id": "wig_bucket", "value": None, "basis": "Brak w zapisanym źródle rynkowego ratingu."},
-            {"id": "sector", "value": None, "basis": "Brak w zapisanym źródle rynkowego ratingu."},
-            {"id": "size", "value": None, "basis": "Brak raportowanej kapitalizacji w zapisanym źródle rynkowego ratingu."},
-        ],
-    }
 
 
 def _review_source_state(db: Session, company_id: int) -> tuple[str, list[dict]]:
@@ -223,8 +103,101 @@ def _summary(
     agent: AgentRun | None,
     latest_snapshot: ResearchSnapshot | None = None,
     latest_agent: AgentRun | None = None,
+    latest_valuation: ValuationSnapshot | None = None,
 ) -> ResearchCaseSummaryOut:
     current_agent = latest_agent or agent
+    brief = (latest_snapshot.sections or {}).get("brief", {}) if latest_snapshot else {}
+    phase_summary = str(brief.get("current_understanding") or "").strip()
+    main_gap = str(brief.get("main_gap") or "").strip() or case.blocked_reason
+    collection_progress = None
+    valuation_strip = None
+    if latest_snapshot is None:
+        phase = "collecting"
+        phase_label = "Zbieranie"
+        state = "waiting"
+        phase_summary = "Research czeka na rozpoczęcie zbierania źródeł."
+        if current_agent is not None and current_agent.status == "running":
+            state = "collecting"
+            phase_summary = "Trwa zbieranie i porządkowanie źródeł spółki."
+        elif current_agent is not None and current_agent.status in {
+            "rejected",
+            "needs-human",
+            "failed",
+        }:
+            state = "attention"
+            phase_summary = (
+                case.blocked_reason
+                or current_agent.error
+                or "Zbieranie wymaga interwencji."
+            )
+        raw_progress = (
+            (current_agent.outputs or {}).get("collection_progress")
+            if current_agent is not None
+            else None
+        )
+        raw_progress = raw_progress if isinstance(raw_progress, dict) else {}
+        percent = raw_progress.get("percent")
+        collection_progress = {
+            "state": state,
+            "summary": phase_summary,
+            "completed_sources": list(raw_progress.get("completed_sources") or []),
+            "remaining_sources": list(raw_progress.get("remaining_sources") or []),
+            "percent": percent if isinstance(percent, int) else None,
+        }
+    elif latest_valuation is None:
+        phase = "researched"
+        phase_label = "Zbadana"
+    else:
+        phase = "valued"
+        phase_label = "Wyceniona"
+        outputs = latest_valuation.deterministic_outputs or {}
+        scenario_rows = [
+            row for row in outputs.get("scenarios", []) if isinstance(row, dict)
+        ]
+        prices = {
+            str(row.get("kind")): (
+                float(row["target_price_pln"])
+                if row.get("target_price_pln") is not None
+                else None
+            )
+            for row in scenario_rows
+            if row.get("kind")
+        }
+        probability_rows = outputs.get("final_probabilities") or []
+        probabilities = {
+            str(row.get("kind")): float(row.get("probability_pct"))
+            for row in probability_rows
+            if isinstance(row, dict)
+            and row.get("kind")
+            and row.get("probability_pct") is not None
+        }
+        priced = [value for value in prices.values() if value is not None]
+        weighted = outputs.get("probability_weighted") or {}
+        judgment = latest_valuation.codex_judgment or {}
+        catalysts = judgment.get("catalysts") or []
+        valuation_strip = {
+            "scenario_prices_pln": prices,
+            "scenario_probabilities_pct": probabilities,
+            "price_range_pln": [min(priced), max(priced)] if priced else None,
+            "weighted_value_pln": (
+                float(weighted["price_pln"])
+                if weighted.get("price_pln") is not None
+                else None
+            ),
+            "current_price_pln": (
+                float(outputs["current_price_pln"])
+                if outputs.get("current_price_pln") is not None
+                else None
+            ),
+            "upside_pct": (
+                float(weighted["return_pct"])
+                if weighted.get("return_pct") is not None
+                else None
+            ),
+            "catalyst": str(catalysts[0]) if catalysts else None,
+            "verification_status": latest_valuation.status,
+            "as_of": latest_valuation.as_of,
+        }
     return ResearchCaseSummaryOut(
         id=case.id,
         company_id=company.id,
@@ -237,10 +210,12 @@ def _summary(
         blocked_reason=case.blocked_reason,
         created_at=case.created_at,
         updated_at=case.updated_at,
-        initial_research_run_id=agent.id if agent else None,
-        initial_research_status=agent.status if agent else None,
-        latest_research_run_id=current_agent.id if current_agent else None,
-        latest_research_run_status=current_agent.status if current_agent else None,
+        phase=phase,
+        phase_label=phase_label,
+        phase_summary=phase_summary,
+        main_gap=main_gap,
+        collection_progress=collection_progress,
+        valuation_strip=valuation_strip,
         latest_snapshot_status=latest_snapshot.status if latest_snapshot else None,
         latest_snapshot_as_of=latest_snapshot.as_of if latest_snapshot else None,
     )
@@ -255,20 +230,22 @@ def _latest_snapshot(db: Session, case_id: int) -> ResearchSnapshot | None:
     )
 
 
-def _method_perspective_key(
+def _latest_valuation(
+    db: Session,
     case_id: int,
-    snapshot: ResearchSnapshot,
-    method_manifest_fingerprint: str,
-) -> str:
-    content = ":".join(
-        (
-            str(case_id),
-            str(snapshot.id),
-            snapshot.artifact_fingerprint,
-            method_manifest_fingerprint,
+    latest_snapshot: ResearchSnapshot | None,
+) -> ValuationSnapshot | None:
+    if latest_snapshot is None:
+        return None
+    return db.scalar(
+        select(ValuationSnapshot)
+        .where(
+            ValuationSnapshot.research_case_id == case_id,
+            ValuationSnapshot.research_snapshot_id == latest_snapshot.id,
         )
-    ).encode("utf-8")
-    return f"method-perspective:{hashlib.sha256(content).hexdigest()}"
+        .order_by(ValuationSnapshot.version.desc(), ValuationSnapshot.id.desc())
+        .limit(1)
+    )
 
 
 def _latest_research_run(db: Session, case: ResearchCase) -> AgentRun | None:
@@ -284,29 +261,38 @@ def _latest_research_run(db: Session, case: ResearchCase) -> AgentRun | None:
     )
 
 
+def _initial_research_run(db: Session, case: ResearchCase) -> AgentRun | None:
+    """Return the stable initial run, including runs saved before keys existed."""
+    keyed = db.scalar(
+        select(AgentRun).where(
+            AgentRun.idempotency_key == _initial_run_key(case.id)
+        )
+    )
+    if keyed is not None:
+        return keyed
+    return db.scalar(
+        select(AgentRun)
+        .where(
+            AgentRun.workflow == _WORKFLOW,
+            AgentRun.company_id == case.company_id,
+            AgentRun.inputs["research_case_id"].as_integer() == case.id,
+        )
+        .order_by(AgentRun.created_at.asc(), AgentRun.id.asc())
+        .limit(1)
+    )
+
+
 def _ensure_research_case(
     db: Session,
     *,
     ticker: str,
-    source: _ResolvedSource,
 ) -> tuple[Company, ResearchCase, AgentRun, bool, bool, bool, bool]:
     company = db.scalar(select(Company).where(Company.ticker == ticker))
     created_company = company is None
     if company is None:
-        company = Company(
-            ticker=ticker,
-            name=source.candidate.name if source.candidate else None,
-            br_slug=source.candidate.br_slug if source.candidate else None,
-            market="GPW" if source.candidate else None,
-        )
+        company = Company(ticker=ticker)
         db.add(company)
         db.flush()
-    elif source.candidate is not None:
-        # Frozen discovery identity may safely fill missing metadata, but it
-        # never overwrites values learned from a company-specific source.
-        company.name = company.name or source.candidate.name
-        company.br_slug = company.br_slug or source.candidate.br_slug
-        company.market = company.market or "GPW"
 
     research_case = db.scalar(
         select(ResearchCase).where(
@@ -321,7 +307,7 @@ def _ensure_research_case(
             purpose=_PURPOSE,
             state="ingesting",
             current_step="ingest",
-            as_of=source.version.fetched_at if source.version else utcnow(),
+            as_of=utcnow(),
         )
         db.add(research_case)
         db.flush()
@@ -337,7 +323,7 @@ def _ensure_research_case(
         )
 
     run_key = _initial_run_key(research_case.id)
-    agent = db.scalar(select(AgentRun).where(AgentRun.idempotency_key == run_key))
+    agent = _initial_research_run(db, research_case)
     if agent is not None and (
         agent.workflow != _WORKFLOW or agent.company_id != company.id
     ):
@@ -369,7 +355,7 @@ def _ensure_research_case(
             research_case.state = "ingesting"
             research_case.current_step = "ingest"
             research_case.blocked_reason = None
-        research_case.as_of = source.version.fetched_at if source.version else utcnow()
+        research_case.as_of = utcnow()
         research_case.updated_at = utcnow()
         db.add(
             ResearchCaseStepHistory(
@@ -397,10 +383,6 @@ def _ensure_research_case(
             inputs={
                 "ticker": company.ticker,
                 "research_case_id": research_case.id,
-                "source_document_version_id": (
-                    source.version.id if source.version is not None else None
-                ),
-                "discovery_origin": _discovery_origin(source),
                 "task": {
                     "skill": "company-research",
                     "skill_version": _SKILL_VERSION,
@@ -408,8 +390,8 @@ def _ensure_research_case(
                     "company_profile_schema_version": _PROFILE_SCHEMA_VERSION,
                     "archetype_contract_version": _ARCHETYPE_CONTRACT_VERSION,
                     "objective": (
-                        "Refresh one company, organize its evidence into a tailored "
-                        "research profile and save a structured first snapshot."
+                        "Refresh one company, resolve its source questions and save a "
+                        "tailored forward-looking first snapshot."
                     ),
                     "refresh_scope": "all",
                     "required_verification": "verifier_strict",
@@ -440,18 +422,16 @@ def list_research_cases(db: Session = Depends(get_db)) -> list[ResearchCaseSumma
     ).all()
     result: list[ResearchCaseSummaryOut] = []
     for research_case, company in rows:
-        agent = db.scalar(
-            select(AgentRun).where(
-                AgentRun.idempotency_key == _initial_run_key(research_case.id)
-            )
-        )
+        agent = _initial_research_run(db, research_case)
+        latest_snapshot = _latest_snapshot(db, research_case.id)
         result.append(
             _summary(
                 research_case,
                 company,
                 agent,
-                _latest_snapshot(db, research_case.id),
+                latest_snapshot,
                 _latest_research_run(db, research_case),
+                _latest_valuation(db, research_case.id, latest_snapshot),
             )
         )
     return result
@@ -477,11 +457,7 @@ def get_research_workspace(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Research case not found."
         )
-    agent = db.scalar(
-        select(AgentRun).where(
-            AgentRun.idempotency_key == _initial_run_key(research_case.id)
-        )
-    )
+    agent = _initial_research_run(db, research_case)
     snapshots = list(
         db.scalars(
             select(ResearchSnapshot)
@@ -489,22 +465,7 @@ def get_research_workspace(
             .order_by(ResearchSnapshot.version.desc(), ResearchSnapshot.id.desc())
         )
     )
-    perspectives = list(
-        db.scalars(
-            select(ResearchMethodPerspective)
-            .where(ResearchMethodPerspective.research_case_id == research_case.id)
-            .order_by(
-                ResearchMethodPerspective.created_at.desc(),
-                ResearchMethodPerspective.id.desc(),
-            )
-        )
-    )
     latest = snapshots[0] if snapshots else None
-    snapshot_profile = (
-        db.get(CompanyProfile, latest.company_profile_id)
-        if latest
-        else None
-    )
     profiles = list(
         db.scalars(
             select(CompanyProfile)
@@ -513,6 +474,9 @@ def get_research_workspace(
         )
     )
     current_profile = profiles[0] if profiles else None
+    snapshot_profile = (
+        db.get(CompanyProfile, latest.company_profile_id) if latest else None
+    )
     profile = snapshot_profile or current_profile
     profile_out = CompanyProfileOut.model_validate(profile) if profile else None
     snapshot_out = ResearchSnapshotOut.model_validate(latest) if latest else None
@@ -523,6 +487,7 @@ def get_research_workspace(
             agent,
             latest,
             _latest_research_run(db, research_case),
+            _latest_valuation(db, research_case.id, latest),
         ),
         profile=profile_out,
         current_profile=(
@@ -546,10 +511,6 @@ def get_research_workspace(
             if profile_out
             else None
         ),
-        method_catalog=list_research_method_catalog(),
-        method_perspectives=[
-            ResearchMethodPerspectiveOut.model_validate(item) for item in perspectives
-        ],
     )
 
 
@@ -625,6 +586,23 @@ def queue_research_review(
             status_code=status.HTTP_409_CONFLICT,
             detail="The latest Research snapshot has no company profile.",
         )
+    if profile.provenance == "codex-proposed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Confirm or correct the latest company profile before queuing "
+                "a Research review."
+            ),
+        )
+    source_questions = (profile.company_overlay or {}).get("source_questions") or []
+    if not source_questions:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Add at least one company-specific source question to the confirmed "
+                "profile before queuing a Research review."
+            ),
+        )
     frozen = frozen_profile(profile)
 
     source_fingerprint, source_manifest = _review_source_state(db, company.id)
@@ -688,8 +666,9 @@ def queue_research_review(
                 "company_profile_schema_version": _PROFILE_SCHEMA_VERSION,
                 "archetype_contract_version": _ARCHETYPE_CONTRACT_VERSION,
                 "objective": (
-                    "Refresh one existing company case, compare new evidence with the "
-                    "prior immutable snapshot and save the next verified snapshot."
+                    "Refresh one existing company case, resolve its source questions, "
+                    "compare forward drivers with the prior immutable snapshot and save "
+                    "the next verified snapshot."
                 ),
                 "refresh_scope": "all",
                 "required_verification": "verifier_strict",
@@ -746,128 +725,6 @@ def queue_research_review(
     )
 
 
-@router.post(
-    "/{case_id}/method-perspective-runs",
-    response_model=ResearchMethodPerspectiveQueueOut,
-    status_code=status.HTTP_201_CREATED,
-)
-def queue_research_method_perspective(
-    case_id: int,
-    payload: ResearchMethodPerspectiveQueueIn,
-    db: Session = Depends(get_db),
-) -> ResearchMethodPerspectiveQueueOut:
-    """Queue one explicit, source-free method lens over an immutable snapshot."""
-    case = db.scalar(
-        select(ResearchCase).where(ResearchCase.id == case_id).with_for_update()
-    )
-    if case is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Research case not found."
-        )
-    company = db.get(Company, case.company_id)
-    if company is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Research company is missing."
-        )
-    snapshot = db.scalar(
-        select(ResearchSnapshot).where(
-            ResearchSnapshot.id == payload.research_snapshot_id,
-            ResearchSnapshot.research_case_id == case.id,
-        )
-    )
-    if snapshot is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Research snapshot not found for this case.",
-        )
-    if snapshot.status not in {"provisional", "verified"}:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A method perspective requires a provisional or verified Research snapshot.",
-        )
-    frozen = freeze_research_method_manifest(payload.method_pack_id)
-    if frozen is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Unknown Research method pack."
-        )
-    method_manifest, method_manifest_fingerprint = frozen
-    if method_manifest["research_stage"]["status"] != "supported":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This method pack is not supported for Research perspectives.",
-        )
-    if method_manifest["research_output_schema_version"] != _METHOD_PERSPECTIVE_CONTRACT_VERSION:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This method pack has no compatible immutable perspective contract.",
-        )
-    key = _method_perspective_key(case.id, snapshot, method_manifest_fingerprint)
-    existing = db.scalar(select(AgentRun).where(AgentRun.idempotency_key == key))
-    if existing is not None:
-        return ResearchMethodPerspectiveQueueOut(
-            agent_run_id=existing.id,
-            status=existing.status,
-            created=False,
-            research_snapshot_id=snapshot.id,
-            method_pack_id=payload.method_pack_id,
-            method_manifest_fingerprint=method_manifest_fingerprint,
-        )
-    model = default_model_for_workflow(_METHOD_PERSPECTIVE_WORKFLOW)
-    agent = AgentRun(
-        workflow=_METHOD_PERSPECTIVE_WORKFLOW,
-        trigger="method-perspective-command",
-        status="queued",
-        company_id=company.id,
-        model_role="worker_standard",
-        model=model,
-        orchestrator_model=model,
-        idempotency_key=key,
-        inputs={
-            "ticker": company.ticker,
-            "research_case_id": case.id,
-            "task": {
-                "skill": "research-method-perspective",
-                "skill_version": _METHOD_PERSPECTIVE_SKILL_VERSION,
-                "output_contract_version": _METHOD_PERSPECTIVE_CONTRACT_VERSION,
-                "objective": (
-                    "Classify one named method over exactly one frozen Research "
-                    "snapshot without collecting evidence or producing a recommendation."
-                ),
-                "required_verification": "verifier_strict",
-                "collection_policy": "no fetch or refresh",
-                "recommendation_policy": "no recommendation, synthesis, or author impersonation",
-            },
-            "method_perspective": {
-                "research_snapshot": frozen_research_snapshot_bundle(db, snapshot),
-                "method_manifest": method_manifest,
-                "method_manifest_fingerprint": method_manifest_fingerprint,
-            },
-        },
-        outputs={},
-    )
-    db.add(agent)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        existing = db.scalar(select(AgentRun).where(AgentRun.idempotency_key == key))
-        if existing is None:
-            raise
-        agent = existing
-        created = False
-    else:
-        db.refresh(agent)
-        created = True
-    return ResearchMethodPerspectiveQueueOut(
-        agent_run_id=agent.id,
-        status=agent.status,
-        created=created,
-        research_snapshot_id=snapshot.id,
-        method_pack_id=payload.method_pack_id,
-        method_manifest_fingerprint=method_manifest_fingerprint,
-    )
-
-
 @router.post("/{case_id}/snapshots", response_model=ResearchSnapshotOut)
 def create_research_snapshot(
     case_id: int,
@@ -912,52 +769,6 @@ def create_research_snapshot_verification(
     }
 
 
-@router.post("/{case_id}/method-perspectives", response_model=ResearchMethodPerspectiveOut)
-def create_research_method_perspective(
-    case_id: int,
-    payload: ResearchMethodPerspectiveSaveIn,
-    db: Session = Depends(get_db),
-) -> ResearchMethodPerspective:
-    """Worker save adapter for an immutable snapshot-bound method perspective."""
-    try:
-        return save_research_method_perspective(db, case_id=case_id, payload=payload)
-    except ResearchMethodPerspectiveError as exc:
-        code = {
-            "not-found": status.HTTP_404_NOT_FOUND,
-            "conflict": status.HTTP_409_CONFLICT,
-        }.get(exc.kind, status.HTTP_422_UNPROCESSABLE_CONTENT)
-        raise HTTPException(status_code=code, detail=str(exc)) from exc
-
-
-@router.post("/{case_id}/method-perspective-verifications", response_model=dict)
-def create_research_method_perspective_verification(
-    case_id: int,
-    payload: ResearchMethodPerspectiveVerificationIn,
-    db: Session = Depends(get_db),
-) -> dict:
-    """Persist an independent exact-draft verdict without completing the job."""
-    try:
-        verification = verify_research_method_perspective(
-            db, case_id=case_id, payload=payload
-        )
-    except ResearchMethodPerspectiveError as exc:
-        code = {
-            "not-found": status.HTTP_404_NOT_FOUND,
-            "conflict": status.HTTP_409_CONFLICT,
-        }.get(exc.kind, status.HTTP_422_UNPROCESSABLE_CONTENT)
-        raise HTTPException(status_code=code, detail=str(exc)) from exc
-    return {
-        "id": verification.id,
-        "agent_run_id": verification.agent_run_id,
-        "model_role": verification.model_role,
-        "verifier_model": verification.verifier_model,
-        "verdict": verification.verdict,
-        "checks": verification.checks,
-        "summary": verification.summary,
-        "created_at": verification.created_at,
-    }
-
-
 @router.post("", response_model=ResearchLabCreateOut)
 def create_research_case(
     payload: ResearchLabCreateIn,
@@ -970,14 +781,12 @@ def create_research_case(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Ticker cannot be blank.",
         )
-    source = _source_for_request(db, payload)
-
     # Company, case and job each have a database uniqueness boundary. A
     # concurrent identical request can win one of them; retrying after rollback
     # then returns that complete committed unit rather than duplicating work.
     for attempt in range(2):
         try:
-            ensured = _ensure_research_case(db, ticker=ticker, source=source)
+            ensured = _ensure_research_case(db, ticker=ticker)
             db.commit()
             (
                 company,

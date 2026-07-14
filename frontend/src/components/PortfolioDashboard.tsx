@@ -199,8 +199,9 @@ export default function PortfolioDashboard({ initial }: { initial: PortfolioWork
   }
 
   const resultPct = profitPct(snapshot.profit, snapshot.cost_basis);
-  const analyticsAvailable = workspace.reconciliation?.status === "reconciled"
-    && workspace.coverage?.analytics_available === true;
+  const analyticsAvailable = workspace.coverage?.analytics_available === true;
+  const partialAnalytics = workspace.coverage?.analytics_status === "partial";
+  const analyticsBasis = workspace.concentration?.basis_value ?? snapshot.total_value;
   const scenario = workspace.scenario_sensitivity;
   const scenarioCoverage = scenario?.coverage_value_pct ?? 0;
   const historyGaps = new Set(workspace.history_quality?.gaps ?? []);
@@ -217,14 +218,14 @@ export default function PortfolioDashboard({ initial }: { initial: PortfolioWork
       <PortfolioHeader workspace={workspace} syncing={syncing} onSync={synchronize} />
       {commandError && <div className="error-box" role="alert">{commandError}</div>}
       {hasCurrentSyncFailure(workspace) && <SyncFailure workspace={workspace} />}
-      {!analyticsAvailable && workspace.reconciliation && <ReconciliationWarning reconciliation={workspace.reconciliation} />}
+      {workspace.reconciliation?.status === "unreconciled" && <ReconciliationWarning reconciliation={workspace.reconciliation} />}
 
       <section className="portfolio-summary" aria-label="Podsumowanie portfela">
         <SummaryMetric label="Wartość" value={fmtPln(snapshot.total_value)} note={`wg ${provider}`} />
         <SummaryMetric label="Koszt" value={fmtPln(snapshot.cost_basis)} note={snapshot.cost_basis == null ? "niepełne dane pozycji" : `suma bieżących pozycji · ${provider}`} />
         <SummaryMetric label="Wynik" value={signedPln(snapshot.profit)} tone={signClass(snapshot.profit)} note={resultPct == null ? "niepełne dane pozycji" : `${fmtPct(resultPct, { signed: true })} · bieżące pozycje`} />
-        <SummaryMetric label="Gotówka" value={fmtPln(snapshot.cash_value)} note={snapshot.cash_value == null ? "brak rozpoznanej pozycji gotówkowej" : analyticsAvailable ? `${fmtPct(snapshot.total_value > 0 ? snapshot.cash_value / snapshot.total_value * 100 : 0)} portfela` : "wartość z zachowanych wierszy"} />
-        <SummaryMetric label="Pokrycie scenariuszami" value={analyticsAvailable ? fmtPct(scenarioCoverage) : "niedostępne"} note={analyticsAvailable ? "tylko zweryfikowane wyceny" : "wiersze nie uzgadniają się z sumą"} />
+        <SummaryMetric label="Gotówka" value={fmtPln(snapshot.cash_value)} note={snapshot.cash_value == null ? "brak rozpoznanej pozycji gotówkowej" : partialAnalytics ? "wartość zachowanego wiersza; suma dostawcy nieuzgodniona" : `${fmtPct(snapshot.total_value > 0 ? snapshot.cash_value / snapshot.total_value * 100 : 0)} portfela`} />
+        <SummaryMetric label="Pokrycie scenariuszami" value={analyticsAvailable ? fmtPct(scenarioCoverage) : "niedostępne"} note={analyticsAvailable ? partialAnalytics ? "częściowe; tylko zachowane pozycje ze zweryfikowaną wyceną" : "tylko zweryfikowane wyceny" : "brak zachowanych pozycji"} />
       </section>
 
       {attention.length > 0 && (
@@ -234,11 +235,11 @@ export default function PortfolioDashboard({ initial }: { initial: PortfolioWork
         </section>
       )}
 
-      {analyticsAvailable && workspace.risk_context && <PortfolioRiskAttention workspace={workspace} />}
+      {workspace.risk_context && <PortfolioRiskAttention workspace={workspace} />}
 
       <PositionsSection
         positions={workspace.positions}
-        total={snapshot.total_value}
+        total={analyticsBasis}
         liquidity={liquidityByPosition}
         covered={coveredPositions}
         exclusions={exclusions}
@@ -294,7 +295,8 @@ function ReconciliationWarning({ reconciliation }: { reconciliation: NonNullable
       <div>
         <strong>Wiersze portfela nie uzgadniają się z sumą myfund</strong>
         <p>Wiersze: {fmtPln(reconciliation.retained_value)} · suma dostawcy: {fmtPln(reconciliation.provider_total)} · różnica: {signedPln(reconciliation.delta)} · tolerancja: {fmtPln(reconciliation.tolerance)}.</p>
-        <span>Pokazuję sumę dostawcy, historię i surowe pozycje. Udziały, koncentracja, płynność, scenariusze, kontekst ryzyk i nowa analiza Codex pozostają wyłączone do czasu pełnego uzgodnienia.</span>
+        <span>Analityka pozostaje widoczna jako częściowa i opiera się na zachowanych pozycjach; suma dostawcy pozostaje punktem odniesienia.</span>
+        {reconciliation.affected_figures.length > 0 && <ul>{reconciliation.affected_figures.map((item) => <li key={item}>{item}</li>)}</ul>}
       </div>
     </section>
   );
@@ -354,7 +356,7 @@ function PositionsSection({ positions, total, liquidity, covered, exclusions, an
           </div>
           {positions.map((position) => {
             const badge = mappingLabel(position);
-            const allocation = analyticsAvailable ? (position.allocation_pct ?? (total > 0 ? position.value / total * 100 : 0)) : null;
+            const allocation = analyticsAvailable ? (total > 0 ? position.value / total * 100 : 0) : null;
             const excluded = exclusions.get(position.id);
             const displayTicker = position.company_ticker || position.ticker || position.name;
             const providerLabel = position.name !== displayTicker ? position.name : null;
@@ -368,9 +370,9 @@ function PositionsSection({ positions, total, liquidity, covered, exclusions, an
                 </div>
                 <div role="cell"><strong>{fmtPln(position.value)}</strong>{allocation != null && <span>{fmtPct(allocation)}</span>}{position.quantity != null && <small>{position.quantity.toLocaleString("pl-PL", { maximumFractionDigits: 4 })} szt.</small>}</div>
                 <div role="cell"><strong>{fmtPln(position.cost_basis)}</strong><span className={signClass(position.profit)}>{signedPln(position.profit)}</span><small>wg dostawcy</small></div>
-                <div role="cell" className="portfolio-liquidity-cell">{analyticsAvailable ? liquidityLabel(liquidity.get(position.id)) : <span className="muted">po uzgodnieniu</span>}</div>
+                <div role="cell" className="portfolio-liquidity-cell">{analyticsAvailable ? liquidityLabel(liquidity.get(position.id)) : <span className="muted">brak zachowanych danych</span>}</div>
                 <div role="cell">
-                  {!analyticsAvailable ? <span className="muted">po uzgodnieniu</span> : covered.has(position.id) ? <><span className="badge success">pokryta</span><small>zweryfikowana wycena</small></> : position.mapping_kind === "company" ? <><span className="badge muted">bez pokrycia</span><small title={excluded?.reason}>{excluded?.latest_status ? `ostatnia: ${excluded.latest_status}` : "brak aktualnej zweryfikowanej wyceny"}</small></> : <span className="muted">nie dotyczy</span>}
+                  {!analyticsAvailable ? <span className="muted">brak zachowanych danych</span> : covered.has(position.id) ? <><span className="badge success">pokryta</span><small>zweryfikowana wycena</small></> : position.mapping_kind === "company" ? <><span className="badge muted">bez pokrycia</span><small title={excluded?.reason}>{excluded?.latest_status ? `ostatnia: ${excluded.latest_status}` : "brak aktualnej zweryfikowanej wyceny"}</small></> : <span className="muted">nie dotyczy</span>}
                 </div>
               </div>
             );
@@ -413,7 +415,7 @@ function ScenarioSection({ workspace, analyticsAvailable }: { workspace: Portfol
   return (
     <section className="portfolio-section" aria-labelledby="portfolio-scenarios-title">
       <div className="portfolio-section-heading"><div><p className="section-label">Perspektywy</p><h2 id="portfolio-scenarios-title">Wrażliwość na scenariusze spółek</h2></div><span>Gotówka i pozycje bez pokrycia pozostają bez zmian</span></div>
-      {!analyticsAvailable ? <div className="portfolio-valid-empty"><strong>Scenariusze czekają na uzgodnienie portfela</strong><span>Nie agregujemy wycen, dopóki suma zachowanych wierszy nie zgadza się z sumą myfund.</span></div> : !scenario || scenario.coverage_value_pct === 0 ? <div className="portfolio-valid-empty"><strong>Brak zweryfikowanych scenariuszy</strong><span>Wyceny prowizoryczne, odrzucone lub niepowiązane z najnowszym Research nie są agregowane.</span></div> : <>
+      {!analyticsAvailable ? <div className="portfolio-valid-empty"><strong>Brak zachowanych pozycji do scenariuszy</strong><span>Nie ma podstawy do agregacji zweryfikowanych wycen.</span></div> : !scenario || scenario.coverage_value_pct === 0 ? <div className="portfolio-valid-empty"><strong>Brak zweryfikowanych scenariuszy</strong><span>Wyceny prowizoryczne, odrzucone lub niepowiązane z najnowszym Research nie są agregowane.</span></div> : <>
         <div className="portfolio-scenario-grid">
           {[{ key: "negative", label: "Spadkowy" }, { key: "base", label: "Bazowy" }, { key: "positive", label: "Wzrostowy" }, { key: "weighted", label: "Ważony w spółkach" }].map(({ key, label }) => {
             const value = scenario.portfolio_values[key as keyof typeof scenario.portfolio_values];
@@ -454,16 +456,16 @@ function PortfolioReviewSection({ workspace, queueing, notice, onQueue, analytic
       <div className="portfolio-section-heading portfolio-review-heading">
         <div><p className="section-label">Codex</p><h2 id="portfolio-review-title">Perspektywa całego portfela</h2></div>
         <button className="btn" onClick={onQueue} disabled={!analyticsAvailable || queueing || Boolean(active)}>
-          <IconSparkles size={14} /> {!analyticsAvailable ? "Najpierw uzgodnij dane" : queueing ? "Planuję…" : active ? activeLabel : "Przeanalizuj z Codex"}
+          <IconSparkles size={14} /> {!analyticsAvailable ? "Brak danych do analizy" : queueing ? "Planuję…" : active ? activeLabel : "Przeanalizuj z Codex"}
         </button>
       </div>
 
       {notice && <div className="portfolio-review-notice" role="status">{notice}</div>}
-      {!analyticsAvailable && <div className="portfolio-valid-empty"><strong>Nowa analiza Codex jest niedostępna</strong><span>Najpierw suma zachowanych pozycji musi uzgodnić się z sumą portfela myfund. Poprzednie analizy pozostają poniżej jako historia.</span></div>}
+      {!analyticsAvailable && <div className="portfolio-valid-empty"><strong>Nowa analiza Codex jest niedostępna</strong><span>Brakuje zachowanych pozycji, na których można oprzeć analizę. Poprzednie analizy pozostają poniżej jako historia.</span></div>}
       {active && (
         <div className="portfolio-review-queued" role="status">
           <IconSparkles size={16} />
-          <div><strong>{activeLabel}</strong><span>Utworzono {exactTimestamp(active.created_at)} dla snapshotu portfela {active.snapshot_id ?? "—"}.</span><small>Aby wykonać dokładnie jedno zadanie, uruchom jawnie <code>$workbench-run-queue</code>. Ta strona nie przejmuje ani nie wykonuje kolejki.</small></div>
+          <div><strong>{activeLabel}</strong><span>Utworzono {exactTimestamp(active.created_at)} dla snapshotu portfela {active.snapshot_id ?? "—"}.</span><small>Uruchom jawnie <code>$workbench-run-queue</code>, aby opróżnić kolejkę z zachowaniem limitów bezpieczeństwa. Ta strona nie przejmuje ani nie wykonuje zadań.</small></div>
         </div>
       )}
 
@@ -534,9 +536,9 @@ function LiquidityAudit({ workspace }: { workspace: PortfolioWorkspace }) {
       <summary>Dane, płynność i metoda</summary>
       <div>
         <p><strong>Źródło</strong><span>{providerLabel(workspace.provider)} · ostatni zapisany stan i udana synchronizacja {exactTimestamp(workspace.snapshot?.as_of)}</span></p>
-        <p><strong>Mapowanie</strong><span>{analyticsAvailable ? `${fmtPct(workspace.coverage?.mapped_company_value_pct)} wartości powiązane ze spółkami` : "udział wartości niedostępny do czasu uzgodnienia"} · {workspace.coverage?.unmapped_positions ?? 0} nierozpoznanych pozycji</span></p>
-        <p><strong>Płynność</strong><span>{analyticsAvailable ? `${available} pozycji z prowizorycznym szacunkiem. Liczba dni zakłada 10% mediany wartości obrotu z 20 sesji; surowa seria nie jest prognozą wykonania.` : "Wyłączona, ponieważ zachowane wiersze nie uzgadniają się z sumą portfela."}</span></p>
-        <p><strong>Scenariusze</strong><span>{analyticsAvailable ? "Wyłącznie zweryfikowane wyceny powiązane z najnowszym Research; dane spółek nie zmieniają się przez obecność w portfelu." : "Wyłączone razem z koncentracją i kontekstem ryzyk do czasu uzgodnienia."}</span></p>
+        <p><strong>Mapowanie</strong><span>{analyticsAvailable ? `${fmtPct(workspace.coverage?.mapped_company_value_pct)} wartości dostawcy powiązane ze spółkami${workspace.coverage?.analytics_status === "partial" ? "; analityka udziałów używa zachowanych pozycji" : ""}` : "brak zachowanych pozycji do wyliczenia udziałów"} · {workspace.coverage?.unmapped_positions ?? 0} nierozpoznanych pozycji</span></p>
+        <p><strong>Płynność</strong><span>{analyticsAvailable ? `${available} pozycji z prowizorycznym szacunkiem. Liczba dni zakłada 10% mediany wartości obrotu z 20 sesji; surowa seria nie jest prognozą wykonania.` : "Brak zachowanych pozycji do oszacowania."}</span></p>
+        <p><strong>Scenariusze</strong><span>{analyticsAvailable ? `Wyłącznie zweryfikowane wyceny powiązane z najnowszym Research; dane spółek nie zmieniają się przez obecność w portfelu.${workspace.coverage?.analytics_status === "partial" ? " Wynik obejmuje wyłącznie zachowane pozycje." : ""}` : "Brak zachowanych pozycji do agregacji."}</span></p>
       </div>
     </details>
   );

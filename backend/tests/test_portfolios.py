@@ -440,7 +440,7 @@ def test_cash_requires_exact_provider_asset_type_not_free_text(client, db, monke
     assert by_ticker["CFS"]["mapping_status"] == "unmatched"
 
 
-def test_unreconciled_snapshot_fails_analytics_closed_and_blocks_review(
+def test_unreconciled_snapshot_warns_keeps_partial_analytics_and_allows_review(
     client, db, monkeypatch
 ):
     from app.api import portfolios
@@ -456,20 +456,47 @@ def test_unreconciled_snapshot_fails_analytics_closed_and_blocks_review(
     synced = client.post("/api/portfolios/sync/myfund")
     assert synced.status_code == 200, synced.text
     body = synced.json()
-    assert body["reconciliation"] == {
+    assert {
+        key: body["reconciliation"][key]
+        for key in ("status", "retained_value", "provider_total", "delta", "tolerance")
+    } == {
         "status": "unreconciled",
         "retained_value": 200.0,
         "provider_total": 100.0,
         "delta": 100.0,
         "tolerance": 0.1,
     }
-    assert body["concentration"] is None
-    assert body["liquidity"] == [] and body["scenario_sensitivity"] is None
-    assert body["risk_context"] is None
-    assert body["coverage"]["mapped_company_value_pct"] is None
-    assert body["coverage"]["retained_position_value_pct"] is None
-    assert body["coverage"]["analytics_available"] is False
-    assert client.post("/api/portfolios/review-runs").status_code == 409
+    assert body["reconciliation"]["affected_figures"]
+    assert body["concentration"] == {
+        "status": "partial",
+        "basis": "retained_positions_total",
+        "basis_value": 200.0,
+        "top1_pct": 50.0,
+        "top3_pct": 100.0,
+        "hhi": 0.5,
+        "sectors": [
+            {"label": "Nieokreślony", "value": 200.0, "allocation_pct": 100.0}
+        ],
+        "asset_types": [
+            {"label": "Inne", "value": 200.0, "allocation_pct": 100.0}
+        ],
+    }
+    assert isinstance(body["liquidity"], list)
+    assert body["scenario_sensitivity"] is not None
+    assert body["scenario_sensitivity"]["reconciliation_status"] == "unreconciled"
+    assert body["risk_context"] is not None
+    assert body["coverage"]["mapped_company_value_pct"] == 0
+    assert body["coverage"]["retained_position_value_pct"] == 200
+    assert body["coverage"]["analytics_available"] is True
+    assert body["coverage"]["analytics_status"] == "partial"
+
+    queued = client.post("/api/portfolios/review-runs")
+    assert queued.status_code == 201, queued.text
+    agent = db.get(AgentRun, queued.json()["agent_run_id"])
+    frozen = agent.inputs["portfolio_review"]
+    assert frozen["analytics"]["reconciliation"]["status"] == "unreconciled"
+    assert frozen["analytics"]["concentration"]["status"] == "partial"
+    assert any("podstawę częściową" in gap for gap in frozen["gaps"])
 
 
 def test_workspace_get_is_zero_write_and_never_fetches(client, db, monkeypatch):
@@ -1053,8 +1080,6 @@ def test_verified_scenario_aggregation_is_point_in_time_and_arithmetic(
         contract_version="v1",
         status="verified",
         as_of=datetime(2026, 7, 10, tzinfo=timezone.utc),
-        method_pack_id="malik_obs_v1",
-        method_pack_version="v1",
         template_id="industrial",
         template_version="v1",
         calculation_engine_version="v2",
@@ -1208,7 +1233,11 @@ def _review_draft(
     }
 
 
-def _review_verification(draft, *, verdict="pass", mapping_set=True):
+def _review_verification(draft, *, verdict="pass", findings=None):
+    justification = (
+        "Sprawdzono zamrożone dane, obliczenia backendu i dowody portfela; "
+        "wniosek wskazuje wykorzystaną podstawę oraz wszystkie istotne ograniczenia."
+    )
     return {
         "verifier_worker_id": "portfolio-verifier",
         "draft": draft,
@@ -1219,16 +1248,11 @@ def _review_verification(draft, *, verdict="pass", mapping_set=True):
             "actual_host_model": "host deployment not exposed",
             "substitution_or_escalation": None,
             "verdict": verdict,
-            "checks": {
-                "snapshot_source_identity": True,
-                "reconciliation": True,
-                "mapping_set": mapping_set,
-                "method_labels": True,
-                "scenario_arithmetic": True,
-                "eligible_valuations": True,
-                "look_ahead": True,
-                "draft_fingerprint": True,
-                "no_recommendation": True,
+            "findings": findings or [],
+            "justifications": {
+                "concentration_and_liquidity": justification,
+                "history_and_scenario_exposure": justification,
+                "risks_and_decision_support_boundary": justification,
             },
             "summary": "Niezależna kontrola zamrożonego portfela.",
         },
@@ -1402,7 +1426,20 @@ def test_mapping_change_after_claim_requires_needs_human_artifact(
     assert passing.status_code == 409, passing.text
     needs_human = client.post(
         "/api/portfolios/review-verifications",
-        json=_review_verification(draft, verdict="needs-human", mapping_set=False),
+        json=_review_verification(
+            draft,
+            verdict="needs-human",
+            findings=[
+                {
+                    "severity": "blocking",
+                    "area": "mapping-set",
+                    "detail": (
+                        "Zestaw mapowań zmienił się po zamrożeniu szkicu i wymaga "
+                        "ponownego przygotowania na aktualnym stanie."
+                    ),
+                }
+            ],
+        ),
     )
     assert needs_human.status_code == 200, needs_human.text
     saved = client.post(

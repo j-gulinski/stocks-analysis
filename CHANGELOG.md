@@ -3,6 +3,102 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-14 · VISION reset phase boundary
+
+- Made V1–V10 binding through `docs/VISION.md` and an executable drift gate.
+  Discover now exposes one honestly blocked Workbench sieve until its complete
+  market-factor batch exists; Research is phase-aware and accepts only v3
+  writes; Valuation has one company-specific engine with computed structural
+  gates and adversarial verification.
+- Deleted callable compatibility paths for alternate sieves, author-labelled
+  methods, generic analysis completion, pre-session/quick/deep/scout/backtest
+  workflows, legacy Research/forecast/assumption APIs, and their dead UI.
+- Queue operation now exposes only the four canonical artifact workflows and
+  the run skill drains eligible jobs with lease recovery and bounded failure
+  caps. Portfolio reconciliation warns and degrades affected figures instead
+  of hiding all analytics.
+- Added immutable price-source lineage plus forward schema foundations for the
+  expanded market-factor batch and portfolio operations, then aligned six
+  historical PostgreSQL JSON columns with the ORM's JSONB contract in migration
+  0032. Further delivery starts with S1; missing factor coverage remains visible
+  rather than producing false candidates or false sieve provenance.
+- Structural valuation-gate failures now durably override any requested
+  verifier verdict to `rejected` with computed reasons. Portfolio keeps partial
+  risk, liquidity, scenario and review analytics visible when retained rows do
+  not reconcile to the provider total.
+
+## 2026-07-13 · V1 first live non-industrial valuation checkpoint
+
+- Completed the live ABS valuation against Research snapshot 15 after
+  backtracking three scenario grids. The selected grid keeps C/Z fixed at 19.9
+  across the downside/base/upside cases so 68.68 / 91.20 / 111.33 PLN reflects
+  operating outcomes rather than an unsupported multiple re-rating.
+- Independent exact-draft verification retained 30/50/20 probabilities and a
+  weighted 88.47 PLN result versus the frozen 87.80 PLN price. Valuation v2 is
+  current and inspectable, while v1 remains immutable history.
+- The result stays provisional and cannot increase Portfolio coverage: shares
+  and market cap are not immutable-fact-bound, the price series is still
+  raw-unverified for corporate actions, and the upstream Research snapshot
+  retains eight disclosure gaps. The next V1 slice closes lineage before the
+  industrial comparison company is valued.
+
+## 2026-07-13 · R1 self-resolving forward Research
+
+- Added the versioned `company-research-v3` / `research-snapshot-v3` contract.
+  Every new full flow must assess each frozen company driver for the next
+  quarter and 12 months, answer every profile question, and resolve the
+  company-specific catalyst, result visibility and governance from a retained
+  five-channel source-completion trail. Unknowns remain named gaps.
+- The save gate now rejects missing/duplicate channels, drivers, questions or
+  source-manifest rows; unsupported directions; undeclared answer evidence;
+  and conclusions backed only by PortalAnaliz/context. Frozen v1/v2 jobs keep
+  their original write contracts and render unchanged.
+- Review queueing now requires a human-confirmed/corrected profile with at
+  least one company-specific question. Stored provider/type/host identity fixes
+  channel/role eligibility, every driver horizon declares its searched
+  channels, and the renderer labels fact/calculation/assumption provenance.
+- Research renders the typed Outlook before Thesis, removes already answered
+  questions from generic next checks, and renders a duplicated thesis/top-level
+  check only once using the richer row with its suggested source. No profile,
+  job, valuation or investment decision is created by a read.
+- Extended the bounded issuer adapter to preserve multiple official index
+  pages. ABS now retains numbered inline current reports separately from its
+  periodic-report index and can ingest the Q1 2026 PDF; the faulty intermediate
+  link extractor remains auditable but cannot authorize report downloads.
+- Completed the live ABS gate after comparing three profile variants and
+  backtracking the stale employment wording: immutable profile v3 and snapshot
+  v3 are strict-verifier-passed, the prior versions remain unchanged, and the
+  result stays provisional for eight named disclosure gaps. The browser shows
+  all five source attempts, including the inaccessible PortalAnaliz subscriber
+  lead, without treating unavailable content as evidence.
+
+## 2026-07-13 · D1 integrated Discover gate
+
+- Closed the stored-source browser gate: Discover showed its universe,
+  coverage, source version and freshness; one NWG action created one case and
+  one initial job; the duplicate action reused both.
+- Reactivating the temporarily closed ABS case from Discover preserved case
+  identity, its initial run, the canonical snapshot and both snapshot
+  fingerprints while appending the explicit lifecycle history.
+- Made initial-run lookup reuse an exact case-bound legacy run when it predates
+  idempotency keys. Read views and closed-case reactivation no longer lose that
+  identity or queue a duplicate initial research job.
+
+## 2026-07-13 · Documentation contract consolidation
+
+- Made Architecture the single invariant and model-routing rulebook, reduced
+  AGENTS/README to operating pointers, and limited full Roadmap prose to the
+  next D1 slice plus the open R1 and V1/P4 user/evidence gates.
+- Corrected the live method-readiness contract: Malik/OBS Research perspectives
+  are supported and verifier-gated, while saved Research artifacts remain
+  honestly provisional when evidence gaps survive verification.
+- Added the supplemental method-perspective workflow to Architecture and the
+  one-job queue operator, and made D1's browser mutation flow the single next
+  engineering gate; R1 and V1/P4 remain explicit user/evidence waits.
+- Rotated the model-use ledger to recent decisions and excluded local review
+  captures from Git because they may contain personal portfolio or Research
+  state and are not acceptance evidence.
+
 ## 2026-07-13 · D2 Discover filter and ranked-list layout
 
 - Replaced the three-card layout with an inline sieve selector and one active,

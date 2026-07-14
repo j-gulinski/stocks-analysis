@@ -10,18 +10,16 @@ import {
   IconHistory,
 } from "@tabler/icons-react";
 import { fmtDate } from "@/lib/format";
-import ResearchMethodCatalogView from "@/components/ResearchMethodCatalogView";
-import ResearchMethodPerspectivesView from "@/components/ResearchMethodPerspectivesView";
 import type {
   CompanyProfile,
   ResearchClaim,
   ResearchClaimKind,
   ResearchArchetypePack,
-  ResearchMethodCatalog,
-  ResearchMethodPerspective,
+  ResearchOutlookDirection,
   ResearchSnapshot,
   ResearchSnapshotHistory,
   ResearchSnapshotStatus,
+  ResearchSourceChannel,
 } from "@/lib/types";
 
 const ARCHETYPE_LABELS: Record<CompanyProfile["archetype"], string> = {
@@ -57,6 +55,36 @@ const CHECK_LABELS: Record<keyof ResearchSnapshot["verifier_result"]["checks"], 
   math_integrity: "Obliczenia",
 };
 
+const OUTLOOK_DIRECTION: Record<ResearchOutlookDirection, string> = {
+  positive: "sprzyjający",
+  neutral: "neutralny",
+  negative: "niekorzystny",
+  mixed: "mieszany",
+  unknown: "nieustalony",
+};
+
+const RESOLUTION_STATUS = {
+  confirmed: { label: "Potwierdzona", tone: "success" },
+  partial: { label: "Częściowa", tone: "warning" },
+  not_found: { label: "Nie znaleziono", tone: "warning" },
+  not_applicable: { label: "Nie dotyczy", tone: "neutral" },
+} as const;
+
+const RESOLUTION_SCOPE = {
+  profile: "Pytanie profilu",
+  catalyst: "Katalizator",
+  visibility: "Widoczność wyniku",
+  governance: "Zarządzanie i ład",
+} as const;
+
+const SOURCE_CHANNEL: Record<ResearchSourceChannel, string> = {
+  "issuer-primary": "Emitent",
+  "regulatory-primary": "ESPI / EBI / GPW",
+  biznesradar: "BiznesRadar",
+  portalanaliz: "PortalAnaliz",
+  "other-web": "Pozostały web",
+};
+
 function EmptyLine({ children }: { children: string }) {
   return <p className="snapshot-empty">{children}</p>;
 }
@@ -89,6 +117,18 @@ function ClaimList({ claims }: { claims: ResearchClaim[] }) {
   );
 }
 
+function ClaimBasis({ claim }: { claim: ResearchClaim }) {
+  if (claim.source_document_version_ids.length === 0 && !claim.basis) return null;
+  return (
+    <small className="snapshot-claim-basis">
+      <span className={`claim-kind ${claim.kind}`}>{CLAIM_KIND[claim.kind]}</span>{" "}
+      {claim.source_document_version_ids.length > 0 && `Dokumenty v${claim.source_document_version_ids.join(", v")}`}
+      {claim.source_document_version_ids.length > 0 && claim.basis && " · "}
+      {claim.basis}
+    </small>
+  );
+}
+
 export default function ResearchSnapshotView({
   ticker,
   companyName,
@@ -96,9 +136,6 @@ export default function ResearchSnapshotView({
   snapshot,
   history,
   archetypePack,
-  methodCatalog,
-  researchCaseId,
-  methodPerspectives,
 }: {
   ticker: string;
   companyName: string | null;
@@ -106,11 +143,9 @@ export default function ResearchSnapshotView({
   snapshot: ResearchSnapshot;
   history: ResearchSnapshotHistory[];
   archetypePack: ResearchArchetypePack | null;
-  methodCatalog: ResearchMethodCatalog[];
-  researchCaseId: number;
-  methodPerspectives: ResearchMethodPerspective[];
 }) {
   const sections = snapshot.sections;
+  const outlook = sections.outlook;
   const drivers = profile.drivers.filter((item) =>
     sections.business_and_drivers.driver_keys.includes(item.key),
   );
@@ -121,9 +156,19 @@ export default function ResearchSnapshotView({
     ...sections.thesis.risks,
     ...profile.company_overlay.unusual_risks,
   ]));
+  const unresolvedQuestions = outlook
+    ? outlook.question_resolutions
+      .filter((item) => item.status === "partial" || item.status === "not_found")
+      .map((item) => `${item.question} — ${item.remaining_gap}`)
+    : profile.company_overlay.source_questions;
+  const sourcedCheckQuestions = new Set(
+    snapshot.next_checks.map((item) => item.question.trim()),
+  );
   const checkItems = Array.from(new Set([
-    ...sections.thesis.next_checks,
-    ...profile.company_overlay.source_questions,
+    ...sections.thesis.next_checks.filter(
+      (question) => !sourcedCheckQuestions.has(question.trim()),
+    ),
+    ...unresolvedQuestions,
     ...snapshot.next_checks.map((item) => `${item.question} — ${item.suggested_source}`),
   ]));
   const status = STATUS[snapshot.status];
@@ -227,8 +272,77 @@ export default function ResearchSnapshotView({
         )}
       </section>
 
+      {outlook && (
+        <section className="snapshot-section snapshot-outlook" aria-labelledby="snapshot-outlook">
+          <header><span>05</span><h2 id="snapshot-outlook">Perspektywa</h2></header>
+          <p className="snapshot-lead">{outlook.summary}</p>
+          <div className="snapshot-outlook-drivers">
+            {outlook.driver_outlooks.map((item) => {
+              const driver = profile.drivers.find((candidate) => candidate.key === item.driver_key);
+              return (
+                <article key={item.driver_key}>
+                  <header>
+                    <div><span className="snapshot-label">Czynnik spółki</span><h3>{driver?.label ?? item.driver_key}</h3></div>
+                  </header>
+                  {([
+                    ["Następny kwartał", item.next_quarter],
+                    ["Następne 12 miesięcy", item.next_12_months],
+                  ] as const).map(([horizon, assessment]) => (
+                    <div className="snapshot-outlook-horizon" key={horizon}>
+                      <div>
+                        <span>{horizon}</span>
+                        <span className={`outlook-direction ${assessment.direction}`}>
+                          {OUTLOOK_DIRECTION[assessment.direction]}
+                        </span>
+                      </div>
+                      <p>{assessment.assessment.text}</p>
+                      <ClaimBasis claim={assessment.assessment} />
+                      <small>Sprawdzono: {assessment.source_channels.map((channel) => SOURCE_CHANNEL[channel]).join(" · ")}</small>
+                      <small>Obserwuj: {assessment.watch_items.join(" · ")}</small>
+                    </div>
+                  ))}
+                </article>
+              );
+            })}
+          </div>
+          <div className="snapshot-resolutions">
+            <h3>Odpowiedzi z pełnego przepływu</h3>
+            {outlook.question_resolutions.map((item, index) => {
+              const resolution = RESOLUTION_STATUS[item.status];
+              return (
+                <article key={`${item.scope}-${index}-${item.question}`}>
+                  <header>
+                    <span className="snapshot-label">{RESOLUTION_SCOPE[item.scope]}</span>
+                    <span className={`badge ${resolution.tone}`}>{resolution.label}</span>
+                  </header>
+                  <h3>{item.question}</h3>
+                  <p>{item.answer.text}</p>
+                  <ClaimBasis claim={item.answer} />
+                  <small>Sprawdzono: {item.source_channels.map((channel) => SOURCE_CHANNEL[channel]).join(" · ")}</small>
+                  {item.remaining_gap && <small className="snapshot-resolution-gap">Pozostała luka: {item.remaining_gap}</small>}
+                </article>
+              );
+            })}
+          </div>
+          <details className="snapshot-source-searches">
+            <summary>Zakres wyszukiwania źródeł</summary>
+            {outlook.source_searches.map((item) => (
+              <div key={item.channel}>
+                <strong>{SOURCE_CHANNEL[item.channel]}</strong>
+                <span className={`badge ${item.status === "found" ? "success" : "warning"}`}>
+                  {item.status === "found" ? "znaleziono" : item.status === "not_found" ? "brak wyniku" : "niedostępne"}
+                </span>
+                <p>{item.summary}</p>
+                {item.document_version_ids.length > 0 && <small>Dokumenty v{item.document_version_ids.join(", v")}</small>}
+              </div>
+            ))}
+          </details>
+          <ClaimList claims={outlook.claims} />
+        </section>
+      )}
+
       <section className="snapshot-section" aria-labelledby="snapshot-thesis">
-        <header><span>05</span><h2 id="snapshot-thesis">Teza</h2></header>
+        <header><span>{outlook ? "06" : "05"}</span><h2 id="snapshot-thesis">Teza</h2></header>
         <div className="snapshot-thesis-core">
           <div><span className="snapshot-label">Dlaczego teraz</span><p>{sections.thesis.why_now}</p></div>
           <div><span className="snapshot-label">Kontrteza</span><p>{sections.thesis.counter_thesis}</p></div>
@@ -246,18 +360,8 @@ export default function ResearchSnapshotView({
         </div>
       </section>
 
-      <ResearchMethodPerspectivesView
-        researchCaseId={researchCaseId}
-        snapshot={snapshot}
-        methods={methodCatalog}
-        perspectives={methodPerspectives}
-        snapshotHistory={history}
-      />
-
-      <ResearchMethodCatalogView methods={methodCatalog} />
-
       <section className="snapshot-section" aria-labelledby="snapshot-history">
-        <header><span>08</span><h2 id="snapshot-history">Historia</h2></header>
+        <header><span>{outlook ? "07" : "06"}</span><h2 id="snapshot-history">Historia</h2></header>
         <TextList items={sections.history.changes_since_previous} empty="To pierwszy zapisany snapshot — nie ma jeszcze zmian do porównania." />
         <ClaimList claims={sections.history.claims} />
         <div className="snapshot-timeline">

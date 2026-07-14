@@ -6,35 +6,29 @@
 export interface DiscoveryCandidate {
   ticker: string;
   name: string | null;
-  neutral_context: Array<{
-    id: "wig_bucket" | "sector" | "size";
-    label: string;
-    value: string | null;
-    basis: string;
-  }>;
-  memberships: DiscoveryCandidateMembership[];
-  overlap: { sieve_ids: string[]; count: number };
-}
-
-export interface DiscoveryCandidateMembership {
-  sieve_id: string;
-  sieve_version: string;
   rank: number | null;
   rank_basis: string[];
-  factor_status: "current" | "stale";
-  factors: Array<{
-    id: string;
-    label: string;
-    note: string | null;
-    value: number | null;
-    report_period: string;
-    source_document_version_id: number;
-  }>;
+  factors: DiscoveryFactor[];
   factor_gaps: string[];
-  strategy_questions: string[];
-  caveat: string;
-  source: DiscoverySieveSource | null;
-  freshness: DiscoveryFreshness | null;
+  improvement_signals: string[];
+}
+
+export interface DiscoveryExcluded {
+  ticker: string;
+  name: string | null;
+  kill_reasons: string[];
+  factors: DiscoveryFactor[];
+  factor_gaps: string[];
+}
+
+export interface DiscoveryFactor {
+  id: string;
+  label: string;
+  note: string | null;
+  value: number | null;
+  delta: number | null;
+  period: string | null;
+  source_document_version_id: number | null;
 }
 
 export interface DiscoveryResult {
@@ -46,8 +40,9 @@ export interface DiscoveryResult {
   source_note: string;
   source_version_id: number;
   freshness: DiscoveryFreshness;
+  sieve: DiscoverySieve;
   candidates: DiscoveryCandidate[];
-  sieves: DiscoverySieve[];
+  excluded: DiscoveryExcluded[];
 }
 
 export interface DiscoverySieve {
@@ -57,14 +52,16 @@ export interface DiscoverySieve {
   question: string;
   status: "available" | "blocked";
   universe_count: number;
-  candidate_count: number;
+  survivor_count: number;
+  excluded_count: number;
   coverage_count: number;
   coverage_pct: number;
-  selection_rules: Array<{
+  rules: Array<{
+    layer: "hard_kill" | "improvement";
     factor_id: string;
     label: string;
-    operator: "gte";
-    threshold: number;
+    operator: "lt" | "lte" | "gt" | "gte" | "eq" | "composite";
+    threshold: number | null;
   }>;
   factor_coverage: Array<{
     id: string;
@@ -74,7 +71,6 @@ export interface DiscoverySieve {
   }>;
   source: DiscoverySieveSource | null;
   freshness: DiscoveryFreshness | null;
-  candidates: Array<{ ticker: string }>;
   gaps: string[];
 }
 
@@ -157,12 +153,30 @@ export interface ResearchCaseSummary {
   blocked_reason: string | null;
   created_at: string;
   updated_at: string;
-  initial_research_run_id: number | null;
-  initial_research_status: string | null;
-  latest_research_run_id: number | null;
-  latest_research_run_status: string | null;
+  phase: "collecting" | "researched" | "valued";
+  phase_label: string;
+  phase_summary: string;
+  main_gap: string | null;
   latest_snapshot_status: ResearchSnapshotStatus | null;
   latest_snapshot_as_of: string | null;
+  collection_progress: {
+    state: "waiting" | "collecting" | "attention";
+    summary: string;
+    completed_sources: string[];
+    remaining_sources: string[];
+    percent: number | null;
+  } | null;
+  valuation_strip: {
+    scenario_prices_pln: Record<string, number | null>;
+    scenario_probabilities_pct: Record<string, number>;
+    price_range_pln: [number, number] | null;
+    weighted_value_pln: number | null;
+    current_price_pln: number | null;
+    upside_pct: number | null;
+    catalyst: string | null;
+    verification_status: ValuationSnapshotStatus;
+    as_of: string;
+  } | null;
 }
 
 export type ResearchArchetype =
@@ -238,6 +252,53 @@ export interface ResearchClaim {
   basis: string | null;
 }
 
+export type ResearchSourceChannel =
+  | "issuer-primary"
+  | "regulatory-primary"
+  | "biznesradar"
+  | "portalanaliz"
+  | "other-web";
+
+export type ResearchOutlookDirection =
+  | "positive"
+  | "neutral"
+  | "negative"
+  | "mixed"
+  | "unknown";
+
+export interface ResearchOutlookAssessment {
+  direction: ResearchOutlookDirection;
+  assessment: ResearchClaim;
+  source_channels: ResearchSourceChannel[];
+  watch_items: string[];
+  gap_topic: string | null;
+}
+
+export interface ResearchOutlookSection {
+  summary: string;
+  driver_outlooks: Array<{
+    driver_key: string;
+    next_quarter: ResearchOutlookAssessment;
+    next_12_months: ResearchOutlookAssessment;
+  }>;
+  question_resolutions: Array<{
+    scope: "profile" | "catalyst" | "visibility" | "governance";
+    question: string;
+    status: "confirmed" | "partial" | "not_found" | "not_applicable";
+    answer: ResearchClaim;
+    source_channels: ResearchSourceChannel[];
+    remaining_gap: string | null;
+    gap_topic: string | null;
+  }>;
+  source_searches: Array<{
+    channel: ResearchSourceChannel;
+    status: "found" | "not_found" | "unavailable";
+    summary: string;
+    document_version_ids: number[];
+  }>;
+  claims: ResearchClaim[];
+}
+
 export interface ResearchSections {
   brief: {
     current_understanding: string;
@@ -262,6 +323,7 @@ export interface ResearchSections {
     primary_document_version_ids: number[];
     claims: ResearchClaim[];
   };
+  outlook: ResearchOutlookSection | null;
   thesis: {
     why_now: string;
     counter_thesis: string;
@@ -329,7 +391,10 @@ export interface ResearchSnapshot {
   agent_run_id: number;
   verification_run_id: number;
   version: number;
-  contract_version: "research-snapshot-v1" | "research-snapshot-v2";
+  contract_version:
+    | "research-snapshot-v1"
+    | "research-snapshot-v2"
+    | "research-snapshot-v3";
   status: ResearchSnapshotStatus;
   as_of: string;
   input_fingerprint: string;
@@ -361,8 +426,6 @@ export interface ResearchWorkspace {
   latest_snapshot: ResearchSnapshot | null;
   history: ResearchSnapshotHistory[];
   archetype_pack: ResearchArchetypePack | null;
-  method_catalog: ResearchMethodCatalog[];
-  method_perspectives: ResearchMethodPerspective[];
 }
 
 export interface ResearchArchetypePack {
@@ -386,127 +449,6 @@ export interface ResearchArchetypePack {
   missing_count: number;
   coverage_count: number;
   coverage_pct: number;
-}
-
-export type ResearchMethodStageStatus = "supported" | "planned" | "draft" | "retired";
-
-export interface ResearchMethodCatalog {
-  id: string;
-  version: string;
-  label: string;
-  disclaimer: string;
-  stages: {
-    discover: { status: ResearchMethodStageStatus; reason: string | null };
-    research: { status: ResearchMethodStageStatus; reason: string | null };
-    valuation: { status: ResearchMethodStageStatus; reason: string | null };
-  };
-  evaluation_maturity: "untested" | "diagnostic-cases" | "point-in-time-calibrated";
-  skill: string | null;
-  research_output_schema_version: string | null;
-  valuation_output_schema_version: string | null;
-  calculation_engine_version: string | null;
-  required_verifier_role: string | null;
-  source_manifest: Array<{
-    id: string;
-    label: string;
-    repo_path: string;
-    sha256: string;
-    author_identity: string | null;
-    source_url: string | null;
-    locator: string;
-    publication_at: string | null;
-    known_at: string | null;
-    date_note: string | null;
-    retention_status: "retained";
-  }>;
-  required_questions: string[];
-  required_checks: Array<{
-    id: string;
-    label: string;
-    origin: "author-stated" | "standard-finance" | "workbench-operationalization";
-  }>;
-  blind_spots: string[];
-  gaps: string[];
-}
-
-export type ResearchMethodPerspectiveFindingStatus =
-  | "supports"
-  | "contradicts"
-  | "unknown"
-  | "not-applicable";
-
-export interface ResearchMethodManifest {
-  id: string;
-  version: string;
-  label: string;
-  disclaimer: string;
-  research_stage: { status: ResearchMethodStageStatus; reason: string | null };
-  skill: string | null;
-  research_output_schema_version: string | null;
-  required_verifier_role: string | null;
-  source_manifest: ResearchMethodCatalog["source_manifest"];
-  required_checks: ResearchMethodCatalog["required_checks"];
-  blind_spots: string[];
-  gaps: string[];
-}
-
-export interface ResearchMethodPerspective {
-  id: number;
-  research_case_id: number;
-  research_snapshot_id: number;
-  agent_run_id: number;
-  verification_run_id: number;
-  method_pack_id: string;
-  method_pack_version: string;
-  contract_version: "research-method-perspective-v1";
-  status: ResearchSnapshotStatus;
-  as_of: string;
-  method_manifest: ResearchMethodManifest;
-  method_manifest_fingerprint: string;
-  applicability: {
-    status: "applicable" | "not-applicable";
-    reason: ResearchClaim;
-  };
-  conclusion: ResearchClaim | null;
-  findings: Array<{
-    required_check_id: string;
-    status: ResearchMethodPerspectiveFindingStatus;
-    claim: ResearchClaim;
-  }>;
-  blind_spots: string[];
-  falsifiers: ResearchClaim[];
-  next_checks: ResearchNextCheck[];
-  gaps: ResearchGap[];
-  input_fingerprint: string;
-  artifact_fingerprint: string;
-  verifier_result: {
-    model_role: "verifier_strict";
-    verifier_model: string;
-    verdict: "pass" | "fail" | "needs-human";
-    checks: {
-      schema_integrity: boolean;
-      source_integrity: boolean;
-      snapshot_binding: boolean;
-      method_manifest_integrity: boolean;
-      attribution: boolean;
-      non_impersonation: boolean;
-      applicability: boolean;
-      unknown_handling: boolean;
-      no_hidden_blend: boolean;
-      look_ahead: boolean;
-    };
-    summary: string;
-  };
-  created_at: string;
-}
-
-export interface ResearchMethodPerspectiveQueueResult {
-  agent_run_id: number;
-  status: string;
-  created: boolean;
-  research_snapshot_id: number;
-  method_pack_id: string;
-  method_manifest_fingerprint: string;
 }
 
 export interface ResearchCaseCreateResult {
@@ -546,15 +488,6 @@ export interface ResearchCaseStepHistory {
 export type ValuationScenarioKind = "negative" | "base" | "positive" | "event";
 export type ValuationSnapshotStatus = "provisional" | "verified" | "rejected" | "needs-human";
 
-export interface ValuationMethodPack {
-  id: string;
-  version: string;
-  label: string;
-  status: "ready" | "blocked";
-  reason: string | null;
-  skill: string | null;
-}
-
 export interface ValuationTemplate {
   id: string;
   version: string;
@@ -588,9 +521,13 @@ export interface ValuationScenarioAssumptions {
 
 export interface ValuationRequest {
   research_snapshot_id: number;
-  method_pack_id: string;
   assumptions: ValuationScenarioAssumptions[];
   as_of: string;
+}
+
+export interface ValuationQueueRequest {
+  research_snapshot_id?: number;
+  as_of?: string;
 }
 
 export interface ValuationProjection {
@@ -634,7 +571,6 @@ export interface ValuationDeterministicOutputs {
 
 export interface ValuationPreview {
   research_snapshot_id: number;
-  method_pack: ValuationMethodPack;
   template: ValuationTemplate;
   base_values: Record<string, unknown>;
   deterministic_outputs: ValuationDeterministicOutputs;
@@ -644,36 +580,29 @@ export interface ValuationPreview {
   calculation_fingerprint: string;
 }
 
-export interface ValuationFinalProbability {
-  kind: ValuationScenarioKind;
-  probability_pct: number;
-  rationale: string;
-}
-
 export interface CanonicalValuationSnapshot {
   id: number;
   research_case_id: number;
   research_snapshot_id: number;
-  agent_run_id: number;
-  verification_run_id: number;
+  agent_run_id: number | null;
+  verification_run_id: number | null;
   version: number;
   contract_version: string;
   status: ValuationSnapshotStatus;
+  origin: "codex" | "human-override";
   as_of: string;
-  method_pack_id: string;
-  method_pack_version: string;
   template_id: string;
   template_version: string;
   calculation_engine_version: string;
-  assumptions: ValuationScenarioAssumptions[] | { scenarios: ValuationScenarioAssumptions[] };
+  assumptions: { scenarios: ValuationScenarioAssumptions[] };
   base_values: Record<string, unknown>;
   deterministic_outputs: ValuationDeterministicOutputs;
   codex_judgment: {
-    method_read?: string;
+    strategy_read?: string;
     scenarios?: Array<{
       kind: ValuationScenarioKind;
       mechanism: string;
-      proposed_probability_pct: number;
+      probability_pct: number;
       probability_rationale: string;
       catalyst_or_counter_driver: string;
       falsifier: string;
@@ -688,12 +617,22 @@ export interface CanonicalValuationSnapshot {
   calculation_fingerprint: string;
   artifact_fingerprint: string;
   verifier_result: {
-    model_role: "verifier_strict";
-    verifier_model: string;
-    verdict: "pass" | "fail" | "needs-human";
-    checks: Record<string, boolean>;
-    final_probabilities: ValuationFinalProbability[];
-    summary: string;
+    origin?: "human-override";
+    note?: string;
+    model_role?: "verifier_strict";
+    verifier_model?: string;
+    verdict?: "pass" | "fail" | "needs-human";
+    findings?: Array<{
+      severity: "minor" | "major" | "blocking";
+      area: string;
+      detail: string;
+    }>;
+    judgment_review?: {
+      evidence_fit: string;
+      mechanism_plausibility: string;
+      probability_reasonableness: string;
+    };
+    summary?: string;
   };
   created_at: string;
 }
@@ -702,8 +641,8 @@ export interface ValuationHistoryItem {
   id: number;
   version: number;
   status: ValuationSnapshotStatus;
+  origin: string;
   as_of: string;
-  method_pack_id: string;
   template_id: string;
   created_at: string;
 }
@@ -711,7 +650,6 @@ export interface ValuationHistoryItem {
 export interface ValuationWorkspace {
   research_case_id: number;
   latest_research_snapshot_id: number | null;
-  method_packs: ValuationMethodPack[];
   template: ValuationTemplate | null;
   latest_valuation: CanonicalValuationSnapshot | null;
   history: ValuationHistoryItem[];
@@ -862,6 +800,7 @@ export interface Dividend {
 }
 
 export interface PricePoint {
+  source_version_id: number | null;
   date: string;
   close: number;
   volume: number | null;
@@ -1308,21 +1247,6 @@ export interface ForumIntelligence {
   expectations?: ForumExpectations | null;
 }
 
-export interface ForumTopic {
-  id: number;
-  url: string;
-  title: string | null;
-  last_post_at: string | null;
-  last_synced_at: string | null;
-}
-
-export interface ForumPost {
-  phpbb_post_id: number;
-  author: string;
-  posted_at: string | null;
-  upvotes: number | null;
-}
-
 export interface ScraperHealth {
   status: "healthy" | "recovered" | "degraded" | "unknown";
   last_ok_at: string | null;
@@ -1383,19 +1307,6 @@ export interface AiUsageHealth {
   pricing_status: "not_configured";
 }
 
-export interface ForumPage {
-  total: number;
-  page: number;
-  page_size: number;
-  posts: ForumPost[];
-}
-
-export interface ForumSync {
-  topic_id: number;
-  new_posts: number;
-  total_posts: number;
-}
-
 export interface LoginStatus {
   ok: boolean;
   status: "ok" | "configured" | "error" | "not_configured";
@@ -1410,96 +1321,6 @@ export interface WorkflowStatus {
   completed_24h: number;
   verified_24h: number;
   latest_run_at: string | null;
-}
-
-// --- Analysis history: old rows remain readable while provider-neutral
-// `analysis_runs` become the primary CX path. -----------------------------
-
-export interface AnalysisCatalyst {
-  type: string;
-  description: string;
-  horizon: string;
-  priced_in: "tak" | "nie" | "częściowo" | "nieznane";
-}
-
-export interface AnalysisChecklistItem {
-  id: string;
-  item: string;
-  verdict: "spełnia" | "nie spełnia" | "nieznane";
-  evidence: string;
-}
-
-export interface ForumInsight {
-  claim: string;
-  confidence: "low" | "medium" | "high";
-  post_ids: number[];
-}
-
-export interface AnalysisPotential {
-  upside: string;
-  downside: string;
-}
-
-export interface AnalysisScenario {
-  kind: "negative" | "base" | "positive" | "event";
-  title: string;
-  description: string;
-  key_drivers: string[];
-  watch_items: string[];
-  probability: string;
-}
-
-export interface AnalysisVerdict {
-  thesis: string;
-  catalysts: AnalysisCatalyst[];
-  checklist: AnalysisChecklistItem[];
-  red_flags: string[];
-  one_off_risk: string;
-  forum_insights: ForumInsight[];
-  alignment_score: number | null;
-  potential: AnalysisPotential;
-  scenarios?: AnalysisScenario[];
-  verify_next: VerifyNextItem[]; // reuses the thesis type — identical shape
-  summary_pl: string;
-}
-
-export interface Analysis {
-  id: number;
-  created_at: string;
-  completed_at: string | null;
-  as_of: string | null;
-  provider: string | null;
-  model: string;
-  purpose: string;
-  status: string;
-  skill_version: string | null;
-  skill_hash: string | null;
-  validation: Record<string, unknown> | null;
-  latency_ms: number | null;
-  alignment_score: number | null;
-  input_tokens: number | null;
-  output_tokens: number | null;
-  input_hash: string | null;
-  created_by: string | null;
-  output: AnalysisVerdict;
-}
-
-export interface AnalysisRun {
-  id: number;
-  company_id: number;
-  agent_run_id: number | null;
-  source: string;
-  workflow: string;
-  model_role: string;
-  model: string;
-  status: string;
-  verification_status: string;
-  input_snapshot: Record<string, unknown>;
-  output: Record<string, unknown>;
-  verification: Record<string, unknown>;
-  alignment_score: number | null;
-  created_by: string | null;
-  created_at: string;
 }
 
 export interface AgentRun {
@@ -1519,59 +1340,6 @@ export interface AgentRun {
   available_at: string | null;
   created_at: string;
   updated_at: string;
-}
-
-export interface DecisionJournalEntry {
-  id: number;
-  ticker: string;
-  decision: string;
-  confidence: number;
-  thesis: string;
-  invalidation: string;
-  next_check: string;
-  review_date: string;
-  thesis_snapshot: Record<string, unknown>;
-  thesis_hash: string | null;
-  created_by: string | null;
-  created_at: string;
-}
-
-export interface AgentRunCreate {
-  workflow: string;
-  ticker?: string;
-  trigger?: string;
-  model_role?: string;
-  model?: string;
-  orchestrator_model?: string;
-  inputs?: Record<string, unknown>;
-}
-
-export interface PreSessionBriefResult {
-  ok: boolean;
-  espi_poll: Record<string, unknown>;
-  agent_run: AgentRun | null;
-}
-
-export interface MonitorChange {
-  id: number;
-  from_snapshot_id: number;
-  to_snapshot_id: number;
-  changes: Array<{
-    kind: string;
-    key: string;
-    before?: unknown;
-    after?: unknown;
-    summary: string;
-  }>;
-  created_at: string;
-}
-
-export interface MonitorCheckResult {
-  baseline_exists: boolean;
-  changed: boolean;
-  snapshot_id: number;
-  snapshot_hash: string;
-  change: MonitorChange | null;
 }
 
 export interface Falsifier {
@@ -1683,6 +1451,7 @@ export interface PortfolioReconciliation {
   provider_total: number;
   delta: number;
   tolerance: number;
+  affected_figures: string[];
 }
 
 export interface PortfolioHistoryQuality {
@@ -1858,6 +1627,9 @@ export interface PortfolioWorkspace {
   positions: PortfolioPosition[];
   reconciliation: PortfolioReconciliation | null;
   concentration: {
+    status: "complete" | "partial";
+    basis: "provider_total" | "retained_positions_total";
+    basis_value: number;
     top1_pct: number;
     top3_pct: number;
     hhi: number;
@@ -1881,6 +1653,7 @@ export interface PortfolioWorkspace {
     unmapped_positions: number;
     retained_position_value_pct?: number | null;
     analytics_available: boolean;
+    analytics_status: "complete" | "partial";
   } | null;
   portfolio_review: {
     latest: PortfolioReviewSnapshot | null;
@@ -1890,90 +1663,3 @@ export interface PortfolioWorkspace {
 }
 
 export type PortfolioSyncResult = PortfolioWorkspace & { sync: PortfolioSyncSummary };
-
-export interface BacktestObservation {
-  id: number;
-  backtest_run_id: number;
-  company_id: number;
-  as_of_date: string;
-  known_inputs: Record<string, unknown>;
-  signal: Record<string, unknown>;
-  outcome: Record<string, unknown>;
-  created_at: string;
-}
-
-export interface BacktestRun {
-  id: number;
-  agent_run_id: number | null;
-  strategy: string;
-  from_date: string | null;
-  to_date: string | null;
-  status: string;
-  model_role: string | null;
-  model: string | null;
-  parameters: Record<string, unknown>;
-  summary: {
-    observation_count?: number;
-    signal_counts?: Record<string, number>;
-    average_return_pct_by_window?: Record<string, number | null>;
-    known_inputs_policy?: string;
-    [key: string]: unknown;
-  };
-  verification_status: string;
-  created_at: string;
-}
-
-export interface BacktestRunDetail extends BacktestRun {
-  observations: BacktestObservation[];
-}
-
-export interface BacktestRunCreate {
-  strategy?: string;
-  from_date: string;
-  to_date: string;
-  ticker?: string;
-  outcome_windows?: number[];
-  financial_availability_policy?: "scraped_at" | "estimated_period_lag";
-  report_lag_days?: number;
-}
-
-export interface AgentEvaluationObservation {
-  id: number;
-  evaluation_run_id: number;
-  analysis_run_id: number;
-  company_id: number;
-  as_of_date: string;
-  known_inputs: Record<string, unknown>;
-  prediction: Record<string, unknown>;
-  outcome: Record<string, unknown>;
-  score: Record<string, unknown>;
-  created_at: string;
-}
-
-export interface AgentEvaluationRun {
-  id: number;
-  agent_run_id: number | null;
-  strategy: string;
-  from_date: string | null;
-  to_date: string | null;
-  status: string;
-  model_role: string | null;
-  model: string | null;
-  parameters: Record<string, unknown>;
-  summary: Record<string, unknown>;
-  verification_status: string;
-  created_at: string;
-}
-
-export interface AgentEvaluationRunDetail extends AgentEvaluationRun {
-  observations: AgentEvaluationObservation[];
-}
-
-export interface AgentEvaluationRunCreate {
-  strategy?: string;
-  from_date?: string | null;
-  to_date?: string | null;
-  ticker?: string;
-  workflow?: string;
-  outcome_windows?: number[];
-}

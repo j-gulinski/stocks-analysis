@@ -10,7 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.db.base import SessionLocal
-from app.scrapers.issuer_ir import ISSUER_IR_SOURCES, ingest_issuer_ir_index
+from app.scrapers.issuer_ir import ISSUER_IR_SOURCES, ingest_issuer_ir_indexes
 from scripts.codex_common import add_json_flags, run_main, write_json
 
 
@@ -24,7 +24,7 @@ def main() -> int:
     db = SessionLocal()
     try:
         results = [
-            ingest_issuer_ir_index(db, ticker, force=args.force) for ticker in tickers
+            ingest_issuer_ir_indexes(db, ticker, force=args.force) for ticker in tickers
         ]
     finally:
         db.close()

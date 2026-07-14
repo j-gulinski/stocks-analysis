@@ -191,6 +191,13 @@ are NON-NEGOTIABLE at every step (see bottom).
 
 ### Issuer IR
 
+- Asseco Business Solutions splits current and periodic disclosures across two
+  official indexes. Preserve them as distinct logical documents. Current
+  reports are inline `.ir-item--accordion` blocks without detail URLs and are
+  valid only when `.ir-item__info` contains `Raport N/YYYY`; periodic archive
+  groups reuse accordion classes but must fall through to their same-host PDF
+  links. Extractor `issuer-ir-links@12` missed that distinction and is retained
+  only as audit history; it cannot authorize a detail fetch.
 - ASBIS's English financial-report page repeats report language throughout its
   navigation. Extract only from `.ncont-content`; page-wide heading context
   otherwise turns unrelated Company/Contacts links into false report claims.

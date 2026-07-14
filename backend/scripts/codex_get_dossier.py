@@ -17,26 +17,19 @@ if str(BACKEND_DIR) not in sys.path:
 from scripts.codex_common import add_json_flags, get_company, json_safe, run_main, write_json
 
 from app.db.base import SessionLocal
-from app.services import analysis_scoring, dossier as dossier_service
+from app.services import dossier as dossier_service
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Return one company dossier as JSON.")
     parser.add_argument("ticker")
-    parser.add_argument(
-        "--use-ai-refiners",
-        action="store_true",
-        help="Allow configured API refiners. Default is deterministic-only.",
-    )
     add_json_flags(parser)
     args = parser.parse_args()
 
     db = SessionLocal()
     try:
         company = get_company(db, args.ticker)
-        dossier = dossier_service.build_dossier(
-            db, company, use_ai_refiners=bool(args.use_ai_refiners)
-        )
+        dossier = dossier_service.build_dossier(db, company)
     finally:
         db.close()
 
@@ -45,7 +38,6 @@ def main() -> int:
             "ok": True,
             "ticker": args.ticker.upper(),
             "dossier": json_safe(dossier),
-            "codex_score_base": analysis_scoring.build_codex_score_base(dossier),
         },
         pretty=args.pretty,
     )

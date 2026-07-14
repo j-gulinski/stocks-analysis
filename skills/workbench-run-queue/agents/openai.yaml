@@ -1,4 +1,4 @@
 interface:
   display_name: "Run Workbench Queue"
-  short_description: "Process one queued Workbench task"
-  default_prompt: "Use $workbench-run-queue to process exactly one queued Workbench task."
+  short_description: "Drain queued Workbench tasks safely"
+  default_prompt: "Use $workbench-run-queue to recover leases and drain eligible Workbench tasks until the queue is empty or a bounded safety cap fires."

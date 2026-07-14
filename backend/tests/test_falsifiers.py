@@ -1,4 +1,4 @@
-"""Explicit falsifier state and thesis-at-risk queue tests."""
+"""Explicit falsifier state tests."""
 
 
 def _company(db, ticker):
@@ -41,39 +41,3 @@ def test_falsifier_state_is_explicit_and_requires_a_reason(client, db):
     assert fired.status_code == 200
     assert fired.json()["status"] == "fired"
     assert fired.json()["reason"] == "Raport pokazał spadek marży."
-
-
-def test_watchlist_orders_fired_then_warning_then_unflagged(client, db):
-    from app.db.models import ThesisFalsifier, WatchlistItem
-
-    fired_company = _company(db, "FIR")
-    warning_company = _company(db, "WAR")
-    clean_company = _company(db, "CLR")
-    db.add_all(
-        [
-            WatchlistItem(company_id=fired_company.id),
-            WatchlistItem(company_id=warning_company.id),
-            WatchlistItem(company_id=clean_company.id),
-            ThesisFalsifier(
-                company_id=fired_company.id,
-                key="risk",
-                statement="Risk",
-                status="fired",
-                reason="Evidence",
-            ),
-            ThesisFalsifier(
-                company_id=warning_company.id,
-                key="risk",
-                statement="Risk",
-                status="warning",
-                reason="Evidence",
-            ),
-        ]
-    )
-    db.commit()
-
-    rows = client.get("/api/watchlist").json()
-    assert [row["ticker"] for row in rows] == ["FIR", "WAR", "CLR"]
-    assert rows[0]["fired_falsifiers"] == 1
-    assert rows[1]["warning_falsifiers"] == 1
-    assert rows[2]["risk_level"] == "none"

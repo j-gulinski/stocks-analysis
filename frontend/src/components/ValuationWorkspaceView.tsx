@@ -48,52 +48,6 @@ const DETAIL_FIELDS: Array<{ key: AssumptionKey; label: string; unit: string }> 
   { key: "capex_spend_ratio_pct", label: "Capex / przychody", unit: "%" },
 ];
 
-const INDUSTRIAL_SEED: InputState = {
-  negative: {
-    quarter_revenue_growth_pct: "-10", year_revenue_growth_pct: "-5", gross_margin_pct: "20",
-    operating_cost_ratio_pct: "18", financial_result_ratio_pct: "-2", tax_rate_pct: "19",
-    cash_conversion_pct: "65", capex_spend_ratio_pct: "6", target_pe: "8",
-  },
-  base: {
-    quarter_revenue_growth_pct: "5", year_revenue_growth_pct: "8", gross_margin_pct: "25",
-    operating_cost_ratio_pct: "16", financial_result_ratio_pct: "-1", tax_rate_pct: "19",
-    cash_conversion_pct: "85", capex_spend_ratio_pct: "5", target_pe: "11",
-  },
-  positive: {
-    quarter_revenue_growth_pct: "15", year_revenue_growth_pct: "18", gross_margin_pct: "30",
-    operating_cost_ratio_pct: "14", financial_result_ratio_pct: "0", tax_rate_pct: "19",
-    cash_conversion_pct: "100", capex_spend_ratio_pct: "4", target_pe: "14",
-  },
-  event: {
-    quarter_revenue_growth_pct: "", year_revenue_growth_pct: "", gross_margin_pct: "",
-    operating_cost_ratio_pct: "", financial_result_ratio_pct: "", tax_rate_pct: "",
-    cash_conversion_pct: "", capex_spend_ratio_pct: "", target_pe: "",
-  },
-};
-
-const SOFTWARE_SEED: InputState = {
-  negative: {
-    quarter_revenue_growth_pct: "-5", year_revenue_growth_pct: "0", gross_margin_pct: "24",
-    operating_cost_ratio_pct: "22", financial_result_ratio_pct: "-1", tax_rate_pct: "19",
-    cash_conversion_pct: "70", capex_spend_ratio_pct: "3", target_pe: "9",
-  },
-  base: {
-    quarter_revenue_growth_pct: "8", year_revenue_growth_pct: "10", gross_margin_pct: "28",
-    operating_cost_ratio_pct: "20", financial_result_ratio_pct: "0", tax_rate_pct: "19",
-    cash_conversion_pct: "90", capex_spend_ratio_pct: "2", target_pe: "13",
-  },
-  positive: {
-    quarter_revenue_growth_pct: "18", year_revenue_growth_pct: "20", gross_margin_pct: "32",
-    operating_cost_ratio_pct: "18", financial_result_ratio_pct: "1", tax_rate_pct: "19",
-    cash_conversion_pct: "105", capex_spend_ratio_pct: "2", target_pe: "17",
-  },
-  event: {
-    quarter_revenue_growth_pct: "", year_revenue_growth_pct: "", gross_margin_pct: "",
-    operating_cost_ratio_pct: "", financial_result_ratio_pct: "", tax_rate_pct: "",
-    cash_conversion_pct: "", capex_spend_ratio_pct: "", target_pe: "",
-  },
-};
-
 const STATUS = {
   provisional: { label: "Prowizoryczna", tone: "warning" },
   verified: { label: "Zweryfikowana", tone: "success" },
@@ -101,30 +55,26 @@ const STATUS = {
   "needs-human": { label: "Wymaga decyzji", tone: "warning" },
 } as const;
 
-const VERIFICATION_CHECK_LABELS: Record<string, string> = {
-  schema_integrity: "Schemat",
-  source_integrity: "Źródła",
-  company_identity: "Tożsamość spółki",
-  look_ahead: "Granica czasowa",
-  math_integrity: "Obliczenia",
-  probability_coherence: "Prawdopodobieństwa",
-  method_integrity: "Metoda",
-};
-
 function humanValue(value: number, rationale: string): ValuationAssumptionValue {
   return { value, provenance: "human_assumption", rationale, source_fact_ids: [] };
 }
 
-function templateSeed(templateId: string): InputState {
-  return structuredClone(templateId.startsWith("software-services") ? SOFTWARE_SEED : INDUSTRIAL_SEED);
+function emptyInputs(): InputState {
+  const row = () => Object.fromEntries(
+    [...CORE_FIELDS, ...DETAIL_FIELDS].map(({ key }) => [key, ""]),
+  ) as Record<AssumptionKey, string>;
+  return {
+    negative: row(),
+    base: row(),
+    positive: row(),
+    event: row(),
+  };
 }
 
-function seededInputs(snapshot: CanonicalValuationSnapshot | null, templateId: string): InputState {
-  const next = templateSeed(templateId);
+function savedInputs(snapshot: CanonicalValuationSnapshot | null): InputState {
+  const next = emptyInputs();
   if (!snapshot) return next;
-  const saved = Array.isArray(snapshot.assumptions)
-    ? snapshot.assumptions
-    : snapshot.assumptions.scenarios;
+  const saved = snapshot.assumptions.scenarios;
   if (!Array.isArray(saved)) return next;
   for (const scenario of saved) {
     if (!scenario || !(scenario.kind in next)) continue;
@@ -137,7 +87,7 @@ function seededInputs(snapshot: CanonicalValuationSnapshot | null, templateId: s
 }
 
 function probabilityFor(snapshot: CanonicalValuationSnapshot | null, kind: ValuationScenarioKind) {
-  return snapshot?.verifier_result.final_probabilities?.find((item) => item.kind === kind) ?? null;
+  return snapshot?.codex_judgment.scenarios?.find((item) => item.kind === kind) ?? null;
 }
 
 function scenarioConfig(kind: ValuationScenarioKind) {
@@ -153,6 +103,7 @@ function readableGap(gap: string) {
     "Raw price differs from reported market cap / shares by more than 2%.": "Kurs różni się o ponad 2% od relacji raportowanej kapitalizacji do liczby akcji.",
     "Price cannot be corroborated with reported market cap and shares.": "Nie można potwierdzić kursu przez raportowaną kapitalizację i liczbę akcji.",
     "Raw price series has incomplete source/series/basis identity.": "Seria kursu nie ma kompletnej tożsamości źródła, serii lub podstawy.",
+    "Reference price row is not bound to an immutable source document version.": "Kurs odniesienia nie ma jeszcze powiązania z niezmienną wersją dokumentu źródłowego.",
   };
   return translations[gap] ?? gap;
 }
@@ -216,7 +167,7 @@ function ResultComparison({
         <aside className="valuation-weighted">
           <div><span>Wynik ważony prawdopodobieństwem</span><strong>{fmtPln(outputs.probability_weighted.price_pln)}</strong></div>
           <span className={signClass(outputs.probability_weighted.return_pct)}>{fmtPct(outputs.probability_weighted.return_pct, { signed: true })}</span>
-          <small>Prawdopodobieństwa pochodzą z niezależnej weryfikacji, nie z kalkulatora.</small>
+          <small>Prawdopodobieństwa są częścią szkicu spółki i podlegają niezależnej weryfikacji.</small>
         </aside>
       )}
       {saved && outputs.probability_weighted?.status === "unavailable" && (
@@ -243,30 +194,27 @@ export default function ValuationWorkspaceView({
   workspace: ValuationWorkspace;
 }) {
   const snapshot = research.latest_snapshot;
-  const readyMethod = workspace.method_packs.find((pack) => pack.status === "ready");
   const boundValuation = workspace.latest_valuation?.research_snapshot_id === snapshot?.id
     ? workspace.latest_valuation
     : null;
   const staleValuation = workspace.latest_valuation && !boundValuation ? workspace.latest_valuation : null;
   const savedScenarioRows = boundValuation
-    ? (Array.isArray(boundValuation.assumptions) ? boundValuation.assumptions : boundValuation.assumptions.scenarios)
+    ? boundValuation.assumptions.scenarios
     : [];
   const savedEvent = savedScenarioRows.find((row) => row.kind === "event");
-  const [inputs, setInputs] = useState<InputState>(() => seededInputs(boundValuation, workspace.template?.id ?? ""));
+  const [inputs, setInputs] = useState<InputState>(() => savedInputs(boundValuation));
   const [eventEnabled, setEventEnabled] = useState(Boolean(savedEvent));
   const [eventOneOff, setEventOneOff] = useState(() => {
     const value = savedEvent?.event_one_off_net_pln_thousands?.value;
-    return typeof value === "number" ? String(value).replace(".", ",") : "0";
+    return typeof value === "number" ? String(value).replace(".", ",") : "";
   });
   const [preview, setPreview] = useState<ValuationPreview | null>(null);
-  const [requestAsOf, setRequestAsOf] = useState<string | null>(null);
   const [busy, setBusy] = useState<"preview" | "queue" | null>(null);
   const [dirty, setDirty] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const canCalculate = Boolean(snapshot && readyMethod && workspace.template);
-  const blockedMethods = workspace.method_packs.filter((pack) => pack.status === "blocked");
+  const canCalculate = Boolean(snapshot && workspace.template);
   const savedStatus = boundValuation ? STATUS[boundValuation.status] : null;
 
   const scenarioAssumptions = useMemo(() => {
@@ -303,10 +251,9 @@ export default function ValuationWorkspaceView({
   }, [eventEnabled, eventOneOff, inputs]);
 
   const buildRequest = (asOf: string): ValuationRequest | null => {
-    if (!snapshot || !readyMethod || !scenarioAssumptions) return null;
+    if (!snapshot || !scenarioAssumptions) return null;
     return {
       research_snapshot_id: snapshot.id,
-      method_pack_id: readyMethod.id,
       assumptions: scenarioAssumptions,
       as_of: asOf,
     };
@@ -316,24 +263,17 @@ export default function ValuationWorkspaceView({
     setInputs((current) => ({ ...current, [kind]: { ...current[kind], [key]: value } }));
     setPreview(null);
     setDirty(true);
-    setRequestAsOf(null);
     setMessage(null);
   };
 
   const updateEventOneOff = (value: string) => {
     setEventOneOff(value);
-    setPreview(null); setDirty(true); setRequestAsOf(null); setMessage(null);
+    setPreview(null); setDirty(true); setMessage(null);
   };
 
   const toggleEvent = () => {
-    setEventEnabled((current) => {
-      const next = !current;
-      if (next && CORE_FIELDS.some(({ key }) => !inputs.event[key])) {
-        setInputs((values) => ({ ...values, event: { ...values.base } }));
-      }
-      return next;
-    });
-    setPreview(null); setDirty(true); setRequestAsOf(null); setMessage(null);
+    setEventEnabled((current) => !current);
+    setPreview(null); setDirty(true); setMessage(null);
   };
 
   const calculate = async () => {
@@ -347,7 +287,6 @@ export default function ValuationWorkspaceView({
     try {
       setPreview(await previewValuation(workspace.research_case_id, request));
       setDirty(false);
-      setRequestAsOf(asOf);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -356,13 +295,14 @@ export default function ValuationWorkspaceView({
   };
 
   const queue = async () => {
-    if (!requestAsOf) return;
-    const request = buildRequest(requestAsOf);
-    if (!request) return;
+    if (!snapshot) return;
     setBusy("queue"); setError(null); setMessage(null);
     try {
-      const result = await queueValuation(workspace.research_case_id, request);
-      setMessage(result.created ? "Wycena została przekazana do analizy i niezależnej weryfikacji." : "Ten sam zestaw założeń jest już zapisany w kolejce.");
+      const result = await queueValuation(workspace.research_case_id, {
+        research_snapshot_id: snapshot.id,
+        as_of: new Date().toISOString(),
+      });
+      setMessage(result.created ? "Wycena została przekazana do opracowania i niezależnej weryfikacji." : "Wycena dla tego stanu Research już oczekuje lub została opracowana.");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -370,7 +310,7 @@ export default function ValuationWorkspaceView({
     }
   };
 
-  if (!snapshot || !research.profile || !workspace.template || !readyMethod) {
+  if (!snapshot || !research.profile || !workspace.template) {
     return <section className="valuation-empty"><IconAlertTriangle size={22} /><h2>Wycena nie jest jeszcze dostępna</h2><p>Potrzebny jest użyteczny snapshot Research i obsługiwany szablon spółki.</p></section>;
   }
 
@@ -380,7 +320,11 @@ export default function ValuationWorkspaceView({
   const auditPrice = auditManifest?.price && typeof auditManifest.price === "object"
     ? auditManifest.price as Record<string, unknown>
     : null;
+  const auditScalars = auditManifest?.company_scalar_provenance && typeof auditManifest.company_scalar_provenance === "object"
+    ? auditManifest.company_scalar_provenance as Record<string, unknown>
+    : null;
   const auditFactIds = Array.isArray(auditManifest?.fact_ids) ? auditManifest.fact_ids : [];
+  const auditScalarFactIds = Array.isArray(auditScalars?.fact_ids) ? auditScalars.fact_ids : [];
 
   return (
     <main className="page-stack valuation-workspace">
@@ -397,8 +341,8 @@ export default function ValuationWorkspaceView({
         </div>
       </header>
 
-      <section className="valuation-method">
-        <div><span className="snapshot-label">Metoda</span><strong>{readyMethod.label}</strong><small>{readyMethod.version}</small></div>
+      <section className="valuation-engine">
+        <div><span className="snapshot-label">Silnik</span><strong>Workbench</strong><small>scenariusze właściwe dla spółki</small></div>
         <div><span className="snapshot-label">Szablon obliczeń</span><strong>{workspace.template.label}</strong><small>{workspace.template.version}</small></div>
         {savedStatus && <div><span className="snapshot-label">Ostatnia wycena</span><span className={`badge ${savedStatus.tone}`}>{savedStatus.label}</span><small>wersja {boundValuation!.version}</small></div>}
       </section>
@@ -417,7 +361,7 @@ export default function ValuationWorkspaceView({
       <section className="valuation-editor" aria-labelledby="valuation-inputs-heading">
         <div className="valuation-section-heading">
           <div><p className="eyebrow">Założenia</p><h2 id="valuation-inputs-heading">Spadkowy, bazowy i wzrostowy</h2></div>
-          <p>Wartości startowe są roboczymi założeniami dla szablonu {workspace.template.label}, nie faktami ze źródeł. Zmień je zgodnie z własną oceną dowodów.</p>
+          <p>Pola są puste, dopóki nie wpiszesz własnych założeń. Zapisana wycena może wypełnić je wartościami właściwymi dla tej spółki.</p>
         </div>
         <div className="valuation-input-table">
           <div className="valuation-input-header"><span>Czynnik</span>{SCENARIOS.map((item) => <strong key={item.kind}>{item.label}</strong>)}</div>
@@ -441,9 +385,9 @@ export default function ValuationWorkspaceView({
           )}
         </div>
         <div className="valuation-actions">
-          <button className="btn" onClick={() => void calculate()} disabled={!canCalculate || busy != null}><IconCalculator size={15} />{busy === "preview" ? "Przeliczam…" : "Przelicz szkic"}</button>
-          <button className="btn accent" onClick={() => void queue()} disabled={!preview || busy != null}><IconPlayerPlay size={15} />{busy === "queue" ? "Przekazuję…" : "Przekaż do analizy Codex"}</button>
-          <span>Szkic liczy Python. Codex interpretuje mechanizmy, a osobny weryfikator ustala końcowe prawdopodobieństwa.</span>
+          <button className="btn" onClick={() => void calculate()} disabled={!canCalculate || busy != null}><IconCalculator size={15} />{busy === "preview" ? "Przeliczam…" : "Przelicz własny szkic"}</button>
+          <button className="btn accent" onClick={() => void queue()} disabled={busy != null}><IconPlayerPlay size={15} />{busy === "queue" ? "Przekazuję…" : "Zleć wycenę spółki"}</button>
+          <span>Własny szkic liczy Python. Zlecona wycena powstaje osobno z zamrożonych dowodów Research, a niezależny weryfikator podważa jej założenia i prawdopodobieństwa.</span>
         </div>
         {error && <div className="error-box" role="alert">{error}</div>}
         {message && <div className="success-box" role="status">{message}</div>}
@@ -456,17 +400,15 @@ export default function ValuationWorkspaceView({
       ) : null}
 
       <details className="valuation-audit">
-        <summary><IconLock size={14} /> Metoda, równanie i audyt</summary>
+        <summary><IconLock size={14} /> Równanie i audyt</summary>
         <div className="valuation-audit-content">
           <div><span>Równanie</span><p>{workspace.template.equation}</p></div>
-          <div><span>Powiązanie</span><p>Research snapshot #{snapshot.id} · profil #{snapshot.company_profile_id} · {readyMethod.id} / {workspace.template.id}</p></div>
-          {auditManifest && <div><span>Zamrożone wejścia rynkowe</span><p>Kurs: {typeof auditPrice?.date === "string" ? fmtDate(auditPrice.date) : "—"} · źródło {String(auditPrice?.source_name ?? "brak")} · seria {String(auditPrice?.series_key ?? "brak")}</p><p>Fakty: {auditFactIds.length > 0 ? auditFactIds.join(", ") : "brak identyfikatorów"}</p></div>}
+          <div><span>Powiązanie</span><p>Research snapshot #{snapshot.id} · profil #{snapshot.company_profile_id} · szablon {workspace.template.id}</p></div>
+          {auditManifest && <div><span>Zamrożone wejścia rynkowe</span><p>Kurs: {typeof auditPrice?.date === "string" ? fmtDate(auditPrice.date) : "—"} · źródło {String(auditPrice?.source_name ?? "brak")} · seria {String(auditPrice?.series_key ?? "brak")} · dokument #{String(auditPrice?.source_document_version_id ?? "brak")}</p><p>Potwierdzenie kursu: {auditPrice?.reference_price_status === "market_cap_corroborated" ? "zgodny z kapitalizacją i liczbą akcji" : String(auditPrice?.reference_price_status ?? "brak")} · seria zwrotu {auditPrice?.return_series_eligible === true ? "kwalifikowana" : "niekwalifikowana"}</p><p>Profil spółki: dokument #{String(auditScalars?.source_document_version_id ?? "brak")} · fakty {auditScalarFactIds.length > 0 ? auditScalarFactIds.join(", ") : "brak identyfikatorów"}</p><p>Fakty finansowe: {auditFactIds.length > 0 ? auditFactIds.join(", ") : "brak identyfikatorów"}</p></div>}
           {(preview || boundValuation) && <div className="valuation-fingerprints"><span>Fingerprinty</span><p>wejście: {(preview?.input_fingerprint ?? boundValuation?.input_fingerprint)}</p><p>obliczenia: {(preview?.calculation_fingerprint ?? boundValuation?.calculation_fingerprint)}</p>{boundValuation && <p>artefakt: {boundValuation.artifact_fingerprint}</p>}</div>}
-          {boundValuation && <div><span>Weryfikacja</span><p>{boundValuation.verifier_result.summary}</p><div className="valuation-checks">{Object.entries(boundValuation.verifier_result.checks).map(([key, passed]) => <span className={passed ? "passed" : "failed"} key={key}>{passed ? <IconCheck size={12} /> : <IconAlertTriangle size={12} />}{VERIFICATION_CHECK_LABELS[key] ?? key}</span>)}</div></div>}
+          {boundValuation && <div><span>Weryfikacja</span>{boundValuation.origin === "human-override" ? <><p>Korekta użytkownika bez niezależnej weryfikacji.</p>{boundValuation.verifier_result.note && <p>{boundValuation.verifier_result.note}</p>}</> : <><p>{boundValuation.verifier_result.summary ?? "Brak podsumowania weryfikacji."}</p><div className="valuation-checks"><span className={boundValuation.verifier_result.verdict === "pass" ? "passed" : "failed"}>{boundValuation.verifier_result.verdict === "pass" ? <IconCheck size={12} /> : <IconAlertTriangle size={12} />}{boundValuation.verifier_result.verdict === "pass" ? "Ocena zaliczona" : "Wymaga korekty"}</span></div>{boundValuation.verifier_result.findings?.map((finding) => <p key={`${finding.area}-${finding.detail}`}><strong>{finding.area}:</strong> {finding.detail}</p>)}</>}</div>}
         </div>
       </details>
-
-      {blockedMethods.length > 0 && <details className="valuation-blocked-methods"><summary>Pozostałe metody — brak pełnego materiału źródłowego</summary>{blockedMethods.map((method) => <div key={method.id}><strong>{method.label}</strong><p>{method.reason}</p><small>{method.version}</small></div>)}</details>}
     </main>
   );
 }

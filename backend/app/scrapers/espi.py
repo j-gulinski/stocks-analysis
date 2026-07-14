@@ -513,7 +513,7 @@ def _poll_result(
         source_status = "temporarily_unavailable"
     return {
         "ok": ok,
-        "workflow": "stock-pre-session-brief",
+        "capability_id": "espi-source-ingestion-v1",
         "source": SOURCE_KEY,
         "capability": "live-ingestion",
         "matched": matched_count,

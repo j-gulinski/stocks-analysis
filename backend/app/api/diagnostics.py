@@ -15,7 +15,6 @@ from app.db.base import get_db
 from app.db.models import (
     AgentRun,
     AiUsageDaily,
-    AnalysisRun,
     Company,
     FetchLog,
     IndicatorValue,
@@ -23,6 +22,7 @@ from app.db.models import (
 )
 from app.services import fields
 from app.services import refresh as refresh_service
+from app.services.model_policy import CANONICAL_WORKFLOWS
 
 router = APIRouter(tags=["diagnostics"])
 
@@ -166,34 +166,45 @@ def check_br_login_status() -> dict:
 def workflow_status(db: Session = Depends(get_db)) -> dict:
     """Codex workflow status for Settings.
 
-    CX.9 retires the old provider-key check from the UI. The useful local
-    health question is now whether Codex-facing durable queues and verified
-    analysis rows are visible to the app.
+    Counts are restricted to the four canonical artifact workflows; historical
+    queue rows from deleted capabilities are not product health.
     """
     since = datetime.now(timezone.utc) - timedelta(hours=24)
     queued = db.scalar(
-        select(func.count()).select_from(AgentRun).where(AgentRun.status == "queued")
+        select(func.count()).select_from(AgentRun).where(
+            AgentRun.workflow.in_(CANONICAL_WORKFLOWS),
+            AgentRun.status == "queued",
+        )
     )
     running = db.scalar(
-        select(func.count()).select_from(AgentRun).where(AgentRun.status == "running")
+        select(func.count()).select_from(AgentRun).where(
+            AgentRun.workflow.in_(CANONICAL_WORKFLOWS),
+            AgentRun.status == "running",
+        )
     )
     completed_24h = db.scalar(
         select(func.count())
         .select_from(AgentRun)
         .where(
+            AgentRun.workflow.in_(CANONICAL_WORKFLOWS),
             AgentRun.status.in_(("completed", "verified")),
             AgentRun.updated_at >= since,
         )
     )
     verified_24h = db.scalar(
         select(func.count())
-        .select_from(AnalysisRun)
+        .select_from(AgentRun)
         .where(
-            AnalysisRun.verification_status == "pass",
-            AnalysisRun.created_at >= since,
+            AgentRun.workflow.in_(CANONICAL_WORKFLOWS),
+            AgentRun.status == "verified",
+            AgentRun.updated_at >= since,
         )
     )
-    latest = db.scalar(select(func.max(AgentRun.updated_at)).select_from(AgentRun))
+    latest = db.scalar(
+        select(func.max(AgentRun.updated_at))
+        .select_from(AgentRun)
+        .where(AgentRun.workflow.in_(CANONICAL_WORKFLOWS))
+    )
     return {
         "ok": True,
         "queued": int(queued or 0),

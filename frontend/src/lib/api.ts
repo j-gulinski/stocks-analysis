@@ -4,58 +4,33 @@
  */
 import type {
   AiUsageHealth,
-  AssumptionItem,
-  AssumptionScenarioKind,
-  AssumptionSet,
-  AssumptionStatus,
-  AgentEvaluationRun,
-  AgentEvaluationRunCreate,
-  AgentEvaluationRunDetail,
   AgentRun,
-  AgentRunCreate,
-  Analysis,
-  AnalysisRun,
-  BacktestRun,
-  BacktestRunCreate,
-  BacktestRunDetail,
-  DecisionJournalEntry,
   Dividend,
   DiscoveryResult,
   Dossier,
   EvidenceDocument,
   Financials,
   Falsifier,
-  Forecast,
-  ForecastAssumptions,
-  ForumPage,
-  ForumSync,
-  ForumTopic,
   IndicatorPoint,
   LoginStatus,
-  MonitorCheckResult,
   PricePoint,
   PortfolioSyncResult,
   PortfolioReviewQueueResult,
   PortfolioWorkspace,
-  PreSessionBriefResult,
-  ResearchCase,
   ResearchCaseCreateResult,
   ResearchReviewQueueResult,
-  ResearchMethodPerspectiveQueueResult,
   ResearchCaseSummary,
   CompanyProfile,
   ResearchArchetype,
   CompanyOverlay,
   ResearchDriver,
   ResearchKpi,
-  ResearchCaseStepHistory,
-  ResearchCaseState,
-  ResearchCaseStep,
   ResearchWorkspace,
   RefreshSummary,
   ScraperHealth,
   WorkflowStatus,
   ValuationPreview,
+  ValuationQueueRequest,
   ValuationQueueResult,
   ValuationRequest,
   ValuationWorkspace,
@@ -103,10 +78,7 @@ export const getResearchWorkspace = (ticker: string) =>
     `/research-cases/by-ticker/${encodeURIComponent(ticker)}`,
   );
 
-export const addResearchCase = (payload: {
-  ticker: string;
-  source_document_version_id?: number | null;
-}) => request<ResearchCaseCreateResult>("/research-cases", {
+export const addResearchCase = (payload: { ticker: string }) => request<ResearchCaseCreateResult>("/research-cases", {
   method: "POST",
   body: JSON.stringify(payload),
 });
@@ -115,14 +87,6 @@ export const queueResearchReview = (researchCaseId: number) =>
   request<ResearchReviewQueueResult>(`/research-cases/${researchCaseId}/review-runs`, {
     method: "POST",
   });
-
-export const queueResearchMethodPerspective = (
-  researchCaseId: number,
-  payload: { research_snapshot_id: number; method_pack_id: string },
-) => request<ResearchMethodPerspectiveQueueResult>(
-  `/research-cases/${researchCaseId}/method-perspective-runs`,
-  { method: "POST", body: JSON.stringify(payload) },
-);
 
 export const confirmResearchProfile = (
   researchCaseId: number,
@@ -148,37 +112,6 @@ export const getEvidenceDocuments = (ticker: string) =>
     `/companies/${encodeURIComponent(ticker)}/evidence/documents`,
   );
 
-export const getResearchCase = (ticker: string, purpose = "investment-research") =>
-  request<ResearchCase>(
-    `/companies/${encodeURIComponent(ticker)}/research-case?purpose=${encodeURIComponent(purpose)}`,
-  );
-
-export const getResearchCaseHistory = (ticker: string, purpose = "investment-research") =>
-  request<ResearchCaseStepHistory[]>(
-    `/companies/${encodeURIComponent(ticker)}/research-case/history?purpose=${encodeURIComponent(purpose)}`,
-  );
-
-export const createResearchCase = (ticker: string, purpose = "investment-research") =>
-  request<ResearchCase>(`/companies/${encodeURIComponent(ticker)}/research-case`, {
-    method: "POST",
-    body: JSON.stringify({ purpose }),
-  });
-
-export const updateResearchCase = (
-  ticker: string,
-  patch: {
-    state?: ResearchCaseState;
-    current_step?: ResearchCaseStep;
-    blocked_reason?: string | null;
-    change_reason?: string | null;
-    as_of?: string | null;
-  },
-) =>
-  request<ResearchCase>(`/companies/${encodeURIComponent(ticker)}/research-case`, {
-    method: "PATCH",
-    body: JSON.stringify(patch),
-  });
-
 // ------------------------------------------------------ canonical valuation
 export const getValuationWorkspace = (researchCaseId: number) =>
   request<ValuationWorkspace>(`/research-cases/${researchCaseId}/valuation-workspace`);
@@ -189,41 +122,11 @@ export const previewValuation = (researchCaseId: number, payload: ValuationReque
     body: JSON.stringify(payload),
   });
 
-export const queueValuation = (researchCaseId: number, payload: ValuationRequest) =>
+export const queueValuation = (researchCaseId: number, payload: ValuationQueueRequest) =>
   request<ValuationQueueResult>(`/research-cases/${researchCaseId}/valuation-runs`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
-
-export const getAssumptionSets = (ticker: string, purpose = "investment-research") =>
-  request<AssumptionSet[]>(
-    `/companies/${encodeURIComponent(ticker)}/research-case/assumptions?purpose=${encodeURIComponent(purpose)}`,
-  );
-
-export const createAssumptionSet = (
-  ticker: string,
-  payload: {
-    scenario_kind: AssumptionScenarioKind;
-    label: string;
-    status?: AssumptionStatus;
-    as_of?: string | null;
-    assumptions: AssumptionItem[];
-  },
-) =>
-  request<AssumptionSet>(`/companies/${encodeURIComponent(ticker)}/research-case/assumptions`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-
-export const updateAssumptionSet = (
-  ticker: string,
-  id: number,
-  patch: Partial<Pick<AssumptionSet, "label" | "status" | "as_of" | "assumptions">>,
-) =>
-  request<AssumptionSet>(
-    `/companies/${encodeURIComponent(ticker)}/research-case/assumptions/${id}`,
-    { method: "PATCH", body: JSON.stringify(patch) },
-  );
 
 export const refreshCompany = (ticker: string, force = false) =>
   request<RefreshSummary>(
@@ -251,70 +154,7 @@ export const getDividends = (ticker: string) =>
 export const getPrices = (ticker: string, days = 365) =>
   request<PricePoint[]>(`/companies/${encodeURIComponent(ticker)}/prices?days=${days}`);
 
-// ---------------------------------------------------------------- forecasts
-export const getForecastDefaults = (ticker: string) =>
-  request<ForecastAssumptions>(
-    `/companies/${encodeURIComponent(ticker)}/forecast-defaults`,
-  );
-
-export const computeForecast = (ticker: string, assumptions: ForecastAssumptions) =>
-  request<Forecast>(`/companies/${encodeURIComponent(ticker)}/forecasts`, {
-    method: "POST",
-    body: JSON.stringify({ assumptions, save: false }),
-  });
-
-export const saveForecast = (
-  ticker: string,
-  assumptions: ForecastAssumptions,
-  label: string | null,
-) =>
-  request<Forecast>(`/companies/${encodeURIComponent(ticker)}/forecasts`, {
-    method: "POST",
-    body: JSON.stringify({ assumptions, label, save: true }),
-  });
-
-export const listForecasts = (ticker: string) =>
-  request<Forecast[]>(`/companies/${encodeURIComponent(ticker)}/forecasts`);
-
-// -------------------------------------------------------------------- forum
-export const linkForumTopic = (url: string, ticker: string) =>
-  request<ForumTopic>("/forum/topics", {
-    method: "POST",
-    body: JSON.stringify({ url, ticker }),
-  });
-
-export const syncForumTopic = (topicId: number) =>
-  request<ForumSync>(`/forum/topics/${topicId}/sync`, { method: "POST" });
-
-export const getForumTopics = (ticker: string) =>
-  request<ForumTopic[]>(`/companies/${encodeURIComponent(ticker)}/forum/topics`);
-
-export const getForumPosts = (
-  ticker: string,
-  page = 1,
-  author?: string,
-  sort: "new" | "top" = "new",
-) => {
-  const params = new URLSearchParams({ page: String(page), page_size: "25", sort });
-  if (author) params.set("author", author);
-  return request<ForumPage>(
-    `/companies/${encodeURIComponent(ticker)}/forum?${params}`,
-  );
-};
-
-// Legacy provider endpoint remains available while the Review UI moves to
-// verifier-gated, provider-neutral Codex workflows.
-export const runAnalysis = (ticker: string) =>
-  request<Analysis>(`/companies/${encodeURIComponent(ticker)}/analyses`, {
-    method: "POST",
-  });
-
-export const listAnalyses = (ticker: string) =>
-  request<Analysis[]>(`/companies/${encodeURIComponent(ticker)}/analyses`);
-
-export const listAnalysisRuns = (ticker: string) =>
-  request<AnalysisRun[]>(`/companies/${encodeURIComponent(ticker)}/analysis-runs`);
-
+// ---------------------------------------------------------- agent-run audit
 export const listAgentRuns = (params: {
   status?: string;
   workflow?: string;
@@ -329,47 +169,6 @@ export const listAgentRuns = (params: {
   const query = search.toString();
   return request<AgentRun[]>(`/agent-runs${query ? `?${query}` : ""}`);
 };
-
-export const getDecisionJournal = (ticker: string, limit = 20) =>
-  request<DecisionJournalEntry[]>(
-    `/companies/${encodeURIComponent(ticker)}/decision-journal?limit=${limit}`,
-  );
-
-export const createDecisionJournalEntry = (
-  ticker: string,
-  payload: Omit<DecisionJournalEntry, "id" | "ticker" | "thesis_hash" | "created_by" | "created_at">,
-) =>
-  request<DecisionJournalEntry>(
-    `/companies/${encodeURIComponent(ticker)}/decision-journal`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-  );
-
-export const queueAgentRun = (payload: AgentRunCreate) =>
-  request<AgentRun>("/agent-runs", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-
-export const preparePreSessionBrief = (payload: {
-  ticker?: string;
-  trigger?: string;
-  orchestrator_model?: string;
-  fetch_details?: boolean;
-  queue?: boolean;
-} = {}) =>
-  request<PreSessionBriefResult>("/agent-runs/pre-session", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-
-export const checkMonitor = (ticker: string) =>
-  request<MonitorCheckResult>(
-    `/companies/${encodeURIComponent(ticker)}/monitor/check`,
-    { method: "POST" },
-  );
 
 export const getFalsifiers = (ticker: string) =>
   request<Falsifier[]>(`/companies/${encodeURIComponent(ticker)}/falsifiers`);
@@ -405,47 +204,8 @@ export const syncMyfundPortfolio = () =>
 export const queuePortfolioReview = () =>
   request<PortfolioReviewQueueResult>("/portfolios/review-runs", { method: "POST" });
 
-export const listBacktestRuns = (params: { limit?: number; strategy?: string } = {}) => {
-  const search = new URLSearchParams();
-  if (params.limit) search.set("limit", String(params.limit));
-  if (params.strategy) search.set("strategy", params.strategy);
-  const query = search.toString();
-  return request<BacktestRun[]>(`/backtest-runs${query ? `?${query}` : ""}`);
-};
-
-export const getBacktestRun = (id: number) =>
-  request<BacktestRunDetail>(`/backtest-runs/${id}`);
-
-export const runBacktest = (payload: BacktestRunCreate) =>
-  request<BacktestRunDetail>("/backtest-runs", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-
-export const listAgentEvaluationRuns = (
-  params: { limit?: number; strategy?: string } = {},
-) => {
-  const search = new URLSearchParams();
-  if (params.limit) search.set("limit", String(params.limit));
-  if (params.strategy) search.set("strategy", params.strategy);
-  const query = search.toString();
-  return request<AgentEvaluationRun[]>(
-    `/agent-evaluation-runs${query ? `?${query}` : ""}`,
-  );
-};
-
-export const getAgentEvaluationRun = (id: number) =>
-  request<AgentEvaluationRunDetail>(`/agent-evaluation-runs/${id}`);
-
-export const runAgentEvaluation = (payload: AgentEvaluationRunCreate) =>
-  request<AgentEvaluationRunDetail>("/agent-evaluation-runs", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-
 // ----------------------------------------------------------------- settings
 export const getHealth = () => request<{ status: string }>("/health");
-export const getForumLoginStatus = () => request<LoginStatus>("/forum/login-status");
 export const getBrLoginStatus = () => request<LoginStatus>("/diagnostics/br-login-status");
 export const getScrapersHealth = () =>
   request<Record<string, ScraperHealth>>("/health/scrapers");

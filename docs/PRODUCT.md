@@ -1,260 +1,169 @@
 # Product contract
 
+Defers to `docs/VISION.md`. This file specifies what each stage shows and
+does. UI copy is concise Polish; internals stay out of the reading path.
+
 ## Purpose
 
-The Stock Analysis Workbench is the investor's default place for analysing GPW
-companies. It should help one investor discover companies, build durable
-company knowledge, test valuation scenarios, and understand the portfolio
-without reconstructing prior work from websites, spreadsheets, notes, or chat.
-It is not a generic stock database, a trading signal, or an autonomous adviser.
+The Stock Analysis Workbench is one investor's GPW analysis pipeline:
+sieve the market down, collect and verify company evidence, produce
+company-specific valuation scenarios, and keep the real portfolio covered by
+current, verified analysis. Codex agents do the volume work; Kuba owns every
+decision. It is decision support, never a signal service.
 
-Codex gathers, structures, challenges, and verifies the analysis. The user owns
-every investment decision. Every material statement must be a sourced fact, a
-deterministic calculation, a named assumption, or an explicit gap.
+## Stage 1 — Discover: one sieve, exclusion-first
 
-## Product north star
+Goal: reduce ~800 GPW companies to the few dozen worth research, by kicking
+out the worst and the not-improving — with every kill explainable.
 
-For any GPW company, the Workbench should make it practical to answer:
+- Exactly one versioned Workbench sieve (`workbench_sieve_vN`). No filter
+  tabs, no per-author sieves, no alternative strategies on screen.
+- The sieve runs server-side over a versioned market-wide factor snapshot
+  (multiple BiznesRadar market pages stored as immutable documents). Two
+  layers:
+  1. **Wykluczenia (hard kills)** — distress-level financial health,
+     quality collapse, negative equity, sustained revenue+margin decay,
+     extreme leverage, illiquidity. Any hit excludes the company and stores
+     the reason.
+  2. **Wymóg poprawy** — survivors must show real improvement signals
+     (profitability trend, revenue dynamics, quality score, valuation below
+     own history). Standing still is grounds for exclusion; cheapness alone
+     is not admission.
+- Survivors are ordered by improvement evidence, but the order is secondary;
+  membership is the product. Each row shows the two-to-four factors that
+  mattered: value, direction vs own history, source, freshness.
+- Excluded companies remain inspectable in an `Odrzucone` drawer with their
+  kill reasons — the sieve is auditable and tunable, never a black box.
+- Factor coverage gaps are visible; missing data is a gap, never a negative
+  fact and never silent exclusion (except where the rule itself is about
+  missing fundamentals, e.g. no publishable equity).
+- One action per row: `Dodaj do Research`. Reading Discover writes nothing.
+- Explain domain terms in Polish (Altman EM-Score, F-Score) as data lenses,
+  never as verdicts.
 
-- why the company deserves attention now and which sieve or event surfaced it;
-- how the business makes money, what drives results, and what changed;
-- which claims are known, assumed, disputed, stale, or still missing;
-- how separate, source-backed Polish-market investor methods interpret the same
-  evidence, where they agree, and where they disagree;
-- what explicit downside, base, upside, and optional event scenarios imply;
-- what would falsify the thesis and which dated evidence should be checked next;
-- how the company and its scenarios affect the real portfolio.
+## Stage 2 — Research: collect broadly, understand one company
 
-The product earns its role as the default workspace by preserving one
-evidence-linked history across Discover, Research, Valuation, and Portfolio.
-Primary documents remain the source of truth; the Workbench retains their
-lineage, the resulting analysis, user corrections, assumptions, and prior
-versions. The Roadmap states which parts are available now. Planned,
-source-blocked, stale, or provisional capability is never presented as
-complete.
+`ResearchCase` remains the single unit. Adding a ticker or Discover
+candidate atomically creates/reuses the company and case and queues the
+initial research job. Auto-created cases (from Portfolio coverage) appear
+the same way, marked with their origin.
 
-## Codex and investor-method perspectives
+### The list is phase-aware (V3)
 
-Codex applies versioned analytical lenses reconstructed from retained public
-materials of Polish-market investors. A method pack is a Workbench
-operationalization, not the author's current opinion, endorsement,
-recommendation, or a simulation of the author's voice.
+Rows show substance for the phase the company is in, evidence-dense like
+Discover rows — never job IDs first:
 
-- Company evidence is gathered once into the canonical Research snapshot before
-  any method is applied. A method corpus teaches questions and interpretation;
-  it is not company evidence.
-- Every supported pack names its sources, version, intended scope, required
-  inputs, deterministic calculations, judgment questions, blind spots,
-  falsifiers, and evaluation maturity.
-- Each applicable method remains a separate perspective with its own coverage,
-  supporting and contrary evidence, unknowns, and conclusion. Apparent agreement
-  between methods is not independent evidence when they consume the same facts.
-- Codex may synthesize agreement, disagreement, applicability, and next checks.
-  It does not average perspectives into an anonymous expert-consensus score.
-- A deliberate composite must be user-selected, separately named and versioned,
-  and must expose every constituent contribution. No hidden blend is allowed.
-- Draft or source-blocked packs may show why they are unavailable but may not
-  invent a company conclusion. A separate strict verifier owns
-  decision-relevant conclusions and final status.
+- **Zbieranie** — what is being collected now, sources completed/remaining,
+  honest progress.
+- **Zbadana** — one-line current understanding (thesis kernel), freshness,
+  the main gap, next useful action.
+- **Wyceniona** — adds the valuation strip: bad/base/good (+event) price
+  range, probability-weighted value vs current price, upside %, catalyst,
+  and verification status.
+- **W portfelu** — adds position weight and portfolio priority; holdings
+  sort first (weight × staleness), then Discover candidates, then the rest.
 
-## The four product stages
+The list opens with the `Do sprawdzenia` agenda derived only from stored
+state: new evidence since last snapshot, stale cases, fired falsifiers,
+valuations awaiting assumptions, uncovered holdings. Zero-write to open.
 
-### 1. Discover
+### The company view
 
-Goal: compare a small number of genuinely different, explainable sieves and
-choose which companies deserve deeper work.
+One canonical renderer over verifier-gated snapshots (no legacy modes):
+**Brief** (current understanding, freshness, main gap, next action) →
+**Business & drivers** → **Performance** (result bridge, sector KPIs) →
+**Evidence** (documents, claims, conflicts, gaps) → **Outlook** (driver-by-
+driver next quarter / 12 months, resolved questions, catalysts) →
+**Thesis** (why now, counter-thesis, falsifiers, next dated checks) →
+**Valuation summary** (current scenario set inline, link to the workspace) →
+**History** (what changed between snapshots). Run metadata and verifier
+internals live in an audit drawer.
 
-- Show the three sieve filters in one compact row: financial health, Malik/OBS
-  operating improvement, and Portal Analiz value/catalyst opportunities. Below
-  the active filter, show its locally ordered stock list and the evidence for
-  that order.
-- A company may appear in more than one sieve. Comparison and overlap matter
-  more than a universal rank.
-- Every result shows the two or three factors that caused membership, factor
-  coverage, gaps, source, and freshness.
-- Explain domain terms in Polish. `AAA` means a strong Altman financial-health
-  classification; Piotroski F-Score is a nine-part change/quality test. Neither
-  is an investment verdict.
-- WIG20, mWIG40, sWIG80, sector, and size are neutral filters or context, never
-  yellow warnings or silent exclusions.
-- One action exists: `Dodaj do Research`. No triage ceremony, hidden queueing,
-  auto-promotion, or model call occurs while reading Discover.
-- Do not expose forecast-growth rankings, worker diagnostics, or workflow
-  tutorials on the main screen.
+Layers stay: common spine → sector/archetype pack → company overlay
+(segments, KPIs, company-specific questions) proposed by Codex, confirmable
+by Kuba. Research answers its own frozen questions from sources; it never
+hands them back as homework.
 
-Only the financial-health sieve may be shown as complete until the other two
-have their required market-wide facts. Missing coverage must remain visible;
-thin data must not be relabelled as an investor philosophy.
+## Stage 3 — Valuation: the center (V4)
 
-### 2. Research
+Goal: convert researched drivers into explicit, company-specific
+bad/base/good (+optional event) scenarios with prices and probabilities that
+could only belong to this company.
 
-Goal: gather broad evidence and turn it into a tailored, durable understanding
-of one company.
+- Valuation starts from a frozen research snapshot and deterministic sourced
+  base values. The Codex skill drafts everything company-specific:
+  - scenario mechanisms tied to this company's drivers and catalysts;
+  - assumption values each bound to research facts (fact IDs) or named as
+    explicit judgment with rationale;
+  - probabilities with stated evidence rationale — never a house default.
+- Python computes all math deterministically: projected P&L, cash
+  conversion, FCF, EPS, valuation bridge, per-share outcomes, weighted
+  value. A non-positive forward EPS has no earnings-multiple price.
+- The backend enforces company-specificity structurally (see
+  ARCHITECTURE — valuation gates): template-seed equality, cross-company
+  near-duplicate vectors, probability defaults, missing evidence rationale,
+  and math mismatches are auto-rejected before any verifier opinion.
+- Verification is adversarial (V5): the strict verifier must attach findings
+  or per-check justification; computable checks are computed, not attested.
+- Kuba can override any assumption; overrides create a new version and a
+  recompute — the draft lineage stays.
+- Scenario outcomes are scored when actuals land (V8) and engine calibration
+  is visible per version.
+- The main result is one comparison row per scenario: probability, revenue /
+  result / EPS / FCF effects, price range, catalyst, falsifier — plus the
+  weighted value against the current price.
 
-`ResearchCase` is the single unit shown in Research. Adding a ticker or a
-Discover candidate atomically creates or reuses the company, creates or reuses
-its case, and queues exactly one initial research job. The case appears
-immediately with an honest collection status.
+## Stage 4 — Portfolio: my real money, analyzed the most (V7)
 
-Every company uses three layers:
+- Source: myfund API (`getPortfel`) for state + daily series; operations
+  history via API when available, else file export import. No password
+  scraping.
+- Sync stores dated snapshots, updates holdings, and computes real returns:
+  TWR from the daily value/contribution series, XIRR from derived external
+  flows; method and gaps stated inline.
+- Robust instrument mapping: explicit ticker, name matching against known
+  companies, and persisted manual overrides for the rest. Unmapped rows are
+  visible, not dropped.
+- Reconciliation mismatches warn with the affected figures — they never
+  black out the dashboard.
+- **Auto-coverage:** after each sync (and on staleness/falsifier events) the
+  backend queues research and valuation jobs for uncovered or stale mapped
+  holdings, prioritized by weight × staleness. This is the automatic path;
+  Kuba reviews results, not queue buttons.
+- Show value, cost, gain/loss, cash, allocation, concentration, liquidity,
+  contribution history, benchmark, and the aggregated scenario range from
+  current verified valuations; surface stale coverage, fired falsifiers,
+  and evidence-labelled shared downside exposure without implying correlation.
+- Codex explains portfolio risk; it never initiates a transaction (V9).
 
-1. a common spine: business model, performance, cash/balance sheet, governance,
-   events, thesis, risks, sources, and gaps;
-2. a versioned sector/archetype pack: for example bank, developer,
-   industrial/consumer, software/services, gaming/event, energy/resources, or
-   holding/biotech;
-3. a company overlay proposed by Codex and confirmable by the user: segments,
-   operating drivers, company-specific KPIs, competitors, source questions,
-   and unusual risks.
+## Interaction rules
 
-The primary company view contains:
-
-- **Brief** — current understanding, freshness, main gap, and next useful
-  action;
-- **Business & drivers** — how the company makes money and what moves results;
-- **Performance** — result bridge and sector-specific KPIs;
-- **Evidence** — primary documents, sourced claims, conflicts, and gaps;
-- **Thesis** — why now, counter-thesis, catalysts, governance, falsifiers,
-  separate readings from applicable supported method packs, Codex's attributed
-  synthesis of agreement and disagreement, and next checks;
-- **History** — what changed since earlier evidence and thesis versions.
-
-Technical run metadata, raw DTOs, provenance internals, and verifier detail
-belong in an audit drawer. A fixed renderer consumes typed, verified research
-snapshots; Codex does not generate arbitrary page layouts.
-
-### 3. Valuation
-
-Goal: convert researched company drivers into explicit quarter/year scenarios
-and possible price outcomes.
-
-- Valuation starts only from a research snapshot and sourced deterministic base
-  values.
-- Malik/OBS, Areczeks, and Elendix are separate, versioned method packs. The UI
-  may compare or deliberately combine them; it must not hide a blend behind one
-  score.
-- The user edits company-specific Polish assumptions for downside, base,
-  upside, and an optional event path.
-- Codex selects relevant drivers, explains scenario mechanisms, and assigns
-  evidence-backed probabilities. Python calculates the projected P&L, cash
-  flow, balance-sheet markers, valuation bridge, and per-share outcomes.
-- The main result is one comparison: probability, revenue/result/EPS/FCF or
-  sector marker effects, valuation/price range, catalyst, and falsifier.
-- Own-history multiple reversion remains a labelled sensitivity, not the
-  operating scenario itself.
-- The strict verifier checks source lineage, math reconciliation, current
-  fingerprints, probability coherence, and look-ahead boundaries before a
-  result is labelled verified.
-
-The user receives decision support, never a buy/sell command.
-
-### 4. Portfolio
-
-Goal: understand actual holdings, their history, concentration, and forward
-scenario exposure.
-
-- Prefer the documented myfund API or exports; do not scrape or store the
-  user's login password.
-- Synchronisation stores dated portfolio and position snapshots and updates
-  existing holdings. It does not skip a ticker merely because it appeared
-  before.
-- Show current value, cost, gain/loss, cash, allocation, contribution history,
-  sector/company concentration, liquidity, and an appropriate total-return
-  benchmark.
-- Compute TWR/XIRR only when the required cash-flow history exists and state
-  the method and gaps.
-- Aggregate the latest verified company scenarios into a portfolio range and
-  surface stale research, fired falsifiers, correlated downside, and uncovered
-  positions.
-- Codex explains portfolio risks and perspectives but never changes a company
-  valuation because the user owns it or initiates a transaction.
-
-## Default working loop
-
-The default session starts with a compact `Do sprawdzenia` agenda inside
-Research, not a fifth product stage or a generic market dashboard. It is derived
-only from stored state and may surface new evidence since the last snapshot,
-stale cases, unresolved conflicts or material gaps, falsifiers testable against
-stored facts, valuations awaiting user assumptions, and portfolio positions
-without current verified coverage.
-
-1. The user chooses an agenda item, a Discover candidate, or a ticker and opens
-   its canonical `ResearchCase`.
-2. The company view leads with what changed, the current understanding, the
-   strongest evidence, the main uncertainty, and the next useful action.
-3. Refreshing sources, requesting quick or deep Codex analysis, confirming the
-   company profile, changing assumptions, and queueing verification are
-   separate explicit commands. Opening the agenda or company remains a
-   zero-write read.
-4. Quick and deep analysis are different depths over the same frozen evidence
-   and canonical artifact lineage, not competing company verdicts.
-5. Valuation and Portfolio reuse the same Research snapshot and link back to it;
-   they do not create competing company conclusions.
-6. A completed session leaves a newer dated snapshot, an explicit user
-   correction or assumption, or a named evidence gap. Chat output alone is
-   never the durable result.
-
-## Interaction and copy rules
-
-- The complete navigation is `Discover`, `Research`, `Valuation`, `Portfolio`;
-  `System` is a secondary utility. During the reset, expose a stage only after
-  its vertical meets the Roadmap gate—do not ship empty placeholder screens.
-- Use concise Polish domain copy. Avoid `triage`, `prescreen`, `ingest`,
-  `worker`, `deployment`, raw workflow IDs, and English DTO labels in the main
-  reading path.
-- Do not explain a process with a permanent “typical path” rail when the
-  information architecture already makes the next action clear.
-- Use progressive disclosure: useful conclusion first, evidence one click
-  away, internals last.
-- Show honest states: `oczekuje`, `zbieranie danych`, `szkic`, `prowizoryczny`,
-  `zweryfikowany`, `odrzucony`, or `wymaga interwencji`.
-- Empty, stale, partial, conflict, source-failure, and verifier-rejection states
-  are first-class product states.
+- Navigation: `Discover`, `Research`, `Valuation`, `Portfolio` + `System`
+  utility. Polish domain copy; no `triage/ingest/worker` jargon, no raw
+  workflow IDs in the reading path.
+- Progressive disclosure: conclusion first, evidence one click away,
+  internals last.
+- Honest states everywhere: `oczekuje`, `zbieranie danych`, `szkic`,
+  `prowizoryczny`, `zweryfikowany`, `odrzucony`, `wymaga interwencji`.
+- Empty/stale/conflict/rejected are first-class states — but they must say
+  what is missing and what will fix it, not just exist as badges.
 
 ## Non-goals
 
-- No automated trading, buy/sell recommendation, or silent watchlist/portfolio
-  mutation.
-- No broad autonomous crawler, hidden provider call, recurring Codex worker, or
-  read endpoint with side effects.
-- No decorative score without factor contributions and calibration evidence.
-- No backtest-performance claim before point-in-time facts, adjusted return
-  series, delistings, corporate actions, mixed cases, and a holdout exist.
-- No deletion of accumulated company evidence merely because a case is hidden
-  or archived.
-- "Default place" does not mean cloning every broker terminal, news service, or
-  forum. Retain decision-relevant evidence and link to primary sources.
-- No simulated expert persona, implied expert endorsement, anonymous expert
-  consensus score, or hidden blend of methods.
-- No fifth generic dashboard or replacement orchestration framework merely to
-  aggregate the existing stages. Evolve the four canonical stages and artifacts
-  incrementally.
-- No claim that every GPW company, method, or data source is covered. Coverage,
-  freshness, and method readiness remain visible.
+- No trading, no buy/sell commands, no silent portfolio mutation (queueing
+  analysis jobs for holdings is expected automation, not mutation).
+- No decorative scores without factor contributions.
+- No expert personas, author-branded methods, or consensus theater (V2).
+- No performance claims before the calibration/backtest gate
+  (STRATEGY — learning loop) passes.
+- No parallel implementations of the same capability (V10).
 
-## Product acceptance test
+## Acceptance test
 
-The north-star workflow is useful when the user can:
-
-- start from the stored agenda or Discover evidence and understand why a
-  company needs attention, why it surfaced, and what evidence is stale or
-  missing;
-- compare genuinely different sieves and their overlap, then add or reactivate
-  one company in Research with a single explicit action;
-- open one company home that connects its business, result drivers, primary
-  evidence, changes, thesis, counter-thesis, valuation history, and portfolio
-  context without reconstructing prior work elsewhere;
-- confirm or correct the company profile while preserving the model proposal
-  and every prior profile and Research snapshot;
-- see each applicable supported investor method separately, including its
-  sources and version, followed by a Codex synthesis that names agreement,
-  disagreement, applicability, and blind spots without hiding a blend;
-- edit explicit assumptions, compare deterministic scenarios, and trace every
-  decision-relevant claim to a source, calculation, assumption, or gap;
-- revisit the company later and see what changed while all prior snapshots,
-  method versions, inputs, and verifier decisions remain available; and
-- understand how eligible verified company scenarios change portfolio exposure.
-
-An interim release may satisfy a narrower Roadmap gate, but it must label every
-missing, draft, planned, stale, provisional, and unsupported capability
-honestly. Merely rendering all four screens is not product acceptance.
+The pipeline works when: a company can be kicked out or surface in the one
+sieve with explainable reasons → be added (or auto-added via Portfolio) to
+Research → get collected, verified evidence and a confirmed profile → get a
+company-specific verified scenario set whose assumptions trace to its own
+facts → show up in Portfolio exposure with real return math — while the
+queue drains automatically and every artifact stays versioned, inspectable,
+and honestly labelled.

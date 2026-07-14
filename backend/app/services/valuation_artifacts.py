@@ -1,4 +1,10 @@
-"""Exact verification and immutable save boundary for valuation snapshots."""
+"""Verification and immutable save boundary for valuation snapshots.
+
+VISION V4/V5: the drafter owns company-specific assumptions and
+probabilities; the backend computes structural gates; the strict verifier is
+adversarial and never rewrites the draft. Any computable check lives here or
+in `valuation_gates`, never in agent self-reporting.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
+    ValuationOverrideIn,
     ValuationSnapshotDraftIn,
     ValuationSnapshotSaveIn,
     ValuationSnapshotVerificationIn,
@@ -24,18 +31,35 @@ from app.db.models import (
 )
 from app.services.agent_queue import clear_agent_lease
 from app.services.valuation_engine import (
+    ValuationInputError,
     calculate_valuation,
     canonical_hash,
+    prepare_valuation,
     probability_weighted,
+    validate_assumption_bindings,
 )
-from app.services.valuation_method_packs import get_method_pack
+from app.services.valuation_gates import (
+    evaluate_structural_gates,
+    gate_report,
+    gates_passed,
+)
 from app.services.valuation_templates import get_template
 
 WORKFLOW = "stock-company-valuation"
-SKILL_VERSION = "company-valuation-v1"
-CONTRACT_VERSION = "valuation-snapshot-v1"
+SKILL_VERSION = "company-valuation-v2"
+CONTRACT_VERSION = "valuation-snapshot-v2"
 ENGINE_VERSION = "valuation-engine-v2"
 TEMPLATE_CONTRACT_VERSION = "valuation-templates-v1"
+
+# Frozen at queue time; the drafter may not change these.
+FROZEN_BASE_FIELDS = (
+    "research_snapshot_id",
+    "template_id",
+    "template_version",
+    "base_values",
+    "input_manifest",
+    "input_fingerprint",
+)
 
 
 class ValuationArtifactError(ValueError):
@@ -87,39 +111,26 @@ def _validate_run(
     return agent
 
 
-def _validate_exact_draft(
+def _validate_draft(
     db: Session, case: ResearchCase, draft: ValuationSnapshotDraftIn
 ) -> AgentRun:
+    """Frozen-base equality + deterministic recomputation of drafter output."""
     agent = _validate_run(db, case, draft)
     frozen = _expected_input(agent)
-    exact_fields = {
-        "research_snapshot_id": draft.research_snapshot_id,
-        "as_of": draft.as_of.isoformat(),
-        "method_pack_id": draft.method_pack_id,
-        "method_pack_version": draft.method_pack_version,
-        "template_id": draft.template_id,
-        "template_version": draft.template_version,
-        "assumptions": [row.model_dump(mode="json") for row in draft.assumptions],
-        "base_values": draft.base_values,
-        "deterministic_outputs": draft.deterministic_outputs,
-        "input_manifest": draft.input_manifest,
-        "gaps": draft.gaps,
-        "input_fingerprint": draft.input_fingerprint,
-        "calculation_fingerprint": draft.calculation_fingerprint,
-    }
-    for key, value in exact_fields.items():
-        if frozen.get(key) != value:
+    for key in FROZEN_BASE_FIELDS:
+        if frozen.get(key) != getattr(draft, key):
             raise ValuationArtifactError(
                 f"Draft field {key} differs from frozen job input.", kind="conflict"
             )
+    if frozen.get("as_of") != draft.as_of.isoformat():
+        raise ValuationArtifactError(
+            "Draft field as_of differs from frozen job input.", kind="conflict"
+        )
     snapshot = db.get(ResearchSnapshot, draft.research_snapshot_id)
     if snapshot is None or snapshot.research_case_id != case.id:
         raise ValuationArtifactError("Bound research snapshot is invalid.", kind="conflict")
     if draft.input_manifest.get("research_artifact_fingerprint") != snapshot.artifact_fingerprint:
         raise ValuationArtifactError("Research snapshot fingerprint is stale.", kind="conflict")
-    method = get_method_pack(draft.method_pack_id)
-    if method is None or method.status != "ready" or method.version != draft.method_pack_version:
-        raise ValuationArtifactError("Method pack is unavailable or version-mismatched.")
     profile_archetype = frozen.get("profile_archetype")
     template = get_template(profile_archetype)
     if (
@@ -128,11 +139,25 @@ def _validate_exact_draft(
         or template.version != draft.template_version
     ):
         raise ValuationArtifactError("Template is not bound to the research archetype.")
+    try:
+        validate_assumption_bindings(draft.assumptions, draft.input_manifest)
+    except ValuationInputError as exc:
+        raise ValuationArtifactError(str(exc), kind=exc.kind) from exc
     recomputed = calculate_valuation(draft.base_values, draft.assumptions)
     if recomputed != draft.deterministic_outputs:
         raise ValuationArtifactError("Deterministic valuation does not reconcile.", kind="conflict")
     if canonical_hash(recomputed) != draft.calculation_fingerprint:
         raise ValuationArtifactError("Calculation fingerprint does not reconcile.", kind="conflict")
+    calculation_gaps = [
+        f"{row['kind']}: {row['valuation_gap']}"
+        for row in recomputed["scenarios"]
+        if row.get("valuation_gap")
+    ]
+    expected_gaps = sorted(set(list(frozen.get("gaps") or []) + calculation_gaps))
+    if sorted(set(draft.gaps)) != expected_gaps:
+        raise ValuationArtifactError(
+            "Draft gaps must equal frozen base gaps plus calculation gaps.", kind="conflict"
+        )
     assumption_kinds = {row.kind for row in draft.assumptions}
     output_kinds = {row["kind"] for row in draft.deterministic_outputs.get("scenarios", [])}
     judgment_kinds = {row.kind for row in draft.codex_judgment.scenarios}
@@ -143,7 +168,7 @@ def _validate_exact_draft(
     return agent
 
 
-def _validate_version(db: Session, case: ResearchCase, draft: ValuationSnapshotDraftIn) -> None:
+def _validate_version(db: Session, case: ResearchCase, draft) -> None:
     latest = db.scalar(
         select(ValuationSnapshot)
         .where(ValuationSnapshot.research_case_id == case.id)
@@ -160,14 +185,20 @@ def _validate_version(db: Session, case: ResearchCase, draft: ValuationSnapshotD
 
 
 def _final_status(result: ValuationVerifierResult, gaps: list[str]) -> str:
-    checks_pass = all(result.checks.model_dump().values())
     if result.verdict == "pass":
-        if not checks_pass:
-            raise ValuationArtifactError("A passing verdict requires every strict check.")
         return "provisional" if gaps else "verified"
     if result.verdict == "fail":
         return "rejected"
     return "needs-human"
+
+
+def structural_gate_report(db: Session, *, case_id: int, draft: ValuationSnapshotDraftIn) -> dict:
+    """Zero-write dry run: the drafter's self-check before verification."""
+    case = db.get(ResearchCase, case_id)
+    if case is None:
+        raise ValuationArtifactError("Unknown research case.", kind="not-found")
+    _validate_draft(db, case, draft)
+    return gate_report(evaluate_structural_gates(db, case, draft))
 
 
 def verify_valuation_snapshot(
@@ -176,39 +207,65 @@ def verify_valuation_snapshot(
     case = db.get(ResearchCase, case_id)
     if case is None:
         raise ValuationArtifactError("Unknown research case.", kind="not-found")
-    agent = _validate_exact_draft(db, case, payload.draft)
+    agent = _validate_draft(db, case, payload.draft)
     _validate_version(db, case, payload.draft)
     if payload.verifier_worker_id == agent.lease_owner:
         raise ValuationArtifactError("Drafting worker cannot verify its own valuation.", kind="conflict")
-    deterministic_kinds = {
-        row["kind"] for row in payload.draft.deterministic_outputs.get("scenarios", [])
-    }
-    probability_kinds = {row.kind for row in payload.verifier_result.final_probabilities}
-    judgment_kinds = {row.kind for row in payload.draft.codex_judgment.scenarios}
-    if deterministic_kinds != judgment_kinds:
-        raise ValuationArtifactError("Codex judgment must cover exactly the calculated scenarios.")
-    if payload.verifier_result.verdict == "pass" and deterministic_kinds != probability_kinds:
-        raise ValuationArtifactError("Final probabilities must cover exactly the calculated scenarios.")
-    final_status = _final_status(payload.verifier_result, payload.draft.gaps)
+    gates = evaluate_structural_gates(db, case, payload.draft)
+    report = gate_report(gates)
+    failed_gates = [result for result in gates if not result.passed]
+    effective_result = payload.verifier_result
+    automatic_rejection_reasons: list[str] = []
+    if failed_gates:
+        automatic_rejection_reasons = [
+            result.reason or result.gate for result in failed_gates
+        ]
+        generated_findings = [
+            {
+                "severity": "blocking",
+                "area": f"structural_gate:{result.gate}",
+                "detail": (
+                    f"Backend structural gate rejected the valuation: "
+                    f"{result.reason or result.gate}"
+                ),
+            }
+            for result in failed_gates
+        ]
+        summary = (
+            "Backend structural gates automatically rejected the draft: "
+            + "; ".join(automatic_rejection_reasons)
+            + f" Original verifier summary: {payload.verifier_result.summary}"
+        )
+        effective_result = ValuationVerifierResult.model_validate(
+            {
+                **payload.verifier_result.model_dump(mode="json"),
+                "verdict": "fail",
+                "findings": [
+                    *[row.model_dump(mode="json") for row in payload.verifier_result.findings],
+                    *generated_findings,
+                ],
+                "summary": summary[:4000],
+            }
+        )
     checks = {
-        **payload.verifier_result.checks.model_dump(mode="json"),
+        "structural_gates": report,
+        "automatic_rejection_reasons": automatic_rejection_reasons,
+        "requested_verdict": payload.verifier_result.verdict,
+        "findings": [row.model_dump(mode="json") for row in effective_result.findings],
+        "judgment_review": effective_result.judgment_review.model_dump(mode="json"),
         "verifier_worker_id": payload.verifier_worker_id,
         "valuation_draft_fingerprint": valuation_draft_fingerprint(payload.draft),
         "input_fingerprint": payload.draft.input_fingerprint,
         "calculation_fingerprint": payload.draft.calculation_fingerprint,
-        "final_probabilities": [
-            row.model_dump(mode="json")
-            for row in payload.verifier_result.final_probabilities
-        ],
-        "final_status": final_status,
+        "final_status": _final_status(effective_result, payload.draft.gaps),
     }
     verification = VerificationRun(
         agent_run_id=agent.id,
-        model_role=payload.verifier_result.model_role,
-        verifier_model=payload.verifier_result.verifier_model,
-        verdict=payload.verifier_result.verdict,
+        model_role=effective_result.model_role,
+        verifier_model=effective_result.verifier_model,
+        verdict=effective_result.verdict,
         checks=checks,
-        summary=payload.verifier_result.summary,
+        summary=effective_result.summary,
     )
     db.add(verification)
     db.commit()
@@ -223,18 +280,22 @@ def _verification_result(verification: VerificationRun) -> ValuationVerifierResu
             "model_role": verification.model_role,
             "verifier_model": verification.verifier_model,
             "verdict": verification.verdict,
-            "checks": {
-                key: checks.get(key)
-                for key in (
-                    "schema_integrity", "source_integrity", "company_identity",
-                    "look_ahead", "math_integrity", "probability_coherence",
-                    "method_integrity",
-                )
-            },
-            "final_probabilities": checks.get("final_probabilities"),
+            "findings": checks.get("findings") or [],
+            "judgment_review": checks.get("judgment_review"),
             "summary": verification.summary,
         }
     )
+
+
+def _draft_probabilities(draft: ValuationSnapshotDraftIn) -> list[dict]:
+    return [
+        {
+            "kind": row.kind,
+            "probability_pct": row.probability_pct,
+            "rationale": row.probability_rationale,
+        }
+        for row in draft.codex_judgment.scenarios
+    ]
 
 
 def save_valuation_snapshot(
@@ -270,22 +331,14 @@ def save_valuation_snapshot(
     existing = db.scalar(
         select(ValuationSnapshot).where(ValuationSnapshot.agent_run_id == agent.id)
     )
-    probabilities = [row.model_dump(mode="json") for row in result.final_probabilities]
-    weighted = (
-        probability_weighted(draft.deterministic_outputs, probabilities)
-        if probabilities
-        else None
-    )
+    probabilities = _draft_probabilities(draft)
+    weighted = probability_weighted(draft.deterministic_outputs, probabilities)
     final_outputs = {
         **draft.deterministic_outputs,
         "probability_weighted": weighted,
         "final_probabilities": probabilities,
     }
     final_status = _final_status(result, draft.gaps)
-    codex_judgment = {
-        **draft.codex_judgment.model_dump(mode="json"),
-        "final_probabilities": probabilities,
-    }
     artifact_fingerprint = canonical_hash(
         {
             "draft": draft.model_dump(mode="json"),
@@ -297,10 +350,15 @@ def save_valuation_snapshot(
         if existing.artifact_fingerprint == artifact_fingerprint:
             return existing
         raise ValuationArtifactError("Agent run already saved another valuation.", kind="conflict")
-    _validate_exact_draft(db, case, draft)
+    _validate_draft(db, case, draft)
     _validate_version(db, case, draft)
     if checks.get("final_status") != final_status:
         raise ValuationArtifactError("Verifier final status is inconsistent.", kind="conflict")
+    gate_state = checks.get("structural_gates") or {}
+    if final_status in {"verified", "provisional"} and not gate_state.get("passed"):
+        raise ValuationArtifactError(
+            "A passing valuation cannot save with failing structural gates.", kind="conflict"
+        )
     snapshot = ValuationSnapshot(
         research_case_id=case.id,
         research_snapshot_id=draft.research_snapshot_id,
@@ -309,22 +367,24 @@ def save_valuation_snapshot(
         version=draft.version,
         contract_version=draft.contract_version,
         status=final_status,
+        origin="codex",
         as_of=draft.as_of,
-        method_pack_id=draft.method_pack_id,
-        method_pack_version=draft.method_pack_version,
         template_id=draft.template_id,
         template_version=draft.template_version,
         calculation_engine_version=draft.engine_version,
         assumptions={"scenarios": [row.model_dump(mode="json") for row in draft.assumptions]},
         base_values=draft.base_values,
         deterministic_outputs=final_outputs,
-        codex_judgment=codex_judgment,
+        codex_judgment=draft.codex_judgment.model_dump(mode="json"),
         input_manifest=draft.input_manifest,
         gaps=draft.gaps,
         input_fingerprint=draft.input_fingerprint,
         calculation_fingerprint=draft.calculation_fingerprint,
         artifact_fingerprint=artifact_fingerprint,
-        verifier_result=result.model_dump(mode="json"),
+        verifier_result={
+            **result.model_dump(mode="json"),
+            "structural_gates": gate_state,
+        },
     )
     db.add(snapshot)
     db.flush()
@@ -350,5 +410,81 @@ def save_valuation_snapshot(
         if raced is not None and raced.artifact_fingerprint == artifact_fingerprint:
             return raced
         raise ValuationArtifactError("Valuation version already exists.", kind="conflict") from exc
+    db.refresh(snapshot)
+    return snapshot
+
+
+def save_valuation_override(
+    db: Session, *, case_id: int, payload: ValuationOverrideIn
+) -> ValuationSnapshot:
+    """Explicit human correction: deterministic recompute, provisional version.
+
+    The user owns assumptions here; no verifier or agent run is involved and
+    the snapshot is labelled `human-override` so it never masquerades as a
+    verified Codex artifact. Draft lineage of prior versions is untouched.
+    """
+    case = db.get(ResearchCase, case_id)
+    if case is None:
+        raise ValuationArtifactError("Unknown research case.", kind="not-found")
+    try:
+        prepared = prepare_valuation(db, case=case, request=payload)
+    except ValuationInputError as exc:
+        raise ValuationArtifactError(str(exc), kind=exc.kind) from exc
+    latest = db.scalar(
+        select(ValuationSnapshot)
+        .where(ValuationSnapshot.research_case_id == case.id)
+        .order_by(ValuationSnapshot.version.desc(), ValuationSnapshot.id.desc())
+        .limit(1)
+    )
+    version = (latest.version if latest else 0) + 1
+    if latest is not None and _aware(payload.as_of) < _aware(latest.as_of):
+        raise ValuationArtifactError("Valuation history cannot move backwards.", kind="conflict")
+    judgment = {
+        "strategy_read": f"Korekta użytkownika: {payload.note}",
+        "scenarios": [],
+        "catalysts": [],
+        "falsifiers": [],
+    }
+    outputs = {
+        **prepared["deterministic_outputs"],
+        "probability_weighted": None,
+        "final_probabilities": [],
+    }
+    snapshot = ValuationSnapshot(
+        research_case_id=case.id,
+        research_snapshot_id=payload.research_snapshot_id,
+        agent_run_id=None,
+        verification_run_id=None,
+        version=version,
+        contract_version=CONTRACT_VERSION,
+        status="provisional",
+        origin="human-override",
+        as_of=payload.as_of,
+        template_id=prepared["template"].id,
+        template_version=prepared["template"].version,
+        calculation_engine_version=ENGINE_VERSION,
+        assumptions={
+            "scenarios": [row.model_dump(mode="json") for row in payload.assumptions]
+        },
+        base_values=prepared["base_values"],
+        deterministic_outputs=outputs,
+        codex_judgment=judgment,
+        input_manifest=prepared["input_manifest"],
+        gaps=sorted(set(prepared["gaps"] + ["Korekta użytkownika bez probabilistyki i weryfikacji."])),
+        input_fingerprint=prepared["input_fingerprint"],
+        calculation_fingerprint=prepared["calculation_fingerprint"],
+        artifact_fingerprint=canonical_hash(
+            {
+                "origin": "human-override",
+                "assumptions": [row.model_dump(mode="json") for row in payload.assumptions],
+                "outputs": outputs,
+                "note": payload.note,
+                "version": version,
+            }
+        ),
+        verifier_result={"origin": "human-override", "note": payload.note},
+    )
+    db.add(snapshot)
+    db.commit()
     db.refresh(snapshot)
     return snapshot

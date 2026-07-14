@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models import Company, CompanyMarketData, Dividend, IndicatorValue, ReportValue
-from app.services import fields, insights
+from app.services import fields
 
 # Caveat surfaced next to forecast_consensus in the dossier's market_data
 # block (feeds both the AI prompt — see services/prompts.py, `market_data` is
@@ -26,17 +26,70 @@ FORECAST_CONSENSUS_NOTE = (
 )
 
 
+SECTOR_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("finance", (
+        "bank", "ubezpiecz", "windykac", "faktoring", "leasing", "kapitałowy",
+        "wierzytelno", "dom maklerski", "fundusz",
+    )),
+    ("biotech_med", (
+        "biotechnolog", "farmac", "medyc", "ochrona zdrowia", "szpital",
+        "sprzęt medyczny", "wyroby medyczne",
+    )),
+    ("tech", (
+        "informatyk", "gry", "gaming", "oprogramowanie", "telekomunikac",
+        "internet", "media", "e-commerce", "nowe technologie", "fotonika",
+    )),
+    ("energy", (
+        "energet", "paliw", "górnic", "wydobyc", "surowc", "gaz", "ropa",
+        "węgiel", "fotowoltaik", "oze",
+    )),
+    ("realestate", ("deweloper", "nieruchomo", "budownictwo mieszkaniowe")),
+    ("consumer", (
+        "handel", "detaliczn", "hurtow", "spożywcz", "odzież", "obuwie",
+        "kosmetyk", "meble", "dystrybuc", "fmcg", "restaurac", "turystyk",
+    )),
+    ("industrial", (
+        "przemysł", "produkc", "budownictw", "budowlan", "chemi", "motoryzac",
+        "maszyn", "elektromaszynow", "metalow", "tworzyw", "drzewn",
+        "papiernic", "elektrotechnic", "recykling", "transport", "logistyk",
+        "opakowa",
+    )),
+)
+
+SECTOR_GROUP_LABELS = {
+    "finance": "Finanse",
+    "biotech_med": "Biotech / medycyna",
+    "tech": "Technologie",
+    "energy": "Energetyka / surowce",
+    "realestate": "Deweloperzy / budownictwo",
+    "consumer": "Handel / konsument",
+    "industrial": "Przemysł",
+    "other": "Pozostałe",
+}
+
+
+def classify_sector(sector: str | None) -> str:
+    """Deterministic BR sector -> coarse group (moved from deleted insights)."""
+    if not sector:
+        return "other"
+    lowered = sector.lower()
+    for group, needles in SECTOR_GROUPS:
+        if any(needle in lowered for needle in needles):
+            return group
+    return "other"
+
+
 def classify_industry_type(sector: str | None, sector_group: str | None = None) -> str:
     """Prompt-facing industry bucket."""
     lowered = (sector or "").lower()
-    group = sector_group or insights.classify_sector(sector)
+    group = sector_group or classify_sector(sector)
     if "gry" in lowered or "gier" in lowered or "gaming" in lowered:
         return "Gaming"
     if group == "realestate":
         return "Real Estate / Developers"
     if "saas" in lowered or "oprogramowanie" in lowered or "software" in lowered:
         return "SaaS"
-    return insights.SECTOR_GROUP_LABELS.get(group, "Pozostałe")
+    return SECTOR_GROUP_LABELS.get(group, "Pozostałe")
 
 
 def _latest_indicator(db: Session, company_id: int, code: str) -> dict | None:

@@ -47,6 +47,7 @@ INDICATOR_PAGES = ("indicators_value", "indicators_profitability")
 # Below this many stored price rows the app has no real history and a
 # successful provider fetch REPLACES what is there (backfill).
 MIN_PRICE_HISTORY_ROWS = 30
+PROFILE_SCALAR_EXTRACTOR_VERSION = "biznesradar-profile-scalars@1"
 
 
 class UnknownTickerError(Exception):
@@ -63,6 +64,19 @@ class FetchedPage:
     mime_type: str
     fetched_at: datetime
     fetch_log: FetchLog
+
+
+@dataclass(frozen=True)
+class ProfileRefreshResult:
+    price: float | None = None
+    source_version_id: int | None = None
+
+
+@dataclass(frozen=True)
+class RecordedPriceHistory:
+    bars: list[biznesradar.PriceBar]
+    source_version_id: int
+    fetched_at: datetime
 
 
 # --------------------------------------------------------- premium session
@@ -104,9 +118,8 @@ def _build_br_session(summary: dict[str, str]) -> requests.Session | None:
 def check_br_login() -> dict:
     """Diagnostics endpoint: verifies BR_USERNAME/BR_PASSWORD actually work.
 
-    Mirrors app.services.forum_sync.check_login(). Must NEVER raise. Performs a
-    real login round-trip (POST /login/ + 'account-settings' marker check)
-    using the verified recipe in app/scrapers/biznesradar.py BrClient.
+    Must NEVER raise. Performs a real login round-trip (POST /login/ plus the
+    account-settings marker check) using the verified BrClient recipe.
     """
     settings = get_settings()
     if not (settings.br_username and settings.br_password):
@@ -421,6 +434,7 @@ def refresh_company(
     summary: dict[str, str] = {}
     requests_before = db.scalar(select(func.count()).select_from(FetchLog)) or 0
     profile_price: float | None = None
+    profile_source_version_id: int | None = None
 
     # P1.9: optional premium session, built once and reused for every BR page
     # this refresh touches. No BR_USERNAME/BR_PASSWORD configured -> session
@@ -428,7 +442,11 @@ def refresh_company(
     br_session = _build_br_session(summary)
 
     if scope in ("financials", "all"):
-        profile_price = _refresh_profile(db, company, force, summary, session=br_session)
+        profile_result = _refresh_profile(
+            db, company, force, summary, session=br_session
+        )
+        profile_price = profile_result.price
+        profile_source_version_id = profile_result.source_version_id
         _refresh_reports(db, company, force, summary, session=br_session)
         _refresh_indicators(db, company, force, summary, session=br_session)
         _refresh_dividends(db, company, force, summary, session=br_session)
@@ -450,9 +468,17 @@ def refresh_company(
 
     if scope in ("prices", "all"):
         if scope == "prices":
-            profile_price = _refresh_profile(db, company, force, summary, session=br_session)
+            profile_result = _refresh_profile(
+                db, company, force, summary, session=br_session
+            )
+            profile_price = profile_result.price
+            profile_source_version_id = profile_result.source_version_id
         summary["prices"] = _refresh_prices(
-            db, company, fallback_price=profile_price, session=br_session
+            db,
+            company,
+            fallback_price=profile_price,
+            fallback_source_version_id=profile_source_version_id,
+            session=br_session,
         )
 
     company.updated_at = utcnow()
@@ -466,12 +492,9 @@ def refresh_company(
         summary["database"] = f"error: {exc.orig}"
         return summary
 
-    if scope == "all":
-        summary["forum"] = _sync_linked_forum_topics(db, company, force=force)
-        # Refresh remains deterministic fetch/parse/upsert work. Forum
-        # interpretation belongs to a claimed AgentRun and its strict verifier,
-        # never to this synchronous HTTP request.
-        summary["forum_expectations"] = "pominięto (wykonuje kolejka Codex)"
+    # Forum synchronisation was deleted with the legacy dossier stack (VISION
+    # V10). Retained forum posts stay readable as stored evidence; new forum
+    # material enters only through explicit research-source collection.
 
     # Fetch-volume transparency: exactly how many HTTP requests this refresh
     # made (0 when everything came from the 24 h cache).
@@ -534,7 +557,7 @@ def _refresh_profile(
     force: bool,
     summary: dict[str, str],
     session: requests.Session | None = None,
-) -> float | None:
+) -> ProfileRefreshResult:
     """Update company metadata; returns the current quote when the page shows
     one (used as the price source of last resort).
 
@@ -548,12 +571,48 @@ def _refresh_profile(
     except (LookupError, polite_http.FetchError, requests.RequestException) as exc:
         logger.warning("profile refresh failed for %s: %s", company.ticker, exc)
         summary["profile"] = f"error: {exc}"
-        return None
+        return ProfileRefreshResult()
     if page is None:
         summary["profile"] = "cached"
-        return None
+        return ProfileRefreshResult()
 
-    profile = biznesradar.parse_profile(page.text, company.ticker)
+    recorded = _record_page_evidence(
+        db,
+        company,
+        page,
+        source_type="company_profile",
+        scope_key="current",
+    )
+    try:
+        profile = biznesradar.parse_profile(page.text, company.ticker)
+        for field_name, fact_key in fields.COMPANY_SCALAR_FACT_KEYS.items():
+            evidence.record_numeric_fact(
+                db,
+                company,
+                recorded.version,
+                fact_type="company_scalar",
+                fact_key=fact_key,
+                value=getattr(profile, field_name),
+                unit=fields.COMPANY_SCALAR_UNITS[field_name],
+                period="current",
+                locator={
+                    "page": "profile",
+                    "field": field_name,
+                    "source_label": {
+                        "shares_outstanding": "Liczba akcji",
+                        "market_cap": "Kapitalizacja",
+                        "enterprise_value": "Enterprise Value",
+                    }[field_name],
+                },
+                extractor_version=PROFILE_SCALAR_EXTRACTOR_VERSION,
+            )
+        evidence.mark_parse_result(recorded.version, success=True)
+    except biznesradar.ParseError as exc:
+        evidence.mark_parse_result(recorded.version, success=False, error=str(exc))
+        logger.warning("profile parse failed for %s: %s", company.ticker, exc)
+        summary["profile"] = f"error: {exc}"
+        return ProfileRefreshResult(source_version_id=recorded.version.id)
+
     company.name = profile.name or company.name
     company.br_slug = profile.slug or company.br_slug
     company.sector = profile.sector or company.sector
@@ -567,7 +626,10 @@ def _refresh_profile(
     if profile.market_cap is not None:
         detail += f" (mcap {profile.market_cap / 1e6:,.0f} mln zł)".replace(",", " ")
     summary["profile"] = detail
-    return profile.price
+    return ProfileRefreshResult(
+        price=profile.price,
+        source_version_id=recorded.version.id,
+    )
 
 
 # Forecast rows whose value is money (mln zł on the page, already converted
@@ -882,7 +944,7 @@ def _fetch_br_history(
     db: Session,
     company: Company,
     session: requests.Session | None = None,
-) -> list[biznesradar.PriceBar]:
+) -> RecordedPriceHistory:
     """Archiwum notowań, PAGE 1 ONLY (~50 most recent sessions).
 
     robots.txt allows the first page and disallows the `,N` paginated views —
@@ -891,17 +953,47 @@ def _fetch_br_history(
     """
     url = biznesradar.page_url("price_history", _report_slug(company))
     response = polite_http.fetch(url, session=session)
-    _log_fetch(db, url, response.status_code)
+    fetch_log = _log_fetch(db, url, response.status_code)
     if response.status_code == 404:
         raise LookupError(f"404 for {url}")
     response.raise_for_status()
-    return biznesradar.parse_price_history(response.text)
+    content = getattr(response, "content", None) or response.text.encode("utf-8")
+    headers = getattr(response, "headers", {}) or {}
+    page = FetchedPage(
+        text=response.text,
+        content=content,
+        requested_url=url,
+        effective_url=str(getattr(response, "url", None) or url),
+        status_code=response.status_code,
+        mime_type=headers.get("content-type", "text/html").split(";", 1)[0].strip(),
+        fetched_at=fetch_log.fetched_at,
+        fetch_log=fetch_log,
+    )
+    recorded = _record_page_evidence(
+        db,
+        company,
+        page,
+        source_type="price_history",
+        scope_key="raw-close",
+    )
+    try:
+        bars = biznesradar.parse_price_history(response.text)
+        evidence.mark_parse_result(recorded.version, success=True)
+    except biznesradar.ParseError as exc:
+        evidence.mark_parse_result(recorded.version, success=False, error=str(exc))
+        raise
+    return RecordedPriceHistory(
+        bars=bars,
+        source_version_id=recorded.version.id,
+        fetched_at=recorded.version.fetched_at,
+    )
 
 
 def _refresh_prices(
     db: Session,
     company: Company,
     fallback_price: float | None = None,
+    fallback_source_version_id: int | None = None,
     session: requests.Session | None = None,
 ) -> str:
     """BiznesRadar-only price refresh.
@@ -942,15 +1034,18 @@ def _refresh_prices(
         return f"ok (aktualne; {rows_count} dni w bazie)"
 
     bars: list[biznesradar.PriceBar] | None = None
+    source_version_id: int | None = None
     source = ""
     errors: list[str] = []
 
     def try_br_history() -> None:
-        nonlocal bars, source
+        nonlocal bars, scraped_at, source, source_version_id
         try:
-            history_bars = _fetch_br_history(db, company, session=session)
-            if history_bars:
-                bars = history_bars
+            history = _fetch_br_history(db, company, session=session)
+            if history.bars:
+                bars = history.bars
+                source_version_id = history.source_version_id
+                scraped_at = history.fetched_at
                 source = "BR archiwum"
             else:
                 errors.append("br-archiwum: pusta tabela")
@@ -975,6 +1070,7 @@ def _refresh_prices(
                 db.add(
                     Price(
                         company_id=company.id,
+                        source_version_id=fallback_source_version_id,
                         date=today,
                         close=fallback_price,
                         source_name="biznesradar_profile",
@@ -995,17 +1091,38 @@ def _refresh_prices(
         db.execute(delete(Price).where(Price.company_id == company.id))
         last_day = None
 
+    assert source_version_id is not None
+    existing_by_day = {
+        row.date: row
+        for row in db.scalars(
+            select(Price).where(
+                Price.company_id == company.id,
+                Price.date.in_([bar.day for bar in bars if bar.day <= today]),
+            )
+        )
+    }
     added = 0
+    rebound = 0
     for bar in bars:
-        # date filters are inclusive and providers occasionally resend
-        # history — guard against duplicate days at the app level too.
-        if last_day is not None and bar.day <= last_day:
-            continue
         if bar.day > today:
             continue  # never store the future again (see purge above)
+        existing = existing_by_day.get(bar.day)
+        if existing is not None:
+            if existing.source_version_id != source_version_id:
+                rebound += 1
+            existing.close = bar.close
+            existing.volume = bar.volume
+            existing.source_version_id = source_version_id
+            existing.source_name = "biznesradar_history"
+            existing.series_key = f"biznesradar:{company.ticker}:raw-close"
+            existing.basis_version = "br-price-history@1"
+            existing.adjustment_status = "raw_unverified"
+            existing.scraped_at = scraped_at
+            continue
         db.add(
             Price(
                 company_id=company.id,
+                source_version_id=source_version_id,
                 date=bar.day,
                 close=bar.close,
                 volume=bar.volume,
@@ -1026,153 +1143,5 @@ def _refresh_prices(
             f"ok ({added} new days; {first_day}\u2013{newest_day}; "
             f"zrodlo: {source}{purge_note})"
         )
-    return f"ok (0 new days; zrodlo: {source}{purge_note})"
-
-
-def _forum_sync_is_fresh(synced_at: datetime | None) -> bool:
-    if synced_at is None:
-        return False
-    if synced_at.tzinfo is None:
-        synced_at = synced_at.replace(tzinfo=timezone.utc)
-    threshold = datetime.now(timezone.utc) - timedelta(hours=get_settings().scrape_cache_hours)
-    return synced_at >= threshold
-
-
-def _discover_forum_topics(
-    db: Session, company: Company, force: bool
-) -> tuple[str, int]:
-    """Discover + auto-link this company's PA threads via the forum search.
-
-    Gated by the same 24 h FetchLog freshness the BR pages use, keyed on the
-    ticker search URL, so the forum search is hit at most once/24 h per company.
-    Newly linked topics get an immediate bounded recent-sync (max_pages=2) — the
-    recent window, NOT a deep historical crawl. Returns (note, new_posts) and
-    NEVER raises: any forum/search failure degrades to a readable note, exactly
-    like _build_br_session, so the whole refresh is never aborted.
-    """
-    from app.scrapers import portalanaliz
-    from app.services import forum_sync
-
-    settings = get_settings()
-    if not (settings.pa_username and settings.pa_password):
-        return "wyszukiwarka pominięta (brak logowania PA)", 0
-
-    marker = portalanaliz.search_url(company.ticker, settings.pa_base_url)
-    if not force and _is_fresh(db, marker):
-        return "wyszukiwarka pominięta (cache)", 0
-
-    new_posts = 0
-    try:
-        client = forum_sync._make_client()  # logs in when creds are configured
-        result = forum_sync.discover_and_link_topics(db, client, company, max_new=3)
-        for topic in result.linked:
-            try:
-                added, _total = forum_sync.sync_topic_recent(db, topic, max_pages=2)
-                new_posts += added
-            except (portalanaliz.ForumError, polite_http.FetchError, requests.RequestException) as exc:
-                db.rollback()
-                logger.warning("discover recent-sync failed for %s: %s", company.ticker, exc)
-        # Mark the search fetched so the 24 h gate holds even when 0 new topics.
-        _log_fetch(db, marker, 200)
-        db.commit()
-        note = (
-            f"wyszukiwarka: +{len(result.linked)} wątki"
-            if result.linked
-            else "wyszukiwarka: brak nowych wątków"
-        )
-        return note, new_posts
-    except portalanaliz.NeedsLoginError:
-        # Blocked even after the retry — cache the marker so we don't re-hit a
-        # search we cannot use for another 24 h.
-        _log_fetch(db, marker, 200)
-        db.commit()
-        return "wyszukiwarka: wymaga logowania PA", new_posts
-    except (portalanaliz.ForumError, polite_http.FetchError, requests.RequestException) as exc:
-        db.rollback()
-        logger.warning("forum discovery failed for %s: %s", company.ticker, exc)
-        return f"wyszukiwarka: błąd ({str(exc)[:80]})", new_posts
-
-
-def _sync_linked_forum_topics(db: Session, company: Company, force: bool = False) -> str:
-    """Reload linked PortalAnaliz topics, then discover new ones via search.
-
-    Two bounded steps: (1) incremental recent-sync of already-linked (user- or
-    auto-approved) threads; (2) a search-driven discovery pass, gated to once/
-    24 h, that auto-links freshly found company threads. Both degrade to a
-    summary note on failure — one bad forum request never fails the refresh.
-    """
-    from app.db.models import ForumPost, ForumTopic
-    from app.scrapers import portalanaliz
-    from app.services import forum_sync
-
-    topics = db.scalars(
-        select(ForumTopic).where(ForumTopic.company_id == company.id)
-    ).all()
-
-    synced = 0
-    new_posts = 0
-    errors: list[str] = []
-    due_topics = [
-        topic for topic in topics if force or not _forum_sync_is_fresh(topic.last_synced_at)
-    ]
-    for topic in due_topics:
-        topic_id = topic.id
-        try:
-            added, _total = forum_sync.sync_topic_recent(db, topic, max_pages=2)
-            synced += 1
-            new_posts += added
-        except (portalanaliz.ForumError, polite_http.FetchError, requests.RequestException) as exc:
-            db.rollback()
-            errors.append(f"{topic_id}: {exc}")
-
-    # Discovery runs regardless of whether any topic was linked yet — this is
-    # how a company gets its first thread without a manual paste.
-    discovery_note, discovered_posts = _discover_forum_topics(db, company, force)
-    new_posts += discovered_posts
-
-    total_posts = int(
-        db.scalar(
-            select(func.count())
-            .select_from(ForumPost)
-            .join(ForumTopic, ForumPost.topic_id == ForumTopic.id)
-            .where(ForumTopic.company_id == company.id)
-        )
-        or 0
-    )
-    topic_count = int(
-        db.scalar(
-            select(func.count())
-            .select_from(ForumTopic)
-            .where(ForumTopic.company_id == company.id)
-        )
-        or 0
-    )
-
-    if errors:
-        base = (
-            f"częściowo ({synced}/{len(due_topics)} wątków; +{new_posts} postów; "
-            f"łącznie {total_posts}; błędy: {' | '.join(errors)[:160]})"
-        )
-    else:
-        base = f"ok (+{new_posts} postów; {topic_count} wątków; łącznie {total_posts})"
-    return f"{base}; {discovery_note}"
-
-
-def _refresh_forum_expectations(db: Session, company: Company) -> str:
-    """P5.9b: distil this refresh's synced forum posts (content now stored,
-    see `forum_sync._store_posts`) into investment-expectation claims
-    (services/forum_expectations.py) — the AI verdict prefers these over the
-    keyword-heuristic `distilled_facts` (see api/analyses.py). Runs right
-    after forum sync so it sees any posts/backfilled content this refresh
-    just wrote. Never fails the refresh: `refresh_expectations` degrades to
-    status="error"/"skipped" internally rather than raising, same contract as
-    `_discover_forum_topics` above.
-    """
-    from app.services import forum_expectations
-
-    result = forum_expectations.refresh_expectations(db, company)
-    if result.status == "ok":
-        return f"ok ({result.claim_count} twierdzeń)"
-    if result.status == "skipped":
-        return "pominięto (brak klucza API)"
-    return f"błąd: {result.detail}"
+    rebound_note = f"; powiazano {rebound} istniejacych dni" if rebound else ""
+    return f"ok (0 new days{rebound_note}; zrodlo: {source}{purge_note})"

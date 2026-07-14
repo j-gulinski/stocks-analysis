@@ -13,22 +13,15 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api import (
-    agent_evaluations,
     agent_runs,
-    analyses,
-    backtests,
     companies,
     diagnostics,
     discovery,
     evidence,
     falsifiers,
-    forum,
-    journal,
-    monitor,
     portfolios,
     research_cases,
     valuations,
-    watchlist,
 )
 from app.db.base import get_db
 from app.config import get_settings
@@ -50,19 +43,12 @@ async def require_backend_token(request: Request, call_next):
             return JSONResponse(status_code=401, content={"detail": "Unauthorized."})
     return await call_next(request)
 
-app.include_router(watchlist.router, prefix="/api")
 app.include_router(companies.router, prefix="/api")
-app.include_router(forum.router, prefix="/api")
 app.include_router(diagnostics.router, prefix="/api")
-app.include_router(analyses.router, prefix="/api")
 app.include_router(agent_runs.router, prefix="/api")
-app.include_router(backtests.router, prefix="/api")
-app.include_router(agent_evaluations.router, prefix="/api")
 app.include_router(evidence.router, prefix="/api")
 app.include_router(falsifiers.router, prefix="/api")
 app.include_router(discovery.router, prefix="/api")
-app.include_router(journal.router, prefix="/api")
-app.include_router(monitor.router, prefix="/api")
 app.include_router(portfolios.router, prefix="/api")
 app.include_router(research_cases.router, prefix="/api")
 app.include_router(valuations.router, prefix="/api")

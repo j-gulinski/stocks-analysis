@@ -1,21 +1,22 @@
 # Stock Analysis Workbench
 
-Personal GPW research second brain: evidence -> tailored company research ->
-driver scenarios -> portfolio perspective. Codex structures and challenges the
-analysis; the user makes every investment decision.
+Personal GPW research pipeline: one exclusion-first market sieve, tailored
+company research, company-specific valuation scenarios, and portfolio-first
+coverage. Codex structures and challenges the evidence; the user makes every
+investment decision.
 
 ## Product stages
 
-- **Discover** — compare explainable sieves and add a company to Research.
-- **Research** — build a sourced, company/sector-tailored knowledge base.
-- **Valuation** — test strategy-linked quarter/year and price scenarios.
-- **Portfolio** — synchronize myfund data, history, exposures, and perspectives.
+- **Discover** — exclude weak or stagnant companies with one inspectable sieve.
+- **Research** — collect and understand company-specific evidence.
+- **Valuation** — draft and verify company-specific scenarios and prices.
+- **Portfolio** — keep real holdings covered by the freshest verified analysis.
 
 Binding documentation:
 
 - [`docs/PRODUCT.md`](docs/PRODUCT.md) — user outcome, screens, copy, non-goals;
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — data and Codex boundaries;
-- [`docs/STRATEGY.md`](docs/STRATEGY.md) — investor methods and sieve contracts;
+- [`docs/STRATEGY.md`](docs/STRATEGY.md) — the Workbench sieve and valuation lens;
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — the only live delivery plan.
 
 Source material under `docs/source-materials/` is evidence input, not product
@@ -73,15 +74,10 @@ npm run dev
 
 ## Core boundaries
 
-- GET/read paths do not fetch sources, queue jobs, claim work, or call models.
-- Every external request uses `backend/app/scrapers/http.py`.
-- Source facts, deterministic calculations, human assumptions, Codex
-  suggestions, and verifier conclusions remain distinguishable.
-- Financial and portfolio math is deterministic and tested.
-- Only an executing Codex worker claims one queued job; no recurring hidden
-  worker is created.
-- Removing or archiving a case never destroys accumulated company knowledge.
-- No buy/sell instruction, automatic trade, or unsupported backtest claim.
+Core system invariants live in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §Invariants; Product and Strategy
+retain their user- and method-specific rules. Agents start from
+[`AGENTS.md`](AGENTS.md).
 
 See `CHANGELOG.md` for release-level decisions and `docs/model-usage.md` for the
 model-routing audit ledger.

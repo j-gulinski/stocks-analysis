@@ -1,208 +1,78 @@
 ---
 name: workbench-actions
-description: Run explicit user-triggered Stock Analysis Workbench actions and explain the current operator flows. Use when the user wants to start, stop, inspect, refresh Discover, add a company to Research, preview or queue a valuation, synchronize/review Portfolio, or execute one queued Codex job. Never create a recurring worker.
+description: Run explicit user-triggered Stock Analysis Workbench actions and explain the current operator flows. Use to start, stop, inspect, refresh Discover, add a company to Research, queue Research or valuation, synchronize/review Portfolio, or drain queued Codex work. Never create a recurring worker.
 ---
 
 # Workbench actions
 
-Use only explicit commands. Reading a screen never fetches a source, writes
-state, queues work, claims a lease, or calls a model.
+Reading never fetches a source, writes state, queues work, claims a lease, or
+calls a model. Only the commands below may mutate durable state.
 
 ## Current flows
 
 | User intent | Action | Durable result |
 |---|---|---|
 | Check the app | `./workbench doctor` then `./workbench status` | Read-only health report |
-| Start or stop | `./workbench start` / `./workbench stop` | Local services only; no queue claim |
-| Refresh Discover | `POST /api/discovery/refresh` | One stored source snapshot; no research jobs |
-| Inspect Discover | `GET /api/discovery` | Inline sieve selector with server-owned status/coverage and the selected sieve's sourced candidate list |
-| Add a company | `POST /api/research-cases` with a ticker or frozen Discover version | One company, one active case, at most one initial-research job |
-| Run queued research | Invoke `$workbench-run-queue` | Exactly one claimed and completed job |
-| Open company research | `GET /api/research-cases/by-ticker/{ticker}` | Read-only snapshot-bound profile, current profile, immutable histories, source-frozen catalog and saved method perspectives |
-| Confirm or correct Research profile | `POST /api/research-cases/{id}/profiles` | Next immutable human-confirmed/corrected profile with required reason; no snapshot or job side effect |
-| Refresh existing Research | `POST /api/research-cases/{id}/review-runs` | One content-idempotent company-review job bound to the prior snapshot, queued source state and exact confirmed profile |
-| Verify claimed research | `verify_research_snapshot` or its JSON-in script | Independent verdict bound to the exact draft; job remains running |
-| Save claimed research | `save_research_snapshot` or its JSON-in script | One verifier-gated immutable snapshot; terminal job and cleared lease |
-| Queue a method perspective | `POST /api/research-cases/{id}/method-perspective-runs` | One content-idempotent job frozen to one provisional/verified snapshot and one supported method manifest |
-| Verify claimed method perspective | `verify_research_method_perspective` or its JSON-in script | Independent exact-draft verdict; job remains running |
-| Save claimed method perspective | `save_research_method_perspective` or its JSON-in script | One verifier-gated immutable lens; parent snapshot remains unchanged and only this job terminalizes |
-| Open valuation | `GET /api/research-cases/{id}/valuation-workspace` | Read-only method/template state and immutable valuation history |
-| Preview scenarios | `POST /api/research-cases/{id}/valuation-preview` | Zero-write deterministic quarter/year/price comparison |
-| Queue valuation | `POST /api/research-cases/{id}/valuation-runs` | At most one content-identical `stock-company-valuation` job |
-| Verify claimed valuation | `verify_valuation_snapshot` or `codex_verify_valuation_snapshot.py` | Independent exact-draft verdict and final probabilities; job remains running |
-| Save claimed valuation | `save_valuation_snapshot` or `codex_save_valuation_snapshot.py` | One immutable valuation snapshot; terminal job and cleared lease |
-| Open Portfolio | `GET /api/portfolios/workspace` | Zero-write latest stored snapshot, mappings, analytics and review history |
-| Synchronize myfund | `POST /api/portfolios/sync/myfund` | One durable attempt and either reused or next immutable snapshot |
-| Correct a mapping | `PATCH /api/portfolios/mappings/{id}` | Explicit current interpretation; an exact confirmed PLN `Akcje GPW` `(CODE)` may create only a minimal Company identity |
-| Queue portfolio review | `POST /api/portfolios/review-runs` | At most one content-identical `stock-portfolio-review` job |
-| Verify portfolio review | `codex_verify_portfolio_review.py` | Independent verdict bound to the exact frozen draft |
-| Save portfolio review | `codex_save_portfolio_review.py` | One immutable review; terminal job and cleared lease |
+| Start or stop | `./workbench start` / `./workbench stop` | Local services only |
+| Refresh Discover evidence | `POST /api/discovery/refresh` | One immutable source version; no Research job |
+| Inspect Discover | `GET /api/discovery` | One `workbench_sieve_v1` state with coverage, survivors, exclusions and gaps |
+| Add a company | `POST /api/research-cases` with ticker or eligible frozen Discover version | One company, one active case, at most one initial Research job |
+| Inspect Research | `GET /api/research-cases` / `GET /api/research-cases/by-ticker/{ticker}` | Phase-aware list or one canonical snapshot workspace |
+| Refresh company evidence | `POST /api/companies/{ticker}/refresh?scope=all` | Bounded stored evidence refresh; no snapshot or model result |
+| Confirm/correct profile | `POST /api/research-cases/{id}/profiles` | Next immutable human-confirmed/corrected profile |
+| Queue Research review | `POST /api/research-cases/{id}/review-runs` | One content-idempotent review job |
+| Verify/save Research | Canonical `verify_research_snapshot` then `save_research_snapshot` adapters | One verifier-gated immutable v3 snapshot; terminal job |
+| Open valuation | `GET /api/research-cases/{id}/valuation-workspace` | Read-only template and immutable valuation history |
+| Preview human assumptions | `POST /api/research-cases/{id}/valuation-preview` | Zero-write deterministic comparison |
+| Queue Codex valuation | `POST /api/research-cases/{id}/valuation-runs` | Valuation artifact frozen to Research/base inputs; Codex drafts assumptions/probabilities |
+| Verify/save valuation | Canonical valuation verify then save adapters | Structurally gated immutable valuation; terminal job |
+| Open Portfolio | `GET /api/portfolios/workspace` | Zero-write stored holdings, mappings, analytics and review history |
+| Synchronize myfund | `POST /api/portfolios/sync/myfund` | Durable attempt and reused or next immutable snapshot |
+| Correct mapping | `PATCH /api/portfolios/mappings/{id}` | Explicit current identity interpretation |
+| Queue portfolio review | `POST /api/portfolios/review-runs` | One content-idempotent frozen review job |
+| Drain queue | Invoke `$workbench-run-queue` | Lease recovery and repeated claim/verify/save until empty or a safety cap fires |
 
-## Current capability limits
+## Honest current limits
 
-- Discover currently produces candidates only from the financial-health sieve.
-  OBS and Portal Analiz expose honest source/factor gaps but no candidates,
-  while the UI presents each typed sieve state in its inline selector. Do not
-  describe disabled sieve filters as live comparison or market-wide coverage.
-- `assess_data_readiness` and `codex_candidate_scan.py` measure stored-company
-  data readiness, not investment potential; do not present their score as a
-  stock opportunity rank.
-- Discover reads expose the immutable source version separately from the last
-  successful source check and the latest failed refresh. A stale list remains
-  inspectable but does not show a current rank. WIG bucket, sector, and size
-  stay explicit unknowns until sourced; opening Discover still performs no
-  fetch, write, queue, or model call.
-- Malik/OBS has a source-grounded lens, the only ready Valuation pack, and the
-  only supported Research method perspective. Its market-wide Discover sieve
-  remains planned. A user may explicitly queue one perspective only for a
-  provisional/verified canonical Research snapshot; the queued worker reads
-  only the frozen snapshot and method manifest, never refreshes sources, and
-  saves no recommendation or cross-method synthesis. Areczeks stays source-
-  blocked. Elendix exposes two retained dated fragments as partial provenance
-  but remains draft: neither fragment authorizes a method rule, perspective,
-  valuation, company conclusion or blend. Never simulate either author's
-  company conclusions or blend methods implicitly.
-- A company profile may be confirmed or corrected only with an explicit reason.
-  The page keeps the old snapshot-bound profile visible until a separately
-  requested review saves the next verifier-gated snapshot. Every review freezes
-  the complete selected profile plus its fingerprint; do not claim a later
-  correction is included in an already queued review.
-- The Research `Do sprawdzenia` agenda remains Roadmap work, not a current
-  action.
+- Discover currently retains only the legacy market-rating source page. It is
+  insufficient to execute the full Workbench exclusion/improvement rules, so
+  the single sieve is `blocked`, has no fabricated survivors or exclusions,
+  and names the missing market-factor batch. S1 supplies that batch.
+- Company refresh and Research collection may retain forum material only as a
+  labelled lead. Conclusions require permitted primary or normalized evidence.
+- Research writes only `company-research-v3` / `research-snapshot-v3`.
+  Historical snapshots remain readable; there is no legacy write path.
+- Valuation queueing freezes the Research/base boundary. Scenario mechanisms,
+  assumptions and probability rationales belong to the company-specific Codex
+  draft; there are no default grids or probabilities.
+- Portfolio reconciliation mismatches warn and identify affected figures. They
+  never hide the whole dashboard. Operations import, auto-coverage and outcome
+  scoring remain open Roadmap gates until their deterministic paths are green.
 
-Research lists `ResearchCase` rows, not watchlist membership. Removing a
-watchlist item never deletes the company, evidence, case, analysis, or history.
+## Lifecycle and safety
 
-## Lifecycle
+1. `./workbench start` starts services and migrations only. It does not fetch,
+   enqueue, or claim analysis work.
+2. Add/reactivate Research through `/api/research-cases`; repeated content
+   reuses the case and eligible job while preserving snapshots/history.
+3. New Research review jobs require a human-confirmed/corrected profile with a
+   company-specific source question and freeze the prior snapshot, current
+   source state, complete profile, and fingerprints.
+4. Research v3 records exactly one bounded issuer-primary,
+   regulatory-primary, BiznesRadar, PortalAnaliz, and other-web attempt; every
+   driver gets next-quarter and 12-month Outlook assessments and every frozen
+   company question is resolved or retained as a named gap.
+5. Valuation structural gates recompute math, validate probability structure,
+   rationale/provenance, scenario completeness, company-specific vector
+   distance, lineage, and drafter/verifier separation before judgment review.
+6. Portfolio sync stores unknown instruments and reconciliation differences.
+   Auto-produced coverage jobs must be idempotent, logged, and prioritized by
+   position weight × staleness when S4 enables that producer.
+7. `$workbench-run-queue` clears eligible work with lease recovery and bounded
+   failure caps; it is not a recurring process.
 
-1. Run `./workbench doctor`; it must not print secret values.
-2. For a start/open request, run `./workbench start` (or `--open`) and then
-   `./workbench status`.
-3. `start` only starts the local services and migrations. It does not fetch
-   evidence, enqueue analysis, or claim Codex work.
-4. `./workbench stop` stops Workbench-owned backend/frontend processes and
-   leaves PostgreSQL running.
-
-## Discover and Research
-
-1. Use stored Discover evidence for reads. Refresh the BiznesRadar snapshot
-   only when the user asks or presses the explicit refresh control.
-2. Add through `/api/research-cases`. Repeated requests reuse the case and its
-   stable initial job. Report the visible state honestly: waiting, collecting,
-   provisional, verified, rejected, or needs intervention.
-3. The company page renders versioned `research-snapshot-v1`/`v2` artifacts as
-   the canonical six-section workspace when one exists. The prior dossier
-   remains a labelled secondary audit view and cannot override snapshot status.
-4. Discover shows three typed sieve contracts in an inline selector and the
-   local candidate list for the selected sieve. Only the financial-health sieve
-   currently supplies candidate rows. Do not claim per-sieve comparison or
-   overlap yet, and do not describe Altman or Piotroski values as a
-   recommendation. Its v1 membership thresholds
-   (Altman `>= 8`, Piotroski `>= 7`) belong to the server contract, not the UI.
-   Keep OBS and Portal Analiz candidates blocked while their server-provided
-   market-wide coverage is incomplete.
-   Company-level research rows never substitute for a market-wide sieve.
-5. The browser may enqueue one durable job after an add, but it never executes
-   or claims it. Do not add portfolio positions or make a trade decision.
-6. An existing case with a snapshot may explicitly append a confirmed/corrected
-   profile version, then queue `stock-company-review`. The profile command never
-   queues work. The review command freezes the prior snapshot/artifact, current
-   latest source identities and complete current profile/fingerprint, reuses an
-   identical job, and rejects a competing active Research collection. Reads
-   never queue it. The prior snapshot remains canonical until the claimed
-   worker collects evidence, obtains a separate strict verdict and saves the
-   next sequential snapshot.
-7. A supported method perspective is a separate artifact, not a new Research
-   snapshot. Queue it only from the explicit company-page action or
-   `/method-perspective-runs` endpoint. The job freezes the exact parent
-   snapshot/profile/source manifest and complete method manifest. Its worker
-   classifies each method check once, writes an applicable-method conclusion
-   with source/unknown provenance, cites no new document versions, obtains a
-   distinct strict verdict, and saves through the matching method-perspective
-   script/tool. Do not run it from a GET, browser render, catalog read, or a
-   recurring worker.
-8. Bounded issuer-IR collection includes ASBIS, Artifex Mundi, Digital Network,
-   CD PROJEKT, cyber_Folks, Benefit Systems and Creotech official report pages.
-   Report links are extracted only from
-   issuer-specific content (`.ncont-content` / `.investors-page-content` /
-   `.files-section` / `.presstype-quarter .entry-content` / `.attachments` /
-   `.news-related-files` / `.investors-content__report`);
-   same-host empty redirects may be upgraded from HTTP to HTTPS, but the final
-   PDF connection must still pass public-host and connected-peer checks. This
-   collection is a worker action, never a Research GET side effect.
-
-## One queued Codex job
-
-Use `$workbench-run-queue` only after an explicit request. It recovers expired
-leases, claims at most one row, follows that row's skill/model contract,
-heartbeats, obtains independent strict verification, saves to the same
-`agent_run_id`, and stops. An empty queue is a successful no-op.
-
-## Valuation
-
-1. Start only from a `provisional` or `verified` Research snapshot and an
-   available company-archetype template. Reads and previews never queue or
-   claim work.
-2. The user edits the three typed `negative`, `base`, and `positive` scenarios.
-   Template seeds are labelled working human assumptions, never source facts.
-   Only `malik_obs_v1` is ready; Areczeks and Elendix stay visibly blocked.
-3. Preview through `/valuation-preview`. Python owns every financial, cash-flow,
-   per-share, and price calculation. A non-positive forward EPS has no P/E
-   price; own-history reversion remains a separate labelled sensitivity.
-4. Queue only after the explicit user action. The job freezes Research/source/
-   fact/price/scalar identities, assumptions, deterministic outputs and both
-   fingerprints. Repeating identical content reuses the same job.
-5. `$company-valuation` processes exactly one claimed job. A distinct
-   `verifier_strict` context owns final probabilities and status. Any named
-   upstream or scalar-lineage gap caps a passing result at `provisional`.
-6. Saving must attach only the verification ID to the unchanged draft. It
-   creates one immutable `ValuationSnapshot`, clears the lease, and never
-   recommends or executes a trade.
-
-## Portfolio
-
-1. Opening `/portfolio` or `GET /api/portfolios/workspace` reads only the last
-   stored state. Synchronize only after the user's explicit action. Use the
-   configured API key and exact single portfolio name; never request or store
-   a login/password and never automate the myfund web UI.
-2. Every sync attempt is recorded. Identical content reuses the latest
-   snapshot; changed content receives the next version. Preserve unknown rows
-   and surface reconciliation gaps. A failed refresh leaves the last good
-   snapshot visible.
-   If retained rows do not reconcile to the provider total, withhold all
-   derived concentration, coverage, liquidity, risk, scenario and review
-   output. Keep only the provider summary, partial-history status and raw rows.
-3. Mapping correction is explicit and cannot reinterpret an exact cash/company
-   identity. A confirmed ticker must equal the one unambiguous terminal `(CODE)`
-   on a PLN `Akcje GPW` provider identity. The correction reuses an existing
-   Company or creates only that minimal GPW identity; it creates no ResearchCase
-   or job, and a user-confirmed mapping remains correctable. Company analysis
-   and valuation never change because a position is owned or sized differently.
-   Sequential `0..N-1` myfund object keys are collection positions, not native
-   instrument IDs. `Konta gotówkowe` is an exact cash type. Snapshot cost/result
-   are complete current-position sums or an explicit gap; flow-aware provider
-   profit/contribution remains provider-labelled history. Portfolio reads expose
-   the canonical Company ticker separately from the provider label so links
-   always open the mapped Research identity.
-4. Treat return and benchmark series as provider-reported. TWR/XIRR and total-
-   return benchmark claims remain unavailable without independently reconciled
-   dated flows and benchmark semantics. Liquidity remains a labelled 20-session
-   raw-series estimate.
-5. Aggregate only verified valuations bound to the latest point-in-time
-   Research snapshot. Keep uncovered value unchanged and label aligned
-   downside/base/upside as simultaneous sensitivity, not joint probability.
-6. Queue review only through `/portfolio/review-runs`. `$portfolio-review`
-   reads the frozen snapshot/mappings/analytics/valuation identities, never
-   syncs or repairs them, obtains an independent strict verdict, and saves the
-   unchanged Polish draft through the canonical scripts. It never recommends
-   a transaction.
-7. Risk context freezes point-in-time Research/Profile and visibly current-
-   only falsifier timing. A shared sector/archetype group is co-exposure, not
-   correlation, covariance or joint probability. Historical liquidity may use
-   only price rows learned by the portfolio snapshot cutoff.
-
-## Capability maintenance
-
-When a user-visible UI, API, CLI, queue, source, or analysis boundary changes,
-update this skill in the same patch. Also update `CHANGELOG.md` and the concise
-model-usage ledger, then verify the affected API and browser outcome.
+Never request or store myfund login/password data, automate a provider web UI,
+issue a buy/sell instruction, execute a transaction, use direct SQL for an
+artifact save, or expose secrets. Update this skill, `CHANGELOG.md`, and
+`docs/model-usage.md` whenever a UI/API/CLI/queue/source/analysis boundary
+changes.

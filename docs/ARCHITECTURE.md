@@ -1,5 +1,7 @@
 # Architecture contract
 
+Defers to `docs/VISION.md` (invariants V1–V10).
+
 ## System boundary
 
 The application owns durable evidence, calculations, research state, and
@@ -8,10 +10,10 @@ state. Chat memory is never the database.
 
 ```text
 source adapters -> immutable documents/facts -> deterministic company data
-              -> ResearchCase -> verified ResearchSnapshot
+              -> ResearchCase -> verifier-gated ResearchSnapshot
               -> assumptions -> deterministic ValuationSnapshot
 myfund/export -> PortfolioSnapshot -> deterministic portfolio analytics
-                                      -> verified Codex portfolio review
+                                      -> verifier-gated Codex portfolio review
 ```
 
 The stack remains FastAPI + SQLAlchemy/PostgreSQL in `backend/` and Next.js +
@@ -31,8 +33,13 @@ Next route proxy.
 - **Math is deterministic.** Financial normalization, metrics, forecasts,
   scenario equations, return calculations, and portfolio aggregation live in
   tested Python services.
-- **One job owner.** Only the worker that will execute a job may claim it. UI,
-  startup hooks, and collectors may enqueue but never leave an orphan lease.
+- **One job owner.** Only the worker that will execute a job may claim it.
+  Passive UI renders, startup hooks, and reads never enqueue or claim. Jobs
+  are produced by (a) explicit UI/API/CLI commands and (b) the declared
+  automatic producers — portfolio-sync coverage, staleness/falsifier
+  monitors, and outcome scoring (V7, V8). Automatic producers are
+  idempotent, logged, and enumerated in `skills/workbench-actions/SKILL.md`;
+  nothing else enqueues.
 - **One canonical artifact per stage.** Research and valuation snapshots are
   immutable/versioned. The UI does not assemble multiple competing verdicts.
 - **Unknown is not failure.** Gaps reduce coverage/confidence and name the next
@@ -59,13 +66,19 @@ The pivot data model converges on:
   overlay and driver definitions;
 - `ResearchSnapshot` — case, as-of time, typed sections, driver tree, source
   manifest, gaps, run, and verification status;
-- `ValuationSnapshot` — research snapshot, strategy/template versions,
-  assumptions/provenance, deterministic outputs, Codex probabilities/rationale,
-  verification, and later realized outcome;
+- `MarketFactorSnapshot` — versioned market-wide factor rows parsed from the
+  immutable BiznesRadar market pages (rating, multiples, profitability,
+  debt, dynamics) that feed the one sieve;
+- `ValuationSnapshot` — research snapshot, engine/template versions,
+  assumptions with fact bindings, deterministic outputs, drafted
+  probabilities with rationale, structural-gate results, verification, and
+  later realized outcome (V8);
 - `Portfolio`, `PortfolioSync`, `PortfolioPositionSnapshot`,
-  `InstrumentMapping`, and, where available, transactions/value points;
-- one provider-neutral run/artifact family. Legacy direct Anthropic analysis
-  paths are retired after equivalent verified workflows are green.
+  `InstrumentMapping`, `PortfolioOperation` (imported transactions/flows),
+  and value points;
+- one provider-neutral run/artifact family. Legacy direct Anthropic dossier
+  paths and method-perspective artifacts are deleted (V2, V10); historical
+  rows may remain in the database but have no read path or UI.
 
 Implementation may extend the current schema incrementally, but disposable
 local database state does not justify compatibility layers. Use one forward
@@ -89,12 +102,14 @@ review freezes the exact mapping states it consumed.
 Mappings use a genuine provider-native row key when myfund supplies one;
 0-based sequential object keys are disposable collection positions and, like
 list payloads, use a stable canonical instrument/account identity rather than
-a display ticker or position. Exact PLN `Akcje GPW` identities use one terminal
-`(CODE)` for matching; synchronization may reuse an existing `Company` but only
-an explicit matching correction may create its minimal GPW identity, without a
-Research case or job. Cash is exact only for a small provider asset-type
-contract, including `Konta gotówkowe`, never because a free-text name happens
-to contain “cash”.
+a display ticker or position. GPW equity mapping resolves in order: terminal
+`(CODE)` marker → exact/normalized name match against known companies →
+persisted manual override (`InstrumentMapping` correction). Ambiguous
+matches stay unmapped and visible rather than guessed. Synchronization may
+create a minimal GPW `Company` identity for a confidently matched holding
+(this feeds auto-coverage); ambiguity always defers to a manual correction.
+Cash is exact only for a small provider asset-type contract, including
+`Konta gotówkowe`, never because a free-text name happens to contain “cash”.
 
 Snapshot cost and profit are sums of complete current position rows. The
 flow-aware provider summary profit is not relabelled as open-position profit;
@@ -105,13 +120,28 @@ provider-labelled meaning.
 Python owns portfolio totals, weights, HHI/concentration, provider-history
 projection, 20-session liquidity estimates and aligned company-scenario
 sensitivity. Provider-reported return and benchmark series keep those labels.
-TWR, XIRR and benchmark total-return claims remain unavailable until dated
-external flows and benchmark semantics can be independently reconciled.
+TWR is computed from the provider's daily value and own-contribution series
+(`wartoscWCzasie`/`wkladWCzasie`): daily external flows are the first
+difference of contribution, each day's return excludes that day's flow, and
+the series compounds. XIRR solves the derived dated flow series plus current
+value. When imported operations exist they refine per-position cost basis
+and flows; the method and its data window are always stated inline. Missing
+series days or unexplained contribution jumps are named gaps that degrade
+the claim to partial — never silently smoothed.
 If retained rows do not reconcile to the provider total within the explicit
-tolerance, concentration, coverage, liquidity, risk context, scenarios and new
-Codex review fail closed; only the provider summary, partial-history state and
-raw retained rows remain visible. Historical liquidity also requires each
-price row to have been scraped by the portfolio snapshot cutoff.
+tolerance, the dashboard shows a prominent warning naming the difference and
+the affected figures, and analytics that depend on complete rows label
+themselves accordingly — analytics never black out wholesale (V7).
+Historical liquidity requires each price row to have been scraped by the
+portfolio snapshot cutoff.
+
+**Auto-coverage (V7).** Completing a sync triggers the coverage producer:
+for every mapped GPW holding it ensures an active `ResearchCase` (creating
+one marked `origin=portfolio` and queueing initial research when missing)
+and queues a valuation when the latest verified research snapshot lacks a
+current valuation or the valuation is stale/falsified. Jobs are idempotent
+(one queued-or-running per company/workflow), ordered by position weight ×
+staleness, and logged on the sync record.
 
 Only a `verified` valuation bound to the latest point-in-time Research snapshot
 may enter scenario sensitivity. Cash and uncovered positions remain unchanged.
@@ -147,13 +177,25 @@ Codex proposes the pack and company overlay from evidence. The user may confirm
 or override it. A strict schema validator and verifier gate every UI-visible
 snapshot.
 
-New research jobs freeze `company-research-v2`, `research-snapshot-v2`,
+New research jobs freeze `company-research-v3`, `research-snapshot-v3`,
 `company-profile-v2`, and `archetype-packs-v1`. Each required marker maps
 one-to-one to a driver/KPI with the same key or to a named gap with the same
 topic. The workspace distinguishes sourced markers, explicit assumptions,
 gaps, and missing scope; addressed scope is not mislabeled as evidence.
-Previously frozen v1 jobs retain a separate legacy write path, and the saved
-ABS provisional pack alias is resolved only for reads.
+The v3 outlook assesses every profile driver for the next quarter and next 12
+months, resolves every frozen profile question plus catalyst, company-specific
+result visibility and governance, and records exactly one bounded attempt for
+issuer primary, regulatory primary, BiznesRadar, PortalAnaliz and other web.
+The frozen profile has at least one company-specific source question, and a
+review can freeze only a `human-confirmed` or `human-corrected` profile.
+Partial/not-found answers and unknown directions bind named top-level gaps;
+every supported direction or resolved answer cites at least one retained
+document from its declared source search. Each driver horizon declares its own
+searched channels. Channel and manifest-role eligibility derive from stored
+source type/provider/host identity rather than draft labels; BiznesRadar stays
+normalized and PortalAnaliz stays a lead. Lead/context-only evidence cannot
+support a conclusion. Legacy v1/v2 write paths are deleted (V10); old
+snapshots remain readable as history.
 
 A run that collects its own evidence freezes the exact post-collection source
 manifest and cutoff in the draft before independent verification. A replacement
@@ -161,6 +203,24 @@ run may reuse earlier collection only when its queued inputs already bind the
 company identity, immutable source versions and parser/content hashes, failed
 source attempts, deterministic dossier projection, calculation payload and
 archetype version. Frozen inputs are never edited to repair a handoff.
+
+## Discover market snapshot and the one sieve (V1)
+
+An explicit refresh command fetches the declared set of BiznesRadar
+market-wide pages (rating, value multiples, profitability, debt, dynamics)
+through the standard HTTP layer — using the authenticated premium session
+where anonymous content truncates — and stores each page as an immutable
+`DocumentVersion`. Parsers project them into `MarketFactorSnapshot` rows
+keyed by company and snapshot batch; a batch records which pages/versions it
+contains and its coverage per factor.
+
+`workbench_sieve_vN` is a pure server-side function over one batch: layer A
+hard kills, layer B improvement requirement, ordering (see
+`docs/STRATEGY.md`). The API returns the sieve id/version, thresholds,
+survivors with per-factor evidence, excluded companies with kill reasons,
+and coverage gaps. There is exactly one sieve; alternative strategies are a
+new version, never a parallel filter (V1). Reading Discover writes nothing;
+`Dodaj do Research` is the only per-row command.
 
 ## Source architecture
 
@@ -189,11 +249,19 @@ Codex worker -> claim + heartbeat -> collect/structure/calculate
 
 The supported Research artifact workflows are `stock-initial-research` and
 `stock-company-review`, both executed with the versioned `company-research`
-skill; valuation uses `stock-company-valuation` with `company-valuation`.
+skill. Valuation uses `stock-company-valuation` with `company-valuation`.
+Method-perspective workflows are deleted (V2).
+
+**Queue draining (V6).** The Codex run-queue skill recovers expired leases,
+then loops: claim one job → execute → verify → save → terminalize, until the
+queue is empty or a stop condition fires (same job failed twice, three
+consecutive failures across jobs, or an integrity `needs-human`). One job is
+in flight at a time; each iteration heartbeats its lease. "One session, one
+job" semantics are forbidden.
 Company review is an explicit, content-idempotent command after an immutable
 snapshot exists: it freezes that prior snapshot and the current latest source
 versions, then the claimed worker performs a bounded refresh and saves only the
-next independently verified snapshot. The prior snapshot remains readable
+next independently verifier-gated snapshot. The prior snapshot remains readable
 while the review waits or runs. Portfolio review remains a separate workflow.
 Research verification is a two-step local protocol: a distinct verifier
 context stores a verdict bound to the exact draft and frozen-input fingerprint;
@@ -206,35 +274,71 @@ when exposed. A drafting result never approves itself.
 Valuation preview loads only consumed immutable Facts inside the bound Research
 manifest and cutoff. Differing values or units for a consumed `(fact_key,
 period)` fail; identical duplicates resolve deterministically to the latest
-document version. The current raw price must be finite, positive, dated and
-scraped by `as_of`, and retains source/series/basis identity. Shares and market
-cap are timestamp-frozen Company scalars until immutable fact lineage exists,
-so they force a visible provisional gap. One company may have only one queued
-or running valuation; snapshot version is assigned at execution and checked
-again at verify/save.
+document version. Shares and market cap resolve from one latest parsed
+BiznesRadar profile version known by `as_of`; both immutable Facts must match
+the canonical company, expected units and that same document version. Legacy
+mutable Company scalars remain a fail-visible provisional fallback only. The
+current price must be finite, positive, dated and scraped by `as_of`, preserve
+source/series/basis identity, and point to a parsed immutable source version
+for the same company. A `raw_unverified` row may serve only as the current
+valuation reference when its price × shares reconciles to reported market cap
+within 2%; it remains `return_series_eligible=false` and cannot support return,
+benchmark or backtest claims. Identity/cutoff conflicts fail closed; missing or
+mismatched lineage stays a named gap. One company may have only one queued or
+running valuation; snapshot version is assigned at execution and checked again
+at verify/save.
 
-The valuation draft freezes `valuation-engine-v2`, method/template versions,
-typed human/evidence assumptions, deterministic outputs and input/calculation
-fingerprints. The worker proposes mechanisms and probabilities. A distinct
-Sol-high verifier owns exact final probabilities summing to 100; save
-recalculates the weighted output, binds the exact draft fingerprint, creates
-one `ValuationSnapshot`, terminalizes the run and clears its lease. Passing
-output with any named upstream or scalar-lineage gap is `provisional`.
+The valuation draft freezes the engine and template versions, typed
+assumptions with fact bindings, drafted probabilities with rationale,
+deterministic outputs and input/calculation fingerprints. The drafter owns
+mechanisms, assumptions and probabilities — all company-specific (V4).
 
-Route jobs by effort so analysis quality and usage limits stay balanced:
+**Valuation structural gates (computed by the backend before any verifier
+opinion; any hit → automatic `rejected` with the reason stored):**
 
-- fetching, parsing, normalization, calculations, and DB assembly use no model;
-- repetitive extraction and mechanical validation use GPT-5.3 high;
-- bounded classification and ordinary company research use Terra high;
-- cross-source deep research, scenario probabilities, valuation synthesis, and
-  portfolio interpretation use Sol high;
-- decision-relevant approval uses an independent Sol-high strict verifier;
-- Sol ultra is an explicit one-tier escalation after concrete Sol-high failure,
-  never a default.
+1. exact-draft integrity — saved payload equals the frozen draft;
+2. math recomputation — deterministic outputs reproduce bit-equal;
+3. probability structure — per-scenario probability present, in (0, 100),
+   summing to 100 ± 1, and not equal to a known house-default mix or any
+   permutation of one;
+4. rationale present — every scenario probability carries non-empty,
+   scenario-specific evidence rationale; every core assumption either binds
+   ≥ 1 research fact ID or is flagged `judgment` with rationale;
+5. company-specificity — the assumption vector (growth, margins, target
+   multiple, probabilities) must not equal any template seed and must not be
+   a near-duplicate (relative distance below threshold) of another current
+   company's live valuation;
+6. scenario completeness — each scenario names mechanism, catalyst or
+   counter-driver, and a dated falsifier; an event scenario states its
+   one-off explicitly and is mutually exclusive;
+7. lineage — fingerprints current, look-ahead boundaries respected,
+   drafter ≠ verifier worker.
 
-Luna medium remains suitable for bounded low-risk implementation work, not for
-investment judgment. A cheaper drafting model never lowers the verifier or
-deterministic gates.
+The strict verifier then judges what cannot be computed — evidence fit,
+mechanism plausibility, probability reasonableness — and must return either
+concrete findings or per-check justification referencing the evidence
+examined (V5). A verdict with empty findings and empty justifications is
+itself rejected. Save recalculates the weighted output, binds the exact
+draft fingerprint, creates one `ValuationSnapshot`, terminalizes the run and
+clears its lease. Passing output with any named upstream or scalar-lineage
+gap is `provisional`.
+
+Route work — app jobs and development sessions alike — by the lightest tier
+that can reliably finish it; escalate one tier only on evidence. This is the
+single routing table (the ledger lives in `docs/model-usage.md`):
+
+| Work | Tier | Typical use |
+|---|---|---|
+| Deterministic | no model | fetch, parse, normalize, calculate, query, DB assembly |
+| Mechanical | GPT-5.3 high | repetitive extraction, validation, tests, fixtures, small fixes |
+| Bounded low-risk implementation | Luna medium | CRUD/UI wiring; never investment judgment |
+| Default implementation/research | Terra high | normal features, debugging, classification, ordinary company research |
+| Deep analysis | Sol high | architecture, cross-source research, scenario probabilities, valuation/portfolio synthesis |
+| Strict verification | Sol high (independent) | decision-relevant approval; a drafting model never lowers this gate |
+| Exceptional escalation | Sol ultra | only after a concrete Sol-high failure; never a default |
+
+Record role, requested tier, concrete host when exposed, substitutions, and
+verification in `docs/model-usage.md`; never infer the hidden deployment.
 
 Status meanings:
 
@@ -264,12 +368,13 @@ Codex owns:
 
 - source planning and evidence-oriented extraction;
 - template/driver suggestions and company-specific questions;
-- thesis/counter-thesis, catalyst/risk interpretation, scenario narratives and
-  probabilities;
+- thesis/counter-thesis, catalyst/risk interpretation, scenario narratives,
+  assumptions and probabilities — always company-specific and
+  evidence-bound (V4);
 - critique and explanation of deterministic outputs.
 
-The verifier independently owns final probabilities, conviction/confidence,
-strategy-fit conclusions, and approval status.
+The backend owns the structural gates. The strict verifier owns judgment
+review and final approval status; it never rewrites the draft (V5).
 
 ## Runtime and verification
 
@@ -282,6 +387,11 @@ strategy-fit conclusions, and approval status.
 - Backend: `cd backend && ./.venv/bin/pytest`.
 - Frontend: `cd frontend && npm run build`; add focused component/browser tests
   for primary actions.
+- Drift gate: `backend/tests/test_vision_contract.py` encodes VISION
+  invariants (single sieve, no author branding, no seed constants, no house
+  probability defaults, adversarial verifier contract, queue-drain
+  semantics, phase-aware research list). It runs with the backend suite and
+  must never be weakened to pass.
 
 Before a pivot stage is complete, run focused tests, the relevant full suites,
 runtime health, and a browser interaction that proves its user outcome. Tracked

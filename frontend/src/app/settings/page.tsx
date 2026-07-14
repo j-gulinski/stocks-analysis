@@ -5,17 +5,12 @@ import { IconCheck, IconRefresh, IconX } from "@tabler/icons-react";
 import {
   getAiUsage,
   getBrLoginStatus,
-  getForumLoginStatus,
   getHealth,
   getScrapersHealth,
   getWorkflowStatus,
-  preparePreSessionBrief,
 } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
 import { relativeDate } from "@/lib/format";
-import { friendlySourceStatus } from "@/lib/source-status";
-import { DEFAULT_ORCHESTRATOR_MODEL, modelPolicyDescription, ORCHESTRATOR_MODELS } from "@/lib/model-policy";
-import { useState } from "react";
 
 function StatusCard({
   title,
@@ -64,38 +59,10 @@ function StatusCard({
 
 export default function SettingsPage() {
   const health = useApi(getHealth, []);
-  const forum = useApi(getForumLoginStatus, []);
   const biznesradar = useApi(getBrLoginStatus, []);
   const scrapers = useApi(getScrapersHealth, []);
   const aiUsage = useApi(getAiUsage, []);
   const workflows = useApi(getWorkflowStatus, []);
-  const [sessionAction, setSessionAction] = useState<string | null>(null);
-  const [orchestratorModel, setOrchestratorModel] = useState<string>(DEFAULT_ORCHESTRATOR_MODEL);
-  const [sessionError, setSessionError] = useState<string | null>(null);
-  const [sessionInfo, setSessionInfo] = useState<string | null>(null);
-
-  const recheckEspi = async () => {
-    setSessionAction("espi");
-    setSessionError(null);
-    setSessionInfo(null);
-    try {
-      const result = await preparePreSessionBrief({
-        trigger: "settings-ui",
-        orchestrator_model: orchestratorModel,
-        fetch_details: true,
-        queue: true,
-      });
-      if (!result.ok) {
-        setSessionError(`ESPI wymaga uwagi: ${friendlySourceStatus(String(result.espi_poll.incomplete_reason ?? "Niepełne pobranie ESPI."))}`);
-      } else {
-        setSessionInfo(result.agent_run ? `ESPI sprawdzone; utworzono zlecenie #${result.agent_run.id}.` : "ESPI sprawdzone; nie utworzono nowego zlecenia.");
-      }
-    } catch (err) {
-      setSessionError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSessionAction(null);
-    }
-  };
 
   return (
     <main className="settings-page">
@@ -103,7 +70,7 @@ export default function SettingsPage() {
         <div>
           <p className="eyebrow">System</p>
           <h1>Stan źródeł i usług</h1>
-          <p>Strona odczytuje zapisaną konfigurację i stan usług — samo jej otwarcie nie loguje się do źródeł. Zdarzenia ESPI odświeżasz osobnym poleceniem.</p>
+          <p>Strona odczytuje zapisaną konfigurację i stan usług — samo jej otwarcie nie loguje się do źródeł ani nie zapisuje zadań.</p>
         </div>
       </section>
       <div style={{ display: "grid", gap: 10 }}>
@@ -121,12 +88,6 @@ export default function SettingsPage() {
           loading={biznesradar.loading}
         />
         <StatusCard
-          title="Konfiguracja PortalAnaliz"
-          status={forum.data?.status ?? (forum.error ? "error" : null)}
-          detail={forum.data?.detail ?? forum.error ?? ""}
-          loading={forum.loading}
-        />
-        <StatusCard
           title="Kolejka Codex"
           status={workflows.error ? "error" : workflows.data ? "ok" : null}
           detail={
@@ -137,32 +98,6 @@ export default function SettingsPage() {
           }
           loading={workflows.loading}
         />
-
-        <div className="card session-actions-card">
-          <div>
-            <p style={{ fontWeight: 500, fontSize: 13, margin: 0 }}>Odświeżenie zdarzeń</p>
-            <p className="small muted" style={{ margin: "4px 0 12px" }}>
-              Jednorazowo pobiera nowe raporty ESPI i może zapisać zadanie do kolejki. Nie uruchamia analizy Codex.
-            </p>
-          </div>
-          <div className="command-row">
-            <label className="session-model-select">
-              Model orchestratora
-              <select value={orchestratorModel} onChange={(event) => setOrchestratorModel(event.target.value)} disabled={sessionAction != null}>
-                {ORCHESTRATOR_MODELS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </label>
-            <button className="btn" onClick={() => void recheckEspi()} disabled={sessionAction != null}>
-              <IconRefresh size={14} className={sessionAction === "espi" ? "spin" : ""} />
-              {sessionAction === "espi" ? "Sprawdzam ESPI…" : "Sprawdź ESPI"}
-            </button>
-          </div>
-          <p className="small muted" style={{ margin: "8px 0 0" }}>{modelPolicyDescription(orchestratorModel)} Wybór dotyczy żądanego orchestratora Codex; host nie ujawnia dokładnego deploymentu.</p>
-          <div aria-live="polite">
-            {sessionError && <p className="small neg" style={{ margin: "10px 0 0" }}>Błąd: {sessionError}</p>}
-            {sessionInfo && <p className="small pos" style={{ margin: "10px 0 0" }}>{sessionInfo}</p>}
-          </div>
-        </div>
 
         <p className="settings-section-label">Diagnostyka i limity</p>
         <div className="card">

@@ -14,6 +14,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     BigInteger,
+    Float,
     CheckConstraint,
     Date,
     DateTime,
@@ -144,6 +145,9 @@ class ResearchSnapshot(Base):
             "research_case_id", "version", name="uq_research_snapshot_case_version"
         ),
         UniqueConstraint("agent_run_id", name="uq_research_snapshot_agent_run"),
+        UniqueConstraint(
+            "verification_run_id", name="uq_research_snapshot_verification_run"
+        ),
         CheckConstraint("version > 0", name="ck_research_snapshot_positive_version"),
         CheckConstraint(
             "status IN ('provisional', 'verified', 'rejected', 'needs-human')",
@@ -163,7 +167,7 @@ class ResearchSnapshot(Base):
         ForeignKey("agent_runs.id", ondelete="RESTRICT"), index=True
     )
     verification_run_id: Mapped[int] = mapped_column(
-        ForeignKey("verification_runs.id", ondelete="RESTRICT"), unique=True, index=True
+        ForeignKey("verification_runs.id", ondelete="RESTRICT"), index=True
     )
     version: Mapped[int] = mapped_column(Integer)
     contract_version: Mapped[str] = mapped_column(String(40))
@@ -177,71 +181,6 @@ class ResearchSnapshot(Base):
     gaps: Mapped[list] = mapped_column(JSONVariant)
     next_checks: Mapped[list] = mapped_column(JSONVariant)
     statement_provenance: Mapped[list] = mapped_column(JSONVariant)
-    verifier_result: Mapped[dict] = mapped_column(JSONVariant)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
-
-
-class ResearchMethodPerspective(Base):
-    """Immutable per-method lens over one unchanged canonical Research snapshot."""
-
-    __tablename__ = "research_method_perspectives"
-    __table_args__ = (
-        UniqueConstraint("agent_run_id", name="uq_research_method_perspective_agent_run"),
-        UniqueConstraint(
-            "verification_run_id", name="uq_research_method_perspective_verification_run"
-        ),
-        UniqueConstraint(
-            "research_snapshot_id",
-            "method_manifest_fingerprint",
-            name="uq_research_method_perspective_snapshot_manifest",
-        ),
-        CheckConstraint(
-            "status IN ('provisional', 'verified', 'rejected', 'needs-human')",
-            name="ck_research_method_perspective_status",
-        ),
-        Index(
-            "ix_research_method_perspectives_case_created",
-            "research_case_id",
-            "created_at",
-        ),
-        Index(
-            "ix_research_method_perspectives_snapshot_created",
-            "research_snapshot_id",
-            "created_at",
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    research_case_id: Mapped[int] = mapped_column(
-        ForeignKey("research_cases.id", ondelete="CASCADE"), index=True
-    )
-    research_snapshot_id: Mapped[int] = mapped_column(
-        ForeignKey("research_snapshots.id", ondelete="RESTRICT"), index=True
-    )
-    agent_run_id: Mapped[int] = mapped_column(
-        ForeignKey("agent_runs.id", ondelete="RESTRICT"), index=True
-    )
-    verification_run_id: Mapped[int] = mapped_column(
-        ForeignKey("verification_runs.id", ondelete="RESTRICT"), index=True
-    )
-    method_pack_id: Mapped[str] = mapped_column(String(120), index=True)
-    method_pack_version: Mapped[str] = mapped_column(String(80))
-    contract_version: Mapped[str] = mapped_column(String(40))
-    status: Mapped[str] = mapped_column(String(30), index=True)
-    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    method_manifest: Mapped[dict] = mapped_column(JSONVariant)
-    method_manifest_fingerprint: Mapped[str] = mapped_column(String(64))
-    applicability: Mapped[dict] = mapped_column(JSONVariant)
-    conclusion: Mapped[dict | None] = mapped_column(JSONVariant)
-    findings: Mapped[list] = mapped_column(JSONVariant)
-    blind_spots: Mapped[list] = mapped_column(JSONVariant)
-    falsifiers: Mapped[list] = mapped_column(JSONVariant)
-    next_checks: Mapped[list] = mapped_column(JSONVariant)
-    gaps: Mapped[list] = mapped_column(JSONVariant)
-    input_fingerprint: Mapped[str] = mapped_column(String(64))
-    artifact_fingerprint: Mapped[str] = mapped_column(String(64))
     verifier_result: Mapped[dict] = mapped_column(JSONVariant)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
@@ -275,18 +214,17 @@ class ValuationSnapshot(Base):
     research_snapshot_id: Mapped[int] = mapped_column(
         ForeignKey("research_snapshots.id", ondelete="RESTRICT"), index=True
     )
-    agent_run_id: Mapped[int] = mapped_column(
-        ForeignKey("agent_runs.id", ondelete="RESTRICT"), index=True
+    agent_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="RESTRICT"), index=True, nullable=True
     )
-    verification_run_id: Mapped[int] = mapped_column(
-        ForeignKey("verification_runs.id", ondelete="RESTRICT"), index=True
+    verification_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("verification_runs.id", ondelete="RESTRICT"), index=True, nullable=True
     )
     version: Mapped[int] = mapped_column(Integer)
     contract_version: Mapped[str] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(30), index=True)
+    origin: Mapped[str] = mapped_column(String(20), default="codex")
     as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    method_pack_id: Mapped[str] = mapped_column(String(60))
-    method_pack_version: Mapped[str] = mapped_column(String(60))
     template_id: Mapped[str] = mapped_column(String(80))
     template_version: Mapped[str] = mapped_column(String(60))
     calculation_engine_version: Mapped[str] = mapped_column(String(60))
@@ -458,6 +396,12 @@ class Price(Base):
     company_id: Mapped[int] = mapped_column(
         ForeignKey("companies.id", ondelete="CASCADE")
     )
+    # Serving rows may be replaced as providers correct history, but every
+    # lineage-complete row points back to the immutable raw document version
+    # from which it can be rebuilt.
+    source_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="SET NULL"), index=True
+    )
     date: Mapped[date] = mapped_column(Date)
     close: Mapped[float] = mapped_column(Numeric(12, 4))
     volume: Mapped[int | None] = mapped_column(BigInteger)
@@ -531,10 +475,8 @@ class ForumPost(Base):
     upvotes: Mapped[int | None] = mapped_column(Integer)  # forum likes/thanks, if shown
     # Raw post body (plain text, HTML stripped) — the parser has always
     # produced this (ParsedPost.content_text) but syncs used to discard it,
-    # so nothing fed the AI distiller. Nullable: rows written before this
-    # column existed have NULL until a resync backfills them (see
-    # forum_sync._store_posts). Truncated at storage time — see
-    # forum_sync._CONTENT_CHAR_LIMIT for why.
+    # so older stored rows may be NULL. The retired forum synchronization path
+    # no longer backfills or rewrites this historical evidence.
     content_text: Mapped[str | None] = mapped_column(Text)
 
     topic: Mapped[ForumTopic] = relationship(back_populates="posts")
@@ -596,9 +538,9 @@ class DiscoveryTriageReview(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     source_document_version_id: Mapped[int] = mapped_column(
-        ForeignKey("document_versions.id", ondelete="RESTRICT"), index=True
+        ForeignKey("document_versions.id", ondelete="RESTRICT")
     )
-    ticker: Mapped[str] = mapped_column(String(20), index=True)
+    ticker: Mapped[str] = mapped_column(String(20))
     review_price_pln: Mapped[float] = mapped_column(Numeric(14, 4))
     note: Mapped[str] = mapped_column(String(1000))
     outcome: Mapped[str] = mapped_column(String(30))
@@ -1530,3 +1472,88 @@ class FetchLog(Base):
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )
+
+
+class MarketFactorBatch(Base):
+    """One versioned market-wide factor snapshot feeding the single sieve (V1).
+
+    Binds the immutable BiznesRadar market pages (DocumentVersion ids) that
+    were parsed into rows, so sieve output is reproducible per batch.
+    """
+
+    __tablename__ = "market_factor_batches"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    page_document_versions: Mapped[dict] = mapped_column(JSONVariant)
+    parser_version: Mapped[str] = mapped_column(String(40))
+    coverage: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class MarketFactorRow(Base):
+    """Per-company factor values parsed from one market batch."""
+
+    __tablename__ = "market_factor_rows"
+    __table_args__ = (
+        UniqueConstraint("batch_id", "ticker", name="uq_market_factor_row_batch_ticker"),
+        Index("ix_market_factor_rows_batch_ticker", "batch_id", "ticker"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    batch_id: Mapped[int] = mapped_column(
+        ForeignKey("market_factor_batches.id", ondelete="CASCADE"), index=True
+    )
+    ticker: Mapped[str] = mapped_column(String(20), index=True)
+    br_slug: Mapped[str | None] = mapped_column(String(120))
+    name: Mapped[str | None] = mapped_column(String(200))
+    report_period: Mapped[str | None] = mapped_column(String(20))
+    altman_grade: Mapped[str | None] = mapped_column(String(8))
+    altman_value: Mapped[float | None] = mapped_column(Float)
+    piotroski_f: Mapped[float | None] = mapped_column(Float)
+    cz: Mapped[float | None] = mapped_column(Float)
+    cz_delta_rr_pct: Mapped[float | None] = mapped_column(Float)
+    cwk: Mapped[float | None] = mapped_column(Float)
+    ev_ebitda: Mapped[float | None] = mapped_column(Float)
+    roe_pct: Mapped[float | None] = mapped_column(Float)
+    op_margin_pct: Mapped[float | None] = mapped_column(Float)
+    op_margin_delta_pp: Mapped[float | None] = mapped_column(Float)
+    net_margin_pct: Mapped[float | None] = mapped_column(Float)
+    revenue_dyn_rr_pct: Mapped[float | None] = mapped_column(Float)
+    net_income_dyn_rr_pct: Mapped[float | None] = mapped_column(Float)
+    debt_to_equity: Mapped[float | None] = mapped_column(Float)
+    net_debt_ebitda: Mapped[float | None] = mapped_column(Float)
+    net_income_ttm_pln_thousands: Mapped[float | None] = mapped_column(Float)
+    equity_pln_thousands: Mapped[float | None] = mapped_column(Float)
+    turnover_present: Mapped[bool | None] = mapped_column()
+    extras: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+
+
+class PortfolioOperation(Base):
+    """Imported myfund operation/flow row (API or file export), deduplicated."""
+
+    __tablename__ = "portfolio_operations"
+    __table_args__ = (
+        UniqueConstraint(
+            "portfolio_id", "content_hash", name="uq_portfolio_operation_content"
+        ),
+        Index("ix_portfolio_operations_portfolio_date", "portfolio_id", "occurred_on"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(
+        ForeignKey("portfolios.id", ondelete="CASCADE"), index=True
+    )
+    occurred_on: Mapped[date] = mapped_column(Date)
+    kind: Mapped[str] = mapped_column(String(40), index=True)
+    instrument_name: Mapped[str | None] = mapped_column(String(240))
+    ticker: Mapped[str | None] = mapped_column(String(20), index=True)
+    quantity: Mapped[float | None] = mapped_column(Float)
+    price: Mapped[float | None] = mapped_column(Float)
+    amount_pln: Mapped[float | None] = mapped_column(Float)
+    currency: Mapped[str] = mapped_column(String(10), default="PLN")
+    source: Mapped[str] = mapped_column(String(20), default="api")
+    provider_key: Mapped[str | None] = mapped_column(String(120))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    raw: Mapped[dict] = mapped_column(JSONVariant, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

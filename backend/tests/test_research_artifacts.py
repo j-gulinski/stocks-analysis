@@ -8,17 +8,25 @@ import sys
 from sqlalchemy import func, select
 
 
-def _document(db, company, *, ticker=None):
+def _document(
+    db,
+    company,
+    *,
+    ticker=None,
+    source_name="Issuer IR",
+    source_type="issuer_ir_report",
+    canonical_url="https://investor.example.test/report",
+):
     from app.db.models import DocumentVersion, SourceDocument, utcnow
 
     now = utcnow()
     document = SourceDocument(
         company_id=company.id if ticker is None else None,
         company_ticker=ticker or company.ticker,
-        source_name="issuer",
-        source_type="report",
+        source_name=source_name,
+        source_type=source_type,
         scope_key=f"report-{ticker or company.ticker}",
-        canonical_url="https://example.test/report",
+        canonical_url=canonical_url,
         first_seen_at=now,
         last_fetched_at=now,
         latest_content_hash="a" * 64,
@@ -58,6 +66,40 @@ def _claimed_case(client, db, ticker="SNT"):
     return case_id, run, company
 
 
+def _confirm_profile(client, case_id, *, ticker="SNT"):
+    profile = client.get(
+        f"/api/research-cases/by-ticker/{ticker}"
+    ).json()["current_profile"]
+    response = client.post(
+        f"/api/research-cases/{case_id}/profiles",
+        json={
+            "base_profile_id": profile["id"],
+            "reason": "Potwierdzam profil przed jawnym odświeżeniem Research.",
+            "archetype": profile["archetype"],
+            "company_overlay": profile["company_overlay"],
+            "drivers": profile["drivers"],
+            "kpis": profile["kpis"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _profile_input(profile):
+    return {
+        key: deepcopy(profile[key])
+        for key in (
+            "schema_version",
+            "version",
+            "archetype",
+            "archetype_version",
+            "company_overlay",
+            "drivers",
+            "kpis",
+        )
+    }
+
+
 def _payload(run_id, version_id, *, status="verified", lease_owner="test-worker"):
     from app.db.models import utcnow
 
@@ -65,7 +107,7 @@ def _payload(run_id, version_id, *, status="verified", lease_owner="test-worker"
         {"topic": "backlog", "description": "Brak aktualnego backlogu.", "impact": "Niższa pewność przychodów.", "focus_tags": ["backlog"]}
     ]
     payload = {
-        "contract_version": "research-snapshot-v2",
+        "contract_version": "research-snapshot-v3",
         "agent_run_id": run_id,
         "lease_owner": lease_owner,
         "version": 1,
@@ -117,16 +159,123 @@ def _payload(run_id, version_id, *, status="verified", lease_owner="test-worker"
             "evidence": {
                 "summary": "Raport emitenta.", "primary_document_version_ids": [version_id], "claims": [],
             },
+            "outlook": None,
             "thesis": {
                 "why_now": "Rosnący popyt.", "counter_thesis": "Słabszy miks.", "catalysts": ["wyniki"],
                 "risks": ["koszty"], "governance": "Brak stwierdzonych problemów.",
-                "falsifiers": ["spadek marży"], "next_checks": ["backlog"], "claims": [],
+                "falsifiers": ["spadek marży"],
+                "next_checks": [] if status == "verified" else ["backlog"],
+                "claims": [],
             },
             "history": {"changes_since_previous": [], "prior_snapshot_id": None, "claims": []},
         },
         "source_manifest": [{"document_version_id": version_id, "role": "primary", "purpose": "Raport okresowy"}],
         "conflicts": [], "gaps": gaps,
-        "next_checks": [{"question": "Jaki jest backlog?", "suggested_source": "Prezentacja wynikowa"}],
+        "next_checks": [] if status == "verified" else [
+            {"question": "Jaki jest backlog?", "suggested_source": "Prezentacja wynikowa"}
+        ],
+    }
+    def outlook_fact(text):
+        return {
+            "text": text,
+            "kind": "fact",
+            "source_document_version_ids": [version_id],
+        }
+    payload["sections"]["outlook"] = {
+        "summary": "Perspektywa zależy od potwierdzonych czynników właściwych dla spółki.",
+        "driver_outlooks": [
+            {
+                "driver_key": driver["key"],
+                "next_quarter": {
+                    "direction": "positive",
+                    "assessment": outlook_fact(
+                        f"W kolejnym kwartale czynnik {driver['key']} wspiera wynik."
+                    ),
+                    "source_channels": ["issuer-primary"],
+                    "watch_items": [driver["key"]],
+                    "gap_topic": None,
+                },
+                "next_12_months": {
+                    "direction": "positive",
+                    "assessment": outlook_fact(
+                        f"W kolejnych 12 miesiącach czynnik {driver['key']} wspiera wynik."
+                    ),
+                    "source_channels": ["issuer-primary"],
+                    "watch_items": [driver["key"]],
+                    "gap_topic": None,
+                },
+            }
+            for driver in payload["profile"]["drivers"]
+        ],
+        "question_resolutions": [
+            {
+                "scope": "profile",
+                "question": "Jaki jest backlog?",
+                "status": "confirmed" if status == "verified" else "partial",
+                "answer": outlook_fact(
+                    "Raport potwierdza backlog."
+                    if status == "verified"
+                    else "Raport opisuje kontrakty, ale nie podaje pełnego backlogu."
+                ),
+                "source_channels": ["issuer-primary", "biznesradar"],
+                "remaining_gap": None if status == "verified" else "Brak wartości backlogu.",
+                "gap_topic": None if status == "verified" else "backlog",
+            },
+            {
+                "scope": "catalyst",
+                "question": "Jaki jest najbliższy katalizator?",
+                "status": "confirmed",
+                "answer": outlook_fact("Najbliższym katalizatorem jest kolejny raport wynikowy."),
+                "source_channels": ["issuer-primary", "regulatory-primary"],
+                "remaining_gap": None,
+                "gap_topic": None,
+            },
+            {
+                "scope": "visibility",
+                "question": "Co daje widoczność przyszłego wyniku?",
+                "status": "confirmed" if status == "verified" else "partial",
+                "answer": outlook_fact(
+                    "Backlog potwierdza widoczność."
+                    if status == "verified"
+                    else "Ujawnione kontrakty dają tylko częściową widoczność."
+                ),
+                "source_channels": ["issuer-primary", "biznesradar"],
+                "remaining_gap": None if status == "verified" else "Brak wartości backlogu.",
+                "gap_topic": None if status == "verified" else "backlog",
+            },
+            {
+                "scope": "governance",
+                "question": "Co wiadomo o zarządzaniu i ładzie?",
+                "status": "confirmed",
+                "answer": outlook_fact("Raport nie wskazuje zmiany organów spółki."),
+                "source_channels": ["issuer-primary", "regulatory-primary"],
+                "remaining_gap": None,
+                "gap_topic": None,
+            },
+        ],
+        "source_searches": [
+            {
+                "channel": "issuer-primary",
+                "status": "found",
+                "summary": "Sprawdzono raport emitenta.",
+                "document_version_ids": [version_id],
+            },
+            *[
+                {
+                    "channel": channel,
+                    "status": "not_found",
+                    "summary": f"Kanał {channel} nie wniósł dodatkowego dokumentu w tej próbie.",
+                    "document_version_ids": [],
+                }
+                for channel in (
+                    "regulatory-primary",
+                    "biznesradar",
+                    "portalanaliz",
+                    "other-web",
+                )
+            ],
+        ],
+        "claims": [],
     }
     statements = {
         "/profile/archetype": payload["profile"]["archetype"],
@@ -140,6 +289,7 @@ def _payload(run_id, version_id, *, status="verified", lease_owner="test-worker"
         "/sections/performance/summary": payload["sections"]["performance"]["summary"],
         "/sections/performance/result_bridge/0": payload["sections"]["performance"]["result_bridge"][0],
         "/sections/evidence/summary": payload["sections"]["evidence"]["summary"],
+        "/sections/outlook/summary": payload["sections"]["outlook"]["summary"],
         "/sections/thesis/why_now": payload["sections"]["thesis"]["why_now"],
         "/sections/thesis/counter_thesis": payload["sections"]["thesis"]["counter_thesis"],
         "/sections/thesis/catalysts/0": payload["sections"]["thesis"]["catalysts"][0],
@@ -147,6 +297,11 @@ def _payload(run_id, version_id, *, status="verified", lease_owner="test-worker"
         "/sections/thesis/governance": payload["sections"]["thesis"]["governance"],
         "/sections/thesis/falsifiers/0": payload["sections"]["thesis"]["falsifiers"][0],
     }
+    for index, item in enumerate(payload["sections"]["outlook"]["driver_outlooks"]):
+        statements[f"/sections/outlook/driver_outlooks/{index}/next_quarter/assessment"] = item["next_quarter"]["assessment"]["text"]
+        statements[f"/sections/outlook/driver_outlooks/{index}/next_12_months/assessment"] = item["next_12_months"]["assessment"]["text"]
+    for index, item in enumerate(payload["sections"]["outlook"]["question_resolutions"]):
+        statements[f"/sections/outlook/question_resolutions/{index}/answer"] = item["answer"]["text"]
     payload["statement_provenance"] = [
         {
             "path": path,
@@ -161,23 +316,27 @@ def _payload(run_id, version_id, *, status="verified", lease_owner="test-worker"
     return payload
 
 
-def _verifier_result(status="verified", *, checks=None):
+def _verifier_result(status="verified"):
     verdict = {
         "verified": "pass",
         "provisional": "pass",
         "rejected": "fail",
         "needs-human": "needs-human",
     }[status]
+    findings = [] if verdict != "fail" else [{
+        "severity": "major",
+        "area": "claim-grounding",
+        "detail": "One material conclusion is not supported strongly enough by the retained evidence.",
+    }]
     return {
         "model_role": "verifier_strict",
         "verifier_model": "gpt-5.6-sol",
         "verdict": verdict,
-        "checks": checks or {
-            "schema_integrity": True,
-            "source_integrity": True,
-            "company_identity": True,
-            "look_ahead": True,
-            "math_integrity": True,
+        "findings": findings,
+        "justifications": {
+            "evidence_and_claim_fit": "Reviewed every displayed statement path against its retained document-version IDs and the frozen source manifest.",
+            "company_specificity": "Compared the profile drivers, KPIs, source questions, and gap mapping with the evidence stored for this company.",
+            "outlook_and_thesis_plausibility": "Examined both driver horizons, question resolutions, catalysts, falsifiers, and named gaps against the cited evidence.",
         },
         "summary": "Niezależna kontrola zakończona.",
     }
@@ -212,7 +371,7 @@ def test_verified_snapshot_is_immutable_terminal_and_read_only(client, db):
     saved = client.post(f"/api/research-cases/{case_id}/snapshots", json=payload)
     assert saved.status_code == 200, saved.text
     body = saved.json()
-    assert body["contract_version"] == "research-snapshot-v2"
+    assert body["contract_version"] == "research-snapshot-v3"
     assert body["status"] == "verified"
     assert len(body["artifact_fingerprint"]) == 64
     assert db.query(CompanyProfile).one().version == 1
@@ -270,17 +429,159 @@ def test_schema_and_verifier_gates_reject_invalid_payload(client, db):
     assert needs_human.status_code == 200
     assert needs_human.json()["checks"]["final_status"] == "needs-human"
     payload = _payload(run.id, version.id, status="provisional")
-    checks = _verifier_result("provisional")["checks"]
-    checks["source_integrity"] = False
+    verifier_with_self_attested_checks = _verifier_result("provisional")
+    verifier_with_self_attested_checks["checks"] = {"source_integrity": False}
     assert client.post(
         f"/api/research-cases/{case_id}/snapshot-verifications",
-        json={"verifier_worker_id": "judge", "draft": payload, "verifier_result": _verifier_result("provisional", checks=checks)},
+        json={"verifier_worker_id": "judge", "draft": payload, "verifier_result": verifier_with_self_attested_checks},
     ).status_code == 422
     payload["profile"]["archetype"] = "generic"
     assert client.post(
         f"/api/research-cases/{case_id}/snapshot-verifications",
         json={"verifier_worker_id": "judge", "draft": payload, "verifier_result": _verifier_result("provisional")},
     ).status_code == 422
+
+
+def test_v3_requires_full_source_search_question_resolution_and_driver_outlook(client, db):
+    case_id, run, company = _claimed_case(client, db)
+    version = _document(db, company)
+
+    missing_channel = _payload(run.id, version.id)
+    missing_channel["sections"]["outlook"]["source_searches"].pop()
+    assert client.post(
+        f"/api/research-cases/{case_id}/snapshot-verifications",
+        json={"verifier_worker_id": "source-judge", "draft": missing_channel, "verifier_result": _verifier_result()},
+    ).status_code == 422
+
+    missing_question = _payload(run.id, version.id)
+    missing_question["sections"]["outlook"]["question_resolutions"] = [
+        item
+        for item in missing_question["sections"]["outlook"]["question_resolutions"]
+        if item["scope"] != "profile"
+    ]
+    missing_question["statement_provenance"] = [
+        item
+        for item in missing_question["statement_provenance"]
+        if not item["path"].startswith("/sections/outlook/question_resolutions/")
+    ]
+    assert client.post(
+        f"/api/research-cases/{case_id}/snapshot-verifications",
+        json={"verifier_worker_id": "question-judge", "draft": missing_question, "verifier_result": _verifier_result()},
+    ).status_code == 422
+
+    missing_driver = _payload(run.id, version.id)
+    missing_driver["sections"]["outlook"]["driver_outlooks"].pop()
+    assert client.post(
+        f"/api/research-cases/{case_id}/snapshot-verifications",
+        json={"verifier_worker_id": "driver-judge", "draft": missing_driver, "verifier_result": _verifier_result()},
+    ).status_code == 422
+
+    unsupported_direction = _payload(run.id, version.id)
+    assessment = unsupported_direction["sections"]["outlook"]["driver_outlooks"][0]["next_quarter"]["assessment"]
+    assessment.update(
+        kind="assumption",
+        source_document_version_ids=[],
+        basis="Modelowa ekstrapolacja bez dowodu źródłowego.",
+    )
+    provenance = next(
+        item
+        for item in unsupported_direction["statement_provenance"]
+        if item["path"]
+        == "/sections/outlook/driver_outlooks/0/next_quarter/assessment"
+    )
+    provenance["claim"] = dict(assessment)
+    assert client.post(
+        f"/api/research-cases/{case_id}/snapshot-verifications",
+        json={"verifier_worker_id": "grounding-judge", "draft": unsupported_direction, "verifier_result": _verifier_result()},
+    ).status_code == 422
+
+    duplicate_manifest = _payload(run.id, version.id)
+    duplicate_manifest["source_manifest"].append(
+        dict(duplicate_manifest["source_manifest"][0])
+    )
+    assert client.post(
+        f"/api/research-cases/{case_id}/snapshot-verifications",
+        json={"verifier_worker_id": "manifest-judge", "draft": duplicate_manifest, "verifier_result": _verifier_result()},
+    ).status_code == 422
+
+    no_company_question = _payload(run.id, version.id)
+    no_company_question["profile"]["company_overlay"]["source_questions"] = []
+    no_company_question["sections"]["outlook"]["question_resolutions"] = [
+        item
+        for item in no_company_question["sections"]["outlook"]["question_resolutions"]
+        if item["scope"] != "profile"
+    ]
+    assert client.post(
+        f"/api/research-cases/{case_id}/snapshot-verifications",
+        json={"verifier_worker_id": "question-scope-judge", "draft": no_company_question, "verifier_result": _verifier_result()},
+    ).status_code == 422
+
+
+def test_v3_binds_driver_evidence_to_declared_stored_source_channels(client, db):
+    case_id, run, company = _claimed_case(client, db)
+    issuer_version = _document(db, company)
+    biznesradar_version = _document(
+        db,
+        company,
+        source_name="biznesradar",
+        source_type="analyst_forecast",
+        canonical_url="https://www.biznesradar.pl/prognozy/SNT",
+    )
+    draft = _payload(run.id, issuer_version.id)
+    draft["source_manifest"].append({
+        "document_version_id": biznesradar_version.id,
+        "role": "normalized",
+        "purpose": "Kontekst prognoz konsensusu.",
+    })
+    biznesradar_search = next(
+        item
+        for item in draft["sections"]["outlook"]["source_searches"]
+        if item["channel"] == "biznesradar"
+    )
+    biznesradar_search.update(
+        status="found", document_version_ids=[biznesradar_version.id]
+    )
+    assessment = draft["sections"]["outlook"]["driver_outlooks"][0]["next_quarter"]
+    assessment["source_channels"] = ["biznesradar"]
+
+    response = client.post(
+        f"/api/research-cases/{case_id}/snapshot-verifications",
+        json={"verifier_worker_id": "driver-source-judge", "draft": draft, "verifier_result": _verifier_result()},
+    )
+    assert response.status_code == 422
+    assert "declared searched channels" in response.json()["detail"]
+
+
+def test_v3_rejects_provider_documents_relabelled_as_primary(client, db):
+    for ticker, source_name, source_type, url in (
+        (
+            "SNT",
+            "PortalAnaliz",
+            "forum",
+            "https://portalanaliz.pl/forum/viewtopic.php?t=1",
+        ),
+        (
+            "DEC",
+            "biznesradar",
+            "financial_report",
+            "https://www.biznesradar.pl/raporty-finansowe-rachunek-zyskow-i-strat/DEC",
+        ),
+    ):
+        case_id, run, company = _claimed_case(client, db, ticker=ticker)
+        version = _document(
+            db,
+            company,
+            source_name=source_name,
+            source_type=source_type,
+            canonical_url=url,
+        )
+        draft = _payload(run.id, version.id)
+        response = client.post(
+            f"/api/research-cases/{case_id}/snapshot-verifications",
+            json={"verifier_worker_id": f"{ticker.lower()}-role-judge", "draft": draft, "verifier_result": _verifier_result()},
+        )
+        assert response.status_code == 422
+        assert "stored source identity" in response.json()["detail"]
 
 
 def test_provisional_snapshot_with_named_gaps_passes_and_profile_can_be_reused(client, db):
@@ -298,6 +599,7 @@ def test_provisional_snapshot_with_named_gaps_passes_and_profile_can_be_reused(c
     db.refresh(run)
     assert run.status == "provisional"
 
+    confirmed = _confirm_profile(client, case_id)
     queued = client.post(f"/api/research-cases/{case_id}/review-runs")
     assert queued.status_code == 201, queued.text
     review = db.get(AgentRun, queued.json()["agent_run_id"])
@@ -306,6 +608,7 @@ def test_provisional_snapshot_with_named_gaps_passes_and_profile_can_be_reused(c
         review.id, version.id, status="provisional", lease_owner="review-worker"
     )
     second_payload["version"] = 2
+    second_payload["profile"] = _profile_input(confirmed)
     second_payload["sections"]["history"]["prior_snapshot_id"] = first.json()["id"]
     second_payload["sections"]["history"]["changes_since_previous"] = ["Doprecyzowano źródła."]
     second_payload["statement_provenance"].append({
@@ -316,7 +619,7 @@ def test_provisional_snapshot_with_named_gaps_passes_and_profile_can_be_reused(c
     second = client.post(f"/api/research-cases/{case_id}/snapshots", json=second_payload)
     assert second.status_code == 200, second.text
     assert db.scalar(select(func.count()).select_from(ResearchSnapshot)) == 2
-    assert db.scalar(select(func.count()).select_from(CompanyProfile)) == 1
+    assert db.scalar(select(func.count()).select_from(CompanyProfile)) == 2
 
 def test_existing_case_queues_idempotent_review_and_saves_next_snapshot(client, db):
     from app.db.models import AgentRun, ResearchCaseStepHistory, utcnow
@@ -329,6 +632,10 @@ def test_existing_case_queues_idempotent_review_and_saves_next_snapshot(client, 
         f"/api/research-cases/{case_id}/snapshots", json=first_payload
     ).json()
 
+    unconfirmed = client.post(f"/api/research-cases/{case_id}/review-runs")
+    assert unconfirmed.status_code == 409
+    assert "Confirm or correct" in unconfirmed.json()["detail"]
+    confirmed = _confirm_profile(client, case_id)
     queued = client.post(f"/api/research-cases/{case_id}/review-runs")
     assert queued.status_code == 201, queued.text
     body = queued.json()
@@ -340,13 +647,14 @@ def test_existing_case_queues_idempotent_review_and_saves_next_snapshot(client, 
     assert review.model == "gpt-5.6-terra"
     assert review.inputs["task"] == {
         "skill": "company-research",
-        "skill_version": "company-research-v2",
-        "output_contract_version": "research-snapshot-v2",
+        "skill_version": "company-research-v3",
+        "output_contract_version": "research-snapshot-v3",
         "company_profile_schema_version": "company-profile-v2",
         "archetype_contract_version": "archetype-packs-v1",
         "objective": (
-            "Refresh one existing company case, compare new evidence with the "
-            "prior immutable snapshot and save the next verified snapshot."
+            "Refresh one existing company case, resolve its source questions, "
+            "compare forward drivers with the prior immutable snapshot and save "
+            "the next verified snapshot."
         ),
         "refresh_scope": "all",
         "required_verification": "verifier_strict",
@@ -364,9 +672,12 @@ def test_existing_case_queues_idempotent_review_and_saves_next_snapshot(client, 
     repeated = client.post(f"/api/research-cases/{case_id}/review-runs").json()
     assert repeated == {**body, "created": False}
     listed = client.get("/api/research-cases").json()[0]
-    assert listed["initial_research_run_id"] == initial_run.id
-    assert listed["latest_research_run_id"] == review.id
-    assert listed["latest_research_run_status"] == "queued"
+    assert listed["phase"] == "researched"
+    assert listed["phase_label"] == "Zbadana"
+    assert listed["phase_summary"] == first["sections"]["brief"]["current_understanding"]
+    assert listed["main_gap"] == first["sections"]["brief"]["main_gap"]
+    assert listed["collection_progress"] is None
+    assert listed["valuation_strip"] is None
     assert db.scalar(
         select(func.count()).select_from(ResearchCaseStepHistory).where(
             ResearchCaseStepHistory.research_case_id == case_id
@@ -378,6 +689,7 @@ def test_existing_case_queues_idempotent_review_and_saves_next_snapshot(client, 
     )
     second_payload = _payload(review.id, version.id, lease_owner="review-worker")
     second_payload["version"] = 2
+    second_payload["profile"] = _profile_input(confirmed)
     second_payload["as_of"] = utcnow().isoformat()
     second_payload["sections"]["history"] = {
         "changes_since_previous": ["Ponownie sprawdzono ten sam manifest źródłowy."],
@@ -422,6 +734,38 @@ def test_existing_case_queues_idempotent_review_and_saves_next_snapshot(client, 
     assert completed_repeat["created"] is False
     assert completed_repeat["agent_run_id"] == review.id
     assert completed_repeat["prior_snapshot_id"] == first["id"]
+
+
+def test_review_queue_requires_a_confirmed_company_specific_question(client, db):
+    case_id, initial_run, company = _claimed_case(client, db)
+    version = _document(db, company)
+    first_payload = _approve(client, case_id, _payload(initial_run.id, version.id))
+    saved = client.post(
+        f"/api/research-cases/{case_id}/snapshots", json=first_payload
+    )
+    assert saved.status_code == 200, saved.text
+    profile = client.get(
+        "/api/research-cases/by-ticker/SNT"
+    ).json()["current_profile"]
+    overlay = deepcopy(profile["company_overlay"])
+    overlay["source_questions"] = []
+    corrected = client.post(
+        f"/api/research-cases/{case_id}/profiles",
+        json={
+            "base_profile_id": profile["id"],
+            "reason": "Sprawdzam blokadę profilu bez pytania właściwego dla spółki.",
+            "archetype": profile["archetype"],
+            "company_overlay": overlay,
+            "drivers": profile["drivers"],
+            "kpis": profile["kpis"],
+        },
+    )
+    assert corrected.status_code == 200, corrected.text
+    assert corrected.json()["provenance"] == "human-corrected"
+
+    queued = client.post(f"/api/research-cases/{case_id}/review-runs")
+    assert queued.status_code == 409
+    assert "at least one company-specific source question" in queued.json()["detail"]
 
 
 def test_human_profile_successor_is_immutable_and_frozen_into_same_source_review(client, db):
@@ -988,39 +1332,6 @@ def test_basis_only_profile_marker_is_an_assumption_not_sourced_coverage(client,
     assert pack["sourced_count"] == 6
     assert pack["assumption_count"] == 1
     assert pack["coverage_count"] == 7
-
-
-def test_frozen_v1_job_keeps_legacy_write_contract_while_new_jobs_use_v2(client, db):
-    case_id, run, company = _claimed_case(client, db)
-    version = _document(db, company)
-    legacy_inputs = deepcopy(run.inputs)
-    legacy_inputs["task"]["skill_version"] = "company-research-v1"
-    legacy_inputs["task"]["output_contract_version"] = "research-snapshot-v1"
-    legacy_inputs["task"].pop("company_profile_schema_version")
-    legacy_inputs["task"].pop("archetype_contract_version")
-    run.inputs = legacy_inputs
-    db.commit()
-
-    v2_draft = _payload(run.id, version.id)
-    assert client.post(
-        f"/api/research-cases/{case_id}/snapshot-verifications",
-        json={"verifier_worker_id": "judge-v2", "draft": v2_draft, "verifier_result": _verifier_result()},
-    ).status_code == 409
-
-    legacy = _payload(run.id, version.id)
-    legacy["contract_version"] = "research-snapshot-v1"
-    legacy["profile"]["schema_version"] = "company-profile-v1"
-    for item in [*legacy["profile"]["drivers"], *legacy["profile"]["kpis"]]:
-        item.pop("focus_tags", None)
-    for gap in legacy["gaps"]:
-        gap.pop("focus_tags", None)
-    saved = client.post(
-        f"/api/research-cases/{case_id}/snapshots",
-        json=_approve(client, case_id, legacy, verifier_worker_id="legacy-judge"),
-    )
-    assert saved.status_code == 200, saved.text
-    assert saved.json()["contract_version"] == "research-snapshot-v1"
-    assert saved.json()["status"] == "verified"
 
 
 def test_existing_abs_profile_alias_is_read_without_mutation(client, db):

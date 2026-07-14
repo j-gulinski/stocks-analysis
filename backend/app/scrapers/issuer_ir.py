@@ -25,8 +25,8 @@ from app.services.evidence import (
     record_text_fact,
 )
 
-PARSER_VERSION = "issuer-ir-index@10"
-EXTRACTOR_VERSION = "issuer-ir-links@10"
+PARSER_VERSION = "issuer-ir-index@13"
+EXTRACTOR_VERSION = "issuer-ir-links@13"
 AUTHORIZED_LINK_EXTRACTOR_VERSIONS = frozenset(
     {
         "issuer-ir-links@4",
@@ -35,6 +35,10 @@ AUTHORIZED_LINK_EXTRACTOR_VERSIONS = frozenset(
         "issuer-ir-links@7",
         "issuer-ir-links@8",
         "issuer-ir-links@9",
+        "issuer-ir-links@10",
+        "issuer-ir-links@11",
+        # @12 briefly treated periodic accordion groups as current reports.
+        # Those audit facts remain immutable but cannot authorize a detail fetch.
         EXTRACTOR_VERSION,
     }
 )
@@ -58,6 +62,28 @@ ISSUER_IR_SOURCES = {
     "BFT": "https://corp.benefitsystems.pl/en/for-investors/article/consolidated-quarterly-report-for-1q-2026/",
     "CRI": "https://creotech.pl/pl/relacje-inwestorskie/raporty/okresowe/",
 }
+
+
+@dataclass(frozen=True)
+class IssuerIrIndexSource:
+    scope_key: str
+    url: str
+
+
+ISSUER_IR_INDEX_SOURCES = {
+    ticker: (IssuerIrIndexSource(scope_key="reports-index", url=url),)
+    for ticker, url in ISSUER_IR_SOURCES.items()
+}
+ISSUER_IR_INDEX_SOURCES["ABS"] = (
+    IssuerIrIndexSource(
+        scope_key="reports-index",
+        url=ISSUER_IR_SOURCES["ABS"],
+    ),
+    IssuerIrIndexSource(
+        scope_key="periodic-reports-index",
+        url="https://assecobs.pl/inwestor/raporty-okresowe/",
+    ),
+)
 
 REPORT_TERMS = re.compile(
     r"raport|sprawozd|wynik|prezentac|presentat|walne|akcjon|dywidend|governance|ład korpor"
@@ -98,6 +124,10 @@ def parse_issuer_ir_index(html: str, *, base_url: str) -> ParsedIssuerIrIndex:
     if not page_title:
         heading = root.find(["h1", "h2"])
         page_title = _clean_text(heading.get_text(" ", strip=True) if heading else "Relacje inwestorskie")
+
+    inline_reports = _parse_inline_current_reports(soup, base_url=base_url)
+    if inline_reports:
+        return ParsedIssuerIrIndex(title=page_title[:500], links=inline_reports)
 
     links: list[IssuerIrLink] = []
     seen: set[str] = set()
@@ -152,6 +182,46 @@ def parse_issuer_ir_index(html: str, *, base_url: str) -> ParsedIssuerIrIndex:
     return ParsedIssuerIrIndex(title=page_title[:500], links=links)
 
 
+def _parse_inline_current_reports(
+    soup: BeautifulSoup,
+    *,
+    base_url: str,
+) -> list[IssuerIrLink]:
+    """Retain accordion-style regulatory reports that have no detail URL."""
+    links: list[IssuerIrLink] = []
+    page_url = base_url.split("#", 1)[0]
+    for position, item in enumerate(soup.select(".ir-item.ir-item--accordion")):
+        entry_id = str(item.get("id") or "").strip()
+        if not entry_id:
+            continue
+        info = [
+            _clean_text(span.get_text(" ", strip=True))
+            for span in item.select(".ir-item__info span")
+        ]
+        if not re.search(r"\braport\s+\d+/\d{4}\b", " ".join(info), re.IGNORECASE):
+            continue
+        heading = item.select_one(".ir-item__title")
+        title = _clean_text(heading.get_text(" ", strip=True) if heading else "")
+        content = item.select_one(".ir-item__content")
+        summary = _clean_text(content.get_text(" ", strip=True) if content else "")
+        label = " · ".join(value for value in (*info, title) if value)
+        if summary:
+            label = f"{label} — {summary}" if label else summary
+        if not label:
+            continue
+        links.append(
+            IssuerIrLink(
+                title=label[:500],
+                url=f"{page_url}#{entry_id}",
+                kind="current_report",
+                locator={"tag": "div", "id": entry_id, "position": position},
+            )
+        )
+        if len(links) >= MAX_LINKS_PER_INDEX:
+            break
+    return links
+
+
 def ingest_issuer_ir_index(
     db: Session,
     ticker: str,
@@ -159,9 +229,53 @@ def ingest_issuer_ir_index(
     force: bool = False,
 ) -> dict:
     ticker = ticker.upper()
-    source_url = ISSUER_IR_SOURCES.get(ticker)
-    if source_url is None:
+    sources = ISSUER_IR_INDEX_SOURCES.get(ticker)
+    if sources is None:
         raise ValueError(f"Ticker {ticker} is not in the bounded RT2.3 issuer-IR pilot.")
+    return _ingest_issuer_ir_index(db, ticker, sources[0], force=force)
+
+
+def ingest_issuer_ir_indexes(
+    db: Session,
+    ticker: str,
+    *,
+    force: bool = False,
+) -> dict:
+    """Fetch every bounded official index configured for one issuer."""
+    ticker = ticker.upper()
+    sources = ISSUER_IR_INDEX_SOURCES.get(ticker)
+    if sources is None:
+        raise ValueError(f"Ticker {ticker} is not in the bounded RT2.3 issuer-IR pilot.")
+    results = [
+        _ingest_issuer_ir_index(db, ticker, source, force=force)
+        for source in sources
+    ]
+    ok = all(result["ok"] for result in results)
+    statuses = {result["status"] for result in results}
+    return {
+        "ok": ok,
+        "ticker": ticker,
+        "status": (
+            "cached"
+            if ok and statuses == {"cached"}
+            else "fetched"
+            if ok
+            else "partial"
+        ),
+        "source_count": len(results),
+        "claim_count": sum(result.get("claim_count", 0) for result in results),
+        "results": results,
+    }
+
+
+def _ingest_issuer_ir_index(
+    db: Session,
+    ticker: str,
+    source: IssuerIrIndexSource,
+    *,
+    force: bool,
+) -> dict:
+    source_url = source.url
     company = db.scalar(select(Company).where(Company.ticker == ticker))
     if company is None:
         raise ValueError(f"Unknown company {ticker}.")
@@ -171,7 +285,7 @@ def ingest_issuer_ir_index(
             select(SourceDocument).where(
                 SourceDocument.company_ticker == ticker,
                 SourceDocument.source_type == "issuer_ir",
-                SourceDocument.scope_key == "reports-index",
+                SourceDocument.scope_key == source.scope_key,
             )
         )
         claim_count = 0
@@ -179,9 +293,11 @@ def ingest_issuer_ir_index(
             claim_count = db.scalar(
                 select(func.count())
                 .select_from(Fact)
+                .join(DocumentVersion, DocumentVersion.id == Fact.source_version_id)
                 .where(
                     Fact.company_id == company.id,
                     Fact.fact_type == "issuer_ir_link",
+                    DocumentVersion.source_document_id == document.id,
                 )
             ) or 0
         return {
@@ -189,6 +305,7 @@ def ingest_issuer_ir_index(
             "ticker": ticker,
             "status": "cached",
             "source_url": source_url,
+            "scope_key": source.scope_key,
             "document_id": document.id if document else None,
             "claim_count": claim_count,
         }
@@ -206,6 +323,7 @@ def ingest_issuer_ir_index(
             "status": "temporarily_unavailable",
             "retry_later": True,
             "source_url": source_url,
+            "scope_key": source.scope_key,
             "error": str(exc),
             "claim_count": 0,
         }
@@ -219,7 +337,7 @@ def ingest_issuer_ir_index(
         company,
         source_name=f"{company.name or ticker} issuer IR",
         source_type="issuer_ir",
-        scope_key="reports-index",
+        scope_key=source.scope_key,
         requested_url=source_url,
         effective_url=str(response.url or source_url),
         content=content,
@@ -239,6 +357,7 @@ def ingest_issuer_ir_index(
             "ticker": ticker,
             "status": "parse_failed",
             "source_url": source_url,
+            "scope_key": source.scope_key,
             "document_version_id": recorded.version.id,
             "claim_count": 0,
         }
@@ -264,6 +383,7 @@ def ingest_issuer_ir_index(
         "ticker": ticker,
         "status": "fetched",
         "source_url": source_url,
+        "scope_key": source.scope_key,
         "document_id": recorded.document.id,
         "document_version_id": recorded.version.id,
         "version_created": recorded.version_created,
@@ -489,7 +609,7 @@ def _issuer_link_fact(db: Session, company: Company, report_url: str) -> Fact | 
             Fact.extractor_version.in_(AUTHORIZED_LINK_EXTRACTOR_VERSIONS),
             DocumentVersion.parse_status == "parsed",
             SourceDocument.source_type == "issuer_ir",
-            SourceDocument.scope_key == "reports-index",
+            SourceDocument.scope_key.in_(_issuer_index_scope_keys(company.ticker)),
             SourceDocument.company_id == company.id,
             SourceDocument.company_ticker == company.ticker,
         )
@@ -505,22 +625,29 @@ def _issuer_link_fact(db: Session, company: Company, report_url: str) -> Fact | 
 
 
 def _is_allowed_issuer_url(ticker: str, url: str) -> bool:
-    source_url = ISSUER_IR_SOURCES.get(ticker)
-    if source_url is None:
+    sources = ISSUER_IR_INDEX_SOURCES.get(ticker)
+    if sources is None:
         return False
     parsed = urlparse(url)
-    source = urlparse(source_url)
     try:
         port = parsed.port
     except ValueError:
         return False
+    allowed_hosts = {
+        (urlparse(source.url).hostname or "").removeprefix("www.")
+        for source in sources
+    }
     return (
         parsed.scheme == "https"
         and parsed.hostname is not None
         and port in {None, 443}
-        and parsed.hostname.removeprefix("www.")
-        == (source.hostname or "").removeprefix("www.")
+        and parsed.hostname.removeprefix("www.") in allowed_hosts
     )
+
+
+def _issuer_index_scope_keys(ticker: str) -> tuple[str, ...]:
+    sources = ISSUER_IR_INDEX_SOURCES.get(ticker, ())
+    return tuple(dict.fromkeys(("reports-index", *(source.scope_key for source in sources))))
 
 
 def _host_resolves_public(url: str) -> bool:

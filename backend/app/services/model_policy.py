@@ -34,99 +34,21 @@ _POLICIES: dict[str, dict[str, Any]] = {
             "history delta and explicit gaps"
         ),
     },
-    "stock-research-method-perspective": {
-        "draft_role": "worker_standard",
-        "draft_model": "gpt-5.6-terra",
+    "stock-company-valuation": {
+        "draft_role": "analyst_deep",
+        "draft_model": "gpt-5.6-sol",
         "draft_reasoning_effort": "high",
         "required_verifier_role": "verifier_strict",
         "verifier_model": "gpt-5.6-sol",
         "verifier_reasoning_effort": "high",
         "reasoning": (
-            "Terra high for one bounded source-frozen method classification; "
-            "Sol high independently checks attribution and non-impersonation"
+            "Sol high: the drafter owns company-specific scenario mechanisms, "
+            "assumptions and probabilities (VISION V4) — deep analysis by routing"
         ),
         "verification_scope": (
-            "parent snapshot and manifest binding, source ids, required-check coverage, "
-            "unknown handling, applicability, no author impersonation and no hidden blend"
-        ),
-    },
-    "stock-pre-session-brief": {
-        "draft_role": "worker_standard",
-        "draft_model": "gpt-5.6-terra",
-        "draft_reasoning_effort": "high",
-        "required_verifier_role": "verifier_strict",
-        "reasoning": "high for material event interpretation; mechanical classification first",
-        "verification_scope": "material UI-visible claims and source chronology",
-    },
-    "stock-quick-analysis": {
-        "draft_role": "worker_standard",
-        "draft_model": "gpt-5.6-terra",
-        "draft_reasoning_effort": "high",
-        "required_verifier_role": "verifier_strict",
-        "reasoning": "high",
-        "verification_scope": "prediction, potential, result quality and source grounding",
-    },
-    "stock-deep-analysis": {
-        "draft_role": "analyst_deep",
-        "draft_model": "gpt-5.6-sol",
-        "draft_reasoning_effort": "high",
-        "required_verifier_role": "verifier_strict",
-        "reasoning": "high",
-        "verification_scope": "cross-source thesis, scenarios, valuation and look-ahead",
-    },
-    "stock-thesis-review": {
-        "draft_role": "analyst_deep",
-        "draft_model": "gpt-5.6-sol",
-        "draft_reasoning_effort": "high",
-        "required_verifier_role": "verifier_strict",
-        "reasoning": "high for thesis delta and point-in-time comparison",
-        "verification_scope": "new primary evidence, prior thesis/journal comparison and scenario updates",
-    },
-    "stock-candidate-scout": {
-        "draft_role": "worker_standard",
-        "draft_model": "gpt-5.6-terra",
-        "draft_reasoning_effort": "high",
-        "required_verifier_role": "verifier_strict",
-        "reasoning": "high for bounded synthesis; deterministic ranking first",
-        "verification_scope": "stored-source grounding and candidate readiness",
-    },
-    "stock-backtest-review": {
-        "draft_role": "analyst_deep",
-        "draft_model": "gpt-5.6-sol",
-        "draft_reasoning_effort": "high",
-        "required_verifier_role": "verifier_strict",
-        "reasoning": "high",
-        "verification_scope": "point-in-time inputs, outcome windows and calibration limits",
-    },
-    "stock-verifier": {
-        "draft_role": "verifier_strict",
-        "draft_model": "gpt-5.6-sol",
-        "draft_reasoning_effort": "high",
-        "required_verifier_role": "verifier_strict",
-        "reasoning": "high",
-        "verification_scope": "independent source, schema, math and look-ahead audit",
-    },
-    "scenario-simulation": {
-        "draft_role": "analyst_deep",
-        "draft_model": "gpt-5.6-sol",
-        "draft_reasoning_effort": "high",
-        "required_verifier_role": "verifier_strict",
-        "verifier_model": "gpt-5.6-sol",
-        "verifier_reasoning_effort": "high",
-        "reasoning": "high",
-        "verification_scope": "deterministic simulation, bridge fingerprint and priced gate",
-    },
-    "stock-company-valuation": {
-        "draft_role": "worker_standard",
-        "draft_model": "gpt-5.6-terra",
-        "draft_reasoning_effort": "high",
-        "required_verifier_role": "verifier_strict",
-        "verifier_model": "gpt-5.6-sol",
-        "verifier_reasoning_effort": "high",
-        "reasoning": "Terra high for ordinary method-specific synthesis; escalate explicitly only on evidence",
-        "verification_scope": (
-            "research/source binding, deterministic quarter/year math, method integrity, "
-            "look-ahead and final probability coherence"
+            "adversarial review of evidence fit, mechanism plausibility and "
+            "probability reasonableness; structural gates are computed by the "
+            "backend and are not the verifier's to attest (VISION V5)"
         ),
     },
     "stock-portfolio-review": {
@@ -143,6 +65,8 @@ _POLICIES: dict[str, dict[str, Any]] = {
         ),
     },
 }
+
+CANONICAL_WORKFLOWS = frozenset(_POLICIES)
 
 
 def get_model_policy(workflow: str) -> dict[str, Any]:
@@ -175,8 +99,8 @@ def get_model_policy(workflow: str) -> dict[str, Any]:
 
 
 def default_model_for_workflow(workflow: str) -> str:
-    """Return an executable 5.6 model slug; user choice still overrides it."""
+    """Return the configured draft model for one canonical workflow."""
     policy = _POLICIES.get(workflow)
     if policy is None:
-        return "gpt-5.6-terra"
+        raise ValueError(f"Unsupported Codex workflow '{workflow}'.")
     return str(policy["draft_model"])

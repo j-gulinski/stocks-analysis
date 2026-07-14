@@ -31,11 +31,13 @@ def main() -> int:
             from datetime import datetime, timezone
             from sqlalchemy import select
             from app.db.models import AgentRun
+            from app.services.model_policy import CANONICAL_WORKFLOWS
 
             rows = list(
                 db.scalars(
                     select(AgentRun)
                     .where(
+                        AgentRun.workflow.in_(CANONICAL_WORKFLOWS),
                         AgentRun.status == "running",
                         AgentRun.lease_expires_at.is_not(None),
                         AgentRun.lease_expires_at < datetime.now(timezone.utc),

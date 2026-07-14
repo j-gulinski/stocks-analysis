@@ -1,6 +1,13 @@
-"""Canonical P3 valuation preview, queue, verification and history API."""
+"""Valuation API: preview, queue (Codex-drafted), gates, verify, save, override.
+
+VISION V4: queueing freezes only the deterministic base — the Codex drafter
+owns company-specific assumptions and probabilities. The user can preview any
+grid deterministically and save an explicit human override version.
+"""
 
 from __future__ import annotations
+
+from datetime import timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -9,10 +16,12 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import (
     ValuationHistoryOut,
-    ValuationMethodPackOut,
+    ValuationOverrideIn,
     ValuationPreviewOut,
+    ValuationQueueIn,
     ValuationQueueOut,
     ValuationRequestIn,
+    ValuationSnapshotDraftIn,
     ValuationSnapshotOut,
     ValuationSnapshotSaveIn,
     ValuationSnapshotVerificationIn,
@@ -25,11 +34,16 @@ from app.db.models import (
     ResearchCase,
     ResearchSnapshot,
     ValuationSnapshot,
+    utcnow,
 )
 from app.services.model_policy import default_model_for_workflow
 from app.services.valuation_artifacts import (
+    CONTRACT_VERSION,
+    SKILL_VERSION,
     ValuationArtifactError,
+    save_valuation_override,
     save_valuation_snapshot,
+    structural_gate_report,
     verify_valuation_snapshot,
 )
 from app.services.valuation_engine import (
@@ -37,8 +51,8 @@ from app.services.valuation_engine import (
     TEMPLATE_CONTRACT_VERSION,
     ValuationInputError,
     prepare_valuation,
+    prepare_valuation_base,
 )
-from app.services.valuation_method_packs import list_method_packs
 from app.services.valuation_templates import get_template
 
 router = APIRouter(tags=["valuations"])
@@ -65,6 +79,7 @@ def _raise_input(exc: ValuationInputError | ValuationArtifactError) -> None:
     code = {
         "not-found": status.HTTP_404_NOT_FOUND,
         "conflict": status.HTTP_409_CONFLICT,
+        "gates": status.HTTP_422_UNPROCESSABLE_CONTENT,
     }.get(exc.kind, status.HTTP_422_UNPROCESSABLE_CONTENT)
     raise HTTPException(status_code=code, detail=str(exc)) from exc
 
@@ -76,20 +91,6 @@ def _latest_research(db: Session, case_id: int) -> ResearchSnapshot | None:
         .order_by(ResearchSnapshot.version.desc(), ResearchSnapshot.id.desc())
         .limit(1)
     )
-
-
-def _latest_valuation(db: Session, case_id: int) -> ValuationSnapshot | None:
-    return db.scalar(
-        select(ValuationSnapshot)
-        .where(ValuationSnapshot.research_case_id == case_id)
-        .order_by(ValuationSnapshot.version.desc(), ValuationSnapshot.id.desc())
-        .limit(1)
-    )
-
-
-@router.get("/valuation-method-packs", response_model=list[ValuationMethodPackOut])
-def method_packs() -> list[dict]:
-    return list_method_packs()
 
 
 @router.get(
@@ -111,7 +112,6 @@ def valuation_workspace(case_id: int, db: Session = Depends(get_db)) -> dict:
     return {
         "research_case_id": case.id,
         "latest_research_snapshot_id": research.id if research else None,
-        "method_packs": list_method_packs(),
         "template": template.to_dict() if template else None,
         "latest_valuation": rows[0] if rows else None,
         "history": [
@@ -119,8 +119,8 @@ def valuation_workspace(case_id: int, db: Session = Depends(get_db)) -> dict:
                 "id": row.id,
                 "version": row.version,
                 "status": row.status,
+                "origin": row.origin,
                 "as_of": row.as_of,
-                "method_pack_id": row.method_pack_id,
                 "template_id": row.template_id,
                 "created_at": row.created_at,
             }
@@ -143,7 +143,7 @@ def valuation_history(case_id: int, db: Session = Depends(get_db)) -> list[dict]
     return [
         {
             "id": row.id, "version": row.version, "status": row.status,
-            "as_of": row.as_of, "method_pack_id": row.method_pack_id,
+            "origin": row.origin, "as_of": row.as_of,
             "template_id": row.template_id, "created_at": row.created_at,
         }
         for row in rows
@@ -169,25 +169,6 @@ def get_valuation(
     return row
 
 
-def _preview(db: Session, case: ResearchCase, payload: ValuationRequestIn) -> dict:
-    try:
-        prepared = prepare_valuation(db, case=case, request=payload)
-    except ValuationInputError as exc:
-        _raise_input(exc)
-    return {
-        "research_snapshot_id": payload.research_snapshot_id,
-        "method_pack": prepared["method"].to_dict(),
-        "template": prepared["template"].to_dict(),
-        "base_values": prepared["base_values"],
-        "deterministic_outputs": prepared["deterministic_outputs"],
-        "input_manifest": prepared["input_manifest"],
-        "gaps": prepared["gaps"],
-        "input_fingerprint": prepared["input_fingerprint"],
-        "calculation_fingerprint": prepared["calculation_fingerprint"],
-        "_profile_archetype": prepared["template"].archetype,
-    }
-
-
 @router.post(
     "/research-cases/{case_id}/valuation-preview",
     response_model=ValuationPreviewOut,
@@ -195,7 +176,22 @@ def _preview(db: Session, case: ResearchCase, payload: ValuationRequestIn) -> di
 def preview_valuation(
     case_id: int, payload: ValuationRequestIn, db: Session = Depends(get_db)
 ) -> dict:
-    return _preview(db, _case(db, case_id), payload)
+    """Deterministic zero-write compute for an explicit assumption grid."""
+    case = _case(db, case_id)
+    try:
+        prepared = prepare_valuation(db, case=case, request=payload)
+    except ValuationInputError as exc:
+        _raise_input(exc)
+    return {
+        "research_snapshot_id": payload.research_snapshot_id,
+        "template": prepared["template"].to_dict(),
+        "base_values": prepared["base_values"],
+        "deterministic_outputs": prepared["deterministic_outputs"],
+        "input_manifest": prepared["input_manifest"],
+        "gaps": prepared["gaps"],
+        "input_fingerprint": prepared["input_fingerprint"],
+        "calculation_fingerprint": prepared["calculation_fingerprint"],
+    }
 
 
 @router.post(
@@ -204,18 +200,37 @@ def preview_valuation(
     status_code=status.HTTP_201_CREATED,
 )
 def queue_valuation(
-    case_id: int, payload: ValuationRequestIn, db: Session = Depends(get_db)
+    case_id: int,
+    payload: ValuationQueueIn | None = None,
+    db: Session = Depends(get_db),
 ) -> ValuationQueueOut:
+    """Freeze the deterministic base and queue a Codex-drafted valuation."""
     case = _case_for_update(db, case_id)
-    preview = _preview(db, case, payload)
-    key = f"valuation:{case.id}:{preview['input_fingerprint']}"
+    payload = payload or ValuationQueueIn()
+    research_snapshot_id = payload.research_snapshot_id
+    if research_snapshot_id is None:
+        research = _latest_research(db, case.id)
+        if research is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="No research snapshot exists; valuation starts from research.",
+            )
+        research_snapshot_id = research.id
+    as_of = payload.as_of or utcnow().replace(tzinfo=timezone.utc)
+    try:
+        base = prepare_valuation_base(
+            db, case=case, research_snapshot_id=research_snapshot_id, as_of=as_of
+        )
+    except ValuationInputError as exc:
+        _raise_input(exc)
+    key = f"valuation:{case.id}:{base['input_fingerprint']}"
     existing = db.scalar(select(AgentRun).where(AgentRun.idempotency_key == key))
     if existing is not None:
         return ValuationQueueOut(
             agent_run_id=existing.id,
             status=existing.status,
             created=False,
-            input_fingerprint=preview["input_fingerprint"],
+            input_fingerprint=base["input_fingerprint"],
         )
     active_peer = db.scalar(
         select(AgentRun).where(
@@ -233,20 +248,15 @@ def queue_valuation(
             ),
         )
     frozen = {
-        "research_snapshot_id": payload.research_snapshot_id,
-        "as_of": payload.as_of.isoformat(),
-        "method_pack_id": preview["method_pack"]["id"],
-        "method_pack_version": preview["method_pack"]["version"],
-        "template_id": preview["template"]["id"],
-        "template_version": preview["template"]["version"],
-        "profile_archetype": preview["_profile_archetype"],
-        "assumptions": payload.model_dump(mode="json")["assumptions"],
-        "base_values": preview["base_values"],
-        "deterministic_outputs": preview["deterministic_outputs"],
-        "input_manifest": preview["input_manifest"],
-        "gaps": preview["gaps"],
-        "input_fingerprint": preview["input_fingerprint"],
-        "calculation_fingerprint": preview["calculation_fingerprint"],
+        "research_snapshot_id": research_snapshot_id,
+        "as_of": as_of.isoformat(),
+        "template_id": base["template"].id,
+        "template_version": base["template"].version,
+        "profile_archetype": base["template"].archetype,
+        "base_values": base["base_values"],
+        "input_manifest": base["input_manifest"],
+        "gaps": base["gaps"],
+        "input_fingerprint": base["input_fingerprint"],
     }
     model = default_model_for_workflow(WORKFLOW)
     agent = AgentRun(
@@ -254,7 +264,7 @@ def queue_valuation(
         trigger="valuation-command",
         status="queued",
         company_id=case.company_id,
-        model_role="worker_standard",
+        model_role="analyst_deep",
         model=model,
         orchestrator_model=model,
         idempotency_key=key,
@@ -263,8 +273,8 @@ def queue_valuation(
             "ticker": frozen["base_values"]["company"]["ticker"],
             "task": {
                 "skill": "company-valuation",
-                "skill_version": "company-valuation-v1",
-                "output_contract_version": "valuation-snapshot-v1",
+                "skill_version": SKILL_VERSION,
+                "output_contract_version": CONTRACT_VERSION,
                 "engine_version": ENGINE_VERSION,
                 "template_contract_version": TEMPLATE_CONTRACT_VERSION,
                 "required_verification": "verifier_strict",
@@ -289,8 +299,19 @@ def queue_valuation(
         agent_run_id=agent.id,
         status=agent.status,
         created=created,
-        input_fingerprint=preview["input_fingerprint"],
+        input_fingerprint=base["input_fingerprint"],
     )
+
+
+@router.post("/research-cases/{case_id}/valuation-gates")
+def valuation_gates(
+    case_id: int, payload: ValuationSnapshotDraftIn, db: Session = Depends(get_db)
+) -> dict:
+    """Zero-write structural-gate dry run for the drafting worker."""
+    try:
+        return structural_gate_report(db, case_id=case_id, draft=payload)
+    except ValuationArtifactError as exc:
+        _raise_input(exc)
 
 
 @router.post("/research-cases/{case_id}/valuation-verifications")
@@ -321,5 +342,20 @@ def save_valuation(
 ) -> ValuationSnapshot:
     try:
         return save_valuation_snapshot(db, case_id=case_id, payload=payload)
+    except ValuationArtifactError as exc:
+        _raise_input(exc)
+
+
+@router.post(
+    "/research-cases/{case_id}/valuation-override",
+    response_model=ValuationSnapshotOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def override_valuation(
+    case_id: int, payload: ValuationOverrideIn, db: Session = Depends(get_db)
+) -> ValuationSnapshot:
+    """Explicit user correction saved as a provisional `human-override` version."""
+    try:
+        return save_valuation_override(db, case_id=case_id, payload=payload)
     except ValuationArtifactError as exc:
         _raise_input(exc)

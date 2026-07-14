@@ -966,46 +966,6 @@ def test_revisit_fills_missing_raw_text_without_resetting_reviewed_materiality(
     assert report.materiality == {"level": "material", "reviewed_by": "analyst"}
 
 
-def test_prepare_pre_session_brief_polls_and_queues_codex_task(db, monkeypatch):
-    from app.db.models import AgentRun, Company, EventReport, WatchlistItem
-    from app.mcp import stock_tools
-    from app.scrapers import espi
-
-    kruk = Company(ticker="KRU", name="KRUK")
-    db.add(kruk)
-    db.commit()
-    db.add(WatchlistItem(company_id=kruk.id))
-    db.commit()
-
-    summaries = espi.parse_report_list(load_fixture("gpw_espi_list.html"))
-    detail = espi.parse_report_detail(load_fixture("gpw_espi_detail.html"))
-    monkeypatch.setattr(
-        espi,
-        "fetch_report_list_page",
-        lambda **_kwargs: espi.GpwReportListPage(
-            reports=summaries,
-            next_offset=None,
-            next_limit=None,
-        ),
-    )
-    monkeypatch.setattr(espi, "fetch_report_detail", lambda _url: detail)
-
-    result = stock_tools.prepare_pre_session_brief(
-        {"trigger": "scheduled", "orchestrator_model": "gpt-5.5"}
-    )
-
-    assert result["ok"] is True
-    assert result["espi_poll"]["new"] == 1
-    assert result["agent_run"]["workflow"] == "stock-pre-session-brief"
-    assert result["agent_run"]["status"] == "queued"
-    assert result["agent_run"]["trigger"] == "scheduled"
-    assert result["agent_run"]["orchestrator_model"] == "gpt-5.5"
-    assert db.query(EventReport).count() == 1
-    agent = db.get(AgentRun, result["agent_run"]["id"])
-    assert agent.inputs["task"]["skill"] == "stock-pre-session-brief"
-    assert agent.inputs["espi_poll"]["source"] == "gpw-espi-ebi"
-
-
 def test_get_recent_source_deltas_reads_stored_events(db):
     from datetime import datetime, timezone
 

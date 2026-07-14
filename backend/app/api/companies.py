@@ -1,47 +1,27 @@
-"""Company data endpoints: refresh (scrape), read views, dossier and forecasts."""
+"""Company source-data reads and explicit refresh commands."""
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_user_email
 from app.api.schemas import (
     CompanyOut,
-    AssumptionSetCreateIn,
-    AssumptionSetOut,
-    AssumptionSetUpdateIn,
     DividendOut,
-    DossierOut,
     FinancialsOut,
-    ForecastAssumptionsIn,
-    ForecastCreateIn,
-    ForecastOut,
     IndicatorPointOut,
     PriceOut,
     RefreshSummaryOut,
     ReportRowOut,
-    ResearchCaseCreateIn,
-    ResearchCaseOut,
-    ResearchCaseStepHistoryOut,
-    ResearchCaseUpdateIn,
 )
 from app.db.base import get_db
 from app.db.models import (
     Company,
     Dividend,
-    Forecast,
-    AssumptionSet,
     IndicatorValue,
     Price,
     ReportValue,
-    ResearchCase,
-    ResearchCaseStepHistory,
-    utcnow,
 )
-from app.services import dossier as dossier_service
-from app.services import forecast as forecast_service
 from app.services import refresh as refresh_service
 
 router = APIRouter(prefix="/companies", tags=["companies"])
@@ -65,10 +45,10 @@ def refresh_company(
     force: bool = False,
     db: Session = Depends(get_db),
 ) -> RefreshSummaryOut:
-    """Scrape BiznesRadar and bounded linked PortalAnaliz threads for this ticker.
+    """Refresh the supported BiznesRadar company and price sources for a ticker.
 
     Runs synchronously: a full refresh takes ~15–30 s because of the polite
-    per-request delays. That is a feature, not a bug.
+    per-request delays. Forum collection is not part of this command.
     """
     try:
         summary = refresh_service.refresh_company(db, ticker, scope=scope, force=force)
@@ -163,360 +143,3 @@ def get_prices(
 @router.get("/{ticker}/info", response_model=CompanyOut)
 def get_company_info(ticker: str, db: Session = Depends(get_db)) -> Company:
     return _get_company_or_404(db, ticker)
-
-
-def _validate_research_case_payload(state: str, blocked_reason: str | None) -> None:
-    if state == "blocked" and not (blocked_reason or "").strip():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="blocked_reason is required when a research case is blocked.",
-        )
-
-
-@router.get("/{ticker}/research-case", response_model=ResearchCaseOut)
-def get_research_case(
-    ticker: str,
-    purpose: str = Query(default="investment-research", min_length=1, max_length=80),
-    db: Session = Depends(get_db),
-) -> ResearchCase:
-    company = _get_company_or_404(db, ticker)
-    case = db.scalar(
-        select(ResearchCase)
-        .where(
-            ResearchCase.company_id == company.id,
-            ResearchCase.purpose == purpose,
-        )
-        .limit(1)
-    )
-    if case is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Research case not found.")
-    return case
-
-
-@router.post(
-    "/{ticker}/research-case",
-    response_model=ResearchCaseOut,
-    status_code=status.HTTP_201_CREATED,
-)
-def create_research_case(
-    ticker: str,
-    payload: ResearchCaseCreateIn,
-    db: Session = Depends(get_db),
-    user_email: str | None = Depends(get_user_email),
-) -> ResearchCase:
-    company = _get_company_or_404(db, ticker)
-    _validate_research_case_payload(payload.state, payload.blocked_reason)
-    existing = db.scalar(
-        select(ResearchCase).where(
-            ResearchCase.company_id == company.id,
-            ResearchCase.purpose == payload.purpose,
-        )
-    )
-    if existing is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Research case already exists.")
-    case = ResearchCase(
-        company_id=company.id,
-        purpose=payload.purpose,
-        state=payload.state,
-        current_step=payload.current_step,
-        as_of=payload.as_of,
-        blocked_reason=payload.blocked_reason.strip() if payload.blocked_reason else None,
-    )
-    db.add(case)
-    try:
-        db.flush()
-        db.add(
-            ResearchCaseStepHistory(
-                research_case_id=case.id,
-                from_state=None,
-                from_step=None,
-                to_state=case.state,
-                to_step=case.current_step,
-                reason="Utworzono przypadek badawczy.",
-                changed_by=user_email,
-            )
-        )
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Research case already exists.",
-        ) from None
-    db.refresh(case)
-    return case
-
-
-@router.patch("/{ticker}/research-case", response_model=ResearchCaseOut)
-def update_research_case(
-    ticker: str,
-    payload: ResearchCaseUpdateIn,
-    purpose: str = Query(default="investment-research", min_length=1, max_length=80),
-    db: Session = Depends(get_db),
-    user_email: str | None = Depends(get_user_email),
-) -> ResearchCase:
-    company = _get_company_or_404(db, ticker)
-    case = db.scalar(
-        select(ResearchCase).where(
-            ResearchCase.company_id == company.id,
-            ResearchCase.purpose == purpose,
-        )
-    )
-    if case is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Research case not found.")
-    values = payload.model_dump(exclude_unset=True)
-    change_reason = values.pop("change_reason", None)
-    state = values.get("state", case.state)
-    blocked_reason = values.get("blocked_reason", case.blocked_reason)
-    _validate_research_case_payload(state, blocked_reason)
-    transition = state != case.state or values.get("current_step", case.current_step) != case.current_step
-    if transition and not (change_reason or "").strip():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="change_reason is required when state or current_step changes.",
-        )
-    previous_state = case.state
-    previous_step = case.current_step
-    for key, value in values.items():
-        if key == "blocked_reason" and value is not None:
-            value = value.strip() or None
-        setattr(case, key, value)
-    if state != "blocked" and "blocked_reason" not in values:
-        case.blocked_reason = None
-    case.updated_at = utcnow()
-    if transition:
-        db.add(
-            ResearchCaseStepHistory(
-                research_case_id=case.id,
-                from_state=previous_state,
-                from_step=previous_step,
-                to_state=case.state,
-                to_step=case.current_step,
-                reason=change_reason.strip(),
-                changed_by=user_email,
-            )
-        )
-    db.commit()
-    db.refresh(case)
-    return case
-
-
-@router.get(
-    "/{ticker}/research-case/history",
-    response_model=list[ResearchCaseStepHistoryOut],
-)
-def list_research_case_history(
-    ticker: str,
-    purpose: str = Query(default="investment-research", min_length=1, max_length=80),
-    db: Session = Depends(get_db),
-) -> list[ResearchCaseStepHistory]:
-    company = _get_company_or_404(db, ticker)
-    case = _get_research_case_for_company(db, company, purpose)
-    return list(
-        db.scalars(
-            select(ResearchCaseStepHistory)
-            .where(ResearchCaseStepHistory.research_case_id == case.id)
-            .order_by(ResearchCaseStepHistory.created_at.desc(), ResearchCaseStepHistory.id.desc())
-        ).all()
-    )
-
-
-def _get_research_case_for_company(db: Session, company: Company, purpose: str) -> ResearchCase:
-    case = db.scalar(
-        select(ResearchCase).where(
-            ResearchCase.company_id == company.id,
-            ResearchCase.purpose == purpose,
-        )
-    )
-    if case is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Research case not found.")
-    return case
-
-
-@router.get(
-    "/{ticker}/research-case/assumptions",
-    response_model=list[AssumptionSetOut],
-)
-def list_assumption_sets(
-    ticker: str,
-    purpose: str = Query(default="investment-research", min_length=1, max_length=80),
-    db: Session = Depends(get_db),
-) -> list[AssumptionSet]:
-    company = _get_company_or_404(db, ticker)
-    case = _get_research_case_for_company(db, company, purpose)
-    return list(
-        db.scalars(
-            select(AssumptionSet)
-            .where(AssumptionSet.research_case_id == case.id)
-            .order_by(AssumptionSet.id)
-        ).all()
-    )
-
-
-@router.post(
-    "/{ticker}/research-case/assumptions",
-    response_model=AssumptionSetOut,
-    status_code=status.HTTP_201_CREATED,
-)
-def create_assumption_set(
-    ticker: str,
-    payload: AssumptionSetCreateIn,
-    purpose: str = Query(default="investment-research", min_length=1, max_length=80),
-    db: Session = Depends(get_db),
-    user_email: str | None = Depends(get_user_email),
-) -> AssumptionSet:
-    company = _get_company_or_404(db, ticker)
-    case = _get_research_case_for_company(db, company, purpose)
-    label = payload.label.strip()
-    if not label:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="label cannot be blank.")
-    assumption_set = AssumptionSet(
-        research_case_id=case.id,
-        scenario_kind=payload.scenario_kind,
-        label=label,
-        status=payload.status,
-        as_of=payload.as_of,
-        assumptions=[item.model_dump() for item in payload.assumptions],
-        created_by=user_email,
-    )
-    db.add(assumption_set)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Assumption set already exists for this scenario.",
-        ) from None
-    db.refresh(assumption_set)
-    return assumption_set
-
-
-@router.patch(
-    "/{ticker}/research-case/assumptions/{assumption_set_id}",
-    response_model=AssumptionSetOut,
-)
-def update_assumption_set(
-    ticker: str,
-    assumption_set_id: int,
-    payload: AssumptionSetUpdateIn,
-    purpose: str = Query(default="investment-research", min_length=1, max_length=80),
-    db: Session = Depends(get_db),
-) -> AssumptionSet:
-    company = _get_company_or_404(db, ticker)
-    case = _get_research_case_for_company(db, company, purpose)
-    assumption_set = db.scalar(
-        select(AssumptionSet).where(
-            AssumptionSet.id == assumption_set_id,
-            AssumptionSet.research_case_id == case.id,
-        )
-    )
-    if assumption_set is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assumption set not found.")
-    for key, value in payload.model_dump(exclude_unset=True).items():
-        if key == "label" and value is not None:
-            value = value.strip()
-            if not value:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="label cannot be blank.")
-        if key == "assumptions" and value is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="assumptions cannot be null; provide an empty list to clear them.",
-            )
-        if key == "assumptions":
-            value = [item.model_dump() for item in payload.assumptions]
-        setattr(assumption_set, key, value)
-    assumption_set.updated_at = utcnow()
-    db.commit()
-    db.refresh(assumption_set)
-    return assumption_set
-
-
-# ------------------------------------------------------------ Phase 3: dossier
-
-@router.get("/{ticker}", response_model=DossierOut)
-def get_dossier(ticker: str, db: Session = Depends(get_db)) -> dict:
-    """Everything about one company in a single response — the data contract
-    shared by the stock page (frontend) and the AI analysis (Phase 5)."""
-    company = _get_company_or_404(db, ticker)
-    return dossier_service.build_dossier(db, company)
-
-
-# ---------------------------------------------------------- Phase 3: forecasts
-
-@router.get("/{ticker}/forecast-defaults", response_model=ForecastAssumptionsIn)
-def get_forecast_defaults(
-    ticker: str, db: Session = Depends(get_db)
-) -> ForecastAssumptionsIn:
-    """Assumptions prefilled from history, exactly like the Excel workflow."""
-    company = _get_company_or_404(db, ticker)
-    income = dossier_service.load_income_series(db, company.id)
-    try:
-        defaults = forecast_service.default_assumptions(income)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
-    return ForecastAssumptionsIn(**defaults.to_dict())
-
-
-@router.post("/{ticker}/forecasts", response_model=ForecastOut)
-def create_forecast(
-    ticker: str,
-    payload: ForecastCreateIn,
-    db: Session = Depends(get_db),
-    user_email: str | None = Depends(get_user_email),
-) -> ForecastOut:
-    """Compute a forecast scenario; persists it unless save=false (live preview)."""
-    company = _get_company_or_404(db, ticker)
-    income = dossier_service.load_income_series(db, company.id)
-    price, _ = dossier_service.latest_price(db, company.id)
-
-    assumptions = forecast_service.ForecastAssumptions(**payload.assumptions.model_dump())
-    result = forecast_service.compute_forecast(
-        assumptions, income, company.shares_outstanding, price
-    )
-
-    if not payload.save:
-        return ForecastOut(
-            id=None,
-            label=payload.label,
-            assumptions=assumptions.to_dict(),
-            result=result,
-            created_at=None,
-        )
-
-    record = Forecast(
-        company_id=company.id,
-        label=payload.label,
-        assumptions=assumptions.to_dict(),
-        result=result,
-        created_by=user_email,
-    )
-    db.add(record)
-    db.commit()
-    return ForecastOut(
-        id=record.id,
-        label=record.label,
-        assumptions=record.assumptions,
-        result=record.result,
-        created_at=record.created_at,
-    )
-
-
-@router.get("/{ticker}/forecasts", response_model=list[ForecastOut])
-def list_forecasts(ticker: str, db: Session = Depends(get_db)) -> list[ForecastOut]:
-    company = _get_company_or_404(db, ticker)
-    records = db.scalars(
-        select(Forecast)
-        .where(Forecast.company_id == company.id)
-        .order_by(Forecast.created_at.desc(), Forecast.id.desc())
-    ).all()
-    return [
-        ForecastOut(
-            id=r.id,
-            label=r.label,
-            assumptions=r.assumptions,
-            result=r.result,
-            created_at=r.created_at,
-        )
-        for r in records
-    ]

@@ -4,7 +4,7 @@ import "@/styles/globals.scss";
 
 export const metadata: Metadata = {
   title: "Warsztat analityka",
-  description: "Analiza spółek GPW wg strategii Malika/OBS",
+  description: "Osobisty warsztat analizy spółek GPW",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

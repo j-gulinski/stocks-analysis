@@ -115,6 +115,12 @@ def portfolio_review_draft_fingerprint(draft: PortfolioReviewDraftIn) -> str:
 
 def _review_gaps(workspace: dict[str, Any]) -> list[str]:
     gaps = list(workspace["snapshot"].get("gaps") or [])
+    reconciliation = workspace.get("reconciliation") or {}
+    if reconciliation.get("status") != "reconciled":
+        gaps.append(
+            "Suma zachowanych pozycji nie zgadza się z wartością dostawcy; "
+            "część analityki ma podstawę częściową."
+        )
     coverage = workspace.get("coverage") or {}
     if coverage.get("unmapped_positions"):
         gaps.append("Portfel zawiera niezmapowane instrumenty.")
@@ -151,10 +157,9 @@ def freeze_portfolio_review_inputs(
     """Freeze only stored state; this function never fetches or repairs mappings."""
     workspace = portfolio_workspace(db, snapshot)
     reconciliation = workspace.get("reconciliation") or {}
-    if reconciliation.get("status") != "reconciled":
+    if reconciliation.get("status") not in {"reconciled", "unreconciled"}:
         raise PortfolioReviewArtifactError(
-            "Portfolio positions do not reconcile to the provider total.",
-            kind="conflict",
+            "Portfolio reconciliation evidence is missing.", kind="conflict"
         )
     rows = list(
         db.scalars(
@@ -419,16 +424,21 @@ def _validate_frozen_integrity(
             "Frozen portfolio risk context fingerprint is invalid.", kind="conflict"
         )
     reconciliation = frozen["analytics"].get("reconciliation") or {}
-    if reconciliation.get("status") != "reconciled":
+    if reconciliation.get("status") not in {"reconciled", "unreconciled"}:
         raise PortfolioReviewArtifactError(
-            "Frozen portfolio reconciliation is not valid.", kind="conflict"
+            "Frozen portfolio reconciliation evidence is not valid.", kind="conflict"
         )
     _validate_risk_context(db, frozen, snapshot)
     retained_total = sum(row["value"] for row in frozen["positions"])
     total = float(frozen["analytics"]["snapshot"]["total_value"])
-    if abs(retained_total - total) > max(0.02, total * 0.001):
+    expected_delta = retained_total - total
+    if (
+        abs(float(reconciliation.get("retained_value")) - retained_total) > 0.02
+        or abs(float(reconciliation.get("provider_total")) - total) > 0.02
+        or abs(float(reconciliation.get("delta")) - expected_delta) > 0.02
+    ):
         raise PortfolioReviewArtifactError(
-            "Frozen retained positions do not reconcile.", kind="conflict"
+            "Frozen reconciliation evidence does not reproduce.", kind="conflict"
         )
     mapping_drift = False
     for row in frozen["positions"]:
@@ -689,10 +699,6 @@ def _validate_scenario_arithmetic(
 
 def _final_status(result: PortfolioReviewVerifierResult, gaps: list[str]) -> str:
     if result.verdict == "pass":
-        if not all(result.checks.model_dump().values()):
-            raise PortfolioReviewArtifactError(
-                "A passing verdict requires every strict check."
-            )
         return "provisional" if gaps else "verified"
     return "rejected" if result.verdict == "fail" else "needs-human"
 
@@ -722,17 +728,30 @@ def verify_portfolio_review(
         raise PortfolioReviewArtifactError(
             "Verifier reasoning differs from the queued strict policy.", kind="conflict"
         )
-    if mapping_drift and not (
-        payload.verifier_result.verdict == "needs-human"
-        and payload.verifier_result.checks.mapping_set is False
-    ):
+    if mapping_drift and payload.verifier_result.verdict != "needs-human":
         raise PortfolioReviewArtifactError(
-            "Mapping drift requires a needs-human verdict with mapping_set=false.",
+            "Mapping drift requires a needs-human verdict.",
             kind="conflict",
         )
     final_status = _final_status(payload.verifier_result, payload.draft.gaps)
     checks = {
-        **payload.verifier_result.checks.model_dump(mode="json"),
+        "computed_evidence": {
+            "mapping_drift": mapping_drift,
+            "position_count": len(
+                payload.draft.input_manifest.get("positions") or []
+            ),
+            "valuation_identity_count": len(
+                payload.draft.input_manifest.get("eligible_valuations") or []
+            ),
+            "gap_count": len(payload.draft.gaps),
+        },
+        "findings": [
+            item.model_dump(mode="json")
+            for item in payload.verifier_result.findings
+        ],
+        "justifications": payload.verifier_result.justifications.model_dump(
+            mode="json"
+        ),
         "verifier_worker_id": payload.verifier_worker_id,
         "portfolio_review_draft_fingerprint": portfolio_review_draft_fingerprint(
             payload.draft
@@ -760,7 +779,6 @@ def verify_portfolio_review(
 
 
 def _result(row: VerificationRun) -> PortfolioReviewVerifierResult:
-    names = PortfolioReviewVerifierResult.model_fields["checks"].annotation.model_fields
     return PortfolioReviewVerifierResult.model_validate(
         {
             "requested_model_role": row.model_role,
@@ -771,7 +789,8 @@ def _result(row: VerificationRun) -> PortfolioReviewVerifierResult:
                 "substitution_or_escalation"
             ),
             "verdict": row.verdict,
-            "checks": {name: (row.checks or {}).get(name) for name in names},
+            "findings": (row.checks or {}).get("findings") or [],
+            "justifications": (row.checks or {}).get("justifications"),
             "summary": row.summary,
         }
     )
@@ -812,9 +831,9 @@ def save_portfolio_review(
         db, draft, allow_mapping_drift=result.verdict == "needs-human"
     )
     _validate_version(db, draft)
-    if mapping_drift and result.checks.mapping_set:
+    if mapping_drift and result.verdict != "needs-human":
         raise PortfolioReviewArtifactError(
-            "Verifier did not report the mapping drift.", kind="conflict"
+            "Mapping drift requires a needs-human verdict.", kind="conflict"
         )
     checks = verification.checks or {}
     if (

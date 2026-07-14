@@ -2,12 +2,29 @@
 
 from sqlalchemy import func, select
 
-from tests.conftest import FakeResponse, load_fixture
+def test_legacy_company_research_forecast_and_dossier_routes_are_deleted(client):
+    routes = {
+        (path, method.upper())
+        for path, operations in client.app.openapi()["paths"].items()
+        for method in operations
+    }
+
+    assert ("/api/research-cases", "POST") in routes
+    assert ("/api/companies/{ticker}/refresh", "POST") in routes
+    assert ("/api/companies/{ticker}/info", "GET") in routes
+    assert ("/api/companies/{ticker}/research-case", "GET") not in routes
+    assert ("/api/companies/{ticker}/research-case", "POST") not in routes
+    assert ("/api/companies/{ticker}/research-case", "PATCH") not in routes
+    assert ("/api/companies/{ticker}/research-case/history", "GET") not in routes
+    assert ("/api/companies/{ticker}/research-case/assumptions", "GET") not in routes
+    assert ("/api/companies/{ticker}/research-case/assumptions", "POST") not in routes
+    assert ("/api/companies/{ticker}/forecast-defaults", "GET") not in routes
+    assert ("/api/companies/{ticker}/forecasts", "GET") not in routes
+    assert ("/api/companies/{ticker}/forecasts", "POST") not in routes
+    assert ("/api/companies/{ticker}", "GET") not in routes
 
 
-def test_research_lab_creates_one_idempotent_case_and_initial_job_from_discovery(
-    client, db, monkeypatch, no_sleep
-):
+def test_research_lab_creates_one_idempotent_manual_case_and_initial_job(client, db):
     from app.db.models import (
         AgentRun,
         Company,
@@ -16,20 +33,7 @@ def test_research_lab_creates_one_idempotent_case_and_initial_job_from_discovery
         WatchlistItem,
     )
 
-    def fake_fetch(url, **_kwargs):
-        response = FakeResponse(load_fixture("br_market_rating.html"))
-        response.url = url
-        return response
-
-    monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
-    snapshot = client.post("/api/discovery/refresh")
-    assert snapshot.status_code == 200
-    source_version_id = snapshot.json()["source_version_id"]
-
-    first = client.post(
-        "/api/research-cases",
-        json={"ticker": "dek", "source_document_version_id": source_version_id},
-    )
+    first = client.post("/api/research-cases", json={"ticker": "dek"})
 
     assert first.status_code == 200
     body = first.json()
@@ -38,14 +42,16 @@ def test_research_lab_creates_one_idempotent_case_and_initial_job_from_discovery
     assert body["reactivated_case"] is False
     assert body["created_job"] is True
     assert body["research_case"]["ticker"] == "DEK"
-    assert body["research_case"]["name"] == "DEKPOL"
+    assert body["research_case"]["name"] is None
     assert body["research_case"]["state"] == "ingesting"
     assert body["research_case"]["current_step"] == "ingest"
-    assert body["research_case"]["initial_research_status"] == "queued"
+    assert body["research_case"]["phase"] == "collecting"
+    assert body["research_case"]["phase_label"] == "Zbieranie"
+    assert body["research_case"]["collection_progress"]["state"] == "waiting"
     run = db.get(AgentRun, body["agent_run"]["id"])
     company = db.scalar(select(Company).where(Company.ticker == "DEK"))
-    assert company.name == "DEKPOL"
-    assert company.br_slug == "DEKPOL"
+    assert company.name is None
+    assert company.br_slug is None
     assert run.workflow == "stock-initial-research"
     assert run.company_id == company.id
     assert run.model_role == "worker_standard"
@@ -53,42 +59,17 @@ def test_research_lab_creates_one_idempotent_case_and_initial_job_from_discovery
     assert run.idempotency_key == (
         f"research-case-initial-research:{body['research_case']['id']}"
     )
-    assert run.inputs["source_document_version_id"] == source_version_id
-    assert run.inputs["discovery_origin"] == {
-        "sieve_id": "financial_health_br_v1",
-        "sieve_version": "financial-health-br-v1",
-        "source_document_version_id": source_version_id,
-        "parser_version": "biznesradar-market-rating@3",
-        "as_of": run.inputs["discovery_origin"]["as_of"],
-        "report_period": "2026Q1",
-        "membership_factors": [
-            {"id": "altman_em_score", "label": "Wartość Altman EM-Score", "value": 8.6, "report_period": "2026Q1", "source_document_version_id": source_version_id},
-            {"id": "piotroski_f_score", "label": "Piotroski F-Score", "value": 6, "report_period": "2026Q1", "source_document_version_id": source_version_id},
-        ],
-        "factor_gaps": [],
-        "strategy_questions": [
-            "Jaki mechanizm może poprawić wyniki w kolejnym kwartale lub roku?",
-            "Czy wynik bazowy i przepływy pieniężne potwierdzają jakość poprawy?",
-            "Jaki katalizator i falsyfikator uzasadniają dalszy Research?",
-        ],
-        "neutral_context": [
-            {"id": "wig_bucket", "value": None, "basis": "Brak w zapisanym źródle rynkowego ratingu."},
-            {"id": "sector", "value": None, "basis": "Brak w zapisanym źródle rynkowego ratingu."},
-            {"id": "size", "value": None, "basis": "Brak raportowanej kapitalizacji w zapisanym źródle rynkowego ratingu."},
-        ],
-    }
+    assert "source_document_version_id" not in run.inputs
+    assert "discovery_origin" not in run.inputs
     assert run.inputs["task"]["skill"] == "company-research"
-    assert run.inputs["task"]["skill_version"] == "company-research-v2"
-    assert run.inputs["task"]["output_contract_version"] == "research-snapshot-v2"
+    assert run.inputs["task"]["skill_version"] == "company-research-v3"
+    assert run.inputs["task"]["output_contract_version"] == "research-snapshot-v3"
     assert run.inputs["task"]["company_profile_schema_version"] == "company-profile-v2"
     assert run.inputs["task"]["archetype_contract_version"] == "archetype-packs-v1"
     assert run.inputs["task"]["required_verification"] == "verifier_strict"
     assert db.scalar(select(func.count()).select_from(WatchlistItem)) == 0
 
-    duplicate = client.post(
-        "/api/research-cases",
-        json={"ticker": "DEK", "source_document_version_id": source_version_id},
-    )
+    duplicate = client.post("/api/research-cases", json={"ticker": "DEK"})
     assert duplicate.status_code == 200
     repeated = duplicate.json()
     assert repeated["created_company"] is False
@@ -107,13 +88,11 @@ def test_research_lab_creates_one_idempotent_case_and_initial_job_from_discovery
     assert len(listed.json()) == 1
     assert listed.json()[0]["id"] == body["research_case"]["id"]
     assert listed.json()[0]["ticker"] == "DEK"
-    assert listed.json()[0]["initial_research_run_id"] == body["agent_run"]["id"]
-    assert listed.json()[0]["initial_research_status"] == "queued"
+    assert listed.json()[0]["phase"] == "collecting"
+    assert listed.json()[0]["collection_progress"]["state"] == "waiting"
 
 
-def test_research_lab_accepts_manual_ticker_and_rejects_wrong_frozen_candidate(
-    client, db, monkeypatch, no_sleep
-):
+def test_research_lab_rejects_unbound_discovery_provenance(client, db):
     from app.db.models import AgentRun, Company, ResearchCase
 
     manual = client.post("/api/research-cases", json={"ticker": " snt "})
@@ -121,27 +100,20 @@ def test_research_lab_accepts_manual_ticker_and_rejects_wrong_frozen_candidate(
     assert manual.json()["research_case"]["ticker"] == "SNT"
     assert manual.json()["research_case"]["name"] is None
 
-    def fake_fetch(url, **_kwargs):
-        response = FakeResponse(load_fixture("br_market_rating.html"))
-        response.url = url
-        return response
-
-    monkeypatch.setattr("app.scrapers.http.fetch", fake_fetch)
-    source_version_id = client.post("/api/discovery/refresh").json()["source_version_id"]
     rejected = client.post(
         "/api/research-cases",
-        json={"ticker": "SNT", "source_document_version_id": source_version_id},
+        json={"ticker": "SNT", "source_document_version_id": 1},
     )
     assert rejected.status_code == 422
     assert db.scalar(select(func.count()).select_from(Company)) == 1
     assert db.scalar(select(func.count()).select_from(ResearchCase)) == 1
     assert db.scalar(select(func.count()).select_from(AgentRun)) == 1
 
-    missing_version = client.post(
+    unbound_new_case = client.post(
         "/api/research-cases",
         json={"ticker": "DEK", "source_document_version_id": 999999},
     )
-    assert missing_version.status_code == 404
+    assert unbound_new_case.status_code == 422
 
     generic_review = client.post(
         "/api/agent-runs",
@@ -152,7 +124,7 @@ def test_research_lab_accepts_manual_ticker_and_rejects_wrong_frozen_candidate(
             "inputs": {"research_case_id": manual.json()["research_case"]["id"]},
         },
     )
-    assert generic_review.status_code == 400
+    assert generic_review.status_code == 405
     assert db.scalar(select(func.count()).select_from(AgentRun)) == 1
 
 
@@ -206,70 +178,47 @@ def test_research_lab_reactivates_a_closed_case_without_duplicate_initial_job(
     assert histories[0].from_state == "closed"
 
 
-def test_research_case_lifecycle_is_explicit_and_idempotent(client, db):
-    from app.db.models import Company, ResearchCase
+def test_research_lab_reuses_a_legacy_unkeyed_initial_job_on_reactivation(client, db):
+    from app.db.models import AgentRun, Company, ResearchCase
 
-    db.add(Company(ticker="SNT", name="SYNEKTIK"))
+    company = Company(ticker="ABS", name="ASSECOBS")
+    db.add(company)
+    db.flush()
+    research_case = ResearchCase(
+        company_id=company.id,
+        purpose="investment-research",
+        state="closed",
+        current_step="monitoring",
+    )
+    db.add(research_case)
+    db.flush()
+    legacy_agent = AgentRun(
+        workflow="stock-initial-research",
+        trigger="research-lab",
+        status="provisional",
+        company_id=company.id,
+        model_role="worker_standard",
+        model="gpt-5.6-terra",
+        orchestrator_model="gpt-5.6-terra",
+        inputs={"ticker": "ABS", "research_case_id": research_case.id},
+        outputs={},
+    )
+    db.add(legacy_agent)
     db.commit()
 
-    missing = client.get("/api/companies/SNT/research-case")
-    assert missing.status_code == 404
+    listed = client.get("/api/research-cases")
+    assert listed.status_code == 200
+    assert listed.json()[0]["phase"] == "collecting"
+    assert listed.json()[0]["collection_progress"]["state"] == "waiting"
 
-    created = client.post(
-        "/api/companies/SNT/research-case",
-        json={"purpose": "investment-research", "state": "new", "current_step": "ingest"},
-    )
-    assert created.status_code == 201
-    assert created.json()["state"] == "new"
-    assert created.json()["current_step"] == "ingest"
+    response = client.post("/api/research-cases", json={"ticker": "ABS"})
 
-    duplicate = client.post("/api/companies/SNT/research-case", json={})
-    assert duplicate.status_code == 409
-
-    updated = client.patch(
-        "/api/companies/SNT/research-case",
-        json={
-            "state": "blocked",
-            "current_step": "data_review",
-            "blocked_reason": "Brak raportu pierwotnego.",
-            "change_reason": "Raport nie został jeszcze potwierdzony.",
-        },
-    )
-    assert updated.status_code == 200
-    body = updated.json()
-    assert body["state"] == "blocked"
-    assert body["current_step"] == "data_review"
-    assert body["blocked_reason"] == "Brak raportu pierwotnego."
-    assert db.query(ResearchCase).count() == 1
-
-    reopened = client.patch(
-        "/api/companies/SNT/research-case",
-        json={
-            "state": "thesis",
-            "current_step": "thesis",
-            "change_reason": "Źródła wejściowe są już wystarczające.",
-        },
-    )
-    assert reopened.status_code == 200
-    assert reopened.json()["blocked_reason"] is None
-
-    alternate = client.post(
-        "/api/companies/SNT/research-case",
-        json={"purpose": "watchlist-review"},
-    )
-    assert alternate.status_code == 201
-    assert client.get(
-        "/api/companies/SNT/research-case", params={"purpose": "watchlist-review"}
-    ).json()["purpose"] == "watchlist-review"
-
-
-def test_blocked_case_requires_named_reason(client, db):
-    from app.db.models import Company
-
-    db.add(Company(ticker="DEC", name="DECORA"))
-    db.commit()
-    response = client.post(
-        "/api/companies/DEC/research-case",
-        json={"state": "blocked", "current_step": "ingest"},
-    )
-    assert response.status_code == 422
+    assert response.status_code == 200
+    body = response.json()
+    assert body["created_case"] is False
+    assert body["reactivated_case"] is True
+    assert body["created_job"] is False
+    assert body["agent_run"]["id"] == legacy_agent.id
+    assert body["research_case"]["state"] == "monitoring"
+    assert body["research_case"]["current_step"] == "monitoring"
+    assert db.scalar(select(func.count()).select_from(AgentRun)) == 1

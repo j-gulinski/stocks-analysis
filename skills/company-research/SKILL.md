@@ -9,23 +9,14 @@ Process exactly one claimed company job and leave a reproducible research
 artifact. The fixed UI schema is common; the archetype and company overlay make
 the content specific.
 
-Contract version: `company-research-v2`. Output contract:
-`research-snapshot-v2`; profile schema: `company-profile-v2`; archetype registry:
+Contract version: `company-research-v3`. Output contract:
+`research-snapshot-v3`; profile schema: `company-profile-v2`; archetype registry:
 `archetype-packs-v1`. A worker must use the exact versions frozen in its job.
-
-### Frozen legacy v1 jobs
-
-If and only if the claimed job freezes `company-research-v1` and
-`research-snapshot-v1`, follow that legacy contract: use `company-profile-v1`,
-omit the v2 focus-marker/archetype-registry fields, and never submit a v2 draft.
-This path exists only so already queued work remains reproducible; new jobs use
-v2. All source, point-in-time, provenance, separate-verifier, and lease gates
-still apply.
 
 ## Preconditions
 
-1. Read `../../docs/PRODUCT.md` and `../../docs/ARCHITECTURE.md`. Read
-   `../../docs/STRATEGY.md` only when interpreting an investor method.
+1. Read `../../docs/PRODUCT.md`, `../../docs/ARCHITECTURE.md`, and
+   `../../docs/STRATEGY.md`.
 2. Require a claimed `stock-initial-research` or `stock-company-review`
    `AgentRun` with a company identity, ticker, frozen task
    inputs, and a live lease owned by this worker. Do not claim unrelated work.
@@ -66,6 +57,20 @@ still apply.
 - Prefer primary issuer reports, ESPI/EBI/PAP, presentations and IR. Use
   BiznesRadar for normalized statements/indicators and PortalAnaliz/forum only
   as attributed leads.
+- Record one bounded attempt for each v3 source channel: issuer primary,
+  regulatory primary, BiznesRadar, PortalAnaliz, and other relevant web. Each
+  attempt is `found`, `not_found`, or `unavailable`, with document-version IDs
+  when found and a concise result either way. Found IDs are unique; a
+  not-found/unavailable attempt has no document IDs. Every retained document
+  used by an answer or driver-horizon assessment belongs to one of that item's
+  declared searched channels. Stored source type/provider/host identity fixes
+  channel and role; never promote BiznesRadar to primary or PortalAnaliz above
+  a lead by relabelling the draft manifest.
+  Never bypass authentication or turn a failed search into an inferred answer.
+- For a registered issuer, use the bounded issuer-index adapter and ingest the
+  material discovered PDF through its detail adapter. Some issuers have more
+  than one official index: the adapter preserves each configured page as a
+  separate logical document rather than merging URLs or scraping ad hoc.
 - Preserve partial failures. Never replace a missing primary source with a
   confident forum assertion.
 
@@ -112,6 +117,10 @@ Build a company overlay containing:
 - relevant competitors or external inputs only when evidenced;
 - unanswered source questions and unusual risks.
 
+Treat the overlay's `source_questions` as the frozen questions the full flow
+must investigate and resolve in the snapshot. They are not homework delegated
+to the user.
+
 ### 3. Build the common research spine
 
 Produce concise Polish sections:
@@ -122,9 +131,27 @@ Produce concise Polish sections:
 3. `performance` — revenue/result bridge, margin/cash conversion, balance sheet,
    one-offs, and archetype KPIs;
 4. `evidence` — primary claims, conflicts, source manifest and missing items;
-5. `thesis` — why results may change, counter-thesis, catalysts, governance,
+5. `outlook` — a forward read for every profile driver at both the next-quarter
+   and next-12-month horizons; one answer for every frozen profile question;
+   and exactly one company-appropriate catalyst, result-visibility and
+   governance resolution;
+6. `thesis` — why results may change, counter-thesis, catalysts, governance,
    falsifiers and next checks;
-6. `history` — what differs from the preceding snapshot, or `first snapshot`.
+7. `history` — what differs from the preceding snapshot, or `first snapshot`.
+
+Each question resolution is `confirmed`, `partial`, `not_found`, or
+`not_applicable`. Confirmed/partial answers require primary or normalized
+support; PortalAnaliz and other commentary remain leads. A partial/not-found
+answer states what was searched, names the remaining uncertainty, and links to
+a top-level gap. `not_applicable` explains from sourced company characteristics
+which archetype-specific visibility measure replaces the generic question.
+Never leave an overlay question only in `next_checks`.
+
+Each driver outlook names direction, mechanism and observable watch items.
+Every known direction, including a labelled assumption, cites at least one
+retained primary or normalized document; an unknown direction links to a named
+gap. Do not convert consensus, a forum lead, or a management aspiration into
+an unlabelled forecast.
 
 Every material claim carries evidence IDs/locators or an explicit assumption or
 gap. Do not repeat the same conclusion across sections.
@@ -139,6 +166,15 @@ gap. Do not repeat the same conclusion across sections.
   `statement_provenance` path/text claim. Drivers and KPIs need source version
   IDs or an explicit basis. Workflow questions and named gaps remain visibly
   questions/gaps, never implicit facts.
+- Confirm that every profile driver has exactly one next-quarter and one
+  next-12-month assessment, every frozen profile question is resolved exactly
+  once, and catalyst/visibility/governance are each resolved exactly once.
+- Require at least one company-specific profile question. A company-review job
+  may freeze only a human-confirmed or human-corrected profile.
+- Confirm all five required source-channel attempts are unique and retained.
+  Every driver horizon declares its searched channels. Supported directions
+  and resolved answers require cited retained evidence from those declarations;
+  a lead/context-only set cannot support either.
 - Confirm that pack scope distinguishes sourced driver/KPI markers, explicit
   assumptions, named gaps, and truly missing markers. A valid new draft has no
   truly missing marker; ordinary unresolved markers force named gaps and
