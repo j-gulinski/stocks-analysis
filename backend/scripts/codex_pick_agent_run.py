@@ -146,11 +146,12 @@ def _execution_contract(agent: AgentRun) -> dict[str, Any]:
                 f"--case-id {case_id} --input <snapshot.json>"
             ),
             "steps": [
-                "Read the frozen valuation base; never replace its research facts, lineage, template identity or as-of cutoff.",
-                "Draft company-specific assumptions, mechanisms and probabilities from that company's frozen evidence; bind assumptions to fact IDs or explicit judgment rationales.",
+                "Read the whole frozen valuation dossier; never replace its research facts, lineage, template identity or as-of cutoff.",
+                "Act as the company analyst: build a causal company case from evidence through operating KPIs, runway, capital needs, method fit and the expectations already embedded in price.",
+                "Only then draft company-specific assumptions, mechanisms and probabilities from that company's frozen evidence; bind assumptions to fact IDs or explicit judgment rationales.",
                 "Run codex_compute_valuation_draft.py so Python owns deterministic outputs, fingerprints, the next version and structural-gate evidence.",
                 "If a computed structural gate fails, revise the draft before independent verification; never self-attest a computable check.",
-                "Have a distinct verifier_strict context adversarially review evidence fit, mechanism plausibility and probability reasonableness for the unchanged draft.",
+                "Have a distinct verifier_strict context adversarially review evidence fit, mechanism plausibility, potential underwriteability (runway, capital burden and current-price hurdle), and probability reasonableness for the unchanged draft.",
                 "Save the unchanged draft with that verification_run_id, then return to the queue-draining loop.",
             ],
         }

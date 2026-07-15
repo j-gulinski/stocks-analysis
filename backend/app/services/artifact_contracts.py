@@ -7,8 +7,8 @@ Until that reset, they cannot become the current product state.
 
 RESEARCH_PROFILE_SCHEMA = "company-profile-v2"
 RESEARCH_SNAPSHOT_CONTRACT = "research-snapshot-v3"
-VALUATION_SNAPSHOT_CONTRACT = "valuation-snapshot-v2"
-VALUATION_CALCULATION_ENGINE = "valuation-engine-v3"
+VALUATION_SNAPSHOT_CONTRACT = "valuation-snapshot-v3"
+VALUATION_CALCULATION_ENGINE = "valuation-engine-v4"
 
 
 def canonical_research_snapshot_predicate():

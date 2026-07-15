@@ -1,0 +1,101 @@
+{
+  "schema_version": "source-audit-v1",
+  "retrieved_at": "2026-07-15T09:19:46Z",
+  "source": "https://portalanaliz.pl/forum/",
+  "access": "authenticated session; credentials not retained",
+  "purpose": "Author-neutral audit evidence for valuation-engine mechanics. Self-reported portfolio performance is a lead, not verified return data.",
+  "normalization": "For each cited post, parse content_html with BeautifulSoup, remove .inline-attachment and .attachbox nodes because their live view counters change on every request, extract text with a single-space separator, collapse every Unicode whitespace run to one ASCII space, trim, encode UTF-8, then SHA-256. Every retained hash matched across two consecutive authenticated fetches. Raw message bodies and author handles are not retained.",
+  "cohort": [
+    {
+      "topic_id": 569,
+      "performance_evidence": "Strong self-reported benchmark-relative history: 31% nine-year XIRR and later fourteen years above sWIG80TR.",
+      "mechanics_retained": ["improvement plus valuation", "observable operating signal to near-term result", "one-off and governance challenge", "no invented numeric probability"]
+    },
+    {
+      "topic_id": 272,
+      "performance_evidence": "Strong self-reported benchmark-relative result: +92.4% in 2022 and 47.2% annualized for 2017-2022.",
+      "mechanics_retained": ["multi-year fundamental runway", "capacity and capex economics", "margin of safety"]
+    },
+    {
+      "topic_id": 356,
+      "performance_evidence": "High self-reported long-run absolute result, with explicit recent three-year underperformance versus sWIG80TR.",
+      "mechanics_retained": ["company KPI to unit forecast", "improving results", "one-off normalization and growth path"]
+    },
+    {
+      "topic_id": 509,
+      "performance_evidence": "Real-portfolio claim with self-reported 17% annualized performance above several benchmarks at the cited date.",
+      "mechanics_retained": ["improvement, valuation burden and capital returns", "forecast earnings to implied capitalization", "understanding before valuation"]
+    },
+    {
+      "topic_id": 1492,
+      "performance_evidence": "Mixed counter-evidence in 2024/early 2025, followed by self-reported 2025 performance about four percentage points above sWIG80TR.",
+      "mechanics_retained": ["thesis to assumptions to method fit", "too-hard-to-value state", "capacity utilization and capex", "source or reverse-solve market expectations", "falsifiers"]
+    },
+    {
+      "topic_id": 575,
+      "performance_evidence": "Very high self-reported absolute annualized returns without a retained benchmark tie-out.",
+      "mechanics_retained": ["net-cash bridge", "backlog versus optional event", "expansion capital", "thesis-break evidence"]
+    },
+    {
+      "topic_id": 526,
+      "performance_evidence": "Down-weighted: the tracked portfolio is explicitly virtual/training and only approximately represents real holdings.",
+      "mechanics_retained": ["fundamental improvement versus multiple movement", "downside and governance first", "accounting-quality challenge"]
+    },
+    {
+      "topic_id": 600,
+      "performance_evidence": "Counter-evidence: defensive episode-level outperformance in 2022, followed by material 2025 underperformance.",
+      "mechanics_retained": ["year-over-year result improvement", "observable operating developments", "uncertain events remain uncertain"]
+    }
+  ],
+  "posts": [
+    {"topic_id":272,"post_id":55647,"posted_at":"2022-12-30","stable_text_sha256":"3c86969abfdcc063b7d30acd40fb5eabb5b0666fe8b0bc495eb037e9a313a95e","stable_text_bytes":8501},
+    {"topic_id":272,"post_id":69158,"posted_at":"2023-08-24","stable_text_sha256":"24bec0cc510e9df5f30c521efb44bdaec2a97b6f6984db05978a99534e15ec85","stable_text_bytes":11010},
+    {"topic_id":272,"post_id":75835,"posted_at":"2023-12-14","stable_text_sha256":"f2374a2490cf4e227d006fea8cd8fe2493c1032d16dffd661f49327c4d5f5566","stable_text_bytes":11335},
+    {"topic_id":272,"post_id":93462,"posted_at":"2024-12-18","stable_text_sha256":"4134a6ca4fe85107eb13c7eb76e03421a22ae88c55cdf9233c71574ecbb288be","stable_text_bytes":5739},
+    {"topic_id":356,"post_id":94106,"posted_at":"2025-01-05","stable_text_sha256":"2a50b69f676b81cc9a5ffeac12e00ab4b39311a0b89ca1ed50ab06f13000aad8","stable_text_bytes":15440},
+    {"topic_id":356,"post_id":95568,"posted_at":"2025-02-11","stable_text_sha256":"98c4d9f0b09622aef25b142a956a5067453b5b2b2cab57b6ea9e3b8a4e0b1157","stable_text_bytes":18155},
+    {"topic_id":356,"post_id":101099,"posted_at":"2025-07-01","stable_text_sha256":"6d1577f1f0dc88c3a24b1fd98b17129c7386de5213c9ed1d1bfd944de65439c1","stable_text_bytes":18656},
+    {"topic_id":356,"post_id":105930,"posted_at":"2025-11-27","stable_text_sha256":"648fd8c9a212a800c8ebd987eff99c65631d984e2f21cdb564ffa2f0a2e664a8","stable_text_bytes":20123},
+    {"topic_id":356,"post_id":106979,"posted_at":"2025-12-30","stable_text_sha256":"3c79bd13c06ac8b1b489550f12d8e249c8b672aa432002e6fe7734eee6160421","stable_text_bytes":7528},
+    {"topic_id":356,"post_id":107685,"posted_at":"2026-01-13","stable_text_sha256":"c5cbe3f8399012877f9de133286b923b9f0245b900bfeba5fa38102d09ce8b6e","stable_text_bytes":20486},
+    {"topic_id":509,"post_id":17085,"posted_at":"2020-11-30","stable_text_sha256":"7ee379a3fac85e58d5d2cc957c8b623624e478c016812500b6ad175e077295e1","stable_text_bytes":10775},
+    {"topic_id":509,"post_id":48114,"posted_at":"2022-07-30","stable_text_sha256":"f2eb350cb3d18f6784c5ed1aae6a32e4eaab98b90e6621137641133b1299182e","stable_text_bytes":4471},
+    {"topic_id":509,"post_id":85477,"posted_at":"2024-06-15","stable_text_sha256":"940995c60b971146e143add08f3e26dae1fe2f980400ba6082f033a7b173e032","stable_text_bytes":10256},
+    {"topic_id":509,"post_id":92383,"posted_at":"2024-11-22","stable_text_sha256":"10bf6f4a2b1b1a3e4dfabc4911cca1a1e71f55b091de8786302be93a3c3c0877","stable_text_bytes":6412},
+    {"topic_id":509,"post_id":105987,"posted_at":"2025-11-28","stable_text_sha256":"c2ff51726f63a147eea343e43603f6da38c35c40ee8c8804869dafb6430284da","stable_text_bytes":9938},
+    {"topic_id":509,"post_id":107957,"posted_at":"2026-01-18","stable_text_sha256":"299a3153fcbe10a61996ed6242dc5c4bed86acb57d213cd3cb48b8d66b9c6177","stable_text_bytes":3357},
+    {"topic_id":526,"post_id":46935,"posted_at":"2022-07-02","stable_text_sha256":"82eeed550113d61e96b230b66ba8a392c47eeebc3d33a1fc92f1be10e8be8eea","stable_text_bytes":9774},
+    {"topic_id":526,"post_id":60993,"posted_at":"2023-03-31","stable_text_sha256":"8a8cb8a613134bb640f580aced3bc22adc039fce4f660013276f3033d99b75fd","stable_text_bytes":6572},
+    {"topic_id":526,"post_id":83262,"posted_at":"2024-05-06","stable_text_sha256":"208f5a024011be60ac9af4970dcbc66b8d089319ba28654d89d376c12c1f795b","stable_text_bytes":4840},
+    {"topic_id":526,"post_id":106794,"posted_at":"2025-12-24","stable_text_sha256":"beb34bb61908314705591a93f7ed69b120de509d07ce0526911a6c2aa149394f","stable_text_bytes":6866},
+    {"topic_id":526,"post_id":114578,"posted_at":"2026-06-20","stable_text_sha256":"acae2089f825d987e5e949d23dab6e8ac0ac1a1b1d0f145465bb9e575187762b","stable_text_bytes":15721},
+    {"topic_id":569,"post_id":20383,"posted_at":"2021-02-02","stable_text_sha256":"75aba75586cb2ffddcf22bb7909b8530e87d420613b2826f47852e07819dd2f1","stable_text_bytes":1014},
+    {"topic_id":569,"post_id":93014,"posted_at":"2024-12-05","stable_text_sha256":"ae39371f2d7d56bee8c92e6edd001cda4ec05428fb61b820c2141ea8b7ce94b1","stable_text_bytes":12255},
+    {"topic_id":569,"post_id":102234,"posted_at":"2025-08-09","stable_text_sha256":"d005a57abab1a9f7b911e9b131691ba049456695156ab7af0c15eda604197da6","stable_text_bytes":6121},
+    {"topic_id":569,"post_id":107213,"posted_at":"2026-01-03","stable_text_sha256":"c0a14ea37519342cae6a54c2817a44a2c0e9f3ae2646005cbfaaf736724b3e15","stable_text_bytes":4298},
+    {"topic_id":569,"post_id":111626,"posted_at":"2026-04-16","stable_text_sha256":"2bc9ea288dd543155a166c0ac530ceb362ee8806a8ef96b189080294ba6680d5","stable_text_bytes":4654},
+    {"topic_id":575,"post_id":20750,"posted_at":"2021-02-07","stable_text_sha256":"834e20d805a3b5cb569a500420a7b81c8d9225b0dbdbcc8868d1ae65a41c06ca","stable_text_bytes":2611},
+    {"topic_id":575,"post_id":27447,"posted_at":"2021-05-23","stable_text_sha256":"4183aaee48dffc9f28368529ac4502905b82ce242e5c89345289c50638bb9b94","stable_text_bytes":1454},
+    {"topic_id":575,"post_id":99360,"posted_at":"2025-05-17","stable_text_sha256":"d2b2f37d2f489471dea3f55f982bc0b9cb61b40dc0038ba89a6d56f63f4fc04d","stable_text_bytes":2015},
+    {"topic_id":575,"post_id":107522,"posted_at":"2026-01-09","stable_text_sha256":"c1a50b0666ce19356fbbc0f1e5ba6e85028239fbe651849d7907f6ecf91bd532","stable_text_bytes":3492},
+    {"topic_id":575,"post_id":108115,"posted_at":"2026-01-21","stable_text_sha256":"d04693271cf0f80b547cbd510132d667c3f1cb34c83afe1615e50050cbd540d1","stable_text_bytes":1625},
+    {"topic_id":575,"post_id":109383,"posted_at":"2026-02-22","stable_text_sha256":"2af6f974e69bdcf63f7fce6879a395c950cf374b4cdd6d89e83b8368e3da3964","stable_text_bytes":3677},
+    {"topic_id":600,"post_id":22048,"posted_at":"2021-02-28","stable_text_sha256":"f2bb36a125f1127922678bab509074355a222307b527873d6faec40a3b8762a1","stable_text_bytes":10812},
+    {"topic_id":600,"post_id":46934,"posted_at":"2022-07-02","stable_text_sha256":"dd48f841efb4dba6c8c533e91fac5e0cdda6309351b005bb0ce655137a0d2b21","stable_text_bytes":7473},
+    {"topic_id":600,"post_id":98677,"posted_at":"2025-05-03","stable_text_sha256":"731a9cbf0db7773d2dcbd13753e38efb1da491c4cc4ce3528b075581b8afcfdd","stable_text_bytes":8568},
+    {"topic_id":1492,"post_id":88849,"posted_at":"2024-09-03","stable_text_sha256":"5094385eb3d3c46ddf4a964c040229f9b319a3acbd68aa4284101f1482de6805","stable_text_bytes":12213},
+    {"topic_id":1492,"post_id":90805,"posted_at":"2024-10-18","stable_text_sha256":"a30e5a16620a930bef183faaa1514d2e2759499821afd72b41e691c60c02ec84","stable_text_bytes":15229},
+    {"topic_id":1492,"post_id":93769,"posted_at":"2024-12-30","stable_text_sha256":"ec64fd329a040c02d86b72d6c5fa70393a339ba2220b9812cae89aca2b7ced7f","stable_text_bytes":12181},
+    {"topic_id":1492,"post_id":94815,"posted_at":"2025-01-24","stable_text_sha256":"dce808477f307982274a968c148dbbc5caea027017ad2fb8ca0b8dc4264f0db8","stable_text_bytes":20200},
+    {"topic_id":1492,"post_id":95557,"posted_at":"2025-02-11","stable_text_sha256":"b9cb0cb406ddc936a8fb386eed6b6dc3cc5a6cc298477eb3b5c31e2c603f232f","stable_text_bytes":19574},
+    {"topic_id":1492,"post_id":97473,"posted_at":"2025-04-01","stable_text_sha256":"16efb9da91590a138b6028334cede81f4b6fe604f69316ef687ca878d2c0e277","stable_text_bytes":18420},
+    {"topic_id":1492,"post_id":107068,"posted_at":"2026-01-01","stable_text_sha256":"96d111d2fa732a1563f106dcb616cc315307d147680cede2f0df3434a612e9a4","stable_text_bytes":16745}
+  ],
+  "rejected_as_engine_rules": [
+    "portfolio concentration and cash-buffer preferences",
+    "trade timing, staged selling and free-carry rules",
+    "momentum or sentiment categories",
+    "fixed subjective win rates and default probabilities",
+    "tax-account tactics and benchmark-selection preferences"
+  ]
+}

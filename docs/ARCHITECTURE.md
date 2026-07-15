@@ -322,6 +322,27 @@ method selection and any judgmental conditional probabilities — all
 company-specific (V4). Python owns the arithmetic and derived leaf/scenario
 probabilities.
 
+The canonical `valuation-snapshot-v3` / `valuation-engine-v4` contract also
+freezes one to four shared company-driver IDs per scenario. Each driver has a
+mechanism, runway evidence, capital requirement and five explicit fiscal-period
+impact rows. The anchor row reconciles each scenario to the base anchor; later
+rows reconcile year-on-year changes in revenue, EBITDA margin, depreciation/
+revenue, capex/revenue, delta-NWC/revenue, cash tax and net-financial-result/
+revenue. Each valuation driver binds to its matching frozen Research
+profile-driver and that driver's factual/calculated Outlook claim; an unrelated
+raw fact or another driver's claim cannot underwrite it. Terminal growth is
+accepted only with explicit reinvestment and
+incremental-ROIC assumptions that satisfy `g = reinvestment × incremental
+ROIC`. The deterministic driver-to-value output then computes operating CAGR,
+margin change, cumulative reinvestment/FCFF, cash conversion, an exact
+current-net-debt → cash after financing/event cash/capital allocation →
+target-net-debt bridge (positive allocation is cash outflow; negative is a
+financing inflow),
+and method-specific current-price hurdles. DCF exposes a present value gap;
+only future-period relative prices expose annualized repricing, and dated method
+ranges never mix those bases. It is part of the one engine, not a score,
+persona or second valuation method.
+
 **Valuation structural gates (computed by the backend before any verifier
 opinion; any hit → automatic `rejected` with the reason stored):**
 
@@ -331,30 +352,41 @@ opinion; any hit → automatic `rejected` with the reason stored):**
    current-price-derived forward trading multiple is forbidden as a target;
 3. five-year math recomputation — P&L, recurring/reported bridge, FCFF,
    EV-to-equity bridge, P/E, EV/EBITDA, EV/EBIT, DCF sensitivities and reverse
-   DCF reproduce deterministically; a partly elapsed first fiscal year has an
+   DCF reproduce deterministically; all scenarios share periods/fractions/
+   timings, a partly elapsed first fiscal year has an
    explicit FCFF fraction and discount exponent rather than a hidden full year;
-4. unknown neutrality — absence can lower coverage or disable a method, but
+4. potential-driver reconciliation — the same company driver IDs span bad,
+   base and good; driver labels/Research keys remain stable globally; every
+   core or event scenario-driver binds to its own frozen Research-driver Outlook
+   evidence; five-period revenue, margin, depreciation, capex, NWC, tax and
+   financing impacts sum exactly to the anchor/year-on-year forecast path; the
+   deterministic bridge preserves those IDs and terminal
+   growth reconciles to reinvestment × incremental ROIC;
+5. unknown neutrality — absence can lower coverage or disable a method, but
    cannot become zero, an adverse assumption or a probability input;
-5. methodology independence — one company-specific primary method plus
-   relative/intrinsic cross-check coverage; calculated methods reconcile and
-   excessive dispersion fails instead of being hidden by averaging;
-6. conditional probability structure — Python derives mutually exclusive and
+6. methodology independence — one company-specific primary method plus
+   relative/intrinsic cross-check coverage; future EV methods require a
+   reconciled target-net-debt rollforward; only same-date calculated methods
+   enter dispersion, which fails instead of being hidden by averaging;
+7. conditional probability structure — Python derives mutually exclusive and
    exhaustive leaf/scenario probabilities from evidence-bound nodes. Direct
    unexplained percentages, known house defaults and cross-company
    near-duplicates fail. `uncalibrated` carries no percentages or weighted
    value; empirical claims require a frozen dataset fingerprint, cutoff,
    sample, Brier score and reliability bins;
-7. rationale and company-specificity — every core assumption binds a
+8. rationale and company-specificity — every core assumption binds a
    semantically eligible fact/Research claim or is explicit judgment; the full
    five-year vector must differ from templates and other live companies;
-8. scenario completeness — each scenario names mechanism, catalyst or
+9. scenario completeness — each scenario names mechanism, catalyst or
    counter-driver and a dated falsifier; an event splits recurring P&L from
-   one-off P&L/cash and is mutually exclusive;
-9. lineage — fingerprints current, look-ahead boundaries respected,
+   one-off P&L/cash, is mutually exclusive, stays out of relative multiples,
+   is discounted at its own DCF timing and requires DCF as primary;
+10. lineage — fingerprints current, look-ahead boundaries respected,
    drafter ≠ verifier worker.
 
 The strict verifier then judges what cannot be computed — evidence fit,
-mechanism plausibility, probability reasonableness — and must return either
+mechanism plausibility, whether the driver runway and capital burden are
+underwriteable, and probability reasonableness — and must return either
 concrete findings or per-check justification referencing the evidence
 examined (V5). A verdict with empty findings and empty justifications is
 itself rejected. Save recomputes every deterministic output, including a

@@ -47,10 +47,10 @@ from app.services.valuation_gates import (
 from app.services.valuation_templates import get_template
 
 WORKFLOW = "stock-company-valuation"
-SKILL_VERSION = "company-valuation-v3"
-CONTRACT_VERSION = "valuation-snapshot-v2"
-ENGINE_VERSION = "valuation-engine-v3"
-TEMPLATE_CONTRACT_VERSION = "valuation-templates-v2"
+SKILL_VERSION = "company-valuation-v4"
+CONTRACT_VERSION = "valuation-snapshot-v3"
+ENGINE_VERSION = "valuation-engine-v4"
+TEMPLATE_CONTRACT_VERSION = "valuation-templates-v3"
 
 # Frozen at queue time; the drafter may not change these.
 FROZEN_BASE_FIELDS = (

@@ -1,7 +1,7 @@
-"""Compute deterministic outputs + structural-gate self-check for one drafted grid.
+"""Compute deterministic outputs and structural gates for one Codex-authored case.
 
 The drafting worker owns company-specific assumptions and probabilities
-(VISION V4). This script turns its drafted grid into the exact draft payload:
+(VISION V4). This script turns its submitted causal case into the exact draft payload:
 frozen base fields from the claimed run + deterministic outputs + gaps +
 fingerprints + expected next version — and, when judgment is included, the
 structural gate report so the drafter can fix defects BEFORE the verifier
@@ -56,7 +56,7 @@ class ComputeDraftIn(BaseModel):
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Compute one drafted valuation grid against its frozen base."
+        description="Compute one Codex-authored valuation case against its frozen base."
     )
     parser.add_argument("--input", default="-")
     add_json_flags(parser)

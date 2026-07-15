@@ -53,6 +53,11 @@ function probabilityFor(outputs: ValuationDeterministicOutputs, kind: ValuationS
   return outputs.final_probabilities?.find((item) => item.kind === kind) ?? null;
 }
 
+function fmtPp(value: number | null | undefined) {
+  if (value == null) return "—";
+  return `${value > 0 ? "+" : ""}${fmtNumber(value, 1)} pp`;
+}
+
 function readableGap(gap: string) {
   const translations: Record<string, string> = {
     "Upstream research snapshot is provisional.": "Bazowy snapshot Research ma status prowizoryczny.",
@@ -63,11 +68,15 @@ function readableGap(gap: string) {
 
 function methodBasis(method: ValuationMethod, result: ValuationMethodOutput) {
   if (result.status !== "calculated") return null;
+  const valueDate = result.value_date === "present"
+    ? "wartość bieżąca"
+    : result.valuation_period ? `cena FY${result.valuation_period}` : null;
+  const distress = result.distress_floor_applied ? "wartość rezydualna 0" : null;
   if (method === "fcff_dcf" && result.wacc_pct != null && result.terminal_growth_pct != null) {
-    return `WACC ${fmtPct(result.wacc_pct)} · g ${fmtPct(result.terminal_growth_pct)}`;
+    return [`WACC ${fmtPct(result.wacc_pct)} · g ${fmtPct(result.terminal_growth_pct)}`, valueDate, distress].filter(Boolean).join(" · ");
   }
-  if (result.target_multiple != null) return `${fmtNumber(result.target_multiple, 2)}×`;
-  return null;
+  if (result.target_multiple != null) return [`${fmtNumber(result.target_multiple, 2)}×`, valueDate, distress].filter(Boolean).join(" · ");
+  return valueDate;
 }
 
 function ForecastAndSensitivity({ outputs }: { outputs: ValuationDeterministicOutputs }) {
@@ -78,7 +87,7 @@ function ForecastAndSensitivity({ outputs }: { outputs: ValuationDeterministicOu
           <p className="eyebrow">Ścieżka modelu</p>
           <h2 id="valuation-model-evidence-heading">Pięć lat przepływów i wrażliwość DCF</h2>
         </div>
-        <p>FY2026 jest stubem; kolejne okresy są pełnymi latami. Nieznany Street po FY2028 nie jest traktowany jako spadek.</p>
+        <p>Pierwszy okres pokazuje jawny udział i czas dyskonta; brak Street poza zachowanym horyzontem nie jest traktowany jako spadek.</p>
       </div>
       <div className="valuation-model-scenarios">
         {outputs.scenarios.map((scenario) => {
@@ -106,6 +115,9 @@ function ForecastAndSensitivity({ outputs }: { outputs: ValuationDeterministicOu
                 <div className="valuation-dcf-parameters">
                   <span>WACC <strong>{fmtPct(dcf.wacc_pct)}</strong></span>
                   <span>Wzrost terminalny <strong>{fmtPct(dcf.terminal_growth_pct)}</strong></span>
+                  <span>Reinwestycja terminalna <strong>{fmtPct(dcf.terminal_reinvestment_rate_pct)}</strong></span>
+                  <span>ROIC przyrostowy <strong>{fmtPct(dcf.terminal_incremental_roic_pct)}</strong></span>
+                  <span>FCFF terminalny <strong>{fmtTysAsMln(dcf.terminal_fcff_pln_thousands)}</strong></span>
                   <span>Udział terminala <strong>{fmtPct(dcf.terminal_value_share_pct)}</strong></span>
                   <span>Wartość kapitału <strong>{fmtTysAsMln(dcf.equity_value_pln_thousands)}</strong></span>
                 </div>
@@ -135,7 +147,7 @@ function PricedInExpectations({ outputs }: { outputs: ValuationDeterministicOutp
       <div>
         <p className="eyebrow">Reverse valuation</p>
         <h2 id="valuation-priced-in-heading">Co musi dowieźć spółka, żeby uzasadnić obecny kurs</h2>
-        <p>To diagnostyka oczekiwań w cenie, nie dodatkowy cel ani rekomendacja.</p>
+        <p>To diagnostyka oczekiwań w cenie, nie dodatkowy cel ani rekomendacja. Reverse DCF skaluje całą ścieżkę przy niezmienionych marżach, reinwestycji, WACC i g.</p>
       </div>
       <div className="valuation-priced-in-grid">
         <article>
@@ -158,6 +170,122 @@ function PricedInExpectations({ outputs }: { outputs: ValuationDeterministicOutp
       </div>
     </section>
   );
+}
+
+function DriverToValuePotential({
+  outputs,
+  saved,
+}: {
+  outputs: ValuationDeterministicOutputs;
+  saved: CanonicalValuationSnapshot;
+}) {
+  const orderedKinds: ValuationScenarioKind[] = ["negative", "base", "positive", "event"];
+  const assumptions = saved.assumptions.scenarios;
+  const scenarioRows = orderedKinds.map((kind) => ({
+    kind,
+    assumptions: assumptions.find((scenario) => scenario.kind === kind),
+    output: outputs.scenarios.find((scenario) => scenario.kind === kind),
+  })).filter((row) => row.assumptions && row.output);
+  const drivers = Array.from(new Map(
+    scenarioRows.flatMap((row) => row.assumptions!.potential_drivers)
+      .map((driver) => [driver.driver_id, driver]),
+  ).values());
+
+  if (!drivers.length || !scenarioRows.length) return null;
+
+  return <section className="valuation-potential" aria-labelledby="valuation-potential-heading">
+    <div className="valuation-section-heading">
+      <div>
+        <p className="eyebrow">Most potencjału</p>
+        <h2 id="valuation-potential-heading">Dowód → driver → wynik → wartość</h2>
+      </div>
+      <p>Zmiany driverów muszą dokładnie sumować się do całej ścieżki operacyjnej. Dodatnia alokacja kapitału oznacza wypływ gotówki podnoszący dług netto; ujemna — wpływ finansowania. Potencjał bez tego mostu nie przechodzi bramki.</p>
+    </div>
+
+    <div className="valuation-driver-list">
+      {drivers.map((driver) => <article key={driver.driver_id}>
+        <header><strong>{driver.label}</strong><span>{driver.driver_id}</span></header>
+        <div className="valuation-driver-scenario-reads">
+          {scenarioRows.map(({ kind, assumptions: scenario }) => {
+            const scenarioDriver = scenario!.potential_drivers.find((item) => item.driver_id === driver.driver_id);
+            if (!scenarioDriver) return null;
+            return <div key={kind}>
+              <span className={`badge ${SCENARIO[kind].tone}`}>{SCENARIO[kind].label}</span>
+              <p>{scenarioDriver.mechanism}</p>
+              <small><b>Runway:</b> {scenarioDriver.runway_evidence}</small>
+              <small><b>Kapitał:</b> {scenarioDriver.capital_requirements}</small>
+            </div>;
+          })}
+        </div>
+        <div className="valuation-driver-table-wrap"><table>
+          <thead><tr><th>Wariant</th><th>Δ przychodu</th><th>Δ marży EBITDA</th><th>Δ amort. / sprzedaż</th><th>Δ capex / sprzedaż</th><th>Δ NWC / sprzedaż</th><th>Δ podatku</th><th>Δ wyniku fin. / sprzedaż</th><th>Runway do</th></tr></thead>
+          <tbody>{scenarioRows.map(({ kind, output }) => {
+            const bridge = output!.driver_to_value_bridge.drivers.find((item) => item.driver_id === driver.driver_id);
+            return <tr key={kind}>
+              <th>{SCENARIO[kind].label}</th>
+              <td>{fmtTysAsMln(bridge?.cumulative_revenue_delta_pln_thousands)}</td>
+              <td>{fmtPp(bridge?.cumulative_ebitda_margin_delta_pp)}</td>
+              <td>{fmtPp(bridge?.cumulative_depreciation_ratio_delta_pp)}</td>
+              <td>{fmtPp(bridge?.cumulative_capex_ratio_delta_pp)}</td>
+              <td>{fmtPp(bridge?.cumulative_nwc_ratio_delta_pp)}</td>
+              <td>{fmtPp(bridge?.cumulative_cash_tax_rate_delta_pp)}</td>
+              <td>{fmtPp(bridge?.cumulative_net_financial_result_ratio_delta_pp)}</td>
+              <td>FY{bridge?.runway_end_period ?? "—"}</td>
+            </tr>;
+          })}</tbody>
+        </table></div>
+        <details className="valuation-driver-annual">
+          <summary>Pięć rocznych wierszy drivera</summary>
+          <div className="valuation-driver-table-wrap"><table>
+            <thead><tr><th>Wariant</th><th>FY</th><th>Δ przychodu</th><th>Δ marży EBITDA</th><th>Δ amort. / sprzedaż</th><th>Δ capex / sprzedaż</th><th>Δ NWC / sprzedaż</th><th>Δ podatku</th><th>Δ wyniku fin. / sprzedaż</th></tr></thead>
+            <tbody>{scenarioRows.flatMap(({ kind, assumptions: scenario }) => {
+              const scenarioDriver = scenario!.potential_drivers.find((item) => item.driver_id === driver.driver_id);
+              return (scenarioDriver?.impacts ?? []).map((impact) => <tr key={`${kind}-${impact.period}`}>
+                <th>{SCENARIO[kind].label}</th>
+                <td>FY{impact.period}</td>
+                <td>{fmtTysAsMln(impact.revenue_delta_pln_thousands?.value)}</td>
+                <td>{fmtPp(impact.ebitda_margin_delta_pp?.value)}</td>
+                <td>{fmtPp(impact.depreciation_pct_revenue_delta_pp?.value)}</td>
+                <td>{fmtPp(impact.capex_pct_revenue_delta_pp?.value)}</td>
+                <td>{fmtPp(impact.delta_nwc_pct_revenue_delta_pp?.value)}</td>
+                <td>{fmtPp(impact.cash_tax_rate_delta_pp?.value)}</td>
+                <td>{fmtPp(impact.net_financial_result_pct_revenue_delta_pp?.value)}</td>
+              </tr>);
+            })}</tbody>
+          </table></div>
+        </details>
+      </article>)}
+    </div>
+
+    <div className="valuation-potential-scenarios">
+      {scenarioRows.map(({ kind, assumptions: scenario, output }) => {
+        const bridge = output!.driver_to_value_bridge;
+        const primary = outputs.methodology.primary_method;
+        const hurdle = bridge.market_hurdles[primary];
+        return <article key={kind}>
+          <header><span className={`badge ${SCENARIO[kind].tone}`}>{SCENARIO[kind].label}</span><strong>FY{bridge.anchor_period}–FY{bridge.end_period}</strong></header>
+          <dl>
+            <div><dt>CAGR przychodów</dt><dd>{fmtPct(bridge.trajectory.revenue.cagr_pct)}</dd></div>
+            <div><dt>Δ marży EBITDA</dt><dd>{fmtPp(bridge.trajectory.ebitda_margin.change_pp)}</dd></div>
+            <div><dt>FCFF horyzontu</dt><dd>{fmtTysAsMln(bridge.reinvestment.cumulative_fcff_pln_thousands)}</dd></div>
+            <div><dt>Reinwestycja / przychody</dt><dd>{fmtPct(bridge.reinvestment.net_reinvestment_to_revenue_pct)}</dd></div>
+            <div><dt>Dług netto dziś</dt><dd>{fmtTysAsMln(bridge.net_debt_bridge.current_net_debt_pln_thousands)}</dd></div>
+            <div><dt>Gotówka po finansowaniu do FY{bridge.valuation_period}</dt><dd>{fmtTysAsMln(bridge.net_debt_bridge.cumulative_cash_after_financing_to_valuation_pln_thousands)}</dd></div>
+            <div><dt>Gotówka zdarzenia do FY{bridge.valuation_period}</dt><dd>{fmtTysAsMln(bridge.net_debt_bridge.event_cash_to_valuation_pln_thousands)}</dd></div>
+            <div><dt>Dług netto FY{bridge.valuation_period}</dt><dd>{fmtTysAsMln(bridge.net_debt_bridge.target_net_debt_pln_thousands)}</dd></div>
+            <div><dt>Alokacja kapitału do FY{bridge.valuation_period}</dt><dd>{fmtTysAsMln(bridge.net_debt_bridge.cumulative_capital_allocation_pln_thousands)}</dd></div>
+            <div><dt>Reszta uzgodnienia długu</dt><dd>{fmtTysAsMln(bridge.net_debt_bridge.reconciliation_residual_pln_thousands)}</dd></div>
+            <div><dt>g = reinwestycja × ROIC</dt><dd>{fmtPct(bridge.terminal_economics.growth_pct)} = {fmtPct(bridge.terminal_economics.reinvestment_rate_pct)} × {fmtPct(bridge.terminal_economics.incremental_roic_pct)}</dd></div>
+            {bridge.price_change_basis === "present_value_gap"
+              ? <div><dt>Luka wartości bieżącej</dt><dd className={signClass(bridge.current_value_gap_pct)}>{fmtPct(bridge.current_value_gap_pct, { signed: true })}</dd></div>
+              : <div><dt>Roczny repricing do FY{bridge.valuation_period}</dt><dd className={signClass(bridge.annualized_price_repricing_pct)}>{fmtPct(bridge.annualized_price_repricing_pct, { signed: true })}</dd></div>}
+          </dl>
+          {scenario!.event_impact && <p>Zdarzenie FY{scenario!.event_impact.period}: gotówka {fmtTysAsMln(scenario!.event_impact.cash_pln_thousands.value)} (PV {fmtTysAsMln(bridge.event_cash_present_value_pln_thousands)}); wynik jednorazowy {fmtTysAsMln(scenario!.event_impact.pnl_net_pln_thousands.value)}. Wycena tylko przez terminowy DCF.</p>}
+          <p>Kurs przy metodzie {METHOD_LABEL[primary]} wymaga pokrycia <strong>{fmtPct(hurdle.coverage_pct)}</strong>; bufor / brak <b className={signClass(hurdle.headroom_pct)}>{fmtPct(hurdle.headroom_pct, { signed: true })}</b>.</p>
+        </article>;
+      })}
+    </div>
+  </section>;
 }
 
 function ResultComparison({
@@ -192,6 +320,8 @@ function ResultComparison({
         <IconAlertTriangle size={15} />
         <div><strong>Ograniczona porównywalność mnożników historycznych</strong><p>{comparabilityFinding.detail}</p></div>
       </aside>}
+
+      <DriverToValuePotential outputs={outputs} saved={saved} />
 
       <div className="valuation-scenario-results">
         {outputs.scenarios.map((row) => {
@@ -241,9 +371,9 @@ function ResultComparison({
                 {row.target_price_pln == null ? (
                   <><strong>Metoda niedostępna</strong><small>{row.valuation_gap}</small></>
                 ) : (
-                  <><strong>{fmtPln(row.target_price_pln)}</strong><span className={signClass(row.return_pct)}>{fmtPct(row.return_pct, { signed: true })}</span></>
+                  <><strong>{fmtPln(row.target_price_pln)}</strong><span className={signClass(row.return_pct)}>{fmtPct(row.return_pct, { signed: true })}</span><small>{row.target_price_basis === "present" ? "bieżąca luka wartości" : `łączny repricing do FY${row.target_price_period}`}</small></>
                 )}
-                {row.cross_check_range_pln && <small>Zakres metod {fmtPln(row.cross_check_range_pln.low)}–{fmtPln(row.cross_check_range_pln.high)} · rozbieżność {fmtPct(row.method_dispersion_pct)}</small>}
+                {row.cross_check_range_pln && <small>Porównywalny zakres metod {fmtPln(row.cross_check_range_pln.low)}–{fmtPln(row.cross_check_range_pln.high)} · rozbieżność {fmtPct(row.method_dispersion_pct)}</small>}
               </div>
 
               {judgment && <div className="valuation-judgment">
@@ -332,7 +462,7 @@ export default function ValuationWorkspaceView({
     </header>
 
     <section className="valuation-engine">
-      <div><span className="snapshot-label">Silnik</span><strong>Workbench v3</strong><small>pięć lat · P/E · EV/EBITDA · EV/EBIT · FCFF DCF</small></div>
+      <div><span className="snapshot-label">Silnik</span><strong>Workbench v4</strong><small>pięć lat · P/E · EV/EBITDA · EV/EBIT · FCFF DCF</small></div>
       <div><span className="snapshot-label">Szablon</span><strong>{workspace.template.label}</strong><small>{workspace.template.version}</small></div>
       {savedStatus && <div><span className="snapshot-label">Aktualna użyteczna wycena</span><span className={`badge ${savedStatus.tone}`}>{savedStatus.label}</span><small>wersja {boundValuation!.version}</small></div>}
     </section>

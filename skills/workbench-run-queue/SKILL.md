@@ -24,6 +24,11 @@ The app persists requests; this skill owns one explicit queue-draining session.
      the actual host as unavailable plus the substitution instead of silently
      treating every job as the current model;
    - follow its frozen execution contract and heartbeat its lease;
+   - load and follow the workflow skill named by that contract; for valuation,
+     the Codex context itself must perform the company-specific causal analysis
+     in `company-valuation` before invoking deterministic computation—scripts
+     may validate or price the draft, but may not synthesize it by filling a
+     reusable grid;
    - run deterministic collection/calculation before judgment;
    - obtain genuinely independent strict verification for the exact draft;
    - save through the workflow's canonical adapter so the row terminalizes
@@ -34,9 +39,12 @@ The app persists requests; this skill owns one explicit queue-draining session.
      `company-research` v3, including the five source-channel attempts,
      company-specific profile, forward Outlook, exact verification, and
      immutable snapshot save;
-   - `stock-company-valuation` uses `company-valuation` v2. The frozen row
-     supplies the Research/base boundary; Codex drafts company-specific
-     assumptions and probabilities and Python owns all math;
+   - `stock-company-valuation` uses `company-valuation` v4. The frozen row
+     supplies the Research/base boundary; Codex reads the complete dossier and
+     reasons through company-specific mechanisms, runway, falsifiers, annual
+     driver impacts, capital allocation/net debt, terminal economics, method
+     fit and probabilities. Python owns only lineage, timing, reconciliation
+     and valuation math;
    - `stock-portfolio-review` interprets only its frozen snapshot, mappings,
      analytics, risk context, eligible valuations, and gaps.
 5. Stop the session when any of these bounded safety caps fires:

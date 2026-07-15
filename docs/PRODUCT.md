@@ -129,6 +129,13 @@ Goal: convert researched drivers into explicit, company-specific
 bad/base/good (+optional event) scenarios with prices and probabilities that
 could only belong to this company.
 
+The queued Codex valuation skill performs the ambiguous analysis: it reads the
+complete frozen dossier, decides which causal mechanisms and KPIs matter,
+challenges runway, accounting quality, capital burden and method fit, and
+drafts the company-specific scenarios. Python does not imitate investors or
+generate a house grid; it verifies lineage/timing and computes the submitted
+case.
+
 - Valuation starts from a frozen Research snapshot and the retained
   BiznesRadar analyst expectation curve. Revenue, EBITDA, EBIT and net-profit
   levels, year-on-year growth, analyst count and range are the visible Street
@@ -137,17 +144,40 @@ could only belong to this company.
 - Every scenario contains an explicit five-year operating path through revenue,
   EBITDA, EBIT, recurring net income, EPS and FCFF. Reported one-offs are shown
   separately and are never capitalized as recurring earnings.
+- Each scenario carries the same one-to-four named company drivers. Across all
+  five fiscal periods their evidence-bound revenue, EBITDA-margin,
+  depreciation, capex, working-capital, cash-tax and financing contributions
+  must sum exactly to the aggregate forecast. The anchor row reconciles each
+  scenario to the base anchor; later rows reconcile year-on-year changes.
+  The screen exposes this `evidence → driver → result → value` bridge, its
+  runway, capital requirements and the first period in which the mechanism no
+  longer contributes; potential that exists only as prose is rejected.
 - Python computes all math deterministically. The company-specific methodology
   selects one primary method and at least one independent method from both
   relative and intrinsic families: recurring P/E, EV/EBITDA, EV/EBIT and FCFF
-  DCF. Enterprise-value methods reconcile cash, debt and leases to equity; an
-  unknown bridge item disables the affected method instead of becoming zero.
+  DCF. Future-period enterprise-value methods reconcile current debt through
+  cumulative cash after financing, timed event cash and explicit capital
+  allocation to target net debt. Positive allocation is a cash outflow that
+  raises net debt; negative allocation is a financing inflow that lowers it.
+  An unknown bridge item disables the affected method instead of becoming zero
+  or silently reusing today's debt.
   A partly elapsed first fiscal year is an explicit stub: only remaining FCFF
   is included and every cash flow carries its discount timing from the cutoff.
+  Terminal growth is also an economic identity, not a free plug: the explicit
+  terminal reinvestment rate multiplied by incremental ROIC must reproduce it.
 - Methods are not averaged. The primary method supplies the scenario value;
-  cross-checks expose a range and dispersion, while the DCF shows WACC/terminal
+  cross-checks expose a range and dispersion only when their value dates match,
+  while the DCF shows WACC/terminal
   growth sensitivity and terminal-value concentration. Reverse valuation shows
   what growth/margin path and trading multiples the current price implies.
+  Per-scenario diagnostics additionally show revenue/profit/FCFF runway,
+  cumulative capex and working-capital consumption, cash conversion, the
+  operating result required by the current price under each selected multiple,
+  the present value gap for DCF, and annualized repricing only for a named
+  future-period relative-method price. Non-recurring event cash is discounted
+  at its own date through DCF and is not capitalized by earnings/EV multiples;
+  including an event therefore requires DCF as the primary method. These
+  diagnostics are not extra targets or recommendations.
 - Scenario probabilities, when published, come from an explicit conditional
   tree whose leaf probabilities are computed by Python. Judgmental nodes are
   labelled `judgmental_unvalidated`; empirical calibration additionally needs
@@ -166,9 +196,10 @@ could only belong to this company.
   version; it cannot masquerade as a reported fact or Street estimate.
 - Scenario outcomes are scored when actuals land (V8) and engine calibration
   is visible per version.
-- The screen opens with methodology and the scenario result, then the five-year
-  Street expectation bridge, method reconciliation, reverse expectations and
-  audit trail. It does not lead with an arbitrary one-year input grid.
+- The screen opens with methodology, the driver-to-value potential bridge and
+  the scenario result, then the five-year Street expectation bridge, method
+  reconciliation, reverse expectations and audit trail. It does not lead with
+  an arbitrary one-year input grid.
 
 ## Stage 4 — Portfolio: my real money, analyzed the most (V7)
 

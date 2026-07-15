@@ -53,7 +53,7 @@ FORBIDDEN_SEED_FINGERPRINTS = frozenset(
 # Two live valuations of different companies closer than this on every core
 # element are near-duplicates (relative tolerance).
 NEAR_DUPLICATE_REL_TOL = 0.02
-GATE_CONTRACT_VERSION = "valuation-gates-v2"
+GATE_CONTRACT_VERSION = "valuation-gates-v3"
 
 _FORECAST_VECTOR_FIELDS = (
     "revenue_pln_thousands",
@@ -71,8 +71,12 @@ _CORE_FIELDS = (
     "target_ev_ebitda",
     "target_ev_ebit",
     "target_pe",
+    "target_net_debt_pln_thousands",
+    "cumulative_capital_allocation_pln_thousands",
     "wacc_pct",
     "terminal_growth_pct",
+    "terminal_reinvestment_rate_pct",
+    "terminal_incremental_roic_pct",
 )
 
 
@@ -84,6 +88,12 @@ class GateResult:
 
     def to_dict(self) -> dict:
         return {"gate": self.gate, "passed": self.passed, "reason": self.reason}
+
+
+def _normalized_driver_label(value: object) -> str:
+    """Normalize presentation-only whitespace/case without erasing label meaning."""
+
+    return " ".join(str(value or "").split()).casefold()
 
 
 def _scenario_vector(scenario) -> tuple[float, ...]:
@@ -384,6 +394,241 @@ def _gate_scenario_completeness(draft) -> GateResult:
     return GateResult(gate, True)
 
 
+def _gate_potential_driver_bridge(draft) -> GateResult:
+    """Prove that named potential is numerically bridged and evidence-bound."""
+
+    gate = "potential_driver_bridge"
+    core = {
+        row.kind: row
+        for row in draft.assumptions
+        if row.kind in {"negative", "base", "positive"}
+    }
+    if set(core) != {"negative", "base", "positive"}:
+        return GateResult(gate, False, "Potential bridge requires all three core scenarios.")
+    driver_sets = {
+        scenario.kind: {driver.driver_id for driver in scenario.potential_drivers}
+        for scenario in draft.assumptions
+    }
+    if len({tuple(sorted(value)) for value in driver_sets.values()}) != 1:
+        return GateResult(
+            gate,
+            False,
+            "Every scenario, including an optional event branch, must use the same company driver IDs.",
+        )
+    all_driver_ids = {
+        driver.driver_id
+        for scenario in draft.assumptions
+        for driver in scenario.potential_drivers
+    }
+    labels = {
+        driver_id: {
+            driver.label.strip().casefold()
+            for scenario in draft.assumptions
+            for driver in scenario.potential_drivers
+            if driver.driver_id == driver_id
+        }
+        for driver_id in all_driver_ids
+    }
+    inconsistent_labels = [key for key, values in labels.items() if len(values) != 1]
+    if inconsistent_labels:
+        return GateResult(
+            gate,
+            False,
+            f"Potential driver labels change between scenarios: {sorted(inconsistent_labels)}.",
+        )
+    research_keys = {
+        driver_id: {
+            driver.research_driver_key
+            for scenario in draft.assumptions
+            for driver in scenario.potential_drivers
+            if driver.driver_id == driver_id
+        }
+        for driver_id in all_driver_ids
+    }
+    inconsistent_research_keys = [
+        key for key, values in research_keys.items() if len(values) != 1
+    ]
+    if inconsistent_research_keys:
+        return GateResult(
+            gate,
+            False,
+            "Potential drivers change their frozen Research-driver binding between "
+            f"scenarios: {sorted(inconsistent_research_keys)}.",
+        )
+
+    evidence_bound = 0
+    driver_count = 0
+    maximum_residual = 0.0
+    manifest = getattr(draft, "input_manifest", None) or {}
+    claim_catalog = manifest.get("research_claim_catalog") or {}
+    driver_catalog = manifest.get("research_driver_catalog") or {}
+    field_pairs = (
+        ("revenue_pln_thousands", "revenue_delta_pln_thousands", 0.02),
+        ("ebitda_margin_pct", "ebitda_margin_delta_pp", 0.0001),
+        (
+            "depreciation_pct_revenue",
+            "depreciation_pct_revenue_delta_pp",
+            0.0001,
+        ),
+        ("capex_pct_revenue", "capex_pct_revenue_delta_pp", 0.0001),
+        ("delta_nwc_pct_revenue", "delta_nwc_pct_revenue_delta_pp", 0.0001),
+        ("cash_tax_rate_pct", "cash_tax_rate_delta_pp", 0.0001),
+        (
+            "net_financial_result_pct_revenue",
+            "net_financial_result_pct_revenue_delta_pp",
+            0.0001,
+        ),
+    )
+    for scenario in draft.assumptions:
+        scenario_has_material_driver = False
+        for driver in scenario.potential_drivers:
+            driver_count += 1
+            frozen_driver = driver_catalog.get(driver.research_driver_key)
+            if not frozen_driver:
+                return GateResult(
+                    gate,
+                    False,
+                    f"Potential driver '{driver.driver_id}' in {scenario.kind} is not bound to a frozen Research driver.",
+                )
+            frozen_label = frozen_driver.get("label")
+            if _normalized_driver_label(driver.label) != _normalized_driver_label(
+                frozen_label
+            ):
+                return GateResult(
+                    gate,
+                    False,
+                    "Potential driver "
+                    f"'{driver.driver_id}' in {scenario.kind} changes the frozen "
+                    f"Research-driver label for key '{driver.research_driver_key}'.",
+                )
+            allowed_claim_paths = set(frozen_driver.get("claim_paths") or [])
+            values = [
+                value
+                for impact in driver.impacts
+                for value in (
+                    impact.revenue_delta_pln_thousands,
+                    impact.ebitda_margin_delta_pp,
+                    impact.depreciation_pct_revenue_delta_pp,
+                    impact.capex_pct_revenue_delta_pp,
+                    impact.delta_nwc_pct_revenue_delta_pp,
+                    impact.cash_tax_rate_delta_pp,
+                    impact.net_financial_result_pct_revenue_delta_pp,
+                )
+                if value is not None
+            ]
+            if any(abs(value.value) > 0.0001 for value in values):
+                scenario_has_material_driver = True
+            factual_claim_paths = {
+                path
+                for value in values
+                for path in value.research_claim_paths
+                if path in allowed_claim_paths
+                and (claim_catalog.get(path) or {}).get("kind")
+                in {"fact", "calculation"}
+                and (claim_catalog.get(path) or {}).get("source_version_ids")
+            }
+            if factual_claim_paths:
+                evidence_bound += 1
+            else:
+                return GateResult(
+                    gate,
+                    False,
+                    f"Potential driver '{driver.driver_id}' in {scenario.kind} has no factual claim binding from its frozen Research-driver outlook; raw facts, other drivers, leads and unsupported assumptions cannot underwrite potential.",
+                )
+        if scenario.kind in core and not scenario_has_material_driver:
+            return GateResult(
+                gate,
+                False,
+                f"Core scenario {scenario.kind} has no non-zero operating-driver contribution; price potential cannot come only from valuation or unbridged assumptions.",
+            )
+        current_anchor = scenario.forecast_years[0]
+        base_anchor = core["base"].forecast_years[0]
+        for forecast_field, impact_field, tolerance in field_pairs:
+            expected = (
+                getattr(current_anchor, forecast_field).value
+                - getattr(base_anchor, forecast_field).value
+            )
+            bridged = sum(
+                value.value
+                for driver in scenario.potential_drivers
+                for impact in driver.impacts
+                if impact.period == current_anchor.period
+                and (value := getattr(impact, impact_field)) is not None
+            )
+            residual = abs(expected - bridged)
+            maximum_residual = max(maximum_residual, residual)
+            if residual > tolerance:
+                return GateResult(
+                    gate,
+                    False,
+                    f"Potential driver bridge does not reconcile the {scenario.kind} anchor {forecast_field}: residual {residual:.6f}.",
+                )
+        for index, current in enumerate(scenario.forecast_years[1:], start=1):
+            previous = scenario.forecast_years[index - 1]
+            for forecast_field, impact_field, tolerance in field_pairs:
+                expected = (
+                    getattr(current, forecast_field).value
+                    - getattr(previous, forecast_field).value
+                )
+                bridged = sum(
+                    value.value
+                    for driver in scenario.potential_drivers
+                    for impact in driver.impacts
+                    if impact.period == current.period
+                    and (value := getattr(impact, impact_field)) is not None
+                )
+                residual = abs(expected - bridged)
+                maximum_residual = max(maximum_residual, residual)
+                if residual > tolerance:
+                    return GateResult(
+                        gate,
+                        False,
+                        f"Potential driver bridge does not reconcile {scenario.kind} {forecast_field} for {current.period}: residual {residual:.6f}.",
+                    )
+    if maximum_residual > 0.02:
+        return GateResult(
+            gate,
+            False,
+            f"Potential driver bridge has an unreconciled residual of {maximum_residual:.6f}.",
+        )
+
+    outputs = {
+        row.get("kind"): row.get("driver_to_value_bridge")
+        for row in draft.deterministic_outputs.get("scenarios", [])
+    }
+    for scenario in draft.assumptions:
+        kind = scenario.kind
+        bridge = outputs.get(kind) or {}
+        output_ids = {row.get("driver_id") for row in bridge.get("drivers") or []}
+        expected_ids = {driver.driver_id for driver in scenario.potential_drivers}
+        if output_ids != expected_ids:
+            return GateResult(
+                gate,
+                False,
+                f"Deterministic potential bridge does not preserve {kind} driver identity.",
+            )
+        output_bindings = {
+            row.get("driver_id"): row.get("research_driver_key")
+            for row in bridge.get("drivers") or []
+        }
+        expected_bindings = {
+            driver.driver_id: driver.research_driver_key
+            for driver in scenario.potential_drivers
+        }
+        if output_bindings != expected_bindings:
+            return GateResult(
+                gate,
+                False,
+                f"Deterministic potential bridge changes {kind} Research-driver lineage.",
+            )
+    unique_drivers = len(next(iter(driver_sets.values())))
+    return GateResult(
+        gate,
+        True,
+        f"Computed {unique_drivers} shared driver(s), {evidence_bound}/{driver_count} factual scenario-driver bindings and maximum reconciliation residual {maximum_residual:.6f}.",
+    )
+
+
 def _gate_evidence_binding(draft) -> GateResult:
     gate = "evidence_binding"
     evidence_bound = 0
@@ -483,7 +728,7 @@ def _gate_method_reconciliation(draft) -> GateResult:
         primary = methods.get(draft.methodology.primary_method) or {}
         if primary.get("status") != "calculated":
             return GateResult(gate, False, f"Primary method is unavailable for {scenario.kind}.")
-        if not any(
+        if scenario.kind != "event" and not any(
             (methods.get(name) or {}).get("status") == "calculated"
             for name in draft.methodology.cross_checks
         ):
@@ -507,6 +752,7 @@ def evaluate_structural_gates(db: Session, case: ResearchCase, draft) -> list[Ga
         _gate_cross_company(db, case, draft),
         _gate_scenario_distinctness(draft),
         _gate_scenario_completeness(draft),
+        _gate_potential_driver_bridge(draft),
         _gate_evidence_binding(draft),
         _gate_unknown_neutrality(draft),
         _gate_method_reconciliation(draft),

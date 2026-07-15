@@ -3,6 +3,38 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-15 · Evidence-bound potential bridge
+
+- Reviewed an authenticated eight-thread user-nominated PortalAnaliz cohort,
+  prioritizing self-reported returns above relevant market benchmarks while
+  retaining virtual-portfolio, absolute-only and underperformance caveats.
+  Only recurring author-neutral valuation mechanics were retained. The durable
+  finding is that potential must be an operating driver with a measurable
+  runway, capital burden and price-implied hurdle; concentration, trade timing,
+  cash buffers and staged selling remain outside the engine.
+- Advanced the sole canonical workflow to `company-valuation-v4`,
+  `valuation-snapshot-v3`, `valuation-engine-v4`, `valuation-templates-v3` and
+  `valuation-gates-v3`. Every core scenario now carries the same named company
+  drivers, whose five-period revenue, EBITDA-margin, depreciation, capex,
+  working-capital, tax and financing impacts must exactly reconcile the
+  anchor/year-on-year forecast. No compatibility
+  reader or parallel valuation path remains.
+- Added terminal growth discipline (`g = reinvestment × incremental ROIC`) and
+  deterministic potential diagnostics: driver runway, operating CAGR, margin
+  change, cumulative capex/NWC/FCFF, target-net-debt/capital-allocation
+  rollforward and method-specific current-price hurdles. DCF shows a present
+  value gap; only future-period relative prices show annualized repricing, and
+  event cash is discounted at its own timing. The UI renders the
+  evidence→driver→result→value bridge ahead of scenario cards and states what
+  reverse DCF holds constant.
+- Extended strict verification with a separate potential-underwrite judgment
+  and a computed structural gate that records driver evidence coverage, exact
+  reconciliation residual and output identity. The backend suite and production
+  frontend build pass (361 backend tests); the independent review found and
+  closed Research-driver key/label lineage bypasses. The live honest-empty flow
+  is healthy, while a renewed cost-bearing valuation artifact and representative
+  company browser acceptance still require Kuba's explicit authorization.
+
 ## 2026-07-15 · SNT expectation-led valuation recovery
 
 - Tightened the V4 structural gate to compare every five-year economic input,

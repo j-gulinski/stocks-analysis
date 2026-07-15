@@ -10,9 +10,13 @@ for audit; their authors are never displayed.
 
 ## What was actually taken from the sources (synthesis, not attribution)
 
-From the retained and authenticated materials (three PortalAnaliz portfolio
-threads, a BiznesRadar-to-Excel workflow transcript, and PA opportunity
-write-ups) the Workbench keeps these mechanics, merged into one strategy:
+From the retained corpus and the authenticated July 2026 review of an
+eight-thread user-nominated PortalAnaliz cohort (used as leads, prioritizing
+benchmark-relative self-reported outperformance and retaining contrary
+evidence), plus the BiznesRadar-to-Excel workflow and opportunity write-ups,
+the Workbench keeps these mechanics, merged into one strategy. The private
+audit manifest is `docs/source-materials/portalanaliz-portfolio-review-2026-07-15.json`
+(SHA-256 `3b486e3839e08279f2e4a86cefb790360f42505a8dc758ff521886a8015b185f`).
 
 1. **Improvement beats cheapness.** The core question is "what can be better
    next quarter/year, and is it already priced in?" — revenue drivers,
@@ -38,6 +42,23 @@ write-ups) the Workbench keeps these mechanics, merged into one strategy:
    certifications, contracts, dilution, insider reference prices and explicit
    downside/upside probabilities are useful only after evidence collection;
    they are not fabricated market-wide factors.
+9. **Potential must bridge into the model.** Capacity, volume/price, backlog,
+   installed base, recurring revenue, margin leverage or pipeline evidence must
+   become an explicit KPI and annual forecast contribution. The named driver
+   deltas must reconcile to revenue, margin, depreciation, capex, working
+   capital, cash tax and financing paths;
+   otherwise potential is only a story.
+10. **Runway consumes capital.** Growth duration is shown with cumulative
+    capex, working capital and FCFF. Terminal growth is accepted only when its
+    reinvestment rate and incremental ROIC reproduce it. Cash, debt, dilution
+    and one-offs are not allowed to disappear inside a headline multiple.
+11. **Price is a hurdle, not a narrator.** Reverse valuation states what the
+    current price requires while holding named inputs constant. It never
+    invents a market view when consensus is absent and never becomes a second
+    fair-value target.
+12. **Optionality stays optional.** A large contract, asset sale or new product
+    without recurring-path evidence belongs in the event branch; it is not
+    smuggled into base revenue or assigned a default probability.
 
 Anything not listed here that appears in the sources is deliberately unused.
 New source material may extend this list only through a new strategy
@@ -152,9 +173,11 @@ from the company's own evidence:
 
 Structural gates (enforced in backend code, not by agent goodwill):
 semantic source binding, price/share/market-cap identity, five-year method and
-reverse-DCF recomputation, unknown neutrality, conditional-tree derivation, no
-seed/default equality, no cross-company near-duplicate assumption vectors,
-every core assumption fact-bound or explicit judgment, and drafter ≠ verifier.
+reverse-DCF recomputation, exact evidence-bound driver reconciliation, terminal
+growth = reinvestment × incremental ROIC, unknown neutrality,
+conditional-tree derivation, no seed/default equality, no cross-company
+near-duplicate assumption vectors, every core assumption fact-bound or explicit
+judgment, and drafter ≠ verifier.
 
 ## The learning loop (V8)
 

@@ -22,30 +22,32 @@ class ValuationTemplate:
 
 _TEMPLATES = {
     "industrial-consumer": ValuationTemplate(
-        id="industrial-consumer-expectations-v2",
-        version="industrial-consumer-template-v2",
+        id="industrial-consumer-expectations-v3",
+        version="industrial-consumer-template-v3",
         archetype="industrial-consumer",
         label="Konsensus → wariant → wycena wielometodowa",
         driver_copy=(
             "Wolumen i cena/miks budują przychód.",
             "Marża brutto i koszty operacyjne budują EBIT.",
             "FCFF, kapitał obrotowy i capex wpływają bezpośrednio na wartość.",
+            "Każdy wzrost i zmiana marży muszą sumować się z nazwanych, źródłowych driverów.",
             "C/Z i EV są metodami względnymi; DCF pozostaje niezależnym sprawdzeniem.",
         ),
-        equation="Street expectations -> Workbench forecast variance -> recurring EPS / EBITDA / EBIT / FCFF -> primary method + independent cross-checks -> equity value per share",
+        equation="frozen evidence -> named driver deltas -> revenue / margin / reinvestment path -> recurring EPS / EBITDA / EBIT / FCFF -> price-implied hurdle -> primary method + independent cross-checks -> equity value per share",
     ),
     "software-services": ValuationTemplate(
-        id="software-services-expectations-v2",
-        version="software-services-template-v2",
+        id="software-services-expectations-v3",
+        version="software-services-template-v3",
         archetype="software-services",
         label="Konsensus → wariant → wycena wielometodowa",
         driver_copy=(
             "Przychód cykliczny i projektowy budują skalę.",
             "Retencja, wykorzystanie i presja płacowa kształtują marżę.",
             "FCFF, kapitał obrotowy i capex wpływają bezpośrednio na wartość.",
+            "Każdy wzrost i zmiana marży muszą sumować się z nazwanych, źródłowych driverów.",
             "C/Z i EV są metodami względnymi; DCF pozostaje niezależnym sprawdzeniem.",
         ),
-        equation="Street expectations -> Workbench forecast variance -> recurring EPS / EBITDA / EBIT / FCFF -> primary method + independent cross-checks -> equity value per share",
+        equation="frozen evidence -> named driver deltas -> revenue / margin / reinvestment path -> recurring EPS / EBITDA / EBIT / FCFF -> price-implied hurdle -> primary method + independent cross-checks -> equity value per share",
     ),
 }
 

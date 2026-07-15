@@ -169,6 +169,16 @@ def test_v4_backend_has_structural_company_specificity_gates() -> None:
     ):
         assert computed_gate in source
 
+    queue_skill = _read("skills/workbench-run-queue/SKILL.md").lower()
+    valuation_skill = _read("skills/company-valuation/SKILL.md").lower()
+    picker = _read("backend/scripts/codex_pick_agent_run.py").lower()
+    compute_helper = _read("backend/scripts/codex_compute_valuation_draft.py").lower()
+    assert "codex context itself must perform the company-specific causal analysis" in queue_skill
+    assert "queued codex worker is an analyst, not a schema filler" in valuation_skill
+    assert "whole frozen valuation dossier" in picker
+    assert "build a causal company case" in picker
+    assert "drafted grid" not in compute_helper
+
 
 def test_v5_verifier_contract_is_adversarial_and_backend_recomputes() -> None:
     """V5: booleans cannot replace evidence, findings or deterministic checks."""
@@ -207,6 +217,7 @@ def test_v5_verifier_contract_is_adversarial_and_backend_recomputes() -> None:
             "judgment_review": {
                 "evidence_fit": justification,
                 "mechanism_plausibility": justification,
+                "potential_underwrite": justification,
                 "probability_reasonableness": justification,
             },
             "summary": "Adversarial review found no judgment-only defect.",
@@ -232,6 +243,7 @@ def test_v5_verifier_contract_is_adversarial_and_backend_recomputes() -> None:
                 "judgment_review": {
                     "evidence_fit": justification,
                     "mechanism_plausibility": justification,
+                    "potential_underwrite": justification,
                     "probability_reasonableness": justification,
                 },
                 "summary": "Rejected without a finding.",
@@ -341,7 +353,7 @@ def test_v10_clean_baseline_has_no_legacy_artifact_schema() -> None:
         "research-snapshot-v3"
     ]
     assert ValuationSnapshotOut.model_fields["contract_version"].annotation == Literal[
-        "valuation-snapshot-v2"
+        "valuation-snapshot-v3"
     ]
 
 

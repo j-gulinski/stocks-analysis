@@ -29,8 +29,8 @@ from app.services.artifact_contracts import (
 from app.services import fields, metrics
 from app.services.valuation_templates import get_template
 
-ENGINE_VERSION = "valuation-engine-v3"
-TEMPLATE_CONTRACT_VERSION = "valuation-templates-v2"
+ENGINE_VERSION = "valuation-engine-v4"
+TEMPLATE_CONTRACT_VERSION = "valuation-templates-v3"
 REVENUE_KEY = "income.IncomeRevenues"
 COST_OF_SALES_KEY = "income.IncomeCostOfSales"
 NET_PROFIT_KEYS = ("income.IncomeShareholderNetProfit", "income.IncomeNetProfit")
@@ -112,6 +112,8 @@ def calculate_fcff_dcf(
     *,
     wacc_pct: float,
     terminal_growth_pct: float,
+    terminal_reinvestment_rate_pct: float,
+    terminal_incremental_roic_pct: float,
     net_debt_pln_thousands: float,
     shares_outstanding: int,
 ) -> dict:
@@ -120,13 +122,28 @@ def calculate_fcff_dcf(
         raise ValuationInputError("FCFF DCF requires at least one forecast year.")
     if wacc_pct <= terminal_growth_pct:
         raise ValuationInputError("DCF requires WACC above terminal growth.")
+    if not -100 <= terminal_reinvestment_rate_pct <= 100:
+        raise ValuationInputError(
+            "DCF terminal reinvestment rate must be bounded to -100..100%."
+        )
+    if terminal_incremental_roic_pct <= 0:
+        raise ValuationInputError("DCF terminal incremental ROIC must be positive.")
+    sustainable_growth = (
+        terminal_reinvestment_rate_pct * terminal_incremental_roic_pct / 100.0
+    )
+    if abs(sustainable_growth - terminal_growth_pct) > 0.05:
+        raise ValuationInputError(
+            "DCF terminal growth must equal reinvestment rate x incremental ROIC."
+        )
     if shares_outstanding <= 0:
         raise ValuationInputError("DCF requires a positive share count.")
     wacc = wacc_pct / 100.0
     terminal_growth = terminal_growth_pct / 100.0
     projected: list[dict] = []
     present_value_fcff = 0.0
-    last_annual_fcff = 0.0
+    present_value_event_cash = 0.0
+    last_ebit = 0.0
+    last_tax_rate = 0.0
     last_discount_years = 0.0
     for row in forecast_years:
         ebit = float(row["ebit_pln_thousands"])
@@ -144,8 +161,12 @@ def calculate_fcff_dcf(
         fcff = annual_fcff * period_fraction
         discount_factor = (1.0 + wacc) ** discount_years
         pv_fcff = fcff / discount_factor
+        event_cash = float(row.get("event_cash_pln_thousands") or 0.0)
+        pv_event_cash = event_cash / discount_factor
         present_value_fcff += pv_fcff
-        last_annual_fcff = annual_fcff
+        present_value_event_cash += pv_event_cash
+        last_ebit = ebit
+        last_tax_rate = tax_rate
         last_discount_years = discount_years
         projected.append(
             {
@@ -155,19 +176,31 @@ def calculate_fcff_dcf(
                 "fcff_discount_years": round(discount_years, 6),
                 "fcff_pln_thousands": round(fcff, 2),
                 "present_value_pln_thousands": round(pv_fcff, 2),
+                "event_cash_pln_thousands": round(event_cash, 2),
+                "event_cash_present_value_pln_thousands": round(
+                    pv_event_cash, 2
+                ),
             }
         )
-    terminal_fcff = last_annual_fcff
-    terminal_value = terminal_fcff * (1.0 + terminal_growth) / (wacc - terminal_growth)
+    terminal_nopat = last_ebit * (1.0 - last_tax_rate) * (1.0 + terminal_growth)
+    terminal_fcff = terminal_nopat * (1.0 - terminal_reinvestment_rate_pct / 100.0)
+    terminal_value = terminal_fcff / (wacc - terminal_growth)
     terminal_present_value = terminal_value / ((1.0 + wacc) ** last_discount_years)
     enterprise_value = present_value_fcff + terminal_present_value
-    equity_value = enterprise_value - net_debt_pln_thousands
+    raw_equity_value = (
+        enterprise_value - net_debt_pln_thousands + present_value_event_cash
+    )
+    equity_value = max(raw_equity_value, 0.0)
     price = equity_value * 1000.0 / shares_outstanding
     return {
         "status": "calculated",
         "forecast_years": projected,
         "wacc_pct": wacc_pct,
         "terminal_growth_pct": terminal_growth_pct,
+        "terminal_reinvestment_rate_pct": terminal_reinvestment_rate_pct,
+        "terminal_incremental_roic_pct": terminal_incremental_roic_pct,
+        "terminal_nopat_pln_thousands": round(terminal_nopat, 2),
+        "terminal_fcff_pln_thousands": round(terminal_fcff, 2),
         "terminal_value_pln_thousands": round(terminal_value, 2),
         "terminal_present_value_pln_thousands": round(terminal_present_value, 2),
         "terminal_value_share_pct": (
@@ -176,7 +209,12 @@ def calculate_fcff_dcf(
             else None
         ),
         "enterprise_value_pln_thousands": round(enterprise_value, 2),
+        "event_cash_present_value_pln_thousands": round(
+            present_value_event_cash, 2
+        ),
         "net_debt_pln_thousands": round(net_debt_pln_thousands, 2),
+        "raw_equity_value_pln_thousands": round(raw_equity_value, 2),
+        "distress_floor_applied": raw_equity_value < 0,
         "equity_value_pln_thousands": round(equity_value, 2),
         "price_pln": round(price, 2),
     }
@@ -187,6 +225,8 @@ def solve_reverse_dcf_revenue_scale(
     *,
     wacc_pct: float,
     terminal_growth_pct: float,
+    terminal_reinvestment_rate_pct: float,
+    terminal_incremental_roic_pct: float,
     market_enterprise_value_pln_thousands: float,
     lower_scale: float = 0.05,
     upper_scale: float = 5.0,
@@ -216,6 +256,8 @@ def solve_reverse_dcf_revenue_scale(
             scaled,
             wacc_pct=wacc_pct,
             terminal_growth_pct=terminal_growth_pct,
+            terminal_reinvestment_rate_pct=terminal_reinvestment_rate_pct,
+            terminal_incremental_roic_pct=terminal_incremental_roic_pct,
             net_debt_pln_thousands=0.0,
             shares_outstanding=1,
         )
@@ -260,10 +302,19 @@ def calculate_dcf_sensitivity(
     *,
     wacc_pct: float,
     terminal_growth_pct: float,
+    terminal_reinvestment_rate_pct: float,
+    terminal_incremental_roic_pct: float,
     net_debt_pln_thousands: float,
     shares_outstanding: int,
 ) -> list[dict]:
     """Small deterministic WACC/g grid around the drafted DCF assumptions."""
+    expected_growth = (
+        terminal_reinvestment_rate_pct * terminal_incremental_roic_pct / 100.0
+    )
+    if abs(expected_growth - terminal_growth_pct) > 0.05:
+        raise ValuationInputError(
+            "DCF sensitivity requires reconciled terminal growth economics."
+        )
     rows: list[dict] = []
     for wacc in (wacc_pct - 1.0, wacc_pct, wacc_pct + 1.0):
         for growth in (
@@ -273,10 +324,21 @@ def calculate_dcf_sensitivity(
         ):
             if wacc <= growth:
                 continue
+            implied_reinvestment_rate_pct = (
+                growth / terminal_incremental_roic_pct * 100.0
+            )
+            # The drafted DCF is valid independently of this auxiliary grid.
+            # Do not let an intentionally small +/-0.5 pp growth stress create
+            # an economically impossible reinvestment rate and fail the whole
+            # canonical artifact at an otherwise valid boundary input.
+            if not -100.0 <= implied_reinvestment_rate_pct <= 100.0:
+                continue
             result = calculate_fcff_dcf(
                 forecast_years,
                 wacc_pct=wacc,
                 terminal_growth_pct=growth,
+                terminal_reinvestment_rate_pct=implied_reinvestment_rate_pct,
+                terminal_incremental_roic_pct=terminal_incremental_roic_pct,
                 net_debt_pln_thousands=net_debt_pln_thousands,
                 shares_outstanding=shares_outstanding,
             )
@@ -284,6 +346,9 @@ def calculate_dcf_sensitivity(
                 {
                     "wacc_pct": round(wacc, 2),
                     "terminal_growth_pct": round(growth, 2),
+                    "terminal_reinvestment_rate_pct": round(
+                        implied_reinvestment_rate_pct, 4
+                    ),
                     "price_pln": result["price_pln"],
                 }
             )
@@ -300,10 +365,13 @@ def ev_to_equity_price(
     if target_multiple <= 0 or shares_outstanding <= 0:
         raise ValuationInputError("EV bridge requires a positive multiple and share count.")
     enterprise_value = operating_metric_pln_thousands * target_multiple
-    equity_value = enterprise_value - net_debt_pln_thousands
+    raw_equity_value = enterprise_value - net_debt_pln_thousands
+    equity_value = max(raw_equity_value, 0.0)
     return {
         "enterprise_value_pln_thousands": round(enterprise_value, 2),
         "net_debt_pln_thousands": round(net_debt_pln_thousands, 2),
+        "raw_equity_value_pln_thousands": round(raw_equity_value, 2),
+        "distress_floor_applied": raw_equity_value < 0,
         "equity_value_pln_thousands": round(equity_value, 2),
         "price_pln": round(equity_value * 1000.0 / shares_outstanding, 2),
     }
@@ -883,6 +951,17 @@ def load_immutable_base(
     }
     if not scalar_values["shares_outstanding"] or scalar_values["shares_outstanding"] <= 0:
         raise ValuationInputError("A positive share count is required.", kind="conflict")
+    outlook_driver_claim_paths: dict[str, list[str]] = {}
+    outlook = ((snapshot.sections or {}).get("outlook") or {})
+    for index, row in enumerate(outlook.get("driver_outlooks") or []):
+        key = row.get("driver_key") if isinstance(row, dict) else None
+        if not key:
+            continue
+        outlook_driver_claim_paths[str(key)] = [
+            f"/sections/outlook/driver_outlooks/{index}/next_quarter/assessment",
+            f"/sections/outlook/driver_outlooks/{index}/next_12_months/assessment",
+        ]
+
     manifest = {
         "research_snapshot_id": snapshot.id,
         "research_snapshot_status": snapshot.status,
@@ -913,6 +992,26 @@ def load_immutable_base(
             for item in (snapshot.statement_provenance or [])
             if item.get("path") and isinstance(item.get("claim"), dict)
         },
+        "research_driver_catalog": {
+            str(item.get("key")): {
+                "label": item.get("label"),
+                "mechanism": item.get("mechanism"),
+                "unit": item.get("unit"),
+                "source_document_version_ids": (
+                    item.get("source_document_version_ids") or []
+                ),
+                "claim_paths": outlook_driver_claim_paths.get(
+                    str(item.get("key")), []
+                ),
+            }
+            for item in (profile.drivers or [])
+            if isinstance(item, dict) and item.get("key")
+        },
+        "research_profile": {
+            "id": profile.id,
+            "version": profile.version,
+            "schema_version": profile.schema_version,
+        },
         "price": price,
         "company_identity": base_values["company"],
         "company_scalar_provenance": scalar_provenance,
@@ -942,6 +1041,7 @@ def _forecast_path(scenario, *, shares: int) -> list[dict]:
         capex = revenue * year.capex_pct_revenue.value / 100.0
         delta_nwc = revenue * year.delta_nwc_pct_revenue.value / 100.0
         fcff = ebit * (1.0 - year.cash_tax_rate_pct.value / 100.0) + depreciation - capex - delta_nwc
+        cash_after_financing = recurring_net + depreciation - capex - delta_nwc
         reported_net = recurring_net
         event_cash = 0.0
         if scenario.event_impact and scenario.event_impact.period == year.period:
@@ -963,6 +1063,9 @@ def _forecast_path(scenario, *, shares: int) -> list[dict]:
                 "capex_pln_thousands": round(capex, 2),
                 "delta_nwc_pln_thousands": round(delta_nwc, 2),
                 "fcff_pln_thousands": round(fcff, 2),
+                "cash_after_financing_pln_thousands": round(
+                    cash_after_financing, 2
+                ),
                 "fcff_period_fraction": round(year.fcff_period_fraction.value, 6),
                 "fcff_discount_years": round(year.fcff_discount_years.value, 6),
                 "event_cash_pln_thousands": round(event_cash, 2),
@@ -1019,9 +1122,73 @@ def _dcf_forecast_input(scenario, path: list[dict]) -> list[dict]:
             "delta_nwc_pln_thousands": row["delta_nwc_pln_thousands"],
             "fcff_period_fraction": row["fcff_period_fraction"],
             "fcff_discount_years": row["fcff_discount_years"],
+            "event_cash_pln_thousands": row["event_cash_pln_thousands"],
         }
         for row in path
     ]
+
+
+def _target_net_debt_bridge(
+    scenario,
+    path: list[dict],
+    *,
+    valuation_period: str,
+    current_net_debt_pln_thousands: float | None,
+) -> dict:
+    """Reconcile the future EV equity bridge without assuming today's debt."""
+
+    target = scenario.target_net_debt_pln_thousands
+    allocation = scenario.cumulative_capital_allocation_pln_thousands
+    if (
+        target is None
+        or allocation is None
+        or current_net_debt_pln_thousands is None
+    ):
+        return {
+            "status": "unavailable",
+            "current_net_debt_pln_thousands": current_net_debt_pln_thousands,
+            "cumulative_cash_after_financing_to_valuation_pln_thousands": None,
+            "event_cash_to_valuation_pln_thousands": None,
+            "cumulative_capital_allocation_pln_thousands": (
+                allocation.value if allocation is not None else None
+            ),
+            "target_net_debt_pln_thousands": target.value if target is not None else None,
+            "reconciliation_residual_pln_thousands": None,
+        }
+    included = [row for row in path if row["period"] <= valuation_period]
+    cumulative_cash_after_financing = sum(
+        float(row["cash_after_financing_pln_thousands"])
+        * float(row["fcff_period_fraction"])
+        for row in included
+    )
+    event_cash = sum(float(row["event_cash_pln_thousands"]) for row in included)
+    expected_target = (
+        current_net_debt_pln_thousands
+        - cumulative_cash_after_financing
+        - event_cash
+        + allocation.value
+    )
+    residual = target.value - expected_target
+    if abs(residual) > 0.02:
+        raise ValuationInputError(
+            "Target net debt does not reconcile current net debt, cash after financing, "
+            "event cash and explicit capital allocation."
+        )
+    return {
+        "status": "calculated",
+        "current_net_debt_pln_thousands": round(
+            current_net_debt_pln_thousands, 2
+        ),
+        "cumulative_cash_after_financing_to_valuation_pln_thousands": round(
+            cumulative_cash_after_financing, 2
+        ),
+        "event_cash_to_valuation_pln_thousands": round(event_cash, 2),
+        "cumulative_capital_allocation_pln_thousands": round(
+            allocation.value, 2
+        ),
+        "target_net_debt_pln_thousands": round(target.value, 2),
+        "reconciliation_residual_pln_thousands": round(residual, 6),
+    }
 
 
 def _method_outputs(
@@ -1037,19 +1204,33 @@ def _method_outputs(
     if selected is None:
         raise ValuationInputError("Valuation period is absent from scenario forecast path.")
     methods: dict[str, dict] = {}
-    if scenario.target_pe is None or selected["recurring_eps_pln"] <= 0:
+    event_branch = scenario.kind == "event"
+    net_debt_bridge = _target_net_debt_bridge(
+        scenario,
+        path,
+        valuation_period=methodology.valuation_period,
+        current_net_debt_pln_thousands=net_debt_pln_thousands,
+    )
+    if event_branch:
+        methods["pe"] = {
+            "status": "unavailable",
+            "price_pln": None,
+            "gap": "A non-recurring event is valued only through its timed DCF cash impact.",
+        }
+    elif scenario.target_pe is None or selected["recurring_eps_pln"] <= 0:
         methods["pe"] = {"status": "unavailable", "price_pln": None}
     else:
         methods["pe"] = {
             "status": "calculated",
+            "value_date": "future_fiscal_period",
+            "valuation_period": methodology.valuation_period,
             "target_multiple": scenario.target_pe.value,
             "recurring_eps_pln": selected["recurring_eps_pln"],
             "price_pln": round(selected["recurring_eps_pln"] * scenario.target_pe.value, 2),
         }
-    effective_net_debt = (
-        net_debt_pln_thousands
-        - sum(row["event_cash_pln_thousands"] for row in path)
-        if net_debt_pln_thousands is not None
+    target_net_debt = (
+        net_debt_bridge["target_net_debt_pln_thousands"]
+        if net_debt_bridge["status"] == "calculated"
         else None
     )
     for method, assumption_name, metric_name in (
@@ -1057,23 +1238,39 @@ def _method_outputs(
         ("ev_ebit", "target_ev_ebit", "ebit_pln_thousands"),
     ):
         assumption = getattr(scenario, assumption_name)
-        if assumption is None or effective_net_debt is None:
+        if event_branch:
+            methods[method] = {
+                "status": "unavailable",
+                "price_pln": None,
+                "gap": "A non-recurring event is valued only through its timed DCF cash impact.",
+            }
+        elif (
+            assumption is None
+            or target_net_debt is None
+            or selected[metric_name] <= 0
+        ):
             methods[method] = {"status": "unavailable", "price_pln": None}
+            if assumption is not None and selected[metric_name] <= 0:
+                methods[method]["gap"] = (
+                    f"{method} requires a positive operating denominator."
+                )
         else:
             methods[method] = {
                 "status": "calculated",
+                "value_date": "future_fiscal_period",
+                "valuation_period": methodology.valuation_period,
                 "target_multiple": assumption.value,
                 **ev_to_equity_price(
                     selected[metric_name],
                     target_multiple=assumption.value,
-                    net_debt_pln_thousands=effective_net_debt,
+                    net_debt_pln_thousands=target_net_debt,
                     shares_outstanding=shares,
                 ),
             }
     if (
         scenario.wacc_pct is None
         or scenario.terminal_growth_pct is None
-        or effective_net_debt is None
+        or net_debt_pln_thousands is None
     ):
         methods["fcff_dcf"] = {"status": "unavailable", "price_pln": None}
     else:
@@ -1082,17 +1279,474 @@ def _method_outputs(
             dcf_input,
             wacc_pct=scenario.wacc_pct.value,
             terminal_growth_pct=scenario.terminal_growth_pct.value,
-            net_debt_pln_thousands=effective_net_debt,
+            terminal_reinvestment_rate_pct=scenario.terminal_reinvestment_rate_pct.value,
+            terminal_incremental_roic_pct=scenario.terminal_incremental_roic_pct.value,
+            net_debt_pln_thousands=net_debt_pln_thousands,
             shares_outstanding=shares,
         )
+        methods["fcff_dcf"]["value_date"] = "present"
+        methods["fcff_dcf"]["valuation_period"] = None
         methods["fcff_dcf"]["sensitivity"] = calculate_dcf_sensitivity(
             dcf_input,
             wacc_pct=scenario.wacc_pct.value,
             terminal_growth_pct=scenario.terminal_growth_pct.value,
-            net_debt_pln_thousands=effective_net_debt,
+            terminal_reinvestment_rate_pct=scenario.terminal_reinvestment_rate_pct.value,
+            terminal_incremental_roic_pct=scenario.terminal_incremental_roic_pct.value,
+            net_debt_pln_thousands=net_debt_pln_thousands,
             shares_outstanding=shares,
         )
     return methods
+
+
+def _growth_rate(start: float, end: float, years: float) -> float | None:
+    if start <= 0 or end < 0 or years <= 0:
+        return None
+    return round(((end / start) ** (1.0 / years) - 1.0) * 100.0, 2)
+
+
+def _numeric_values(value):
+    if isinstance(value, bool):
+        return
+    if isinstance(value, (int, float)):
+        yield value
+    elif isinstance(value, dict):
+        for child in value.values():
+            yield from _numeric_values(child)
+    elif isinstance(value, (list, tuple)):
+        for child in value:
+            yield from _numeric_values(child)
+
+
+def _market_hurdle(
+    *,
+    metric: str,
+    required_value: float | None,
+    forecast_value: float,
+    target_multiple: float | None = None,
+) -> dict:
+    if required_value is None or required_value <= 0:
+        return {
+            "status": "unavailable",
+            "metric": metric,
+            "required_pln_thousands": None,
+            "forecast_pln_thousands": round(forecast_value, 2),
+            "coverage_pct": None,
+            "headroom_pct": None,
+        }
+    coverage = forecast_value / required_value * 100.0
+    result = {
+        "status": "calculated",
+        "metric": metric,
+        "required_pln_thousands": round(required_value, 2),
+        "forecast_pln_thousands": round(forecast_value, 2),
+        "coverage_pct": round(coverage, 2),
+        "headroom_pct": round(coverage - 100.0, 2),
+    }
+    if target_multiple is not None:
+        result["target_multiple"] = round(target_multiple, 4)
+    return result
+
+
+def _driver_to_value_bridge(
+    scenario,
+    path: list[dict],
+    *,
+    methodology,
+    current_price: float,
+    market_cap: float,
+    enterprise_value: float | None,
+    net_debt_pln_thousands: float | None,
+    target_price: float | None,
+    methods: dict[str, dict],
+) -> dict:
+    """Compute the auditable operating-potential bridge for one scenario.
+
+    Driver inputs reconcile to the aggregate forecast in the Pydantic
+    contract.  This function exposes what those inputs imply for runway,
+    reinvestment, cash conversion and today's price hurdle; it never invents
+    an extra fair-value estimate.
+    """
+
+    by_period = {row["period"]: row for row in path}
+    first = path[0]
+    last = path[-1]
+    selected = by_period[methodology.valuation_period]
+    horizon_years = float(selected["fcff_discount_years"])
+    full_path_years = float(int(last["period"]) - int(first["period"]))
+
+    driver_rows = []
+    for driver in scenario.potential_drivers:
+        impacts = []
+        for impact in driver.impacts:
+            impacts.append(
+                {
+                    "period": impact.period,
+                    "revenue_delta_pln_thousands": (
+                        round(impact.revenue_delta_pln_thousands.value, 2)
+                        if impact.revenue_delta_pln_thousands is not None
+                        else None
+                    ),
+                    "ebitda_margin_delta_pp": (
+                        round(impact.ebitda_margin_delta_pp.value, 4)
+                        if impact.ebitda_margin_delta_pp is not None
+                        else None
+                    ),
+                    "depreciation_pct_revenue_delta_pp": (
+                        round(impact.depreciation_pct_revenue_delta_pp.value, 4)
+                        if impact.depreciation_pct_revenue_delta_pp is not None
+                        else None
+                    ),
+                    "capex_pct_revenue_delta_pp": (
+                        round(impact.capex_pct_revenue_delta_pp.value, 4)
+                        if impact.capex_pct_revenue_delta_pp is not None
+                        else None
+                    ),
+                    "delta_nwc_pct_revenue_delta_pp": (
+                        round(impact.delta_nwc_pct_revenue_delta_pp.value, 4)
+                        if impact.delta_nwc_pct_revenue_delta_pp is not None
+                        else None
+                    ),
+                    "cash_tax_rate_delta_pp": (
+                        round(impact.cash_tax_rate_delta_pp.value, 4)
+                        if impact.cash_tax_rate_delta_pp is not None
+                        else None
+                    ),
+                    "net_financial_result_pct_revenue_delta_pp": (
+                        round(
+                            impact.net_financial_result_pct_revenue_delta_pp.value,
+                            4,
+                        )
+                        if impact.net_financial_result_pct_revenue_delta_pp
+                        is not None
+                        else None
+                    ),
+                }
+            )
+        material_periods = [
+            row["period"]
+            for row in impacts
+            if any(
+                value not in {None, 0}
+                for key, value in row.items()
+                if key != "period"
+            )
+        ]
+        driver_rows.append(
+            {
+                "driver_id": driver.driver_id,
+                "research_driver_key": driver.research_driver_key,
+                "impacts": impacts,
+                "cumulative_revenue_delta_pln_thousands": round(
+                    sum(row["revenue_delta_pln_thousands"] or 0.0 for row in impacts),
+                    2,
+                ),
+                "cumulative_ebitda_margin_delta_pp": round(
+                    sum(row["ebitda_margin_delta_pp"] or 0.0 for row in impacts),
+                    4,
+                ),
+                "cumulative_depreciation_ratio_delta_pp": round(
+                    sum(
+                        row["depreciation_pct_revenue_delta_pp"] or 0.0
+                        for row in impacts
+                    ),
+                    4,
+                ),
+                "cumulative_capex_ratio_delta_pp": round(
+                    sum(row["capex_pct_revenue_delta_pp"] or 0.0 for row in impacts),
+                    4,
+                ),
+                "cumulative_nwc_ratio_delta_pp": round(
+                    sum(row["delta_nwc_pct_revenue_delta_pp"] or 0.0 for row in impacts),
+                    4,
+                ),
+                "cumulative_cash_tax_rate_delta_pp": round(
+                    sum(row["cash_tax_rate_delta_pp"] or 0.0 for row in impacts),
+                    4,
+                ),
+                "cumulative_net_financial_result_ratio_delta_pp": round(
+                    sum(
+                        row["net_financial_result_pct_revenue_delta_pp"] or 0.0
+                        for row in impacts
+                    ),
+                    4,
+                ),
+                "runway_end_period": material_periods[-1] if material_periods else None,
+            }
+        )
+
+    weighted = [
+        (row, float(row["fcff_period_fraction"]))
+        for row in path
+    ]
+    cumulative_revenue = sum(
+        row["revenue_pln_thousands"] * fraction for row, fraction in weighted
+    )
+    cumulative_ebitda = sum(
+        row["ebitda_pln_thousands"] * fraction for row, fraction in weighted
+    )
+    cumulative_depreciation = sum(
+        row["depreciation_pln_thousands"] * fraction for row, fraction in weighted
+    )
+    cumulative_capex = sum(
+        row["capex_pln_thousands"] * fraction for row, fraction in weighted
+    )
+    cumulative_nwc = sum(
+        row["delta_nwc_pln_thousands"] * fraction for row, fraction in weighted
+    )
+    cumulative_fcff = sum(
+        row["fcff_pln_thousands"] * fraction for row, fraction in weighted
+    )
+    cumulative_net_reinvestment = (
+        cumulative_capex - cumulative_depreciation + cumulative_nwc
+    )
+
+    event_cash_present_value = (
+        sum(
+            float(row["event_cash_pln_thousands"])
+            / ((1.0 + scenario.wacc_pct.value / 100.0) ** float(row["fcff_discount_years"]))
+            for row in path
+        )
+        if scenario.wacc_pct is not None
+        else 0.0
+    )
+    market_ev_thousands = (
+        float(enterprise_value) / 1000.0
+        if enterprise_value is not None
+        else (
+            market_cap / 1000.0 + net_debt_pln_thousands
+            if net_debt_pln_thousands is not None
+            else None
+        )
+    )
+    effective_market_ev = (
+        market_ev_thousands - event_cash_present_value
+        if market_ev_thousands is not None
+        else None
+    )
+    net_debt_bridge = _target_net_debt_bridge(
+        scenario,
+        path,
+        valuation_period=methodology.valuation_period,
+        current_net_debt_pln_thousands=net_debt_pln_thousands,
+    )
+    target_net_debt = (
+        net_debt_bridge["target_net_debt_pln_thousands"]
+        if net_debt_bridge["status"] == "calculated"
+        else None
+    )
+    future_ev_at_current_equity = (
+        market_cap / 1000.0 + target_net_debt
+        if target_net_debt is not None and scenario.kind != "event"
+        else None
+    )
+    pe_required = (
+        market_cap / scenario.target_pe.value / 1000.0
+        if scenario.target_pe is not None and scenario.kind != "event"
+        else None
+    )
+    ev_ebitda_required = (
+        future_ev_at_current_equity / scenario.target_ev_ebitda.value
+        if future_ev_at_current_equity is not None
+        and scenario.target_ev_ebitda is not None
+        else None
+    )
+    ev_ebit_required = (
+        future_ev_at_current_equity / scenario.target_ev_ebit.value
+        if future_ev_at_current_equity is not None
+        and scenario.target_ev_ebit is not None
+        else None
+    )
+    reverse_dcf = {
+        "status": "unavailable",
+        "implied_path_scale_pct": None,
+        "coverage_pct": None,
+        "headroom_pct": None,
+        "held_constant": "margin, reinvestment ratios, WACC, terminal economics and timed event cash",
+    }
+    if (
+        effective_market_ev is not None
+        and effective_market_ev > 0
+        and scenario.wacc_pct is not None
+        and scenario.terminal_growth_pct is not None
+    ):
+        solved = solve_reverse_dcf_revenue_scale(
+            _dcf_forecast_input(scenario, path),
+            wacc_pct=scenario.wacc_pct.value,
+            terminal_growth_pct=scenario.terminal_growth_pct.value,
+            terminal_reinvestment_rate_pct=scenario.terminal_reinvestment_rate_pct.value,
+            terminal_incremental_roic_pct=scenario.terminal_incremental_roic_pct.value,
+            market_enterprise_value_pln_thousands=effective_market_ev,
+        )
+        if solved.get("status") == "calculated":
+            scale = float(solved["implied_revenue_path_scale_pct"])
+            coverage = 10000.0 / scale if scale > 0 else None
+            reverse_dcf = {
+                "status": "calculated",
+                "implied_path_scale_pct": round(scale, 4),
+                "coverage_pct": round(coverage, 2) if coverage is not None else None,
+                "headroom_pct": (
+                    round(coverage - 100.0, 2) if coverage is not None else None
+                ),
+                "repricing_residual_bps": solved.get("repricing_residual_bps"),
+                "held_constant": "margin, reinvestment ratios, WACC, terminal economics and timed event cash",
+            }
+
+    current_value_gap = (
+        round((target_price / current_price - 1.0) * 100.0, 2)
+        if target_price is not None and current_price > 0
+        else None
+    )
+    annualized_repricing = (
+        round(((target_price / current_price) ** (1.0 / horizon_years) - 1.0) * 100.0, 2)
+        if target_price is not None
+        and target_price >= 0
+        and current_price > 0
+        and horizon_years > 0
+        and methodology.primary_method != "fcff_dcf"
+        else None
+    )
+    dcf = methods.get("fcff_dcf") or {}
+    return {
+        "anchor_period": first["period"],
+        "valuation_period": selected["period"],
+        "end_period": last["period"],
+        "drivers": driver_rows,
+        "trajectory": {
+            "revenue": {
+                "anchor_pln_thousands": first["revenue_pln_thousands"],
+                "valuation_pln_thousands": selected["revenue_pln_thousands"],
+                "end_pln_thousands": last["revenue_pln_thousands"],
+                "cagr_pct": _growth_rate(
+                    first["revenue_pln_thousands"],
+                    last["revenue_pln_thousands"],
+                    full_path_years,
+                ),
+            },
+            "ebitda_margin": {
+                "anchor_pct": round(
+                    first["ebitda_pln_thousands"]
+                    / first["revenue_pln_thousands"]
+                    * 100.0,
+                    4,
+                ),
+                "valuation_pct": round(
+                    selected["ebitda_pln_thousands"]
+                    / selected["revenue_pln_thousands"]
+                    * 100.0,
+                    4,
+                ),
+                "end_pct": round(
+                    last["ebitda_pln_thousands"]
+                    / last["revenue_pln_thousands"]
+                    * 100.0,
+                    4,
+                ),
+                "change_pp": round(
+                    last["ebitda_pln_thousands"]
+                    / last["revenue_pln_thousands"]
+                    * 100.0
+                    - first["ebitda_pln_thousands"]
+                    / first["revenue_pln_thousands"]
+                    * 100.0,
+                    4,
+                ),
+            },
+            "recurring_net_result": {
+                "anchor_pln_thousands": first["recurring_net_result_pln_thousands"],
+                "valuation_pln_thousands": selected["recurring_net_result_pln_thousands"],
+                "end_pln_thousands": last["recurring_net_result_pln_thousands"],
+                "cagr_pct": _growth_rate(
+                    first["recurring_net_result_pln_thousands"],
+                    last["recurring_net_result_pln_thousands"],
+                    full_path_years,
+                ),
+            },
+            "fcff": {
+                "anchor_pln_thousands": first["fcff_pln_thousands"],
+                "valuation_pln_thousands": selected["fcff_pln_thousands"],
+                "end_pln_thousands": last["fcff_pln_thousands"],
+                "cagr_pct": _growth_rate(
+                    first["fcff_pln_thousands"],
+                    last["fcff_pln_thousands"],
+                    full_path_years,
+                ),
+            },
+        },
+        "reinvestment": {
+            "cumulative_capex_pln_thousands": round(cumulative_capex, 2),
+            "cumulative_delta_nwc_pln_thousands": round(cumulative_nwc, 2),
+            "cumulative_net_reinvestment_pln_thousands": round(
+                cumulative_net_reinvestment, 2
+            ),
+            "cumulative_fcff_pln_thousands": round(cumulative_fcff, 2),
+            "net_reinvestment_to_revenue_pct": (
+                round(cumulative_net_reinvestment / cumulative_revenue * 100.0, 2)
+                if cumulative_revenue != 0
+                else None
+            ),
+            "fcff_to_ebitda_pct": (
+                round(cumulative_fcff / cumulative_ebitda * 100.0, 2)
+                if cumulative_ebitda != 0
+                else None
+            ),
+            "capex_to_depreciation_pct": (
+                round(cumulative_capex / cumulative_depreciation * 100.0, 2)
+                if cumulative_depreciation != 0
+                else None
+            ),
+        },
+        "net_debt_bridge": net_debt_bridge,
+        "event_cash_present_value_pln_thousands": round(
+            event_cash_present_value, 2
+        ),
+        "terminal_economics": {
+            "growth_pct": scenario.terminal_growth_pct.value if scenario.terminal_growth_pct else None,
+            "reinvestment_rate_pct": (
+                scenario.terminal_reinvestment_rate_pct.value
+                if scenario.terminal_reinvestment_rate_pct
+                else None
+            ),
+            "incremental_roic_pct": (
+                scenario.terminal_incremental_roic_pct.value
+                if scenario.terminal_incremental_roic_pct
+                else None
+            ),
+            "terminal_value_share_pct": dcf.get("terminal_value_share_pct"),
+        },
+        "market_hurdles": {
+            "pe": _market_hurdle(
+                metric="recurring_net_result",
+                required_value=pe_required,
+                forecast_value=selected["recurring_net_result_pln_thousands"],
+                target_multiple=scenario.target_pe.value if scenario.target_pe else None,
+            ),
+            "ev_ebitda": _market_hurdle(
+                metric="ebitda",
+                required_value=ev_ebitda_required,
+                forecast_value=selected["ebitda_pln_thousands"],
+                target_multiple=(
+                    scenario.target_ev_ebitda.value if scenario.target_ev_ebitda else None
+                ),
+            ),
+            "ev_ebit": _market_hurdle(
+                metric="ebit",
+                required_value=ev_ebit_required,
+                forecast_value=selected["ebit_pln_thousands"],
+                target_multiple=(
+                    scenario.target_ev_ebit.value if scenario.target_ev_ebit else None
+                ),
+            ),
+            "fcff_dcf": reverse_dcf,
+        },
+        "valuation_horizon_years": round(horizon_years, 6),
+        "price_change_basis": (
+            "present_value_gap"
+            if methodology.primary_method == "fcff_dcf"
+            else "future_period_repricing"
+        ),
+        "current_value_gap_pct": current_value_gap,
+        "annualized_price_repricing_pct": annualized_repricing,
+    }
 
 
 def calculate_valuation(base_values: dict, assumptions: list, methodology) -> dict:
@@ -1119,17 +1773,44 @@ def calculate_valuation(base_values: dict, assumptions: list, methodology) -> di
             if target_price is not None
             else None
         )
+        primary_value_date = (
+            primary.get("value_date"), primary.get("valuation_period")
+        )
         cross_values = [
             methods[name]["price_pln"]
             for name in methodology.cross_checks
             if methods[name].get("price_pln") is not None
+            and (
+                methods[name].get("value_date"),
+                methods[name].get("valuation_period"),
+            )
+            == primary_value_date
         ]
         all_values = [target_price, *cross_values] if target_price is not None else cross_values
         all_values = [float(value) for value in all_values if value is not None]
+        dispersion_scale = (
+            abs(float(target_price))
+            if target_price not in {None, 0}
+            else max((abs(value) for value in all_values), default=0.0)
+        )
         dispersion = (
-            round((max(all_values) - min(all_values)) / abs(target_price) * 100.0, 2)
-            if target_price not in {None, 0} and len(all_values) > 1
-            else None
+            round(
+                (max(all_values) - min(all_values)) / dispersion_scale * 100.0,
+                2,
+            )
+            if len(all_values) > 1 and dispersion_scale > 0
+            else (0.0 if len(all_values) > 1 else None)
+        )
+        potential_bridge = _driver_to_value_bridge(
+            scenario,
+            path,
+            methodology=methodology,
+            current_price=current_price,
+            market_cap=market_cap,
+            enterprise_value=(float(enterprise_value) if enterprise_value is not None else None),
+            net_debt_pln_thousands=net_debt_thousands,
+            target_price=target_price,
+            methods=methods,
         )
         rows.append(
             {
@@ -1143,6 +1824,8 @@ def calculate_valuation(base_values: dict, assumptions: list, methodology) -> di
                 "primary_method": methodology.primary_method,
                 "cross_check_methods": methodology.cross_checks,
                 "target_price_pln": target_price,
+                "target_price_basis": primary.get("value_date"),
+                "target_price_period": primary.get("valuation_period"),
                 "return_pct": return_pct,
                 "valuation_status": (
                     "calculated" if target_price is not None else "unavailable"
@@ -1154,10 +1837,11 @@ def calculate_valuation(base_values: dict, assumptions: list, methodology) -> di
                 ),
                 "cross_check_range_pln": (
                     {"low": round(min(all_values), 2), "high": round(max(all_values), 2)}
-                    if all_values
+                    if len(all_values) > 1
                     else None
                 ),
                 "method_dispersion_pct": dispersion,
+                "driver_to_value_bridge": potential_bridge,
             }
         )
     base_scenario = next((row for row in assumptions if row.kind == "base"), assumptions[0])
@@ -1207,6 +1891,8 @@ def calculate_valuation(base_values: dict, assumptions: list, methodology) -> di
             _dcf_forecast_input(base_scenario, base_output["forecast_path"]),
             wacc_pct=base_scenario.wacc_pct.value,
             terminal_growth_pct=base_scenario.terminal_growth_pct.value,
+            terminal_reinvestment_rate_pct=base_scenario.terminal_reinvestment_rate_pct.value,
+            terminal_incremental_roic_pct=base_scenario.terminal_incremental_roic_pct.value,
             market_enterprise_value_pln_thousands=market_enterprise_value / 1000.0,
         )
         if reverse_dcf.get("status") == "calculated":
@@ -1243,19 +1929,8 @@ def calculate_valuation(base_values: dict, assumptions: list, methodology) -> di
         "scenarios": rows,
         "probability_weighted": None,
     }
-    numeric = [
-        value
-        for row in rows
-        for section in row["forecast_path"]
-        for value in section.values()
-        if isinstance(value, (int, float))
-    ] + [
-        value
-        for row in rows
-        for value in (row["target_price_pln"], row["return_pct"], row["method_dispersion_pct"])
-        if value is not None
-    ]
-    if not all(isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value) for value in numeric):
+    numeric = list(_numeric_values(result))
+    if not all(isfinite(value) for value in numeric):
         raise ValuationInputError("Deterministic valuation produced a non-finite value.")
     return result
 
@@ -1275,12 +1950,35 @@ def _scenario_assumption_values(scenario) -> list[tuple[str, object]]:
             "fcff_discount_years",
         ):
             values.append((f"forecast_years.{year.period}.{name}", getattr(year, name)))
+    for driver in scenario.potential_drivers:
+        for impact in driver.impacts:
+            for name in (
+                "revenue_delta_pln_thousands",
+                "ebitda_margin_delta_pp",
+                "depreciation_pct_revenue_delta_pp",
+                "capex_pct_revenue_delta_pp",
+                "delta_nwc_pct_revenue_delta_pp",
+                "cash_tax_rate_delta_pp",
+                "net_financial_result_pct_revenue_delta_pp",
+            ):
+                value = getattr(impact, name)
+                if value is not None:
+                    values.append(
+                        (
+                            f"potential_drivers.{driver.driver_id}.{impact.period}.{name}",
+                            value,
+                        )
+                    )
     for name in (
         "target_pe",
         "target_ev_ebitda",
         "target_ev_ebit",
+        "target_net_debt_pln_thousands",
+        "cumulative_capital_allocation_pln_thousands",
         "wacc_pct",
         "terminal_growth_pct",
+        "terminal_reinvestment_rate_pct",
+        "terminal_incremental_roic_pct",
     ):
         value = getattr(scenario, name)
         if value is not None:

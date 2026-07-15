@@ -574,15 +574,41 @@ export interface ValuationForecastYear {
   fcff_discount_years: ValuationAssumptionValue;
 }
 
+export interface ValuationPotentialDriverImpact {
+  period: string;
+  revenue_delta_pln_thousands: ValuationAssumptionValue | null;
+  ebitda_margin_delta_pp: ValuationAssumptionValue | null;
+  depreciation_pct_revenue_delta_pp: ValuationAssumptionValue | null;
+  capex_pct_revenue_delta_pp: ValuationAssumptionValue | null;
+  delta_nwc_pct_revenue_delta_pp: ValuationAssumptionValue | null;
+  cash_tax_rate_delta_pp: ValuationAssumptionValue | null;
+  net_financial_result_pct_revenue_delta_pp: ValuationAssumptionValue | null;
+}
+
+export interface ValuationPotentialDriver {
+  driver_id: string;
+  research_driver_key: string;
+  label: string;
+  mechanism: string;
+  runway_evidence: string;
+  capital_requirements: string;
+  impacts: ValuationPotentialDriverImpact[];
+}
+
 export interface ValuationScenarioAssumptions {
   kind: ValuationScenarioKind;
   label: string;
   forecast_years: ValuationForecastYear[];
+  potential_drivers: ValuationPotentialDriver[];
   target_pe: ValuationAssumptionValue | null;
   target_ev_ebitda: ValuationAssumptionValue | null;
   target_ev_ebit: ValuationAssumptionValue | null;
+  target_net_debt_pln_thousands: ValuationAssumptionValue | null;
+  cumulative_capital_allocation_pln_thousands: ValuationAssumptionValue | null;
   wacc_pct: ValuationAssumptionValue | null;
   terminal_growth_pct: ValuationAssumptionValue | null;
+  terminal_reinvestment_rate_pct: ValuationAssumptionValue | null;
+  terminal_incremental_roic_pct: ValuationAssumptionValue | null;
   event_impact: {
     period: string;
     recurring: false;
@@ -627,6 +653,7 @@ export interface ValuationForecastOutput {
   capex_pln_thousands: number;
   delta_nwc_pln_thousands: number;
   fcff_pln_thousands: number;
+  cash_after_financing_pln_thousands: number;
   fcff_period_fraction: number;
   fcff_discount_years: number;
   event_cash_pln_thousands: number;
@@ -635,16 +662,26 @@ export interface ValuationForecastOutput {
 export interface ValuationMethodOutput {
   status: "calculated" | "unavailable";
   price_pln: number | null;
+  value_date?: "present" | "future_fiscal_period";
+  valuation_period?: string | null;
   target_multiple?: number;
   enterprise_value_pln_thousands?: number;
+  raw_equity_value_pln_thousands?: number;
+  distress_floor_applied?: boolean;
   equity_value_pln_thousands?: number;
   terminal_value_share_pct?: number;
   wacc_pct?: number;
   terminal_growth_pct?: number;
+  terminal_reinvestment_rate_pct?: number;
+  terminal_incremental_roic_pct?: number;
+  terminal_nopat_pln_thousands?: number;
+  terminal_fcff_pln_thousands?: number;
+  event_cash_present_value_pln_thousands?: number;
   net_debt_pln_thousands?: number;
   sensitivity?: Array<{
     wacc_pct: number;
     terminal_growth_pct: number;
+    terminal_reinvestment_rate_pct: number;
     price_pln: number;
   }>;
 }
@@ -661,6 +698,112 @@ export interface ValuationExpectationBridgePeriod {
   }>;
 }
 
+export interface ValuationDriverToValueBridge {
+  anchor_period: string;
+  valuation_period: string;
+  end_period: string;
+  drivers: Array<{
+    driver_id: string;
+    research_driver_key: string;
+    impacts: Array<{
+      period: string;
+      revenue_delta_pln_thousands: number | null;
+      ebitda_margin_delta_pp: number | null;
+      depreciation_pct_revenue_delta_pp: number | null;
+      capex_pct_revenue_delta_pp: number | null;
+      delta_nwc_pct_revenue_delta_pp: number | null;
+      cash_tax_rate_delta_pp: number | null;
+      net_financial_result_pct_revenue_delta_pp: number | null;
+    }>;
+    cumulative_revenue_delta_pln_thousands: number;
+    cumulative_ebitda_margin_delta_pp: number;
+    cumulative_depreciation_ratio_delta_pp: number;
+    cumulative_capex_ratio_delta_pp: number;
+    cumulative_nwc_ratio_delta_pp: number;
+    cumulative_cash_tax_rate_delta_pp: number;
+    cumulative_net_financial_result_ratio_delta_pp: number;
+    runway_end_period: string | null;
+  }>;
+  trajectory: {
+    revenue: {
+      anchor_pln_thousands: number;
+      valuation_pln_thousands: number;
+      end_pln_thousands: number;
+      cagr_pct: number | null;
+    };
+    ebitda_margin: {
+      anchor_pct: number;
+      valuation_pct: number;
+      end_pct: number;
+      change_pp: number;
+    };
+    recurring_net_result: {
+      anchor_pln_thousands: number;
+      valuation_pln_thousands: number;
+      end_pln_thousands: number;
+      cagr_pct: number | null;
+    };
+    fcff: {
+      anchor_pln_thousands: number;
+      valuation_pln_thousands: number;
+      end_pln_thousands: number;
+      cagr_pct: number | null;
+    };
+  };
+  reinvestment: {
+    cumulative_capex_pln_thousands: number;
+    cumulative_delta_nwc_pln_thousands: number;
+    cumulative_net_reinvestment_pln_thousands: number;
+    cumulative_fcff_pln_thousands: number;
+    net_reinvestment_to_revenue_pct: number | null;
+    fcff_to_ebitda_pct: number | null;
+    capex_to_depreciation_pct: number | null;
+  };
+  net_debt_bridge: {
+    status: "calculated" | "unavailable";
+    current_net_debt_pln_thousands: number | null;
+    cumulative_cash_after_financing_to_valuation_pln_thousands: number | null;
+    event_cash_to_valuation_pln_thousands: number | null;
+    cumulative_capital_allocation_pln_thousands: number | null;
+    target_net_debt_pln_thousands: number | null;
+    reconciliation_residual_pln_thousands: number | null;
+  };
+  event_cash_present_value_pln_thousands: number;
+  terminal_economics: {
+    growth_pct: number | null;
+    reinvestment_rate_pct: number | null;
+    incremental_roic_pct: number | null;
+    terminal_value_share_pct: number | null;
+  };
+  market_hurdles: {
+    pe: ValuationMetricHurdle;
+    ev_ebitda: ValuationMetricHurdle;
+    ev_ebit: ValuationMetricHurdle;
+    fcff_dcf: {
+      status: "calculated" | "unavailable";
+      implied_path_scale_pct: number | null;
+      coverage_pct: number | null;
+      headroom_pct: number | null;
+      repricing_residual_bps?: number | null;
+      held_constant: string;
+    };
+  };
+  valuation_horizon_years: number;
+  price_change_basis: "present_value_gap" | "future_period_repricing";
+  current_value_gap_pct: number | null;
+  annualized_price_repricing_pct: number | null;
+}
+
+export interface ValuationMetricHurdle {
+  status: "calculated" | "unavailable";
+  metric: string;
+  required_pln_thousands: number | null;
+  forecast_pln_thousands: number;
+  coverage_pct: number | null;
+  headroom_pct: number | null;
+  target_multiple?: number;
+}
+
 export interface ValuationScenarioOutput {
   kind: ValuationScenarioKind;
   label: string;
@@ -670,11 +813,14 @@ export interface ValuationScenarioOutput {
   primary_method: ValuationMethod;
   cross_check_methods: ValuationMethod[];
   target_price_pln: number | null;
+  target_price_basis: "present" | "future_fiscal_period" | null;
+  target_price_period: string | null;
   return_pct: number | null;
   valuation_status: "calculated" | "unavailable";
   valuation_gap: string | null;
   cross_check_range_pln: { low: number; high: number } | null;
   method_dispersion_pct: number | null;
+  driver_to_value_bridge: ValuationDriverToValueBridge;
 }
 
 export interface ValuationDeterministicOutputs {
@@ -730,7 +876,7 @@ export interface CanonicalValuationSnapshot {
   agent_run_id: number | null;
   verification_run_id: number | null;
   version: number;
-  contract_version: "valuation-snapshot-v2";
+  contract_version: "valuation-snapshot-v3";
   status: ValuationSnapshotStatus;
   origin: "codex" | "human-override";
   as_of: string;
@@ -773,6 +919,7 @@ export interface CanonicalValuationSnapshot {
     judgment_review?: {
       evidence_fit: string;
       mechanism_plausibility: string;
+      potential_underwrite: string;
       probability_reasonableness: string;
     };
     summary?: string;

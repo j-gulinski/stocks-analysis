@@ -23,9 +23,9 @@ calls a model. Only the commands below may mutate durable state.
 | Confirm/correct profile | `POST /api/research-cases/{id}/profiles` | Next immutable human-confirmed/corrected profile |
 | Queue Research review | `POST /api/research-cases/{id}/review-runs` | One content-idempotent review job |
 | Verify/save Research | Canonical `verify_research_snapshot` then `save_research_snapshot` adapters | One verifier-gated immutable v3 snapshot; terminal job |
-| Open valuation | `GET /api/research-cases/{id}/valuation-workspace` | Read-only Street bridge, five-period paths, independent method anchors, DCF sensitivity, reverse expectations and immutable valuation audit |
+| Open valuation | `GET /api/research-cases/{id}/valuation-workspace` | Read-only evidence→driver→forecast→value bridge, runway/reinvestment, Street bridge, five-period paths, independent method anchors, DCF sensitivity, reverse expectations and immutable valuation audit |
 | Preview explicit advanced assumptions | `POST /api/research-cases/{id}/valuation-preview` | Zero-write five-year, multi-method deterministic comparison; API only |
-| Queue Codex valuation | `POST /api/research-cases/{id}/valuation-runs` | Valuation frozen to Research/Street inputs; Codex challenges/confirms the baseline and drafts methodology plus conditional probability evidence |
+| Queue Codex valuation | `POST /api/research-cases/{id}/valuation-runs` | Valuation frozen to Research/Street inputs; the queued Codex skill performs the company-specific causal analysis and drafts evidence-bound annual drivers, runway, capital allocation/net debt, terminal economics, method fit and conditional probability evidence; Python only validates and computes |
 | Verify/save valuation | Canonical valuation verify then save adapters | Structurally gated immutable valuation; terminal job |
 | Open Portfolio | `GET /api/portfolios/workspace` | Zero-write stored holdings, mappings, analytics and review history |
 | Synchronize myfund | `POST /api/portfolios/sync/myfund` | Durable attempt and reused or next immutable snapshot |
@@ -66,12 +66,17 @@ calls a model. Only the commands below may mutate durable state.
   fiscal-year levels, growth, forecast counts and ranges. The draft must expose
   a five-year variance bridge, recurring/non-recurring split, P/E/EV/DCF
   methods, reverse expectations, explicit first-period stub timing, DCF
-  sensitivity and conditional probability posture. The UI displays method
-  anchors and makes the five-period path inspectable without leading on audit
-  metadata. There are no default grids, direct unexplained percentages or
-  current-price-derived target multiples. Missing data affects coverage only;
-  an uncalibrated posture publishes neither scenario percentages nor a weighted
-  value.
+  sensitivity and conditional probability posture. Under the sole canonical
+  `valuation-snapshot-v3` / `valuation-engine-v4` contract, the same named
+  company drivers span bad/base/good/event and their five fiscal-period
+  revenue, EBITDA-margin, depreciation, capex, NWC, tax and financing deltas
+  must exactly reconcile the anchor/year-on-year forecast; terminal growth
+  must equal explicit reinvestment × incremental ROIC. The UI leads with that
+  potential bridge and makes the five-period path inspectable without leading
+  on audit metadata. There are no default grids, direct unexplained percentages
+  or current-price-derived target multiples. Missing data affects coverage
+  only; an uncalibrated posture publishes neither scenario percentages nor a
+  weighted value.
 - Queue policy freezes an exact public Codex model and reasoning effort from
   the Architecture routing table. Requested and actual host identity remain
   separate; an unavailable host identity is never presented as a match.
@@ -97,11 +102,13 @@ calls a model. Only the commands below may mutate durable state.
    regulatory-primary, BiznesRadar, PortalAnaliz, and other-web attempt; every
    driver gets next-quarter and 12-month Outlook assessments and every frozen
    company question is resolved or retained as a named gap.
-5. Valuation structural gates recompute method math and conditional
-   probabilities, validate source semantics (including the ban on BR forward
+5. Valuation structural gates recompute method math, the evidence-bound
+   driver-to-value bridge, terminal reinvestment identity and conditional
+   probabilities; validate source semantics (including the ban on BR forward
    trading P/E as a target), unknown neutrality, method reconciliation,
    scenario completeness, company-specific vector distance, lineage, and
-   drafter/verifier separation before judgment review.
+   drafter/verifier separation before evidence, mechanism, potential and
+   probability judgment review.
 6. Portfolio sync stores unknown instruments and reconciliation differences.
    Auto-produced coverage jobs must be idempotent, logged, and prioritized by
    position weight × staleness when S4 enables that producer.

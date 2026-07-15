@@ -632,18 +632,77 @@ class ValuationEventImpact(StrictResearchModel):
     cash_pln_thousands: ValuationAssumptionValue
 
 
+class ValuationPotentialDriverImpact(StrictResearchModel):
+    """One driver's explicit contribution to a year-on-year forecast change.
+
+    Nullable fields are still required in the JSON contract. ``None`` means
+    that the driver does not affect that line in the period; it is not a
+    hidden zero or a template seed (VISION V4).
+    """
+
+    period: str = Field(pattern=r"^\d{4}$")
+    revenue_delta_pln_thousands: ValuationAssumptionValue | None
+    ebitda_margin_delta_pp: ValuationAssumptionValue | None
+    depreciation_pct_revenue_delta_pp: ValuationAssumptionValue | None
+    capex_pct_revenue_delta_pp: ValuationAssumptionValue | None
+    delta_nwc_pct_revenue_delta_pp: ValuationAssumptionValue | None
+    cash_tax_rate_delta_pp: ValuationAssumptionValue | None
+    net_financial_result_pct_revenue_delta_pp: ValuationAssumptionValue | None
+
+
+class ValuationPotentialDriver(StrictResearchModel):
+    """Company-specific operating driver that reconciles to the forecast path."""
+
+    driver_id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,79}$")
+    # This is an immutable foreign key into Research, not a new valuation slug.
+    # It must accept every key allowed by ResearchDriver.key.
+    research_driver_key: str = Field(min_length=1, max_length=80)
+    label: str = Field(min_length=3, max_length=120)
+    mechanism: str = Field(min_length=30, max_length=2000)
+    runway_evidence: str = Field(min_length=30, max_length=2000)
+    capital_requirements: str = Field(min_length=30, max_length=2000)
+    impacts: list[ValuationPotentialDriverImpact] = Field(min_length=5, max_length=5)
+
+    @model_validator(mode="after")
+    def validate_material_impact(self):
+        values = [
+            value
+            for impact in self.impacts
+            for value in (
+                impact.revenue_delta_pln_thousands,
+                impact.ebitda_margin_delta_pp,
+                impact.depreciation_pct_revenue_delta_pp,
+                impact.capex_pct_revenue_delta_pp,
+                impact.delta_nwc_pct_revenue_delta_pp,
+                impact.cash_tax_rate_delta_pp,
+                impact.net_financial_result_pct_revenue_delta_pp,
+            )
+            if value is not None
+        ]
+        if not values:
+            raise ValueError(
+                "a potential driver must declare at least one explicit impact, including an evidenced zero when dormant"
+            )
+        return self
+
+
 class ValuationScenarioAssumptions(StrictResearchModel):
     kind: ValuationScenarioKind
     label: str = Field(min_length=1, max_length=120)
     forecast_years: list[ValuationForecastYear] = Field(min_length=5, max_length=5)
+    potential_drivers: list[ValuationPotentialDriver] = Field(min_length=1, max_length=4)
     # Optional methods are still explicit inputs.  ``None`` means "method not
     # available for this scenario"; omitting a field must never seed a hidden
     # default (VISION V4).
     target_pe: ValuationAssumptionValue | None
     target_ev_ebitda: ValuationAssumptionValue | None
     target_ev_ebit: ValuationAssumptionValue | None
+    target_net_debt_pln_thousands: ValuationAssumptionValue | None
+    cumulative_capital_allocation_pln_thousands: ValuationAssumptionValue | None
     wacc_pct: ValuationAssumptionValue | None
     terminal_growth_pct: ValuationAssumptionValue | None
+    terminal_reinvestment_rate_pct: ValuationAssumptionValue | None
+    terminal_incremental_roic_pct: ValuationAssumptionValue | None
     event_impact: ValuationEventImpact | None
 
     @model_validator(mode="after")
@@ -662,17 +721,119 @@ class ValuationScenarioAssumptions(StrictResearchModel):
             raise ValueError(
                 "DCF timings must start within 1.25 years and advance by about one year"
             )
+        driver_ids = [row.driver_id for row in self.potential_drivers]
+        if len(driver_ids) != len(set(driver_ids)):
+            raise ValueError("potential driver IDs must be unique within a scenario")
+        research_driver_keys = [
+            row.research_driver_key for row in self.potential_drivers
+        ]
+        if len(research_driver_keys) != len(set(research_driver_keys)):
+            raise ValueError(
+                "a frozen Research driver may underwrite only one potential driver per scenario"
+            )
+        expected_impact_periods = [row.period for row in self.forecast_years]
+        for driver in self.potential_drivers:
+            impact_periods = [row.period for row in driver.impacts]
+            if impact_periods != expected_impact_periods:
+                raise ValueError(
+                    "potential driver impacts must cover all five forecast periods in order"
+                )
+        reconciliations = (
+            ("revenue_pln_thousands", "revenue_delta_pln_thousands", 0.02),
+            ("ebitda_margin_pct", "ebitda_margin_delta_pp", 0.0001),
+            (
+                "depreciation_pct_revenue",
+                "depreciation_pct_revenue_delta_pp",
+                0.0001,
+            ),
+            ("capex_pct_revenue", "capex_pct_revenue_delta_pp", 0.0001),
+            ("delta_nwc_pct_revenue", "delta_nwc_pct_revenue_delta_pp", 0.0001),
+            ("cash_tax_rate_pct", "cash_tax_rate_delta_pp", 0.0001),
+            (
+                "net_financial_result_pct_revenue",
+                "net_financial_result_pct_revenue_delta_pp",
+                0.0001,
+            ),
+        )
+        for index, current in enumerate(self.forecast_years[1:], start=1):
+            previous = self.forecast_years[index - 1]
+            for forecast_field, impact_field, tolerance in reconciliations:
+                forecast_change = (
+                    getattr(current, forecast_field).value
+                    - getattr(previous, forecast_field).value
+                )
+                driver_change = sum(
+                    value.value
+                    for driver in self.potential_drivers
+                    for impact in driver.impacts
+                    if impact.period == current.period
+                    and (value := getattr(impact, impact_field)) is not None
+                )
+                if abs(forecast_change - driver_change) > tolerance:
+                    raise ValueError(
+                        f"potential drivers do not reconcile {forecast_field} for {current.period}: "
+                        f"forecast change {forecast_change} vs driver sum {driver_change}"
+                    )
         for name in ("target_pe", "target_ev_ebitda", "target_ev_ebit", "wacc_pct"):
             value = getattr(self, name)
             if value is not None and value.value <= 0:
                 raise ValueError(f"{name} must be positive")
-        if self.wacc_pct and self.terminal_growth_pct:
+        net_debt_bridge = (
+            self.target_net_debt_pln_thousands,
+            self.cumulative_capital_allocation_pln_thousands,
+        )
+        if any(value is not None for value in net_debt_bridge) and not all(
+            value is not None for value in net_debt_bridge
+        ):
+            raise ValueError(
+                "target net debt and cumulative capital allocation must be explicit together"
+            )
+        if (
+            self.target_ev_ebitda is not None or self.target_ev_ebit is not None
+        ) and not all(value is not None for value in net_debt_bridge):
+            raise ValueError(
+                "future EV methods require an explicit target-net-debt rollforward"
+            )
+        dcf_values = (
+            self.wacc_pct,
+            self.terminal_growth_pct,
+            self.terminal_reinvestment_rate_pct,
+            self.terminal_incremental_roic_pct,
+        )
+        if any(value is not None for value in dcf_values) and not all(
+            value is not None for value in dcf_values
+        ):
+            raise ValueError(
+                "DCF requires WACC, terminal growth, terminal reinvestment and incremental ROIC together"
+            )
+        if all(value is not None for value in dcf_values):
+            assert self.wacc_pct is not None
+            assert self.terminal_growth_pct is not None
+            assert self.terminal_reinvestment_rate_pct is not None
+            assert self.terminal_incremental_roic_pct is not None
             if self.wacc_pct.value <= self.terminal_growth_pct.value:
                 raise ValueError("WACC must be above terminal growth")
+            if not -100 <= self.terminal_reinvestment_rate_pct.value <= 100:
+                raise ValueError("terminal reinvestment rate must be bounded to -100..100%")
+            if self.terminal_incremental_roic_pct.value <= 0:
+                raise ValueError("terminal incremental ROIC must be positive")
+            sustainable_growth = (
+                self.terminal_reinvestment_rate_pct.value
+                * self.terminal_incremental_roic_pct.value
+                / 100.0
+            )
+            if abs(sustainable_growth - self.terminal_growth_pct.value) > 0.05:
+                raise ValueError(
+                    "terminal growth must reconcile to reinvestment rate x incremental ROIC"
+                )
         if self.kind != "event" and self.event_impact is not None:
             raise ValueError("event impact is allowed only in the event scenario")
         if self.kind == "event" and self.event_impact is None:
             raise ValueError("event scenario requires an explicit non-recurring impact")
+        if self.event_impact is not None and self.event_impact.period not in {
+            row.period for row in self.forecast_years
+        }:
+            raise ValueError("event impact period must exist in the forecast horizon")
         return self
 
 
@@ -703,6 +864,137 @@ class ValuationMethodology(StrictResearchModel):
         return self
 
 
+def _validate_shared_valuation_horizon(
+    assumptions: list[ValuationScenarioAssumptions],
+    methodology: ValuationMethodology,
+    as_of: datetime,
+) -> None:
+    """Keep scenario prices and runway comparisons on one explicit clock."""
+
+    kinds = [scenario.kind for scenario in assumptions]
+    if len(kinds) != len(set(kinds)) or not {
+        "negative",
+        "base",
+        "positive",
+    }.issubset(kinds):
+        raise ValueError(
+            "valuation requires unique negative, base and positive scenarios"
+        )
+    grids = {
+        (
+            tuple(year.period for year in scenario.forecast_years),
+            tuple(
+                round(year.fcff_period_fraction.value, 6)
+                for year in scenario.forecast_years
+            ),
+            tuple(
+                round(year.fcff_discount_years.value, 6)
+                for year in scenario.forecast_years
+            ),
+        )
+        for scenario in assumptions
+    }
+    if len(grids) != 1:
+        raise ValueError(
+            "all scenarios must share forecast periods, FCFF fractions and discount timings"
+        )
+    periods = next(iter(grids))[0]
+    if methodology.valuation_period not in periods:
+        raise ValueError("valuation period must exist in the shared forecast horizon")
+    if any(scenario.kind == "event" for scenario in assumptions) and (
+        methodology.primary_method != "fcff_dcf"
+    ):
+        raise ValueError(
+            "an optional non-recurring event scenario requires FCFF DCF as the primary method"
+        )
+    driver_sets = [
+        {driver.driver_id for driver in scenario.potential_drivers}
+        for scenario in assumptions
+    ]
+    if len({tuple(sorted(driver_ids)) for driver_ids in driver_sets}) != 1:
+        raise ValueError("all scenarios must use the same potential driver IDs")
+    for driver_id in driver_sets[0]:
+        labels = {
+            driver.label.strip().casefold()
+            for scenario in assumptions
+            for driver in scenario.potential_drivers
+            if driver.driver_id == driver_id
+        }
+        research_keys = {
+            driver.research_driver_key
+            for scenario in assumptions
+            for driver in scenario.potential_drivers
+            if driver.driver_id == driver_id
+        }
+        if len(labels) != 1 or len(research_keys) != 1:
+            raise ValueError(
+                f"potential driver {driver_id} must keep one label and Research key across scenarios"
+            )
+    base = assumptions[kinds.index("base")]
+    anchor_fields = (
+        ("revenue_pln_thousands", "revenue_delta_pln_thousands", 0.02),
+        ("ebitda_margin_pct", "ebitda_margin_delta_pp", 0.0001),
+        (
+            "depreciation_pct_revenue",
+            "depreciation_pct_revenue_delta_pp",
+            0.0001,
+        ),
+        ("capex_pct_revenue", "capex_pct_revenue_delta_pp", 0.0001),
+        ("delta_nwc_pct_revenue", "delta_nwc_pct_revenue_delta_pp", 0.0001),
+        ("cash_tax_rate_pct", "cash_tax_rate_delta_pp", 0.0001),
+        (
+            "net_financial_result_pct_revenue",
+            "net_financial_result_pct_revenue_delta_pp",
+            0.0001,
+        ),
+    )
+    base_anchor = base.forecast_years[0]
+    for scenario in assumptions:
+        values = [
+            value
+            for driver in scenario.potential_drivers
+            for impact in driver.impacts
+            for value in (
+                impact.revenue_delta_pln_thousands,
+                impact.ebitda_margin_delta_pp,
+                impact.depreciation_pct_revenue_delta_pp,
+                impact.capex_pct_revenue_delta_pp,
+                impact.delta_nwc_pct_revenue_delta_pp,
+                impact.cash_tax_rate_delta_pp,
+                impact.net_financial_result_pct_revenue_delta_pp,
+            )
+            if value is not None
+        ]
+        if scenario.kind in {"negative", "base", "positive"} and not any(
+            abs(value.value) > 0.0001 for value in values
+        ):
+            raise ValueError(
+                f"core scenario {scenario.kind} requires a non-zero operating-driver contribution"
+            )
+        anchor = scenario.forecast_years[0]
+        for forecast_field, impact_field, tolerance in anchor_fields:
+            expected = (
+                getattr(anchor, forecast_field).value
+                - getattr(base_anchor, forecast_field).value
+            )
+            bridged = sum(
+                value.value
+                for driver in scenario.potential_drivers
+                for impact in driver.impacts
+                if impact.period == anchor.period
+                and (value := getattr(impact, impact_field)) is not None
+            )
+            if abs(expected - bridged) > tolerance:
+                raise ValueError(
+                    f"scenario {scenario.kind} anchor {forecast_field} does not reconcile to potential drivers"
+                )
+    anchor_year = int(periods[0])
+    if not as_of.year <= anchor_year <= as_of.year + 1:
+        raise ValueError(
+            "forecast anchor must be the as-of fiscal year or the immediately following year"
+        )
+
+
 class ValuationRequestIn(StrictResearchModel):
     """Deterministic preview/override input: explicit assumption grid."""
 
@@ -722,6 +1014,9 @@ class ValuationRequestIn(StrictResearchModel):
             raise ValueError("unsupported scenario kind")
         if not {"negative", "base", "positive"}.issubset(kinds):
             raise ValueError("negative, base and positive scenarios are required")
+        _validate_shared_valuation_horizon(
+            self.assumptions, self.methodology, self.as_of
+        )
         return self
 
 
@@ -844,10 +1139,10 @@ class ValuationDraftJudgment(StrictResearchModel):
 
 
 class ValuationSnapshotDraftIn(StrictResearchModel):
-    contract_version: Literal["valuation-snapshot-v2"] = "valuation-snapshot-v2"
-    engine_version: Literal["valuation-engine-v3"] = "valuation-engine-v3"
-    template_contract_version: Literal["valuation-templates-v2"] = (
-        "valuation-templates-v2"
+    contract_version: Literal["valuation-snapshot-v3"] = "valuation-snapshot-v3"
+    engine_version: Literal["valuation-engine-v4"] = "valuation-engine-v4"
+    template_contract_version: Literal["valuation-templates-v3"] = (
+        "valuation-templates-v3"
     )
     agent_run_id: int = Field(ge=1)
     lease_owner: str = Field(min_length=1, max_length=200)
@@ -870,6 +1165,9 @@ class ValuationSnapshotDraftIn(StrictResearchModel):
     def require_aware_as_of(self):
         if self.as_of.tzinfo is None:
             raise ValueError("as_of must include a timezone")
+        _validate_shared_valuation_horizon(
+            self.assumptions, self.methodology, self.as_of
+        )
         return self
 
 
@@ -888,6 +1186,7 @@ class ValuationJudgmentReview(StrictResearchModel):
 
     evidence_fit: str = Field(min_length=60, max_length=3000)
     mechanism_plausibility: str = Field(min_length=60, max_length=3000)
+    potential_underwrite: str = Field(min_length=60, max_length=3000)
     probability_reasonableness: str = Field(min_length=60, max_length=3000)
 
 
@@ -949,7 +1248,7 @@ class ValuationSnapshotOut(BaseModel):
     agent_run_id: int | None
     verification_run_id: int | None
     version: int
-    contract_version: Literal["valuation-snapshot-v2"]
+    contract_version: Literal["valuation-snapshot-v3"]
     status: ValuationStatus
     origin: Literal["codex", "human-override"]
     as_of: datetime
