@@ -14,8 +14,10 @@ product reset remains available in Git at and before `2ac75d0`.
 - Identical snapshot reuse can repair the current `InstrumentMapping` while
   leaving its frozen `PortfolioPositionSnapshot` classification unchanged.
   Confirmed and ignored user decisions survive later syncs. Manual correction
-  requires a rationale, locks the mapping and target company, validates the
-  GPW/PLN boundary and keeps exact cash immutable.
+  requires a rationale, locks the mapping and target company, permits a
+  provider-mislabeled row to bind only to an existing GPW company, and keeps
+  exact cash immutable. Creating a missing company still requires one exact
+  terminal `Akcje GPW`/PLN identity.
 - Mapping alone creates no Research case or queue job. The independent verifier
   found and closed existing-company GPW-boundary and whitespace-rationale
   bypasses; 49 focused Portfolio tests, 10 Vision tests and the production
@@ -74,8 +76,15 @@ product reset remains available in Git at and before `2ac75d0`.
   reconciliation residual and output identity. The backend suite and production
   frontend build pass (361 backend tests); the independent review found and
   closed Research-driver key/label lineage bypasses. The live honest-empty flow
-  is healthy, while a renewed cost-bearing valuation artifact and representative
-  company browser acceptance still require Kuba's explicit authorization.
+  remained healthy before an owner-authorized representative execution.
+- Completed that representative execution for SNT through the Codex queue and
+  separate strict Research/Valuation verifiers. The v4 gate records four shared
+  drivers, 12/12 factual bindings and exact five-period reconciliation. DCF is
+  PLN 143.28 / 255.20 / 410.84 against PLN 392.40 current price; reverse DCF
+  requires PLN 1.5687bn 2028 revenue, 56.29% above Street. Both snapshots are
+  provisional, scenario probabilities and weighted value remain unpublished,
+  the queue is empty, and the real Discover → Research → company → Valuation →
+  Portfolio browser flow passes.
 
 ## 2026-07-15 · SNT expectation-led valuation recovery
 

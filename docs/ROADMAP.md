@@ -31,11 +31,11 @@ result-first/collapsed-detail renderer, and a one-file clean baseline. The
 2026-07-15 baseline audit then found stale artifact tables and an incomplete
 valuation-specificity vector. The baseline was regenerated after deleting those
 paths, the disposable local database was recreated again, and Discover plus the
-stored Portfolio snapshot were rehydrated. Research and Valuation are now
+stored Portfolio snapshot were rehydrated. Research and Valuation were then
 honestly empty: recreating a user-selected company artifact is a cost-bearing
 action. Kuba renewed that authorization on 2026-07-15; the canonical SNT
-Research rebuild now holds a live queue lease and has not yet produced a
-snapshot.
+Research and Valuation jobs subsequently completed through separate strict
+verifiers and produced provisional current snapshots with every lease cleared.
 
 The 2026-07-14 owner review then rejected the economic content of that SNT
 artifact. The Research run missed issuer evidence that was publicly available
@@ -71,8 +71,12 @@ places the pre-demerger multiple caveat adjacent to valuation methods. A fresh
 independent verifier recomputed the batch and valuation fingerprints and passed
 the result with no severity-1/2 findings. Kuba subsequently authorized the
 canonical SNT rebuild and continuation into S4. The first non-conflicting S4
-vertical slice now computes real TWR/XIRR; the representative SNT
-economic/browser gate remains pending the leased run.
+vertical slice now computes real TWR/XIRR. The later representative rebuild
+closed the SNT economic/browser gate: current Discover batch #2 ranks SNT
+#26/63.2 using continuing-operation growth of `+80.6217%` and C/Z of
+`21.8491x`; Research v1 and Valuation v1 both passed strict review and remain
+provisional because their named evidence and judgment gaps are real. The queue
+drained two jobs with zero failures, zero recoveries and zero remaining work.
 
 Kuba then rejected the valuation's treatment of future potential and directed
 an authenticated review of an eight-thread user-nominated PortalAnaliz cohort,
@@ -90,6 +94,14 @@ reconciles to reinvestment × incremental ROIC; deterministic output exposes
 runway, cash conversion, price hurdles, DCF present-value gaps and annualized
 future-relative repricing. No investor
 identity, portfolio execution rule or default probability enters the product.
+The owner-authorized representative v4 artifact exercises that contract with
+four shared drivers and 12/12 exact scenario-driver bindings. Its DCF values are
+PLN 143.28 / 255.20 / 410.84 against PLN 392.40 current price, while reverse
+DCF requires 2028 revenue of PLN 1.5687bn, `56.29%` above the retained Street
+baseline. Probabilities remain uncalibrated, so no weighted value is published.
+The live browser flow proves Discover → Research → company → Valuation →
+Portfolio; Portfolio correctly excludes the provisional, currently unmapped
+valuation from aggregation.
 
 ## Current execution order
 
@@ -98,8 +110,8 @@ task diary or handoff document.
 
 | Order | Roadmap outcome | Observable exit gate | Codex route | Status |
 |---|---|---|---|---|
-| 1 | S2–S3 canonical Research + Valuation implementation and legacy deletion | Finish the canonical Research/Valuation schema, services, API and UI; delete every legacy Research/Valuation engine path, verifier adapter, method/author field and compatibility branch rather than filtering it; Research leads with phase substance; company view shows valuation/Brief first with independent collapsed details/evidence; Valuation leads with methodology and result, exposes an exact evidence→driver→forecast→value bridge, reinvestment/runway, Street variance, five-year paths, independent methods, sensitivity and reverse expectations; owner acceptance requires economically valid source use plus either a computed probability tree or explicit non-publication | Product/deletion boundary: `gpt-5.6-sol` high. Bounded implementation: `gpt-5.6-terra` medium. Mechanical deletion/tests: `gpt-5.3-codex-spark` when available, else `gpt-5.6-luna` low with the fallback recorded. Independent acceptance: `gpt-5.6-sol` high | implemented and independently code-verified · representative SNT rebuild authorized and currently leased; company-specific browser/economic acceptance awaits its canonical artifact |
-| 2 | Clean baseline + empty-database rebuild + S5 queue gate | Only after order 1 code is finished: delete all historical Alembic revisions, generate one canonical baseline migration from the final models, drop and recreate the entire local PostgreSQL database, migrate empty → head, prove ORM/schema parity, refetch the market/source corpus, sync Portfolio, rebuild only canonical Research v3 and valuation-snapshot-v3/engine-v4 artifacts, and drain the queue to empty; no row, schema column, enum, API response or UI label from a legacy engine survives; browser proves Discover → Research → company → Valuation → Portfolio | Schema/reset mechanics: no model or `gpt-5.3-codex-spark` when available. Queue orchestration: `gpt-5.6-terra` medium. Research drafts: `gpt-5.6-terra` high. Valuation drafts and strict verification: `gpt-5.6-sol` high | in progress · regenerated baseline, PostgreSQL parity, Discover refetch and Portfolio sync pass; authorized SNT Research rebuild has a live lease, with canonical Research/Valuation artifacts and empty-queue proof still pending |
+| 1 | S2–S3 canonical Research + Valuation implementation and legacy deletion | Finish the canonical Research/Valuation schema, services, API and UI; delete every legacy Research/Valuation engine path, verifier adapter, method/author field and compatibility branch rather than filtering it; Research leads with phase substance; company view shows valuation/Brief first with independent collapsed details/evidence; Valuation leads with methodology and result, exposes an exact evidence→driver→forecast→value bridge, reinvestment/runway, Street variance, five-year paths, independent methods, sensitivity and reverse expectations; owner acceptance requires economically valid source use plus either a computed probability tree or explicit non-publication | Product/deletion boundary: `gpt-5.6-sol` high. Bounded implementation: `gpt-5.6-terra` medium. Mechanical deletion/tests: `gpt-5.3-codex-spark` when available, else `gpt-5.6-luna` low with the fallback recorded. Independent acceptance: `gpt-5.6-sol` high | complete · representative SNT v4 artifact passed separate strict Research/Valuation review, exact bridge recomputation and live company-specific economic/browser acceptance; named gaps keep both snapshots provisional and probabilities unpublished |
+| 2 | Clean baseline + empty-database rebuild + S5 queue gate | Only after order 1 code is finished: delete all historical Alembic revisions, generate one canonical baseline migration from the final models, drop and recreate the entire local PostgreSQL database, migrate empty → head, prove ORM/schema parity, refetch the market/source corpus, sync Portfolio, rebuild only canonical Research v3 and valuation-snapshot-v3/engine-v4 artifacts, and drain the queue to empty; no row, schema column, enum, API response or UI label from a legacy engine survives; browser proves Discover → Research → company → Valuation → Portfolio | Schema/reset mechanics: no model or `gpt-5.3-codex-spark` when available. Queue orchestration: `gpt-5.6-terra` medium. Research drafts: `gpt-5.6-terra` high. Valuation drafts and strict verification: `gpt-5.6-sol` high | complete · regenerated baseline and PostgreSQL parity pass; current Discover, Portfolio, Research v3 and valuation-snapshot-v3/engine-v4 artifacts exist; both agent jobs terminalized, all leases cleared, queue empty, and the full browser flow passes |
 | 3 | S4 Portfolio precision + auto-coverage | Real TWR/XIRR, mapping and reconciliation gates pass; sync queues canonical coverage by weight × staleness; only current verified v3 valuations aggregate | Deterministic math: no model. Implementation and ordinary portfolio interpretation: `gpt-5.6-terra` medium. Complex cross-company synthesis: `gpt-5.6-sol` high. Strict verification: `gpt-5.6-sol` high | in progress · real TWR/XIRR and current GPW identity repair pass; weight × staleness auto-coverage and current-valuation aggregation remain |
 | 4 | S6 Outcome scoring | First actual report scores direction, range hit and calibration against a canonical v3 valuation; result visible per engine version | Scoring: no model. Explanation/UI: `gpt-5.6-terra` medium. Method review: `gpt-5.6-sol` high | queued |
 | 5 | S7 Report-calendar awareness | Report dates drive idempotent re-Research/re-Valuation around publication | Collection/normalization: no model. Calendar wiring: `gpt-5.6-terra` medium. Mechanical tests: `gpt-5.3-codex-spark` when available, else `gpt-5.6-luna` low with the fallback recorded | queued |
@@ -111,9 +123,9 @@ task diary or handoff document.
 |---|---|---|---|
 | S0 | Binding docs + executable drift gate | VISION/PRODUCT/STRATEGY/AGENTS rewritten; `test_vision_contract.py` passes and fails on planted drift | complete · 2026-07-14 |
 | S1 | One exclusion-first sieve over expanded market snapshot | seven-page market snapshot stored immutably; `workbench_sieve_v1` returns at most 100 survivors ordered by one measurable 0–100 score + inspectable kills; single-sieve UI; forbidden: filter tabs | complete · 2026-07-14 |
-| S2–S3 | Canonical Research + Valuation implementation and legacy deletion | Current execution order 1; replaces the invalid S2 complete/S3 implemented claims | v4 potential-bridge implementation and independent code verdict pass · owner-authorized representative SNT rebuild has a live lease; artifact rendering/economic acceptance pending |
+| S2–S3 | Canonical Research + Valuation implementation and legacy deletion | Current execution order 1; replaces the invalid S2 complete/S3 implemented claims | complete · 2026-07-15 · representative SNT v4 Research/Valuation artifacts passed independent strict review, exact economic recomputation and live browser acceptance; provisional status and null probabilities preserve the remaining uncertainty |
 | S4 | Portfolio precision + auto-coverage | Current execution order 3 | in progress · `portfolio-performance-v1` independently computes live TWR/XIRR; one canonical resolver creates/reuses unambiguous GPW identities, preserves manual decisions and repairs current mappings on identical sync without rewriting frozen positions; auto-coverage/current-valuation aggregation remain |
-| S5 | Clean-baseline data and queue rebuild | Current execution order 2 | in progress · Discover and Portfolio rehydrated; owner-authorized SNT Research run has a live lease; canonical Research/Valuation and empty-queue proof pending |
+| S5 | Clean-baseline data and queue rebuild | Current execution order 2 | complete · 2026-07-15 · Discover, Portfolio and canonical SNT Research/Valuation rehydrated; two jobs processed with zero failures/recoveries, no leases and an empty queue |
 | S6 | Outcome scoring (learning loop v1) | first scenario-outcome job scores a valued company against an actual report; calibration visible per engine version | queued |
 | S7 | Report-calendar awareness | holdings' next report dates tracked; re-research/re-valuation queued around publication | queued |
 | S8 | Point-in-time replay gate | frozen universe, adjusted total returns, holdout — precondition for any performance claim | blocked · historical data missing |
