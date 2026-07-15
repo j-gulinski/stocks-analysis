@@ -3,6 +3,26 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-15 · Portfolio identity repair
+
+- Replaced the split new-sync mapping logic with one locked resolver used by
+  both new and identical myfund syncs. A unique terminal ticker on an `Akcje
+  GPW` PLN position now creates or reuses the minimal GPW company identity;
+  the fallback accepts only one accent-insensitive normalized company name.
+  Conflicting ticker markers, ambiguous names, foreign currency and non-GPW
+  instruments remain unmatched with a visible Polish reason.
+- Identical snapshot reuse can repair the current `InstrumentMapping` while
+  leaving its frozen `PortfolioPositionSnapshot` classification unchanged.
+  Confirmed and ignored user decisions survive later syncs. Manual correction
+  requires a rationale, locks the mapping and target company, validates the
+  GPW/PLN boundary and keeps exact cash immutable.
+- Mapping alone creates no Research case or queue job. The independent verifier
+  found and closed existing-company GPW-boundary and whitespace-rationale
+  bypasses; 49 focused Portfolio tests, 10 Vision tests and the production
+  frontend build pass. The browser shows mapping reasons and honest fallback to
+  the last snapshot; a live re-resolution was blocked by a failed myfund fetch.
+  Weight × staleness auto-coverage remains the next separate S4 producer slice.
+
 ## 2026-07-15 · Portfolio return precision
 
 - Replaced the hardcoded unavailable Portfolio return path with the sole typed
@@ -22,7 +42,8 @@ product reset remains available in Git at and before `2ac75d0`.
 - The live 1,260-day portfolio series independently reproduces 193.079779% TWR
   and 41.120758% annual XIRR from 47 contribution changes through 2026-07-15;
   focused backend tests, the production frontend build and browser acceptance
-  pass. Mapping and weight × staleness auto-coverage remain the next S4 gate.
+  pass. Identity mapping is now repaired; weight × staleness auto-coverage
+  remains the next S4 gate.
 
 ## 2026-07-15 · Evidence-bound potential bridge
 

@@ -367,6 +367,7 @@ function PositionsSection({ positions, total, liquidity, covered, exclusions, an
                   {position.company_id && position.company_ticker ? <Link href={`/stock/${position.company_ticker}`}>{name}</Link> : <div>{name}</div>}
                   <small>{position.sector || position.asset_type || "Brak klasyfikacji"}</small>
                   {badge && <span className={`badge ${badge.tone}`}>{badge.text}</span>}
+                  {badge && <small className="portfolio-mapping-reason">{position.mapping_reason}</small>}
                 </div>
                 <div role="cell"><strong>{fmtPln(position.value)}</strong>{allocation != null && <span>{fmtPct(allocation)}</span>}{position.quantity != null && <small>{position.quantity.toLocaleString("pl-PL", { maximumFractionDigits: 4 })} szt.</small>}</div>
                 <div role="cell"><strong>{fmtPln(position.cost_basis)}</strong><span className={signClass(position.profit)}>{signedPln(position.profit)}</span><small>wg dostawcy</small></div>

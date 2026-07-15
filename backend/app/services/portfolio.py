@@ -6,12 +6,14 @@ import hashlib
 import json
 import math
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from statistics import median
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -137,6 +139,23 @@ _TERMINAL_GPW_CODE = re.compile(r"\(([A-Z0-9]{1,12})\)\s*$")
 _PARENTHETICAL_GPW_CODE = re.compile(r"\(([A-Z0-9]{1,12})\)")
 
 
+def _gpw_marker_codes(
+    provider_ticker: Any, provider_name: Any
+) -> tuple[set[str], set[str]]:
+    values = [str(provider_ticker or "").strip(), str(provider_name or "").strip()]
+    all_codes = {
+        match.group(1)
+        for value in values
+        for match in _PARENTHETICAL_GPW_CODE.finditer(value.upper())
+    }
+    terminal_codes = {
+        match.group(1)
+        for value in values
+        if (match := _TERMINAL_GPW_CODE.search(value.upper())) is not None
+    }
+    return all_codes, terminal_codes
+
+
 def provider_gpw_ticker(
     *,
     provider_ticker: Any,
@@ -149,20 +168,10 @@ def provider_gpw_ticker(
         return None
     if _identity_text(currency, upper=True) != "PLN":
         return None
-    values = [str(provider_ticker or "").strip(), str(provider_name or "").strip()]
-    candidates = {
-        match.group(1)
-        for value in values
-        for match in _PARENTHETICAL_GPW_CODE.finditer(value.upper())
-    }
-    terminal = {
-        match.group(1)
-        for value in values
-        if (match := _TERMINAL_GPW_CODE.search(value.upper())) is not None
-    }
-    if len(candidates) != 1 or candidates != terminal:
+    all_codes, terminal = _gpw_marker_codes(provider_ticker, provider_name)
+    if len(terminal) != 1 or all_codes != terminal:
         return None
-    return next(iter(candidates))
+    return next(iter(terminal))
 
 
 def _series(value: Any) -> tuple[dict[date, float], int, int]:
@@ -335,24 +344,229 @@ def normalize_myfund(payload: Any) -> NormalizedPortfolio:
     return NormalizedPortfolio(summary, positions, history, gaps, fingerprint)
 
 
+def _company_display_name(value: Any, ticker: str | None = None) -> str:
+    display = str(value or "").strip()
+    if ticker:
+        display = re.sub(
+            rf"\s*\({re.escape(ticker)}\)\s*$", "", display, flags=re.IGNORECASE
+        ).strip()
+    return display or ticker or "Nieznana spółka"
+
+
+def _normalized_company_name(value: Any) -> str:
+    normalized = _identity_text(value).casefold()
+    normalized = re.sub(r"\s*\([a-z0-9]{1,12}\)\s*$", "", normalized)
+    normalized = normalized.translate(str.maketrans({"ł": "l"}))
+    normalized = "".join(
+        character
+        for character in unicodedata.normalize("NFKD", normalized)
+        if not unicodedata.combining(character)
+    )
+    normalized = re.sub(r"[^0-9a-ząćęłńóśźż]+", " ", normalized).strip()
+    normalized = re.sub(r"\s+(?:s\s*a|sa|spolka akcyjna)$", "", normalized)
+    return normalized.strip()
+
+
+def _minimal_gpw_company(db: Session, ticker: str, provider_name: Any) -> Company:
+    company = db.scalar(
+        select(Company).where(Company.ticker == ticker).with_for_update()
+    )
+    if company is None:
+        try:
+            with db.begin_nested():
+                company = Company(
+                    ticker=ticker,
+                    name=_company_display_name(provider_name, ticker),
+                    market="GPW",
+                )
+                db.add(company)
+                db.flush()
+        except IntegrityError:
+            company = db.scalar(
+                select(Company).where(Company.ticker == ticker).with_for_update()
+            )
+            if company is None:
+                raise
+    elif _identity_text(company.market, upper=True) in {"", "GPW"}:
+        if company.market is None:
+            company.market = "GPW"
+        if not company.name:
+            company.name = _company_display_name(provider_name, ticker)
+    return company
+
+
 def classify_mapping(
     db: Session, row: dict[str, Any]
 ) -> tuple[str, str, Company | None, str]:
     asset_type = _identity_text(row.get("asset_type"))
     if asset_type in {"gotówka", "gotowka", "cash", "konta gotówkowe"}:
-        return "cash", "exact", None, "Provider identifies a cash instrument."
+        return "cash", "exact", None, "Dostawca oznaczył instrument jako gotówkę."
+    if asset_type != _GPW_ASSET_TYPE or _identity_text(
+        row.get("currency"), upper=True
+    ) != "PLN":
+        return "other", "unmatched", None, "To nie jest instrument Akcje GPW w PLN."
+    all_codes, terminal_codes = _gpw_marker_codes(
+        row.get("ticker"), row.get("name")
+    )
+    if len(terminal_codes) > 1 or (
+        all_codes and (len(terminal_codes) != 1 or all_codes != terminal_codes)
+    ):
+        return "other", "unmatched", None, "Oznaczenia tickerów GPW są niejednoznaczne."
     ticker = provider_gpw_ticker(
         provider_ticker=row.get("ticker"),
         provider_name=row.get("name"),
         provider_type=row.get("asset_type"),
         currency=row.get("currency"),
     )
-    company = (
-        db.scalar(select(Company).where(Company.ticker == ticker)) if ticker else None
+    if ticker:
+        company = _minimal_gpw_company(db, ticker, row.get("name"))
+        if _identity_text(company.market, upper=True) == "GPW":
+            return (
+                "company",
+                "exact",
+                company,
+                "Jednoznaczny końcowy ticker GPW i waluta PLN.",
+            )
+        return (
+            "other",
+            "unmatched",
+            None,
+            "Ticker GPW koliduje z zapisanym rynkiem spółki.",
+        )
+    provider_name = _normalized_company_name(row.get("name"))
+    candidates = [
+        company
+        for company in db.scalars(
+            select(Company)
+            .where(or_(Company.market == "GPW", Company.market.is_(None)))
+            .order_by(Company.id)
+            .with_for_update()
+        )
+        if provider_name and _normalized_company_name(company.name) == provider_name
+    ]
+    if len(candidates) == 1:
+        if candidates[0].market is None:
+            candidates[0].market = "GPW"
+        return (
+            "company",
+            "exact",
+            candidates[0],
+            "Jednoznaczna znormalizowana nazwa zapisanej spółki GPW.",
+        )
+    if len(candidates) > 1:
+        return "other", "unmatched", None, "Nazwa pasuje do więcej niż jednej spółki GPW."
+    return "other", "unmatched", None, "Brak jednoznacznego tickera lub nazwy spółki GPW."
+
+
+def resolve_instrument_mapping(
+    db: Session, row: dict[str, Any], *, provider: str = "myfund"
+) -> InstrumentMapping:
+    """Create or refresh one current mapping without rewriting frozen positions."""
+    mapping = db.scalar(
+        select(InstrumentMapping).where(
+            InstrumentMapping.provider == provider,
+            InstrumentMapping.provider_key == row["provider_key"],
+        ).with_for_update()
     )
-    if company is not None and row.get("currency") == "PLN":
-        return "company", "exact", company, "Exact stored GPW ticker and PLN currency."
-    return "other", "unmatched", None, "No exact stored PLN company identity."
+    if mapping is None:
+        try:
+            with db.begin_nested():
+                mapping = InstrumentMapping(
+                    provider=provider,
+                    provider_key=row["provider_key"],
+                    provider_ticker=row.get("ticker"),
+                    provider_name=row.get("name") or "Nieznany instrument",
+                    provider_type=row.get("asset_type"),
+                    currency=row.get("currency"),
+                    mapping_kind="other",
+                    mapping_status="unmatched",
+                    company_id=None,
+                    reason="Mapowanie oczekuje na rozstrzygnięcie.",
+                )
+                db.add(mapping)
+                db.flush()
+        except IntegrityError:
+            mapping = db.scalar(
+                select(InstrumentMapping)
+                .where(
+                    InstrumentMapping.provider == provider,
+                    InstrumentMapping.provider_key == row["provider_key"],
+                )
+                .with_for_update()
+            )
+            if mapping is None:
+                raise
+    mapping.provider_ticker = row.get("ticker")
+    mapping.provider_name = row.get("name") or "Nieznany instrument"
+    mapping.provider_type = row.get("asset_type")
+    mapping.currency = row.get("currency")
+    if mapping.mapping_status == "ignored" or (
+        mapping.mapping_status == "confirmed" and mapping.company_id is not None
+    ):
+        return mapping
+    kind, status, company, reason = classify_mapping(db, row)
+    mapping.mapping_kind = kind
+    mapping.mapping_status = status
+    mapping.company_id = company.id if company else None
+    mapping.reason = reason
+    mapping.confirmed_at = None
+    return mapping
+
+
+def apply_manual_instrument_mapping(
+    db: Session,
+    mapping: InstrumentMapping,
+    *,
+    company_ticker: str | None,
+    ignored: bool,
+    reason: str,
+) -> InstrumentMapping:
+    """Persist one explicit user override without guessing a new identity."""
+    rationale = reason.strip()
+    if len(rationale) < 3:
+        raise ValueError("Uzasadnienie musi mieć co najmniej 3 znaki.")
+    if mapping.mapping_kind == "cash":
+        raise ValueError("Nie można zmienić jednoznacznej pozycji gotówkowej.")
+    if ignored:
+        mapping.mapping_kind = "ignored"
+        mapping.mapping_status = "ignored"
+        mapping.company_id = None
+        mapping.reason = f"Ręcznie pominięto: {rationale}"
+        mapping.confirmed_at = datetime.now(timezone.utc)
+        return mapping
+    if _identity_text(mapping.provider_type) != _GPW_ASSET_TYPE or _identity_text(
+        mapping.currency, upper=True
+    ) != "PLN":
+        raise ValueError("Ręczne mapowanie spółki wymaga instrumentu Akcje GPW w PLN.")
+    ticker = str(company_ticker or "").strip().upper()
+    if not ticker:
+        raise ValueError("Ręczne mapowanie wymaga tickera spółki.")
+    company = db.scalar(
+        select(Company).where(Company.ticker == ticker).with_for_update()
+    )
+    if company is None:
+        provider_ticker = provider_gpw_ticker(
+            provider_ticker=mapping.provider_ticker,
+            provider_name=mapping.provider_name,
+            provider_type=mapping.provider_type,
+            currency=mapping.currency,
+        )
+        if provider_ticker != ticker:
+            raise ValueError(
+                "Wybrana spółka musi już istnieć albo odpowiadać jednemu "
+                "końcowemu tickerowi GPW dostawcy."
+            )
+        company = _minimal_gpw_company(db, ticker, mapping.provider_name)
+    if _identity_text(company.market, upper=True) not in {"", "GPW"}:
+        raise ValueError("Wybrana spółka nie jest tożsamością GPW.")
+    if company.market is None:
+        company.market = "GPW"
+    mapping.mapping_kind = "company"
+    mapping.mapping_status = "confirmed"
+    mapping.company_id = company.id
+    mapping.reason = f"Ręczna korekta: {rationale}"
+    mapping.confirmed_at = datetime.now(timezone.utc)
+    return mapping
 
 
 def portfolio_workspace(db: Session, snapshot: PortfolioSnapshot) -> dict[str, Any]:
@@ -410,6 +624,7 @@ def portfolio_workspace(db: Session, snapshot: PortfolioSnapshot) -> dict[str, A
                 "mapping_id": mapping.id,
                 "mapping_kind": mapping.mapping_kind,
                 "mapping_status": mapping.mapping_status,
+                "mapping_reason": mapping.reason,
                 "company_id": mapping.company_id,
                 "company_ticker": company_tickers.get(mapping.company_id),
                 "ticker": row.ticker,

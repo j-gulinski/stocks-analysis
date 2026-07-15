@@ -664,6 +664,7 @@ button, a, input, select {
   a:hover strong { color: var(--text-accent); }
   strong { font-size: 13px; }
   a span, > div > span { color: var(--text-secondary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .portfolio-mapping-reason { white-space: normal; }
 }
 .portfolio-liquidity-cell strong { font-size: 12px; }
 

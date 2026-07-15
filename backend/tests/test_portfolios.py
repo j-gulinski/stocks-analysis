@@ -593,7 +593,7 @@ def test_sequential_dict_keys_are_positions_not_native_identity():
     assert account_rows[0]["provider_key"] != account_rows[1]["provider_key"]
 
 
-def test_live_display_identity_matches_only_an_existing_company(
+def test_terminal_gpw_identity_creates_minimal_company_without_coverage_jobs(
     client, db, monkeypatch
 ):
     from app.api import portfolios
@@ -626,8 +626,99 @@ def test_live_display_identity_matches_only_an_existing_company(
     synced = client.post("/api/portfolios/sync/myfund").json()
     by_name = {row["name"]: row for row in synced["positions"]}
     assert by_name["SYNEKTIK (SNT)"]["company_id"] == company.id
-    assert by_name["ALPHA (ABC)"]["mapping_status"] == "unmatched"
-    assert db.scalar(select(Company).where(Company.ticker == "ABC")) is None
+    assert by_name["ALPHA (ABC)"]["mapping_status"] == "exact"
+    created = db.scalar(select(Company).where(Company.ticker == "ABC"))
+    assert created is not None and created.name == "ALPHA" and created.market == "GPW"
+    assert db.scalar(select(func.count()).select_from(ResearchCase)) == 0
+    assert db.scalar(select(func.count()).select_from(AgentRun)) == 0
+
+
+def test_identical_sync_repairs_current_name_mapping_without_rewriting_snapshot(
+    client, db, monkeypatch
+):
+    from app.api import portfolios
+
+    raw = payload()
+    raw["portfel"]["wartosc"] = "100"
+    raw["tickers"] = {
+        "provider-alpha": {
+            "tickerClear": "LAKA",
+            "nazwa": "Spółka Łąka SA",
+            "typOrg": "Akcje GPW",
+            "waluta": "PLN",
+            "wartosc": "100",
+            "zysk": "10",
+        }
+    }
+    monkeypatch.setattr(portfolios, "get_settings", settings)
+    monkeypatch.setattr(portfolios.polite_http, "fetch", lambda *a, **k: Response(raw))
+    first = client.post("/api/portfolios/sync/myfund").json()
+    first_position = first["positions"][0]
+    assert first_position["mapping_status"] == "unmatched"
+    frozen = db.scalar(
+        select(PortfolioPositionSnapshot).where(
+            PortfolioPositionSnapshot.id == first_position["id"]
+        )
+    )
+    assert frozen is not None
+    assert frozen.mapping_status == "unmatched" and frozen.company_id is None
+
+    company = Company(ticker="ABC", name="Spolka Laka", market=None)
+    db.add(company)
+    db.commit()
+    repeated = client.post("/api/portfolios/sync/myfund").json()
+    repaired = repeated["positions"][0]
+
+    assert repeated["sync"]["reused_snapshot"] is True
+    assert repeated["snapshot"]["id"] == first["snapshot"]["id"]
+    assert repaired["mapping_status"] == "exact"
+    assert repaired["company_ticker"] == "ABC"
+    assert repaired["mapping_reason"] == (
+        "Jednoznaczna znormalizowana nazwa zapisanej spółki GPW."
+    )
+    db.refresh(frozen)
+    db.refresh(company)
+    assert frozen.mapping_status == "unmatched" and frozen.company_id is None
+    assert company.market == "GPW"
+    assert db.scalar(select(func.count()).select_from(ResearchCase)) == 0
+    assert db.scalar(select(func.count()).select_from(AgentRun)) == 0
+
+
+def test_name_fallback_exposes_ambiguity_without_creating_identity_or_job(
+    client, db, monkeypatch
+):
+    from app.api import portfolios
+
+    db.add_all(
+        [
+            Company(ticker="ABC", name="Spółka Łąka SA", market="GPW"),
+            Company(ticker="XYZ", name="Spolka Laka", market=None),
+        ]
+    )
+    db.commit()
+    raw = payload()
+    raw["portfel"]["wartosc"] = "100"
+    raw["tickers"] = {
+        "provider-alpha": {
+            "tickerClear": "LAKA",
+            "nazwa": "SPÓŁKA ŁĄKA S.A.",
+            "typOrg": "Akcje GPW",
+            "waluta": "PLN",
+            "wartosc": "100",
+            "zysk": "10",
+        }
+    }
+    monkeypatch.setattr(portfolios, "get_settings", settings)
+    monkeypatch.setattr(portfolios.polite_http, "fetch", lambda *a, **k: Response(raw))
+
+    position = client.post("/api/portfolios/sync/myfund").json()["positions"][0]
+
+    assert position["mapping_status"] == "unmatched"
+    assert position["company_id"] is None
+    assert position["mapping_reason"] == (
+        "Nazwa pasuje do więcej niż jednej spółki GPW."
+    )
+    assert db.scalar(select(func.count()).select_from(Company)) == 2
     assert db.scalar(select(func.count()).select_from(ResearchCase)) == 0
     assert db.scalar(select(func.count()).select_from(AgentRun)) == 0
 
@@ -1148,13 +1239,18 @@ def test_mapping_patch_reinterprets_workspace_and_survives_identical_sync(
 ):
     from app.api import portfolios
 
-    db.add(Company(ticker="SNT", name="Synektik"))
+    db.add_all(
+        [
+            Company(ticker="SNT", name="Synektik"),
+            Company(ticker="ABC", name="Alpha SA", market="GPW"),
+        ]
+    )
     db.commit()
     raw = payload()
     raw["tickers"]["2"].update(
         {
             "tickerClear": "ALPHA",
-            "nazwa": "Alpha SA (ABC)",
+            "nazwa": "Provider Alpha instrument",
             "typOrg": "Akcje GPW",
             "waluta": "PLN",
         }
@@ -1167,13 +1263,13 @@ def test_mapping_patch_reinterprets_workspace_and_survives_identical_sync(
     assert (
         client.patch(
             f"/api/portfolios/mappings/{cash['mapping_id']}",
-            json={"company_ticker": "ABC"},
+            json={"company_ticker": "ABC", "reason": "Błędna klasyfikacja"},
         ).status_code
         == 409
     )
     patched = client.patch(
         f"/api/portfolios/mappings/{unmatched['mapping_id']}",
-        json={"company_ticker": "ABC"},
+        json={"company_ticker": "ABC", "reason": "Ręcznie potwierdzony instrument"},
     )
     assert (
         patched.status_code == 200 and patched.json()["mapping_status"] == "confirmed"
@@ -1198,16 +1294,91 @@ def test_mapping_patch_reinterprets_workspace_and_survives_identical_sync(
         p for p in repeated["positions"] if p["mapping_id"] == unmatched["mapping_id"]
     )
     assert interpreted["mapping_status"] == "confirmed"
+    assert interpreted["mapping_reason"] == (
+        "Ręczna korekta: Ręcznie potwierdzony instrument"
+    )
     ignored = client.patch(
-        f"/api/portfolios/mappings/{unmatched['mapping_id']}", json={"ignored": True}
+        f"/api/portfolios/mappings/{unmatched['mapping_id']}",
+        json={"ignored": True, "reason": "Poza analizą spółek"},
     )
     assert ignored.json()["mapping_status"] == "ignored"
+    repeated_ignored = client.post("/api/portfolios/sync/myfund").json()
+    ignored_position = next(
+        p
+        for p in repeated_ignored["positions"]
+        if p["mapping_id"] == unmatched["mapping_id"]
+    )
+    assert repeated_ignored["sync"]["reused_snapshot"] is True
+    assert ignored_position["mapping_status"] == "ignored"
+    assert ignored_position["mapping_reason"] == "Ręcznie pominięto: Poza analizą spółek"
     corrected = client.patch(
         f"/api/portfolios/mappings/{unmatched['mapping_id']}",
-        json={"company_ticker": "ABC"},
+        json={"company_ticker": "ABC", "reason": "Przywrócone mapowanie"},
     )
     assert corrected.status_code == 200
     assert corrected.json()["company_id"] == company.id
+
+
+def test_manual_mapping_rejects_non_gpw_provider_row_for_existing_gpw_company(
+    client, db, monkeypatch
+):
+    from app.api import portfolios
+
+    company = Company(ticker="ABC", name="Alpha SA", market="GPW")
+    db.add(company)
+    db.commit()
+    raw = payload()
+    raw["portfel"]["wartosc"] = "100"
+    raw["tickers"] = {
+        "provider-alpha": {
+            "tickerClear": "ALPHA",
+            "nazwa": "Provider Alpha instrument",
+            "typOrg": "Fundusz",
+            "waluta": "PLN",
+            "wartosc": "100",
+            "zysk": "10",
+        }
+    }
+    monkeypatch.setattr(portfolios, "get_settings", settings)
+    monkeypatch.setattr(portfolios.polite_http, "fetch", lambda *a, **k: Response(raw))
+    position = client.post("/api/portfolios/sync/myfund").json()["positions"][0]
+
+    assert position["mapping_status"] == "unmatched"
+    corrected = client.patch(
+        f"/api/portfolios/mappings/{position['mapping_id']}",
+        json={"company_ticker": "ABC", "reason": "Korekta typu dostawcy"},
+    )
+
+    assert corrected.status_code == 422
+    assert "Akcje GPW w PLN" in corrected.json()["detail"]
+    db.refresh(company)
+    mapping = db.get(InstrumentMapping, position["mapping_id"])
+    assert mapping is not None and mapping.mapping_status == "unmatched"
+
+
+@pytest.mark.parametrize("reason", ["   ", " ok "])
+def test_mapping_patch_rejects_blank_or_too_short_rationale(
+    client, db, monkeypatch, reason
+):
+    from app.api import portfolios
+
+    raw = payload()
+    monkeypatch.setattr(portfolios, "get_settings", settings)
+    monkeypatch.setattr(portfolios.polite_http, "fetch", lambda *a, **k: Response(raw))
+    position = next(
+        row
+        for row in client.post("/api/portfolios/sync/myfund").json()["positions"]
+        if row["mapping_status"] == "unmatched"
+    )
+
+    response = client.patch(
+        f"/api/portfolios/mappings/{position['mapping_id']}",
+        json={"ignored": True, "reason": reason},
+    )
+
+    assert response.status_code == 422
+    mapping = db.get(InstrumentMapping, position["mapping_id"])
+    assert mapping is not None and mapping.mapping_status == "unmatched"
 
 
 @pytest.mark.parametrize(
@@ -1249,7 +1420,7 @@ def test_mapping_patch_rejects_mismatch_ambiguous_or_non_gpw_identity(
     mapping_id = synced["positions"][0]["mapping_id"]
     response = client.patch(
         f"/api/portfolios/mappings/{mapping_id}",
-        json={"company_ticker": confirmed},
+        json={"company_ticker": confirmed, "reason": "Ręczna korekta testowa"},
     )
     assert response.status_code == expected_status
     assert db.scalar(select(Company).where(Company.ticker == confirmed)) is None
@@ -1748,14 +1919,18 @@ def test_mapping_change_after_claim_requires_needs_human_artifact(
     from app.api import portfolios
 
     db.add_all(
-        [Company(ticker="SNT", name="Synektik"), Company(ticker="ABS", name="ABS")]
+        [
+            Company(ticker="SNT", name="Synektik"),
+            Company(ticker="ABS", name="ABS"),
+            Company(ticker="ABC", name="Alpha SA", market="GPW"),
+        ]
     )
     db.commit()
     raw = payload()
     raw["tickers"]["2"].update(
         {
             "tickerClear": "ALPHA",
-            "nazwa": "Alpha SA (ABC)",
+            "nazwa": "Provider Alpha instrument",
             "typOrg": "Akcje GPW",
         }
     )
@@ -1773,7 +1948,10 @@ def test_mapping_change_after_claim_requires_needs_human_artifact(
     assert (
         client.patch(
             f"/api/portfolios/mappings/{unmatched['mapping_id']}",
-            json={"company_ticker": "ABC"},
+            json={
+                "company_ticker": "ABC",
+                "reason": "Ręczna korekta po zamrożeniu przeglądu",
+            },
         ).status_code
         == 200
     )

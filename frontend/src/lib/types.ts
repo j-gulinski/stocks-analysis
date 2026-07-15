@@ -1590,6 +1590,7 @@ export interface PortfolioPosition {
   mapping_id: number;
   mapping_kind: "company" | "cash" | "other" | "ignored";
   mapping_status: "exact" | "confirmed" | "unmatched" | "ignored";
+  mapping_reason: string;
   company_id: number | null;
   company_ticker: string | null;
   ticker: string | null;

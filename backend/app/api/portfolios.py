@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,7 +14,6 @@ from app.config import get_settings
 from app.db.base import get_db
 from app.db.models import (
     AgentRun,
-    Company,
     InstrumentMapping,
     Portfolio,
     PortfolioPositionSnapshot,
@@ -35,10 +34,10 @@ from app.api.schemas import (
 from app.scrapers import http as polite_http
 from app.services.portfolio import (
     PARSER_VERSION,
-    classify_mapping,
+    apply_manual_instrument_mapping,
     normalize_myfund,
     portfolio_workspace,
-    provider_gpw_ticker,
+    resolve_instrument_mapping,
 )
 from app.services.portfolio_review_artifacts import (
     PortfolioReviewArtifactError,
@@ -53,6 +52,15 @@ router = APIRouter(prefix="/portfolios", tags=["portfolios"])
 class MappingPatchIn(BaseModel):
     company_ticker: str | None = Field(default=None, max_length=12)
     ignored: bool = False
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        stripped = value.strip()
+        if len(stripped) < 3:
+            raise ValueError("Uzasadnienie musi mieć co najmniej 3 znaki.")
+        return stripped
 
 
 def _portfolio(db: Session, *, create: bool = False) -> Portfolio | None:
@@ -386,6 +394,8 @@ def _persist_normalized(
         .limit(1)
     )
     if latest is not None and latest.input_fingerprint == normalized.fingerprint:
+        for row in normalized.positions:
+            resolve_instrument_mapping(db, row)
         sync = db.get(PortfolioSync, sync_id)
         assert sync is not None
         sync.status = "succeeded"
@@ -417,38 +427,7 @@ def _persist_normalized(
     cash = 0.0
     cash_recognized = False
     for row in normalized.positions:
-        mapping = db.scalar(
-            select(InstrumentMapping).where(
-                InstrumentMapping.provider == "myfund",
-                InstrumentMapping.provider_key == row["provider_key"],
-            )
-        )
-        if mapping is None:
-            kind, mapping_status, company, reason = classify_mapping(db, row)
-            mapping = InstrumentMapping(
-                provider="myfund",
-                provider_key=row["provider_key"],
-                provider_ticker=row["ticker"],
-                provider_name=row["name"],
-                provider_type=row["asset_type"],
-                currency=row["currency"],
-                mapping_kind=kind,
-                mapping_status=mapping_status,
-                company_id=company.id if company else None,
-                reason=reason,
-            )
-            db.add(mapping)
-            db.flush()
-        elif mapping.mapping_status not in {"confirmed", "ignored"}:
-            kind, mapping_status, company, reason = classify_mapping(db, row)
-            mapping.provider_ticker = row["ticker"]
-            mapping.provider_name = row["name"]
-            mapping.provider_type = row["asset_type"]
-            mapping.currency = row["currency"]
-            mapping.mapping_kind = kind
-            mapping.mapping_status = mapping_status
-            mapping.company_id = company.id if company else None
-            mapping.reason = reason
+        mapping = resolve_instrument_mapping(db, row)
         if mapping.mapping_kind == "cash":
             cash_recognized = True
             cash += row["value"]
@@ -511,53 +490,27 @@ def date_from_iso(value: str):
 def patch_mapping(
     mapping_id: int, payload: MappingPatchIn, db: Session = Depends(get_db)
 ) -> dict[str, Any]:
-    mapping = db.get(InstrumentMapping, mapping_id)
+    mapping = db.scalar(
+        select(InstrumentMapping)
+        .where(InstrumentMapping.id == mapping_id)
+        .with_for_update()
+    )
     if mapping is None:
         raise HTTPException(status_code=404, detail="Instrument mapping not found.")
-    if mapping.mapping_kind == "cash" or mapping.mapping_status == "exact":
+    if mapping.mapping_kind == "cash":
         raise HTTPException(
-            status_code=409, detail="Exact provider identity cannot be reinterpreted."
+            status_code=409, detail="Exact cash identity cannot be reinterpreted."
         )
-    if payload.ignored:
-        mapping.mapping_kind = "ignored"
-        mapping.mapping_status = "ignored"
-        mapping.company_id = None
-        mapping.reason = "Ignored by user."
-        mapping.confirmed_at = utcnow()
-    else:
-        ticker = (payload.company_ticker or "").strip().upper()
-        provider_ticker = provider_gpw_ticker(
-            provider_ticker=mapping.provider_ticker,
-            provider_name=mapping.provider_name,
-            provider_type=mapping.provider_type,
-            currency=mapping.currency,
+    try:
+        apply_manual_instrument_mapping(
+            db,
+            mapping,
+            company_ticker=payload.company_ticker,
+            ignored=payload.ignored,
+            reason=payload.reason,
         )
-        if not ticker or provider_ticker != ticker:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "Confirmed ticker must exactly match one terminal GPW code "
-                    "from a PLN Akcje GPW provider identity."
-                ),
-            )
-        company = db.scalar(select(Company).where(Company.ticker == ticker))
-        if company is None:
-            display_name = mapping.provider_name.strip()
-            suffix = f" ({ticker})"
-            if display_name.upper().endswith(suffix):
-                display_name = display_name[: -len(suffix)].strip()
-            company = Company(
-                ticker=ticker,
-                name=display_name or ticker,
-                market="GPW",
-            )
-            db.add(company)
-            db.flush()
-        mapping.mapping_kind = "company"
-        mapping.mapping_status = "confirmed"
-        mapping.company_id = company.id
-        mapping.reason = "Confirmed by user."
-        mapping.confirmed_at = utcnow()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     db.commit()
     db.refresh(mapping)
     return {

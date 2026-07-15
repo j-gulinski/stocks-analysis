@@ -28,8 +28,8 @@ calls a model. Only the commands below may mutate durable state.
 | Queue Codex valuation | `POST /api/research-cases/{id}/valuation-runs` | Valuation frozen to Research/Street inputs; the queued Codex skill performs the company-specific causal analysis and drafts evidence-bound annual drivers, runway, capital allocation/net debt, terminal economics, method fit and conditional probability evidence; Python only validates and computes |
 | Verify/save valuation | Canonical valuation verify then save adapters | Structurally gated immutable valuation; terminal job |
 | Open Portfolio | `GET /api/portfolios/workspace` | Zero-write stored holdings, mappings, review history and typed `portfolio-performance-v1` TWR/XIRR evidence (status, value, method, window, timing, day count, terminal identity, flow count and gaps) |
-| Synchronize myfund | `POST /api/portfolios/sync/myfund` | Durable attempt and reused or next immutable snapshot |
-| Correct mapping | `PATCH /api/portfolios/mappings/{id}` | Explicit current identity interpretation |
+| Synchronize myfund | `POST /api/portfolios/sync/myfund` | Durable attempt and reused or next immutable snapshot; one canonical resolver refreshes current mappings without rewriting frozen position rows |
+| Correct mapping | `PATCH /api/portfolios/mappings/{id}` with company ticker or ignored flag plus rationale | Locked explicit current identity interpretation; company correction is limited to `Akcje GPW` in PLN and exact cash cannot be changed |
 | Queue portfolio review | `POST /api/portfolios/review-runs` | One content-idempotent frozen review job |
 | Drain queue | Invoke `$workbench-run-queue` | Lease recovery and repeated claim/verify/save until empty or a safety cap fires |
 
@@ -90,9 +90,12 @@ calls a model. Only the commands below may mutate durable state.
   dated contribution deltas and the current provider total on the exact
   snapshot date with ACT/365; it does not depend on position-row
   reconciliation. Missing days, alignment, terminal identity or a unique root
-  are named gaps, never approximated. Operations import, auto-coverage and
-  outcome scoring remain open Roadmap gates until their deterministic paths
-  are green.
+  are named gaps, never approximated. Mapping uses only strict cash identity,
+  one unambiguous terminal GPW ticker or one normalized known-company name;
+  ambiguity stays visible. Identical sync may repair the current mapping but
+  never rewrites the frozen position classification. Operations import,
+  auto-coverage and outcome scoring remain open Roadmap gates until their
+  deterministic paths are green.
 
 ## Lifecycle and safety
 
