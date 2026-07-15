@@ -838,7 +838,6 @@ def save_portfolio_review(
     checks = verification.checks or {}
     if (
         verification.agent_run_id != agent.id
-        or verification.analysis_run_id is not None
         or verification.model_role != "verifier_strict"
         or checks.get("verifier_worker_id") in {None, agent.lease_owner}
         or checks.get("portfolio_review_draft_fingerprint") != draft_fingerprint

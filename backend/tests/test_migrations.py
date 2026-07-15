@@ -1,5 +1,5 @@
 """Migration ↔ model parity: `alembic upgrade head` must produce exactly the
-schema the ORM models declare (the initial migration is hand-written)."""
+schema the ORM models declare from the generated clean baseline."""
 from pathlib import Path
 
 import sqlalchemy as sa

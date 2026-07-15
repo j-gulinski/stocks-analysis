@@ -19,6 +19,10 @@ The app persists requests; this skill owns one explicit queue-draining session.
 3. Loop until the queue is empty or a stop condition fires:
    - atomically claim the next eligible row with
      `python3 scripts/codex_pick_agent_run.py --claim --pretty`;
+   - honor the job's exact requested public model and reasoning effort from the
+     canonical Architecture policy; if this surface cannot select it, record
+     the actual host as unavailable plus the substitution instead of silently
+     treating every job as the current model;
    - follow its frozen execution contract and heartbeat its lease;
    - run deterministic collection/calculation before judgment;
    - obtain genuinely independent strict verification for the exact draft;
@@ -47,3 +51,11 @@ Preserve source IDs/times, assumptions, requested and actual model metadata,
 substitutions, verification records, and named gaps. Never fabricate work,
 claim future-dated rows early, schedule a recurring worker, mutate a portfolio,
 or issue a transaction instruction.
+
+Routing summary: Research uses `gpt-5.6-terra` high, valuation uses
+`gpt-5.6-sol` high, ordinary portfolio interpretation uses `gpt-5.6-terra`
+medium, clear repeatable support may use `gpt-5.6-luna` low, and every strict
+decision verifier uses an independent `gpt-5.6-sol` high. Mechanical coding
+checks may use `gpt-5.3-codex-spark` outside the artifact queue when available.
+xhigh and Max require evidence; Ultra is divisible multi-agent orchestration,
+not a model.

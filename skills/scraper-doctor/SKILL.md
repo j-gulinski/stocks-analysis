@@ -191,6 +191,19 @@ are NON-NEGOTIABLE at every step (see bottom).
 
 ### Issuer IR
 
+- When direct `requests` succeeds but the shared polite fetcher receives 403,
+  compare the effective session headers. A new `requests.Session` already has a
+  `python-requests/...` user-agent, so default-only header logic does not replace
+  it. The shared fetcher must replace only that library default while preserving
+  an explicitly configured caller session user-agent.
+- When an issuer index blocks the polite fetcher but an exact same-host official
+  PDF URL is explicitly authorized for the current company review, freeze that
+  URL with `codex_ingest_issuer_ir_report.py --authorize-direct-official-url`
+  before the normal detail fetch. The authorization version is discovery
+  metadata only (`response_status=0`), never report evidence. Keep the HTTPS,
+  registered-host, PDF, public-peer, size, page and retry gates unchanged. If
+  the PDF itself returns 403, stop: browser/search text cannot be relabelled as
+  a retained issuer document.
 - Asseco Business Solutions splits current and periodic disclosures across two
   official indexes. Preserve them as distinct logical documents. Current
   reports are inline `.ir-item--accordion` blocks without detail URLs and are

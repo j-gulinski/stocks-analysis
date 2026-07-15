@@ -4,6 +4,7 @@ Politeness delays are monkeypatched away (no_sleep) — we assert *that* sleeps
 would happen, not how long they take.
 """
 import pytest
+import requests
 
 import app.scrapers.http as polite_http
 from tests.conftest import FakeResponse
@@ -31,6 +32,24 @@ def test_returns_first_terminal_response(no_sleep):
     assert response.status_code == 200
     assert session.calls == 1
     assert "User-Agent" in session.headers  # realistic UA is always set
+
+
+def test_replaces_requests_default_user_agent(no_sleep):
+    session = StubSession([FakeResponse("ok", 200)])
+    session.headers["User-Agent"] = requests.utils.default_user_agent()
+
+    polite_http.fetch("https://www.biznesradar.pl/x", session=session)
+
+    assert session.headers["User-Agent"] == polite_http.USER_AGENT
+
+
+def test_preserves_explicit_session_user_agent(no_sleep):
+    session = StubSession([FakeResponse("ok", 200)])
+    session.headers["User-Agent"] = "WorkbenchForumSession/1.0"
+
+    polite_http.fetch("https://www.biznesradar.pl/x", session=session)
+
+    assert session.headers["User-Agent"] == "WorkbenchForumSession/1.0"
 
 
 def test_404_is_terminal_not_retried(no_sleep):

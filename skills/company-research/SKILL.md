@@ -28,13 +28,17 @@ Contract version: `company-research-v3`. Output contract:
 ## Model routing
 
 - Use deterministic collectors/parsers/calculators without a model.
-- Use GPT-5.3 high only for repetitive bounded extraction when the saved job
-  contract permits it.
-- Use Terra high for the ordinary initial research draft.
-- Escalate to Sol high for genuinely cross-source or financially complex
-  synthesis, recording the reason. Do not start at ultra.
-- Use an independent Sol-high `verifier_strict` for the final UI-visible
-  research judgment.
+- Use `gpt-5.6-luna` low only for clear, repeatable bounded extraction or
+  transformation whose output is checked mechanically.
+- Use `gpt-5.6-terra` high for the ordinary multi-source initial/review draft.
+- Escalate a genuinely ambiguous or financially complex draft to
+  `gpt-5.6-sol` high and record the concrete reason.
+- Use an independent `gpt-5.6-sol` high `verifier_strict` for the final
+  UI-visible research judgment. The verifier is a distinct context even when
+  the drafter was also Sol.
+- Follow the canonical table in `../../docs/ARCHITECTURE.md`. Escalate to xhigh
+  or Max only after a concrete failure or representative eval gain; Ultra is
+  orchestration, not a model.
 
 ## Workflow
 

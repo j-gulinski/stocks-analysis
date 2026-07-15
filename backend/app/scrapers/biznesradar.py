@@ -361,6 +361,14 @@ class ForecastRow:
     metric: str | None  # canonical code (see _FORECAST_METRIC_LABELS), None = unmapped
     label: str  # raw BR row label, always kept (mirrors the indicator parser)
     values: list[float | None]  # aligned with ForecastTable.columns
+    estimate_ranges: list["ForecastEstimateRange | None"] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ForecastEstimateRange:
+    forecast_count: int
+    minimum: float
+    maximum: float
 
 
 @dataclass
@@ -451,6 +459,28 @@ def _forecast_label_cell_index(cells) -> int:
     return 0
 
 
+_FORECAST_RANGE_RE = re.compile(
+    r"(?P<count>\d+)\s*\(\s*(?P<minimum>[\d\s.,]+?)\s*[-–—]\s*"
+    r"(?P<maximum>[\d\s.,]+?)\s*\)\s*$"
+)
+
+
+def _forecast_estimate_range(raw: str, *, scale: float) -> ForecastEstimateRange | None:
+    """Parse BR's trailing `count (minimum - maximum)` consensus metadata."""
+    match = _FORECAST_RANGE_RE.search(raw.replace("\xa0", " "))
+    if match is None:
+        return None
+    minimum = parse_number(match.group("minimum"))
+    maximum = parse_number(match.group("maximum"))
+    if minimum is None or maximum is None or minimum > maximum:
+        return None
+    return ForecastEstimateRange(
+        forecast_count=int(match.group("count")),
+        minimum=round(minimum * scale, 3),
+        maximum=round(maximum * scale, 3),
+    )
+
+
 def parse_forecasts(html: str) -> ForecastTable:
     """Parse the /prognozy/{slug} analyst-forecast table (public page)."""
     soup = BeautifulSoup(html, "html.parser")
@@ -499,12 +529,15 @@ def parse_forecasts(html: str) -> ForecastTable:
         metric = _forecast_metric_from_label(label)
         value_cells = cells[label_idx + 1 :]
         values: list[float | None] = []
+        estimate_ranges: list[ForecastEstimateRange | None] = []
         for column_index in range(len(columns)):
             if column_index >= len(value_cells):
                 values.append(None)
+                estimate_ranges.append(None)
                 continue
             raw = value_cells[column_index].get_text(" ", strip=True)
             value = parse_number(raw)
+            scale = 1000.0 if metric in _FORECAST_MONEY_METRICS else 1.0
             if value is not None and metric in _FORECAST_MONEY_METRICS:
                 # BiznesRadar states this page's money rows in mln zł; the DB
                 # convention (services/fields.py, ReportValue) is tys. PLN —
@@ -517,7 +550,19 @@ def parse_forecasts(html: str) -> ForecastTable:
                 # instead of writing it to the DB.
                 value = round(value * 1000.0, 3)
             values.append(value)
-        rows.append(ForecastRow(metric=metric, label=label, values=values))
+            estimate_ranges.append(
+                _forecast_estimate_range(raw, scale=scale)
+                if columns[column_index].kind == "konsensus"
+                else None
+            )
+        rows.append(
+            ForecastRow(
+                metric=metric,
+                label=label,
+                values=values,
+                estimate_ranges=estimate_ranges,
+            )
+        )
         if metric is None:
             unmapped_labels.append(label)
 

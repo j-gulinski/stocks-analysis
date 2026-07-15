@@ -46,7 +46,7 @@ def test_health(client):
 
 def test_refresh_and_read_endpoints(client, stub_fetch, db):
     from sqlalchemy import select
-    from app.db.models import DocumentVersion, Fact, SourceDocument
+    from app.db.models import Company, CompanyMarketData, DocumentVersion, Fact, SourceDocument
 
     response = client.post("/api/companies/DEC/refresh")
     assert response.status_code == 200
@@ -87,6 +87,19 @@ def test_refresh_and_read_endpoints(client, stub_fetch, db):
     # "Liczba akcji" in the fixture is the trap the old regex fell into
     assert info["market_cap"] == 258_877_658
     assert info["enterprise_value"] == 236_877_658
+
+    dec = db.scalar(select(Company).where(Company.ticker == "DEC"))
+    market_data = db.scalar(
+        select(CompanyMarketData).where(CompanyMarketData.company_id == dec.id)
+    )
+    forward_pe = market_data.forecast_consensus["2026"]["pe"]
+    assert forward_pe["semantic"] == "forward_trading_multiple"
+    assert forward_pe["not_a_target_multiple"] is True
+    revenue_expectation = market_data.forecast_consensus["2026"]["revenue"]
+    assert revenue_expectation["growth_base_period"] == "2025"
+    assert revenue_expectation["growth_pct"] == 2.68
+    assert revenue_expectation["period_kind"] == "fiscal_year"
+    assert revenue_expectation["source_document_version_id"] is not None
 
     profile_version = db.scalar(
         select(DocumentVersion)

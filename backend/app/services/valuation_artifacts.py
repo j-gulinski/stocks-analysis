@@ -34,6 +34,7 @@ from app.services.valuation_engine import (
     ValuationInputError,
     calculate_valuation,
     canonical_hash,
+    derive_scenario_probabilities,
     prepare_valuation,
     probability_weighted,
     validate_assumption_bindings,
@@ -46,10 +47,10 @@ from app.services.valuation_gates import (
 from app.services.valuation_templates import get_template
 
 WORKFLOW = "stock-company-valuation"
-SKILL_VERSION = "company-valuation-v2"
+SKILL_VERSION = "company-valuation-v3"
 CONTRACT_VERSION = "valuation-snapshot-v2"
-ENGINE_VERSION = "valuation-engine-v2"
-TEMPLATE_CONTRACT_VERSION = "valuation-templates-v1"
+ENGINE_VERSION = "valuation-engine-v3"
+TEMPLATE_CONTRACT_VERSION = "valuation-templates-v2"
 
 # Frozen at queue time; the drafter may not change these.
 FROZEN_BASE_FIELDS = (
@@ -143,7 +144,9 @@ def _validate_draft(
         validate_assumption_bindings(draft.assumptions, draft.input_manifest)
     except ValuationInputError as exc:
         raise ValuationArtifactError(str(exc), kind=exc.kind) from exc
-    recomputed = calculate_valuation(draft.base_values, draft.assumptions)
+    recomputed = calculate_valuation(
+        draft.base_values, draft.assumptions, draft.methodology
+    )
     if recomputed != draft.deterministic_outputs:
         raise ValuationArtifactError("Deterministic valuation does not reconcile.", kind="conflict")
     if canonical_hash(recomputed) != draft.calculation_fingerprint:
@@ -288,14 +291,10 @@ def _verification_result(verification: VerificationRun) -> ValuationVerifierResu
 
 
 def _draft_probabilities(draft: ValuationSnapshotDraftIn) -> list[dict]:
-    return [
-        {
-            "kind": row.kind,
-            "probability_pct": row.probability_pct,
-            "rationale": row.probability_rationale,
-        }
-        for row in draft.codex_judgment.scenarios
-    ]
+    return derive_scenario_probabilities(
+        draft.codex_judgment.probability_model,
+        {row.kind for row in draft.assumptions},
+    )
 
 
 def save_valuation_snapshot(
@@ -317,7 +316,6 @@ def save_valuation_snapshot(
     checks = verification.checks or {}
     if (
         verification.agent_run_id != agent.id
-        or verification.analysis_run_id is not None
         or verification.model_role != "verifier_strict"
         or checks.get("verifier_worker_id") in {None, agent.lease_owner}
         or checks.get("valuation_draft_fingerprint") != valuation_draft_fingerprint(draft)
@@ -372,7 +370,10 @@ def save_valuation_snapshot(
         template_id=draft.template_id,
         template_version=draft.template_version,
         calculation_engine_version=draft.engine_version,
-        assumptions={"scenarios": [row.model_dump(mode="json") for row in draft.assumptions]},
+        assumptions={
+            "scenarios": [row.model_dump(mode="json") for row in draft.assumptions],
+            "methodology": draft.methodology.model_dump(mode="json"),
+        },
         base_values=draft.base_values,
         deterministic_outputs=final_outputs,
         codex_judgment=draft.codex_judgment.model_dump(mode="json"),
@@ -464,7 +465,8 @@ def save_valuation_override(
         template_version=prepared["template"].version,
         calculation_engine_version=ENGINE_VERSION,
         assumptions={
-            "scenarios": [row.model_dump(mode="json") for row in payload.assumptions]
+            "scenarios": [row.model_dump(mode="json") for row in payload.assumptions],
+            "methodology": payload.methodology.model_dump(mode="json"),
         },
         base_values=prepared["base_values"],
         deterministic_outputs=outputs,

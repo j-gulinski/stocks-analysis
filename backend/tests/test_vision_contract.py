@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from pydantic import ValidationError
@@ -289,6 +290,59 @@ def test_v10_deleted_legacy_modules_and_routes_stay_deleted(client) -> None:
         "/api/monitor",
     ):
         assert client.get(route).status_code == 404, route
+
+
+def test_v10_clean_baseline_has_no_legacy_artifact_schema() -> None:
+    """V10: stale tables/fields cannot re-enter through a migration or model."""
+    from app.api.schemas import CompanyProfileIn, ResearchSnapshotOut, ValuationSnapshotOut
+    from app.db.base import Base
+    from app.db.models import CompanyProfile, ResearchCase, VerificationRun
+
+    migrations = sorted(
+        path.name
+        for path in (BACKEND / "alembic" / "versions").glob("*.py")
+        if path.name != "__init__.py"
+    )
+    assert migrations == ["0001_canonical_clean_baseline.py"]
+
+    retired_tables = {
+        "assumption_sets",
+        "discovery_triage_reviews",
+        "forecasts",
+        "analyses",
+        "model_calls",
+        "forum_topics",
+        "forum_posts",
+        "watchlist_items",
+        "monitor_snapshots",
+        "monitor_changes",
+        "analysis_runs",
+        "candidate_runs",
+        "backtest_runs",
+        "backtest_observations",
+        "agent_evaluation_runs",
+        "agent_evaluation_observations",
+    }
+    assert retired_tables.isdisjoint(Base.metadata.tables)
+    assert not hasattr(CompanyProfile, "author")
+    assert not {
+        "promotion_triage_review_id",
+        "promotion_review_price_pln",
+        "promotion_note",
+        "promotion_evidence_reason",
+        "quarterly_review_due_on",
+        "material_event_review_policy",
+    } & set(ResearchCase.__table__.columns)
+    assert "analysis_run_id" not in VerificationRun.__table__.columns
+    assert CompanyProfileIn.model_fields["schema_version"].annotation == Literal[
+        "company-profile-v2"
+    ]
+    assert ResearchSnapshotOut.model_fields["contract_version"].annotation == Literal[
+        "research-snapshot-v3"
+    ]
+    assert ValuationSnapshotOut.model_fields["contract_version"].annotation == Literal[
+        "valuation-snapshot-v2"
+    ]
 
 
 def test_v10_only_canonical_workflows_and_artifact_gates_are_exposed() -> None:

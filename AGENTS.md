@@ -18,6 +18,8 @@ or code conflicts with VISION, the other artifact is wrong.
 7. `skills/workbench-actions/SKILL.md` — user-triggered capabilities; update
    with every affected UI/API/CLI/queue boundary.
 8. `skills/scraper-doctor/SKILL.md` — every scraper/data problem starts here.
+9. `skills/verify-workbench-vision/SKILL.md` — browser-first V1–V10 acceptance
+   after every implementation session; unit tests do not replace it.
 
 `docs/source-materials/` holds evidence inputs referenced by path and
 SHA-256 — never move, edit, or surface their authors in the product (V2).
@@ -43,12 +45,19 @@ Chat alignment does not survive sessions; only contracts do. Therefore:
 1. Classify the work with the routing table in `docs/ARCHITECTURE.md`; use
    bounded workers with disjoint targets and a separate verifier pass when
    that improves quality.
+   Model names and reasoning efforts are exact requests, not decorative tier
+   labels: use the lowest effective effort, record the actual host separately,
+   and never describe Ultra as a model. Future slice routing belongs only in
+   `docs/ROADMAP.md`; completed-run evidence belongs only in
+   `docs/model-usage.md`.
 2. Reproduce or trace current behavior first. Treat existing docs/tests as
    untrusted when they conflict with the user outcome or VISION.
 3. Make the smallest coherent change that establishes one observable
    vertical outcome. Delete legacy paths you replace (V10).
-4. Verify proportionally: focused tests, relevant full suite, frontend
-   build, runtime health, and a browser interaction for primary flows.
+4. Verify proportionally: run the Vision drift test and focused deterministic
+   tests, then use `skills/verify-workbench-vision/SKILL.md` against the running
+   app after every implementation session. A full suite is reserved for
+   release/cross-cutting risk; test count never replaces browser acceptance.
 
 ## Verification quality bar (V5)
 
@@ -69,8 +78,12 @@ Chat alignment does not survive sessions; only contracts do. Therefore:
 
 - Financial semantics in `services/fields.py`; calculations in pure, tested
   services. Prefer existing patterns.
-- One forward Alembic migration per coherent schema slice; local DB state
-  is disposable — no compatibility migrations.
+- During ordinary work use at most one forward Alembic migration per coherent
+  schema slice; local DB state is disposable and never earns compatibility or
+  backfill migrations. At the active Roadmap clean-baseline gate, after the
+  canonical implementation is finished, delete the historical revision chain,
+  generate one baseline migration, drop/recreate the local DB, migrate from
+  empty and rebuild only canonical data.
 - Preserve user changes in dirty worktrees; no unrelated cleanup.
 - Secrets only in `backend/.env`; never print or commit them.
 - Kuba is a mid-level C# developer: explain non-obvious Python/frontend

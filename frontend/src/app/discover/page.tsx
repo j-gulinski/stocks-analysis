@@ -6,7 +6,7 @@ import { IconAlertTriangle, IconBan, IconDatabaseSearch, IconRefresh } from "@ta
 import { addResearchCase, getDiscovery, refreshDiscovery } from "@/lib/api";
 import { LoadingMessages, SkeletonRows } from "@/components/Loading";
 import { fmtDate, fmtNumber } from "@/lib/format";
-import type { DiscoveryCandidate, DiscoveryFactor, DiscoveryResult, DiscoveryScoreComponent } from "@/lib/types";
+import type { DiscoveryCandidate, DiscoveryFactor, DiscoveryResult, DiscoveryScoreComponent, DiscoveryScoreNormalization } from "@/lib/types";
 
 const PAGE_SIZE = 12;
 
@@ -35,10 +35,28 @@ function scoreComponentValue(component: DiscoveryScoreComponent) {
     : `${raw}${unit} → limit ${ranking}${unit}`;
 }
 
+function normalizationValue(item: DiscoveryScoreNormalization, value: number | null) {
+  if (value == null) return "brak — składnik neutralny";
+  return item.component_id === "current_pe"
+    ? `${fmtNumber(value, 2)}×`
+    : `${value >= 0 ? "+" : ""}${fmtNumber(value, 1)}%`;
+}
+
 function ruleText(operator: string, threshold: number | null) {
   if (operator === "composite" || threshold == null) return "warunek łączny";
   const symbol = { lt: "<", lte: "≤", gt: ">", gte: "≥", eq: "=" }[operator] ?? operator;
   return `${symbol} ${fmtNumber(threshold, threshold % 1 === 0 ? 0 : 1)}`;
+}
+
+function expectationValue(value: number) {
+  return `${fmtNumber(value / 1000, 1)} mln PLN`;
+}
+
+function expectationMeta(metric: { growth_pct: number | null; forecast_count: number | null; dispersion_pct: number | null }) {
+  const parts = [metric.growth_pct == null ? "brak bazy wzrostu" : `r/r ${metric.growth_pct >= 0 ? "+" : ""}${fmtNumber(metric.growth_pct, 1)}%`];
+  if (metric.forecast_count != null) parts.push(`${metric.forecast_count} prognoz`);
+  if (metric.dispersion_pct != null) parts.push(`rozstęp ${fmtNumber(metric.dispersion_pct, 1)}%`);
+  return parts.join(" · ");
 }
 
 export default function DiscoverPage() {
@@ -111,6 +129,9 @@ export default function DiscoverPage() {
   };
 
   const renderCandidate = (candidate: DiscoveryCandidate) => {
+    const firstExpectation = candidate.analyst_expectations.periods[0];
+    const revenueExpectation = firstExpectation?.metrics.find((item) => item.metric === "revenue");
+    const profitExpectation = firstExpectation?.metrics.find((item) => item.metric === "net_income");
     return (
       <article className="candidate-row" key={candidate.ticker}>
         <div className="candidate-company">
@@ -126,6 +147,21 @@ export default function DiscoverPage() {
             <strong>{candidate.potential_score == null ? "—" : `${fmtNumber(candidate.potential_score, 1)}/100`}</strong>
             <small>{candidate.potential_score == null ? `Brak pełnych danych · ${candidate.score_components.length}/5 składników` : "Porównywalny w bieżącym batchu · 5/5 składników"}</small>
           </div>
+          {revenueExpectation && <div className="candidate-factor expectation-factor">
+            <span>Przychody FY{firstExpectation.period}</span>
+            <strong>{expectationValue(revenueExpectation.value)}</strong>
+            <small>{expectationMeta(revenueExpectation)}</small>
+          </div>}
+          {profitExpectation && <div className="candidate-factor expectation-factor">
+            <span>Zysk netto FY{firstExpectation.period}</span>
+            <strong>{expectationValue(profitExpectation.value)}</strong>
+            <small>{expectationMeta(profitExpectation)}</small>
+          </div>}
+          {candidate.analyst_expectations.status === "unavailable" && <div className="candidate-factor expectation-factor unavailable">
+            <span>Konsensus analityków</span>
+            <strong>Brak pokrycia</strong>
+            <small>Nie obniża wyniku spółki; wymaga zebrania źródła.</small>
+          </div>}
         </div>
         <div className="candidate-source-meta">
           <span className="badge muted">{candidate.rank == null ? "Bez kolejności" : `Potencjał #${candidate.rank}`}</span>
@@ -139,14 +175,48 @@ export default function DiscoverPage() {
         >
           {addingTicker === candidate.ticker ? "Dodaję…" : "Dodaj do Research"}
         </button>
+        {candidate.score_normalizations.length > 0 && <aside className="candidate-score-normalization" role="note">
+          <IconAlertTriangle size={16} />
+          <div>
+            <strong>Wynik oczyszczony z działalności zaniechanej</strong>
+            <p>{candidate.score_normalizations[0].reason}</p>
+            <ul>{candidate.score_normalizations.map((item) => {
+              const rawFactor = candidate.factors.find((factor) => factor.id === item.component_id);
+              return <li key={item.component_id}>
+                {item.label}: raportowane {normalizationValue(item, item.reported_value)} → użyte {normalizationValue(item, item.normalized_value)} · źródło surowe {rawFactor?.source_document_version_id == null ? "brak" : `dokument #${rawFactor.source_document_version_id}`} · korekta {item.source_document_version_ids.map((id) => `#${id}`).join(", ") || "brak"} · fakty {item.source_fact_ids.map((id) => `#${id}`).join(", ") || "brak"}
+              </li>;
+            })}</ul>
+          </div>
+        </aside>}
         <details className="candidate-ranking-details">
           <summary>Jak policzono wynik?</summary>
           <ul>{candidate.rank_basis.map((reason) => <li key={reason}>{reason}</li>)}</ul>
           {candidate.score_components.length > 0 && <ul>{candidate.score_components.map((component) => {
             const factor = candidate.factors.find((item) => item.id === component.id);
-            return <li key={component.id}>{component.label}: {scoreComponentValue(component)} → percentyl {fmtNumber(component.percentile, 1)} · waga {fmtNumber(component.weight * 100, 0)}%{factor ? ` · ${factorSource(factor)}` : ""}</li>;
+            const normalization = candidate.score_normalizations.find((item) => item.component_id === component.id);
+            const source = normalization
+              ? `Korekta: dokumenty ${normalization.source_document_version_ids.map((id) => `#${id}`).join(", ")} · okres ${normalization.period}`
+              : factor ? factorSource(factor) : "Brak przypisanego źródła";
+            return <li key={component.id}>{component.label}: {scoreComponentValue(component)} → percentyl {fmtNumber(component.percentile, 1)} · waga {fmtNumber(component.weight * 100, 0)}% · {source}</li>;
           })}</ul>}
+          {candidate.score_normalizations.length > 0 && <p>
+            Udział wyniku działalności zaniechanej: {fmtNumber(candidate.score_normalizations[0].discontinued_share_pct, 1)}%. Surowe składniki nie uczestniczą w percentylach.
+          </p>}
           {candidate.factor_gaps.length > 0 && <p>Braki danych: {candidate.factor_gaps.join(" ")}</p>}
+        </details>
+        <details className="candidate-ranking-details expectation-details">
+          <summary>Oczekiwania analityków BiznesRadar — baza do podważenia</summary>
+          <p>{candidate.analyst_expectations.note}</p>
+          {candidate.analyst_expectations.periods.map((period) => <div className="expectation-period" key={period.period}>
+            <strong>FY{period.period}</strong>
+            <ul>{period.metrics.map((metric) => <li key={metric.metric}>
+              {metric.label}: {expectationValue(metric.value)} · {expectationMeta(metric)}
+              {metric.range_min != null && metric.range_max != null ? ` · zakres ${expectationValue(metric.range_min)}–${expectationValue(metric.range_max)}` : ""}
+            </li>)}</ul>
+          </div>)}
+          {candidate.analyst_expectations.source_document_version_id != null && <p>
+            Dokument #{candidate.analyst_expectations.source_document_version_id} · stan źródła {fmtDate(candidate.analyst_expectations.source_as_of)} · okresy to lata fiskalne.
+          </p>}
         </details>
       </article>
     );

@@ -35,6 +35,10 @@ from app.services.archetype_packs import (
     known_marker_ids,
 )
 from app.services.company_profiles import profile_fingerprint, profile_values
+from app.services.artifact_contracts import (
+    RESEARCH_PROFILE_SCHEMA,
+    RESEARCH_SNAPSHOT_CONTRACT,
+)
 
 ALLOWED_WORKFLOWS = {
     "stock-initial-research",
@@ -42,9 +46,9 @@ ALLOWED_WORKFLOWS = {
 }
 SKILL = "company-research"
 WRITE_CONTRACTS = {
-    "research-snapshot-v3": {
+    RESEARCH_SNAPSHOT_CONTRACT: {
         "skill_version": "company-research-v3",
-        "profile_schema_version": "company-profile-v2",
+        "profile_schema_version": RESEARCH_PROFILE_SCHEMA,
         "archetype_contract_version": "archetype-packs-v1",
     },
 }
@@ -210,13 +214,16 @@ def _validate_frozen_review_profile(
             "Company review frozen profile is missing or belongs to another case.",
             kind="conflict",
         )
+    if profile.schema_version != RESEARCH_PROFILE_SCHEMA:
+        raise ResearchArtifactError(
+            "Company review requires a canonical company profile.", kind="conflict"
+        )
     expected_frozen = {
         "id": profile.id,
         "version": profile.version,
         "fingerprint": profile_fingerprint(profile),
         **profile_values(profile),
         "provenance": profile.provenance,
-        "author": profile.author,
         "reason": profile.reason,
         "based_on_profile_id": profile.based_on_profile_id,
     }
@@ -880,7 +887,6 @@ def _validated_verification(
     checks = verification.checks or {}
     if (
         verification.agent_run_id != agent.id
-        or verification.analysis_run_id is not None
         or verification.model_role != "verifier_strict"
         or checks.get("verifier_worker_id") in {None, agent.lease_owner}
         or checks.get("research_draft_fingerprint") != research_draft_fingerprint(draft)
@@ -966,7 +972,6 @@ def save_research_snapshot(
             version=payload.profile.version,
             **values,
             provenance="codex-proposed",
-            author=f"{agent.workflow}:{agent.id}",
             reason=None,
             based_on_profile_id=None,
         )

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import ipaddress
 from io import BytesIO
+import json
 import re
 import socket
 from urllib.parse import urljoin, urlparse
@@ -13,7 +14,7 @@ from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 import requests
 from pypdf import PdfReader
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -40,6 +41,11 @@ AUTHORIZED_LINK_EXTRACTOR_VERSIONS = frozenset(
         # @12 briefly treated periodic accordion groups as current reports.
         # Those audit facts remain immutable but cannot authorize a detail fetch.
         EXTRACTOR_VERSION,
+        # Explicit fallback for an exact official PDF URL approved by the user
+        # when the issuer index itself is temporarily unavailable. The URL is
+        # still frozen as scoped issuer-index evidence before the normal bounded
+        # detail adapter is allowed to fetch it.
+        "issuer-ir-user-authorized-link@1",
     }
 )
 MAX_LINKS_PER_INDEX = 30
@@ -104,6 +110,91 @@ class IssuerIrLink:
 class ParsedIssuerIrIndex:
     title: str
     links: list[IssuerIrLink]
+
+
+def authorize_issuer_ir_report_url(
+    db: Session,
+    ticker: str,
+    report_url: str,
+    *,
+    title: str,
+    authorization_reason: str,
+) -> dict:
+    """Freeze one explicitly approved official PDF URL as index evidence.
+
+    This is the narrow recovery path for an issuer whose public index blocks
+    the polite fetcher. It does not download the report and it cannot authorize
+    another host, non-HTTPS URL or non-PDF payload. The ordinary report adapter
+    remains the only detail fetch path.
+    """
+    ticker = ticker.upper()
+    company = db.scalar(select(Company).where(Company.ticker == ticker))
+    if company is None:
+        raise ValueError(f"Unknown company {ticker}.")
+    clean_title = _clean_text(title)
+    clean_reason = _clean_text(authorization_reason)
+    if not clean_title:
+        raise ValueError("An official report title is required.")
+    if not clean_reason:
+        raise ValueError("An explicit authorization reason is required.")
+    if not _is_allowed_issuer_url(ticker, report_url):
+        raise ValueError("Report URL is outside the registered issuer-IR host.")
+    if not report_url.lower().split("?", 1)[0].endswith(".pdf"):
+        raise ValueError("Only an exact official PDF URL can be authorized.")
+
+    payload = {
+        "title": clean_title,
+        "url": report_url,
+        "authorization_reason": clean_reason,
+    }
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    key_hash = hashlib.sha256(report_url.encode("utf-8")).hexdigest()[:24]
+    recorded = record_document_version(
+        db,
+        company,
+        source_name=f"{company.name or ticker} issuer IR",
+        source_type="issuer_ir",
+        scope_key=f"user-authorized-report:{key_hash}",
+        requested_url=report_url,
+        effective_url=report_url,
+        content=encoded,
+        text=encoded.decode("utf-8"),
+        # This version records authorization/discovery metadata; it is not a
+        # successful HTTP fetch of the PDF itself.
+        response_status=0,
+        mime_type="application/json",
+        parser_version="issuer-ir-user-authorized-index@1",
+    )
+    recorded.document.title = "Explicitly authorized official issuer report"
+    if recorded.version_created:
+        mark_parse_result(recorded.version, success=True)
+        record_text_fact(
+            db,
+            company,
+            recorded.version,
+            fact_type="issuer_ir_link",
+            fact_key=f"issuer_ir.report.{key_hash}",
+            text=clean_title[:2000],
+            locator={
+                "url": report_url,
+                "kind": "report",
+                "authorization": "explicit-user-scope",
+                "authorization_reason": clean_reason[:1000],
+            },
+            verification_state="unverified",
+            extractor_version="issuer-ir-user-authorized-link@1",
+        )
+    db.commit()
+    return {
+        "ok": True,
+        "ticker": ticker,
+        "status": "authorized" if recorded.version_created else "already-authorized",
+        "source_url": report_url,
+        "document_version_id": recorded.version.id,
+        "title": clean_title,
+    }
 
 
 def parse_issuer_ir_index(html: str, *, base_url: str) -> ParsedIssuerIrIndex:
@@ -609,7 +700,10 @@ def _issuer_link_fact(db: Session, company: Company, report_url: str) -> Fact | 
             Fact.extractor_version.in_(AUTHORIZED_LINK_EXTRACTOR_VERSIONS),
             DocumentVersion.parse_status == "parsed",
             SourceDocument.source_type == "issuer_ir",
-            SourceDocument.scope_key.in_(_issuer_index_scope_keys(company.ticker)),
+            or_(
+                SourceDocument.scope_key.in_(_issuer_index_scope_keys(company.ticker)),
+                SourceDocument.scope_key.like("user-authorized-report:%"),
+            ),
             SourceDocument.company_id == company.id,
             SourceDocument.company_ticker == company.ticker,
         )

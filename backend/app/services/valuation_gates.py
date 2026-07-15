@@ -13,11 +13,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import re
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import ResearchCase, ValuationSnapshot
+from app.db.models import ResearchCase, ResearchSnapshot, ValuationSnapshot
+from app.services.artifact_contracts import (
+    canonical_research_snapshot_predicate,
+    canonical_valuation_snapshot_predicate,
+)
 
 # Opaque fingerprints let the gate reject known default mixes and deleted
 # template fossils without retaining reusable scenario numbers in the codebase.
@@ -48,14 +53,26 @@ FORBIDDEN_SEED_FINGERPRINTS = frozenset(
 # Two live valuations of different companies closer than this on every core
 # element are near-duplicates (relative tolerance).
 NEAR_DUPLICATE_REL_TOL = 0.02
-GATE_CONTRACT_VERSION = "valuation-gates-v1"
+GATE_CONTRACT_VERSION = "valuation-gates-v2"
+
+_FORECAST_VECTOR_FIELDS = (
+    "revenue_pln_thousands",
+    "ebitda_margin_pct",
+    "depreciation_pct_revenue",
+    "capex_pct_revenue",
+    "delta_nwc_pct_revenue",
+    "cash_tax_rate_pct",
+    "net_financial_result_pct_revenue",
+    "fcff_period_fraction",
+    "fcff_discount_years",
+)
 
 _CORE_FIELDS = (
-    "quarter_revenue_growth_pct",
-    "year_revenue_growth_pct",
-    "gross_margin_pct",
-    "operating_cost_ratio_pct",
+    "target_ev_ebitda",
+    "target_ev_ebit",
     "target_pe",
+    "wacc_pct",
+    "terminal_growth_pct",
 )
 
 
@@ -70,7 +87,28 @@ class GateResult:
 
 
 def _scenario_vector(scenario) -> tuple[float, ...]:
-    return tuple(round(float(getattr(scenario, field).value), 4) for field in _CORE_FIELDS)
+    path = [
+        getattr(year, field).value
+        for year in scenario.forecast_years
+        for field in _FORECAST_VECTOR_FIELDS
+    ]
+    for field in _CORE_FIELDS:
+        value = getattr(scenario, field)
+        # Availability is economically material: it cannot be used to evade
+        # similarity detection by silently dropping a method assumption.
+        path.extend((0.0, 0.0) if value is None else (1.0, value.value))
+    event = scenario.event_impact
+    path.extend(
+        (0.0, 0.0, 0.0, 0.0)
+        if event is None
+        else (
+            1.0,
+            float(event.period),
+            event.pnl_net_pln_thousands.value,
+            event.cash_pln_thousands.value,
+        )
+    )
+    return tuple(round(float(value), 4) for value in path)
 
 
 def _draft_vectors(draft) -> dict[str, tuple[float, ...]]:
@@ -78,8 +116,16 @@ def _draft_vectors(draft) -> dict[str, tuple[float, ...]]:
 
 
 def _probability_tuple(draft) -> tuple[int, ...]:
+    from app.services.valuation_engine import derive_scenario_probabilities
+
     return tuple(
-        sorted(int(row.probability_pct) for row in draft.codex_judgment.scenarios)
+        sorted(
+            round(float(row["probability_pct"]))
+            for row in derive_scenario_probabilities(
+                draft.codex_judgment.probability_model,
+                {scenario.kind for scenario in draft.assumptions},
+            )
+        )
     )
 
 
@@ -103,10 +149,12 @@ def _vectors_near_duplicate(
     shared = set(ours) & set(theirs) & {"negative", "base", "positive"}
     if len(shared) < 3:
         return False
+    if any(len(ours[kind]) != len(theirs[kind]) for kind in shared):
+        return False
     return all(
         _rel_close(ours[kind][i], theirs[kind][i], tol)
         for kind in shared
-        for i in range(len(_CORE_FIELDS))
+        for i in range(len(ours[kind]))
     )
 
 
@@ -114,9 +162,26 @@ def _snapshot_vectors(snapshot: ValuationSnapshot) -> dict[str, tuple[float, ...
     vectors: dict[str, tuple[float, ...]] = {}
     for row in (snapshot.assumptions or {}).get("scenarios", []):
         try:
-            vectors[row["kind"]] = tuple(
-                round(float(row[field]["value"]), 4) for field in _CORE_FIELDS
+            path = [
+                year[field]["value"]
+                for year in row["forecast_years"]
+                for field in _FORECAST_VECTOR_FIELDS
+            ]
+            for field in _CORE_FIELDS:
+                value = row.get(field)
+                path.extend((0.0, 0.0) if value is None else (1.0, value["value"]))
+            event = row.get("event_impact")
+            path.extend(
+                (0.0, 0.0, 0.0, 0.0)
+                if event is None
+                else (
+                    1.0,
+                    float(event["period"]),
+                    event["pnl_net_pln_thousands"]["value"],
+                    event["cash_pln_thousands"]["value"],
+                )
             )
+            vectors[row["kind"]] = tuple(round(float(value), 4) for value in path)
         except (KeyError, TypeError, ValueError):
             continue
     return vectors
@@ -124,17 +189,85 @@ def _snapshot_vectors(snapshot: ValuationSnapshot) -> dict[str, tuple[float, ...
 
 def _gate_probability_structure(draft) -> GateResult:
     gate = "probability_structure"
-    rows = draft.codex_judgment.scenarios
-    total = sum(int(row.probability_pct) for row in rows)
-    if not 99 <= total <= 101:
-        return GateResult(gate, False, f"Scenario probabilities sum to {total}, not 100.")
-    for row in rows:
-        if not 1 <= int(row.probability_pct) <= 98:
+    from app.services.valuation_engine import derive_scenario_probabilities
+
+    model = draft.codex_judgment.probability_model
+    if model.posture == "uncalibrated":
+        return GateResult(gate, True, "Probabilities explicitly uncalibrated; weighted value disabled.")
+    manifest = getattr(draft, "input_manifest", None) or {}
+    bindable = set(manifest.get("bindable_fact_ids") or manifest.get("fact_ids") or [])
+    fact_catalog = manifest.get("fact_catalog") or {}
+    claim_catalog = manifest.get("research_claim_catalog") or {}
+    for node in model.nodes:
+        outside = set(node.source_fact_ids) - bindable
+        if outside:
             return GateResult(
-                gate, False,
-                f"Scenario '{row.kind}' probability {row.probability_pct}% is degenerate.",
+                gate,
+                False,
+                f"Probability node '{node.node_id}' cites facts outside the frozen manifest: {sorted(outside)}.",
             )
-    mix = _probability_tuple(draft)
+        unknown_claims = set(node.research_claim_paths) - set(claim_catalog)
+        if unknown_claims:
+            return GateResult(
+                gate,
+                False,
+                f"Probability node '{node.node_id}' cites Research claims outside the frozen snapshot: {sorted(unknown_claims)}.",
+            )
+        malformed_claims = [
+            path
+            for path in node.research_claim_paths
+            if not (claim_catalog.get(path) or {}).get("text")
+            or (
+                (claim_catalog.get(path) or {}).get("kind") in {"fact", "lead"}
+                and not (claim_catalog.get(path) or {}).get("source_version_ids")
+            )
+        ]
+        if malformed_claims:
+            return GateResult(
+                gate,
+                False,
+                f"Probability node '{node.node_id}' cites malformed frozen Research claims: {sorted(malformed_claims)}.",
+            )
+        if node.basis != "judgment" and not (
+            node.source_fact_ids or node.research_claim_paths
+        ):
+            return GateResult(
+                gate,
+                False,
+                f"Probability node '{node.node_id}' claims {node.basis} without frozen evidence.",
+            )
+        if node.basis == "forecast_distribution":
+            keys = {
+                (fact_catalog.get(str(fact_id)) or {}).get("fact_key")
+                for fact_id in node.source_fact_ids
+            }
+            if not keys or not all(
+                key and key.startswith("consensus.") for key in keys
+            ):
+                return GateResult(
+                    gate,
+                    False,
+                    f"Probability node '{node.node_id}' forecast-distribution basis is not bound to consensus facts.",
+                )
+    try:
+        derived = derive_scenario_probabilities(
+            model,
+            {scenario.kind for scenario in draft.assumptions},
+        )
+        mix = tuple(sorted(round(float(row["probability_pct"])) for row in derived))
+    except ValueError as exc:
+        return GateResult(gate, False, str(exc))
+    published = {
+        row.kind: row.probability_pct for row in draft.codex_judgment.scenarios
+    }
+    for row in derived:
+        value = published.get(row["kind"])
+        if value is None or abs(float(value) - float(row["probability_pct"])) > 0.01:
+            return GateResult(
+                gate,
+                False,
+                f"Published probability for {row['kind']} does not reconcile to the conditional tree.",
+            )
     if _fingerprint(mix) in KNOWN_DEFAULT_PROBABILITY_FINGERPRINTS:
         return GateResult(
             gate, False,
@@ -147,12 +280,18 @@ def _gate_probability_structure(draft) -> GateResult:
 def _gate_probability_repetition(db: Session, case: ResearchCase, draft) -> GateResult:
     """A mix legitimately repeats sometimes; three concurrent copies is a pattern."""
     gate = "probability_repetition"
+    if draft.codex_judgment.probability_model.posture == "uncalibrated":
+        return GateResult(gate, True, "No published probability vector to compare.")
     mix = _probability_tuple(draft)
     others = _latest_other_valuations(db, case)
     same = 0
     for snapshot in others:
-        their_rows = (snapshot.codex_judgment or {}).get("scenarios", [])
-        their_mix = tuple(sorted(int(row.get("probability_pct", -1)) for row in their_rows))
+        their_rows = (
+            (snapshot.deterministic_outputs or {}).get("final_probabilities") or []
+        )
+        their_mix = tuple(
+            sorted(round(float(row.get("probability_pct", -1))) for row in their_rows)
+        )
         if their_mix == mix:
             same += 1
     if same >= 2:
@@ -180,9 +319,15 @@ def _gate_seed_fossils(draft) -> GateResult:
 def _latest_other_valuations(db: Session, case: ResearchCase) -> list[ValuationSnapshot]:
     rows = db.scalars(
         select(ValuationSnapshot)
+        .join(
+            ResearchSnapshot,
+            ValuationSnapshot.research_snapshot_id == ResearchSnapshot.id,
+        )
         .where(
             ValuationSnapshot.research_case_id != case.id,
             ValuationSnapshot.status.in_(("verified", "provisional")),
+            *canonical_valuation_snapshot_predicate(),
+            *canonical_research_snapshot_predicate(),
         )
         .order_by(
             ValuationSnapshot.research_case_id,
@@ -217,13 +362,6 @@ def _gate_scenario_distinctness(draft) -> GateResult:
     mechanisms = [row.mechanism.strip().lower() for row in draft.codex_judgment.scenarios]
     if len(set(mechanisms)) != len(mechanisms):
         return GateResult(gate, False, "Scenario mechanisms must be distinct per scenario.")
-    rationales = [
-        row.probability_rationale.strip().lower() for row in draft.codex_judgment.scenarios
-    ]
-    if len(set(rationales)) != len(rationales):
-        return GateResult(
-            gate, False, "Probability rationales must be scenario-specific, not copies."
-        )
     vectors = list(_draft_vectors(draft).values())
     for i in range(len(vectors)):
         for j in range(i + 1, len(vectors)):
@@ -251,10 +389,24 @@ def _gate_evidence_binding(draft) -> GateResult:
     evidence_bound = 0
     total = 0
     for scenario in draft.assumptions:
-        for field in _CORE_FIELDS:
-            value = getattr(scenario, field)
+        values = [
+            item
+            for year in scenario.forecast_years
+            for item in (
+                year.revenue_pln_thousands,
+                year.ebitda_margin_pct,
+                year.capex_pct_revenue,
+                year.delta_nwc_pct_revenue,
+            )
+        ]
+        values.extend(
+            getattr(scenario, field)
+            for field in _CORE_FIELDS
+            if getattr(scenario, field) is not None
+        )
+        for value in values:
             total += 1
-            if value.provenance == "evidence" and value.source_fact_ids:
+            if value.basis in {"reported_fact", "street_estimate"} and value.source_fact_ids:
                 evidence_bound += 1
     if total and evidence_bound == 0:
         return GateResult(
@@ -262,6 +414,87 @@ def _gate_evidence_binding(draft) -> GateResult:
             "No core assumption is bound to a research fact; a valuation must "
             "anchor at least part of its scenario grid in this company's evidence.",
         )
+    gap_text = " ".join(
+        [
+            *(getattr(draft, "gaps", None) or []),
+            *[
+                gap
+                for judgment in (getattr(draft.codex_judgment, "scenarios", None) or [])
+                for gap in (getattr(judgment, "gaps", None) or [])
+            ],
+        ]
+    ).lower()
+    unsourced_wacc = any(
+        scenario.wacc_pct is not None
+        and scenario.wacc_pct.basis == "codex_judgment"
+        and not scenario.wacc_pct.source_fact_ids
+        and not scenario.wacc_pct.research_claim_paths
+        for scenario in draft.assumptions
+    )
+    unsourced_terminal = any(
+        scenario.terminal_growth_pct is not None
+        and scenario.terminal_growth_pct.basis == "codex_judgment"
+        and not scenario.terminal_growth_pct.source_fact_ids
+        and not scenario.terminal_growth_pct.research_claim_paths
+        for scenario in draft.assumptions
+    )
+    if unsourced_wacc and not any(
+        marker in gap_text for marker in ("wacc", "cost of capital", "koszt kapitału")
+    ):
+        return GateResult(
+            gate,
+            False,
+            "Unsourced WACC judgment requires an explicit non-directional valuation gap.",
+        )
+    if unsourced_terminal and not any(
+        marker in gap_text for marker in ("terminal growth", "wzrost terminalny")
+    ):
+        return GateResult(
+            gate,
+            False,
+            "Unsourced terminal-growth judgment requires an explicit non-directional valuation gap.",
+        )
+    return GateResult(gate, True)
+
+
+def _gate_unknown_neutrality(draft) -> GateResult:
+    gate = "unknown_neutrality"
+    model = draft.codex_judgment.probability_model
+    directional_missing = re.compile(
+        r"\b(missing|gap|unknown|not[_ -]?found|brak danych|brak źródeł|luka)\b",
+        re.IGNORECASE,
+    )
+    for node in model.nodes:
+        if directional_missing.search(f"{node.condition} {node.rationale}"):
+            return GateResult(
+                gate,
+                False,
+                f"Probability node '{node.node_id}' uses missingness directionally; unknown may reduce coverage only.",
+            )
+    return GateResult(gate, True)
+
+
+def _gate_method_reconciliation(draft) -> GateResult:
+    gate = "method_reconciliation"
+    outputs = {row["kind"]: row for row in draft.deterministic_outputs.get("scenarios", [])}
+    for scenario in draft.assumptions:
+        row = outputs.get(scenario.kind) or {}
+        methods = row.get("methods") or {}
+        primary = methods.get(draft.methodology.primary_method) or {}
+        if primary.get("status") != "calculated":
+            return GateResult(gate, False, f"Primary method is unavailable for {scenario.kind}.")
+        if not any(
+            (methods.get(name) or {}).get("status") == "calculated"
+            for name in draft.methodology.cross_checks
+        ):
+            return GateResult(gate, False, f"No independent cross-check is calculated for {scenario.kind}.")
+        dispersion = row.get("method_dispersion_pct")
+        if dispersion is not None and dispersion > 50:
+            return GateResult(
+                gate,
+                False,
+                f"Method values disagree by {dispersion}% in {scenario.kind}; reconcile the forecast or method anchors.",
+            )
     return GateResult(gate, True)
 
 
@@ -275,6 +508,8 @@ def evaluate_structural_gates(db: Session, case: ResearchCase, draft) -> list[Ga
         _gate_scenario_distinctness(draft),
         _gate_scenario_completeness(draft),
         _gate_evidence_binding(draft),
+        _gate_unknown_neutrality(draft),
+        _gate_method_reconciliation(draft),
     ]
 
 

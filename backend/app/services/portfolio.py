@@ -27,6 +27,11 @@ from app.db.models import (
     ThesisFalsifier,
     ValuationSnapshot,
 )
+from app.services.artifact_contracts import (
+    RESEARCH_PROFILE_SCHEMA,
+    canonical_research_snapshot_predicate,
+    canonical_valuation_snapshot_predicate,
+)
 
 PARSER_VERSION = "myfund-portfolio-v2"
 RISK_CONTEXT_VERSION = "portfolio-risk-context-v1"
@@ -640,8 +645,14 @@ def _risk_context(
         research = (
             db.scalar(
                 select(ResearchSnapshot)
+                .join(
+                    CompanyProfile,
+                    ResearchSnapshot.company_profile_id == CompanyProfile.id,
+                )
                 .where(
                     ResearchSnapshot.research_case_id == case.id,
+                    *canonical_research_snapshot_predicate(),
+                    CompanyProfile.schema_version == RESEARCH_PROFILE_SCHEMA,
                     ResearchSnapshot.as_of <= snapshot.as_of,
                 )
                 .order_by(
@@ -844,8 +855,14 @@ def _scenario_sensitivity(
         latest_research = (
             db.scalar(
                 select(ResearchSnapshot)
+                .join(
+                    CompanyProfile,
+                    ResearchSnapshot.company_profile_id == CompanyProfile.id,
+                )
                 .where(
                     ResearchSnapshot.research_case_id == case.id,
+                    *canonical_research_snapshot_predicate(),
+                    CompanyProfile.schema_version == RESEARCH_PROFILE_SCHEMA,
                     ResearchSnapshot.as_of <= snapshot.as_of,
                 )
                 .order_by(ResearchSnapshot.version.desc())
@@ -860,6 +877,7 @@ def _scenario_sensitivity(
                 .where(
                     ValuationSnapshot.research_case_id == case.id,
                     ValuationSnapshot.status == "verified",
+                    *canonical_valuation_snapshot_predicate(),
                     ValuationSnapshot.as_of <= snapshot.as_of,
                 )
                 .order_by(ValuationSnapshot.version.desc())
@@ -878,6 +896,7 @@ def _scenario_sensitivity(
                     select(ValuationSnapshot)
                     .where(
                         ValuationSnapshot.research_case_id == case.id,
+                        *canonical_valuation_snapshot_predicate(),
                         ValuationSnapshot.as_of <= snapshot.as_of,
                     )
                     .order_by(ValuationSnapshot.version.desc())

@@ -11,15 +11,19 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    Company,
     DocumentVersion,
+    Fact,
     FetchLog,
     MarketFactorBatch,
     MarketFactorRow,
+    ReportValue,
     SourceDocument,
 )
 from app.scrapers import biznesradar
 from app.services import evidence
 from app.services.refresh import _build_br_session, _get_page
+from app.services.metrics import ONE_OFF_SHARE_LIMIT_PCT
 from app.services.workbench_sieve import (
     CzHistoryPoint,
     SIEVE_ID,
@@ -30,7 +34,7 @@ from app.services.workbench_sieve import (
 )
 
 MARKET_KEY = "__GPW__"
-BATCH_PARSER_VERSION = "workbench-market-batch@5"
+BATCH_PARSER_VERSION = "workbench-market-batch@6"
 DISCOVERY_RESULT_LIMIT = 100
 _MIN_INITIAL_UNIVERSE = 100
 _MIN_FACTOR_PAGE_COVERAGE_RATIO = 0.70
@@ -131,13 +135,19 @@ def _as_utc(value: datetime) -> datetime:
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
-def _batch_fingerprint(page_document_versions: dict[str, int]) -> str:
+def _batch_fingerprint(
+    page_document_versions: dict[str, int],
+    normalization_source_document_versions: Iterable[int] = (),
+) -> str:
     raw = json.dumps(
         {
             "sieve_id": SIEVE_ID,
             "sieve_version": SIEVE_VERSION,
             "parser_version": BATCH_PARSER_VERSION,
             "page_document_versions": page_document_versions,
+            "normalization_source_document_versions": sorted(
+                int(value) for value in normalization_source_document_versions
+            ),
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -396,6 +406,215 @@ def _merge_rows(
     return result
 
 
+def _quarter_index(period: str) -> int | None:
+    if len(period) != 6 or period[4] != "Q" or not period[:4].isdigit():
+        return None
+    try:
+        quarter = int(period[5])
+    except ValueError:
+        return None
+    if quarter not in (1, 2, 3, 4):
+        return None
+    return int(period[:4]) * 4 + quarter - 1
+
+
+def _quarter_period(index: int) -> str:
+    return f"{index // 4}Q{index % 4 + 1}"
+
+
+def _derive_discontinued_score_normalizations(
+    row: MarketFactorRow,
+    *,
+    quarterly_values: dict[str, dict[str, dict]],
+    market_cap: dict | None,
+) -> list[dict]:
+    """Replace result components distorted by a material discontinued result.
+
+    This is deliberately strict: the bridge must contain explicit reported
+    values.  An incomplete bridge makes the affected score component unknown;
+    it is never imputed and the raw, distorted market-page number is not used.
+    """
+    current_period = row.extras.get("source_periods", {}).get("net_income")
+    current_index = _quarter_index(str(current_period or ""))
+    if current_index is None:
+        return []
+    current = quarterly_values.get(str(current_period), {})
+    current_net = current.get("IncomeNetProfit")
+    current_discontinued = current.get("IncomeDiscontinuedProfit")
+    if current_net is None or current_discontinued is None:
+        return []
+    reported_net = float(current_net["value"])
+    discontinued = float(current_discontinued["value"])
+    if reported_net == 0.0:
+        return []
+    discontinued_share_pct = abs(discontinued) / abs(reported_net) * 100.0
+    if discontinued_share_pct < ONE_OFF_SHARE_LIMIT_PCT:
+        return []
+
+    prior_period = _quarter_period(current_index - 4)
+    prior = quarterly_values.get(prior_period, {})
+    prior_net = prior.get("IncomeNetProfit")
+    prior_discontinued = prior.get("IncomeDiscontinuedProfit")
+    normalized_growth: float | None = None
+    growth_records = [current_net, current_discontinued]
+    if prior_net is not None and prior_discontinued is not None:
+        growth_records.extend((prior_net, prior_discontinued))
+        current_continuing = reported_net - discontinued
+        prior_continuing = float(prior_net["value"]) - float(
+            prior_discontinued["value"]
+        )
+        if prior_continuing > 0.0:
+            normalized_growth = (
+                current_continuing / prior_continuing - 1.0
+            ) * 100.0
+
+    trailing_records: list[dict] = []
+    continuing_ttm = 0.0
+    complete_trailing_bridge = True
+    for index in range(current_index - 3, current_index + 1):
+        period_values = quarterly_values.get(_quarter_period(index), {})
+        net = period_values.get("IncomeNetProfit")
+        discontinued_result = period_values.get("IncomeDiscontinuedProfit")
+        if net is None or discontinued_result is None:
+            complete_trailing_bridge = False
+            break
+        trailing_records.extend((net, discontinued_result))
+        continuing_ttm += float(net["value"]) - float(discontinued_result["value"])
+    normalized_pe: float | None = None
+    pe_records = list(trailing_records)
+    if market_cap is not None:
+        pe_records.append(market_cap)
+    if (
+        complete_trailing_bridge
+        and continuing_ttm > 0.0
+        and market_cap is not None
+        and float(market_cap["value"]) > 0.0
+    ):
+        normalized_pe = float(market_cap["value"]) / (continuing_ttm * 1000.0)
+
+    def lineage(records: list[dict], key: str) -> list[int]:
+        return sorted({int(record[key]) for record in records if record.get(key)})
+
+    shared_reason = (
+        f"Wynik działalności zaniechanej stanowi {discontinued_share_pct:.1f}% "
+        f"raportowanego zysku netto {current_period} (próg "
+        f"{ONE_OFF_SHARE_LIMIT_PCT:.0f}%). Surowa wartość z rankingu rynku "
+        "nie jest używana; składnik policzono z działalności kontynuowanej."
+    )
+    return [
+        {
+            "component_id": "net_income_growth",
+            "label": "Dynamika zysku działalności kontynuowanej r/r",
+            "reported_value": row.net_income_dyn_rr_pct,
+            "normalized_value": (
+                round(normalized_growth, 4) if normalized_growth is not None else None
+            ),
+            "discontinued_share_pct": round(discontinued_share_pct, 4),
+            "period": str(current_period),
+            "reason": shared_reason,
+            "source_fact_ids": lineage(growth_records, "fact_id"),
+            "source_document_version_ids": lineage(
+                growth_records, "source_version_id"
+            ),
+        },
+        {
+            "component_id": "current_pe",
+            "label": "C/Z działalności kontynuowanej (niżej lepiej)",
+            "reported_value": row.cz,
+            "normalized_value": round(normalized_pe, 4) if normalized_pe is not None else None,
+            "discontinued_share_pct": round(discontinued_share_pct, 4),
+            "period": str(current_period),
+            "reason": shared_reason,
+            "source_fact_ids": lineage(pe_records, "fact_id"),
+            "source_document_version_ids": lineage(
+                pe_records, "source_version_id"
+            ),
+        },
+    ]
+
+
+def _attach_score_normalizations(
+    db: Session, rows: list[MarketFactorRow], *, as_of: datetime
+) -> tuple[int, ...]:
+    """Freeze detailed-fact normalizations into each immutable market row."""
+    tickers = {row.ticker for row in rows}
+    quarterly_by_ticker: dict[str, dict[str, dict[str, dict]]] = {}
+    report_records = db.execute(
+        select(
+            Company.ticker,
+            ReportValue.period,
+            ReportValue.field_code,
+            ReportValue.value,
+            Fact.id,
+            Fact.source_version_id,
+        )
+        .join(Company, ReportValue.company_id == Company.id)
+        .join(Fact, Fact.id == ReportValue.source_fact_id)
+        .where(
+            Company.ticker.in_(tickers),
+            ReportValue.statement == "income",
+            ReportValue.freq == "Q",
+            ReportValue.field_code.in_(
+                ("IncomeNetProfit", "IncomeDiscontinuedProfit")
+            ),
+            ReportValue.value.is_not(None),
+            Fact.known_at <= as_of,
+        )
+        .order_by(Company.ticker, ReportValue.period, ReportValue.field_code)
+    ).all()
+    for ticker, period, field_code, value, fact_id, source_version_id in report_records:
+        quarterly_by_ticker.setdefault(ticker, {}).setdefault(period, {})[
+            field_code
+        ] = {
+            "value": float(value),
+            "fact_id": fact_id,
+            "source_version_id": source_version_id,
+        }
+
+    market_cap_by_ticker: dict[str, dict] = {}
+    market_cap_records = db.execute(
+        select(
+            Fact.company_ticker,
+            Fact.numeric_value,
+            Fact.id,
+            Fact.source_version_id,
+        )
+        .where(
+            Fact.company_ticker.in_(tickers),
+            Fact.fact_key == "company.market_cap",
+            Fact.numeric_value.is_not(None),
+            Fact.known_at <= as_of,
+        )
+        .order_by(Fact.company_ticker, Fact.known_at.desc(), Fact.id.desc())
+    ).all()
+    for ticker, value, fact_id, source_version_id in market_cap_records:
+        market_cap_by_ticker.setdefault(
+            ticker,
+            {
+                "value": float(value),
+                "fact_id": fact_id,
+                "source_version_id": source_version_id,
+            },
+        )
+
+    source_version_ids: set[int] = set()
+    for row in rows:
+        normalizations = _derive_discontinued_score_normalizations(
+            row,
+            quarterly_values=quarterly_by_ticker.get(row.ticker, {}),
+            market_cap=market_cap_by_ticker.get(row.ticker),
+        )
+        if not normalizations:
+            continue
+        row.extras = {**row.extras, "score_normalizations": normalizations}
+        source_version_ids.update(
+            version_id
+            for item in normalizations
+            for version_id in item["source_document_version_ids"]
+        )
+    return tuple(sorted(source_version_ids))
+
+
 def _validate_market_universe(db: Session, parsed: dict[str, list]) -> None:
     """Reject a plausible-looking partial universe before it can become a batch."""
     rating_rows = parsed["rating"]
@@ -440,14 +659,29 @@ def _validate_market_universe(db: Session, parsed: dict[str, list]) -> None:
 
 
 def _matching_batch(
-    db: Session, page_document_versions: dict[str, int]
+    db: Session,
+    page_document_versions: dict[str, int],
+    normalization_source_document_versions: Iterable[int],
 ) -> MarketFactorBatch | None:
     # JSON equality is backend-specific; compare the small immutable manifest
     # in Python so SQLite and PostgreSQL share the exact idempotence rule.
     expected = {key: int(value) for key, value in page_document_versions.items()}
+    expected_normalization_versions = sorted(
+        int(value) for value in normalization_source_document_versions
+    )
     for batch in db.scalars(select(MarketFactorBatch).order_by(MarketFactorBatch.id.desc())):
         manifest = {key: int(value) for key, value in batch.page_document_versions.items()}
-        if manifest == expected and batch.parser_version == BATCH_PARSER_VERSION:
+        normalization_versions = sorted(
+            int(value)
+            for value in batch.coverage.get(
+                "score_normalization_source_document_version_ids", []
+            )
+        )
+        if (
+            manifest == expected
+            and normalization_versions == expected_normalization_versions
+            and batch.parser_version == BATCH_PARSER_VERSION
+        ):
             return batch
     return None
 
@@ -499,13 +733,17 @@ def refresh_market_factor_batch(db: Session, *, force: bool = True) -> MarketFac
     # cross-page universe guard below rejects this attempted batch.
     db.commit()
     _validate_market_universe(db, parsed)
-    existing = _matching_batch(db, manifest)
+    rows = _merge_rows(parsed)
+    batch_as_of = max(fetched_at)
+    normalization_source_versions = _attach_score_normalizations(
+        db, rows, as_of=batch_as_of
+    )
+    existing = _matching_batch(db, manifest, normalization_source_versions)
     if existing is not None:
         db.commit()
         return existing
-    rows = _merge_rows(parsed)
     batch = MarketFactorBatch(
-        as_of=max(fetched_at),
+        as_of=batch_as_of,
         page_document_versions=manifest,
         parser_version=BATCH_PARSER_VERSION,
         coverage={},
@@ -515,7 +753,14 @@ def refresh_market_factor_batch(db: Session, *, force: bool = True) -> MarketFac
     for row in rows:
         row.batch_id = batch.id
         db.add(row)
-    batch.coverage = _source_coverage(rows)
+    coverage = _source_coverage(rows)
+    coverage["score_normalized_company_count"] = sum(
+        bool(row.extras.get("score_normalizations")) for row in rows
+    )
+    coverage["score_normalization_source_document_version_ids"] = list(
+        normalization_source_versions
+    )
+    batch.coverage = coverage
     db.commit()
     return batch
 
@@ -615,5 +860,10 @@ def admit_discovery_candidate(
         batch=batch,
         candidate=candidate,
         page_document_versions=manifest,
-        fingerprint=_batch_fingerprint(manifest),
+        fingerprint=_batch_fingerprint(
+            manifest,
+            batch.coverage.get(
+                "score_normalization_source_document_version_ids", []
+            ),
+        ),
     )

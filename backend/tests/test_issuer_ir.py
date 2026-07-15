@@ -396,6 +396,72 @@ def test_ingest_issuer_pdf_rejects_url_not_discovered_in_index(db):
         ingest_issuer_ir_report(db, "ABS", "https://other.example/report.pdf")
 
 
+def test_user_authorized_official_pdf_creates_scoped_claim_and_allows_detail_fetch(
+    db, monkeypatch
+):
+    from app.db.models import Company, Fact
+    from app.scrapers import issuer_ir
+
+    report_url = "https://synektik.com.pl/wp-content/uploads/2026/07/ESPI_36_2026_POL.pdf"
+    db.add(Company(ticker="SNT", name="SYNEKTIK SA"))
+    db.commit()
+
+    authorized = issuer_ir.authorize_issuer_ir_report_url(
+        db,
+        "SNT",
+        report_url,
+        title="Raport ESPI 36/2026",
+        authorization_reason="User requested the current SNT primary-source review.",
+    )
+    link = db.scalar(
+        select(Fact).where(
+            Fact.fact_type == "issuer_ir_link",
+            Fact.extractor_version == "issuer-ir-user-authorized-link@1",
+        )
+    )
+    assert authorized["status"] == "authorized"
+    assert link is not None
+    assert link.locator["url"] == report_url
+    assert link.locator["authorization"] == "explicit-user-scope"
+
+    response = FakeResponse("", 200)
+    response.url = report_url
+    response.content = b"%PDF-authorized"
+    response.headers = {"content-type": "application/pdf"}
+    monkeypatch.setattr(issuer_ir.http, "fetch", lambda _url, **_kwargs: response)
+    monkeypatch.setattr(issuer_ir, "extract_pdf_pages", lambda _content: ["Order book claim"])
+
+    result = issuer_ir.ingest_issuer_ir_report(db, "SNT", report_url)
+
+    assert result["status"] == "fetched"
+    assert result["page_claim_count"] == 1
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://other.example/report.pdf",
+        "http://synektik.com.pl/report.pdf",
+        "https://synektik.com.pl/report.html",
+    ],
+)
+def test_user_authorized_report_rejects_unregistered_or_non_pdf_url(db, url):
+    from app.db.models import Company
+    from app.scrapers import issuer_ir
+
+    db.add(Company(ticker="SNT", name="SYNEKTIK SA"))
+    db.commit()
+
+    with pytest.raises(ValueError):
+        issuer_ir.authorize_issuer_ir_report_url(
+            db,
+            "SNT",
+            url,
+            title="Official report",
+            authorization_reason="User requested primary evidence.",
+        )
+
+
 def test_prior_scoped_extractor_can_authorize_report_fetch(db, monkeypatch):
     from app.scrapers import issuer_ir
 

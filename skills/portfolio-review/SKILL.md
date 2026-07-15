@@ -30,16 +30,19 @@ strict verifier owns approval.
 
 - Use no model for totals, weights, P&L, HHI, history, liquidity or scenario
   aggregation.
-- Use Terra high for an ordinary bounded portfolio interpretation.
-- Escalate to Sol high only for materially complex cross-company synthesis and
-  record the reason. Never start at ultra.
-- Use an independent Sol-high `verifier_strict` for the exact draft.
-- Preserve the queued requested role, model and `high` reasoning separately
+- Use `gpt-5.6-terra` medium for an ordinary bounded interpretation of frozen
+  deterministic analytics.
+- Escalate to `gpt-5.6-sol` high only for materially complex cross-company
+  synthesis and record the reason.
+- Use an independent `gpt-5.6-sol` high `verifier_strict` for the exact draft.
+- Preserve the queued requested role, model and reasoning effort separately
   from `actual_host_model`. If Codex does not expose the deployment, write the
   explicit value `host deployment not exposed`; record any substitution or
   escalation in its dedicated field and never infer a host slug. When a
   disclosed `actual_host_model` differs from the requested model, the
   substitution/escalation explanation is mandatory; exact matches need none.
+- Follow `../../docs/ARCHITECTURE.md`: xhigh and Max require evidence; Ultra is
+  orchestration, not a model tier.
 
 ## Artifact workflow
 

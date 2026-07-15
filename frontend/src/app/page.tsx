@@ -139,7 +139,9 @@ export default function ResearchPage() {
                       <div className="research-valuation-prices">
                         {Object.entries(item.valuation_strip.scenario_prices_pln).map(([kind, price]) => <span key={kind}>{SCENARIO_LABELS[kind] ?? kind}<strong>{fmtPln(price)}</strong></span>)}
                       </div>
-                      <small>Wartość ważona {fmtPln(item.valuation_strip.weighted_value_pln)} · <span className={item.valuation_strip.upside_pct != null && item.valuation_strip.upside_pct >= 0 ? "pos" : "neg"}>{fmtPct(item.valuation_strip.upside_pct, { signed: true })}</span></small>
+                      {item.valuation_strip.weighted_value_pln == null
+                        ? <small>Bez ważenia: prawdopodobieństwa nie są skalibrowane.</small>
+                        : <small>Wartość ważona {fmtPln(item.valuation_strip.weighted_value_pln)} · <span className={item.valuation_strip.upside_pct != null && item.valuation_strip.upside_pct >= 0 ? "pos" : "neg"}>{fmtPct(item.valuation_strip.upside_pct, { signed: true })}</span></small>}
                       {item.valuation_strip.catalyst && <small>Katalizator: {item.valuation_strip.catalyst}</small>}
                       <span className={`badge ${valuationTone(item.valuation_strip.verification_status)}`}>Wycena {item.valuation_strip.verification_status}</span>
                     </>

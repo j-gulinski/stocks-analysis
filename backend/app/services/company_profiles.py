@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.api.schemas import CompanyProfileCorrectionIn
 from app.db.models import Company, CompanyProfile, DocumentVersion, ResearchCase, SourceDocument
 from app.services.archetype_packs import get_pack, known_marker_ids
+from app.services.artifact_contracts import RESEARCH_PROFILE_SCHEMA
 
 
 class CompanyProfileError(ValueError):
@@ -37,7 +38,6 @@ def profile_fingerprint(profile: CompanyProfile) -> str:
         "version": profile.version,
         "values": profile_values(profile),
         "provenance": profile.provenance,
-        "author": profile.author,
         "reason": profile.reason,
         "based_on_profile_id": profile.based_on_profile_id,
     }
@@ -54,7 +54,6 @@ def frozen_profile(profile: CompanyProfile) -> dict:
         "fingerprint": profile_fingerprint(profile),
         **profile_values(profile),
         "provenance": profile.provenance,
-        "author": profile.author,
         "reason": profile.reason,
         "based_on_profile_id": profile.based_on_profile_id,
     }
@@ -140,7 +139,10 @@ def append_human_profile(
     """Append one user-confirmed/corrected profile without touching history."""
     current = db.scalar(
         select(CompanyProfile)
-        .where(CompanyProfile.research_case_id == case.id)
+        .where(
+            CompanyProfile.research_case_id == case.id,
+            CompanyProfile.schema_version == RESEARCH_PROFILE_SCHEMA,
+        )
         .order_by(CompanyProfile.version.desc(), CompanyProfile.id.desc())
         .limit(1)
     )
@@ -160,7 +162,7 @@ def append_human_profile(
     _validate_profile_focus(payload, archetype_version=pack.version)
     _validate_profile_sources(db, case=case, payload=payload)
     values = {
-        "schema_version": "company-profile-v2",
+        "schema_version": RESEARCH_PROFILE_SCHEMA,
         "archetype": payload.archetype,
         "archetype_version": pack.version,
         "company_overlay": payload.company_overlay.model_dump(mode="json"),
@@ -179,7 +181,6 @@ def append_human_profile(
         version=current.version + 1,
         **values,
         provenance="human-corrected" if changed else "human-confirmed",
-        author="user",
         reason=payload.reason.strip(),
         based_on_profile_id=current.id,
     )

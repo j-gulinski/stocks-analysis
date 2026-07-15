@@ -17,6 +17,8 @@ _POLICIES: dict[str, dict[str, Any]] = {
         "draft_model": "gpt-5.6-terra",
         "draft_reasoning_effort": "high",
         "required_verifier_role": "verifier_strict",
+        "verifier_model": "gpt-5.6-sol",
+        "verifier_reasoning_effort": "high",
         "reasoning": "high for bounded source collection and company-specific structuring",
         "verification_scope": (
             "company identity, source freshness, tailored research structure, "
@@ -28,6 +30,8 @@ _POLICIES: dict[str, dict[str, Any]] = {
         "draft_model": "gpt-5.6-terra",
         "draft_reasoning_effort": "high",
         "required_verifier_role": "verifier_strict",
+        "verifier_model": "gpt-5.6-sol",
+        "verifier_reasoning_effort": "high",
         "reasoning": "high for bounded source refresh and point-in-time company-memory comparison",
         "verification_scope": (
             "company identity, source freshness, prior-snapshot binding, claim grounding, "
@@ -54,11 +58,11 @@ _POLICIES: dict[str, dict[str, Any]] = {
     "stock-portfolio-review": {
         "draft_role": "worker_standard",
         "draft_model": "gpt-5.6-terra",
-        "draft_reasoning_effort": "high",
+        "draft_reasoning_effort": "medium",
         "required_verifier_role": "verifier_strict",
         "verifier_model": "gpt-5.6-sol",
         "verifier_reasoning_effort": "high",
-        "reasoning": "Terra high for bounded interpretation of frozen deterministic portfolio analytics",
+        "reasoning": "Terra medium for bounded interpretation of frozen deterministic portfolio analytics",
         "verification_scope": (
             "snapshot and mapping identity, reconciliation, method labels, eligible valuation "
             "arithmetic, look-ahead, exact draft and absence of transaction advice"
@@ -94,7 +98,7 @@ def get_model_policy(workflow: str) -> dict[str, Any]:
         "record_concrete_model": True,
         "verifier_model": "gpt-5.6-sol",
         "verifier_reasoning_effort": "high",
-        "sol_ultra_default": False,
+        "ultra_default": False,
     }
 
 

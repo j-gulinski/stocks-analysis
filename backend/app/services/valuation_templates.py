@@ -22,28 +22,30 @@ class ValuationTemplate:
 
 _TEMPLATES = {
     "industrial-consumer": ValuationTemplate(
-        id="industrial-consumer-earnings-pe-v1",
-        version="industrial-consumer-template-v1",
+        id="industrial-consumer-expectations-v2",
+        version="industrial-consumer-template-v2",
         archetype="industrial-consumer",
-        label="Wynik operacyjny industrial/consumer + C/Z",
+        label="Konsensus → wariant → wycena wielometodowa",
         driver_copy=(
             "Wolumen i cena/miks budują przychód.",
             "Marża brutto i koszty operacyjne budują EBIT.",
-            "Konwersja gotówki i capex pokazują jakość wyniku.",
+            "FCFF, kapitał obrotowy i capex wpływają bezpośrednio na wartość.",
+            "C/Z i EV są metodami względnymi; DCF pozostaje niezależnym sprawdzeniem.",
         ),
-        equation="revenue -> gross profit -> EBIT -> net result -> EPS; CFO - positive capex spend -> FCF; EPS x target C/Z -> price",
+        equation="Street expectations -> Workbench forecast variance -> recurring EPS / EBITDA / EBIT / FCFF -> primary method + independent cross-checks -> equity value per share",
     ),
     "software-services": ValuationTemplate(
-        id="software-services-earnings-pe-v1",
-        version="software-services-template-v1",
+        id="software-services-expectations-v2",
+        version="software-services-template-v2",
         archetype="software-services",
-        label="Wynik operacyjny software/services + C/Z",
+        label="Konsensus → wariant → wycena wielometodowa",
         driver_copy=(
             "Przychód cykliczny i projektowy budują skalę.",
             "Retencja, wykorzystanie i presja płacowa kształtują marżę.",
-            "Konwersja gotówki oddziela wynik księgowy od gotówki.",
+            "FCFF, kapitał obrotowy i capex wpływają bezpośrednio na wartość.",
+            "C/Z i EV są metodami względnymi; DCF pozostaje niezależnym sprawdzeniem.",
         ),
-        equation="revenue -> gross profit -> EBIT -> net result -> EPS; CFO - positive capex spend -> FCF; EPS x target C/Z -> price",
+        equation="Street expectations -> Workbench forecast variance -> recurring EPS / EBITDA / EBIT / FCFF -> primary method + independent cross-checks -> equity value per share",
     ),
 }
 
@@ -52,4 +54,3 @@ def get_template(archetype: str) -> ValuationTemplate | None:
     if archetype == "software-services-v1-provisional":
         archetype = "software-services"
     return _TEMPLATES.get(archetype)
-

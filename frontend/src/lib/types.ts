@@ -13,6 +13,36 @@ export interface DiscoveryCandidate {
   improvement_signals: string[];
   potential_score: number | null;
   score_components: DiscoveryScoreComponent[];
+  score_normalizations: DiscoveryScoreNormalization[];
+  analyst_expectations: DiscoveryAnalystExpectations;
+}
+
+export interface DiscoveryExpectationMetric {
+  metric: "revenue" | "ebitda" | "operating_profit" | "net_income";
+  label: string;
+  value: number;
+  unit: string;
+  growth_pct: number | null;
+  growth_base_period: string | null;
+  forecast_count: number | null;
+  range_min: number | null;
+  range_max: number | null;
+  dispersion_pct: number | null;
+}
+
+export interface DiscoveryExpectationPeriod {
+  period: string;
+  period_kind: "fiscal_year";
+  metrics: DiscoveryExpectationMetric[];
+}
+
+export interface DiscoveryAnalystExpectations {
+  provider: "biznesradar";
+  status: "available" | "unavailable";
+  periods: DiscoveryExpectationPeriod[];
+  source_document_version_id: number | null;
+  source_as_of: string | null;
+  note: string;
 }
 
 export interface DiscoveryScoreComponent {
@@ -24,12 +54,25 @@ export interface DiscoveryScoreComponent {
   weight: number;
 }
 
+export interface DiscoveryScoreNormalization {
+  component_id: "net_income_growth" | "current_pe";
+  label: string;
+  reported_value: number | null;
+  normalized_value: number | null;
+  discontinued_share_pct: number;
+  period: string;
+  reason: string;
+  source_fact_ids: number[];
+  source_document_version_ids: number[];
+}
+
 export interface DiscoveryExcluded {
   ticker: string;
   name: string | null;
   kill_reasons: string[];
   factors: DiscoveryFactor[];
   factor_gaps: string[];
+  score_normalizations: DiscoveryScoreNormalization[];
 }
 
 export interface DiscoveryFactor {
@@ -149,12 +192,6 @@ export interface ResearchCase {
   current_step: ResearchCaseStep;
   as_of: string | null;
   blocked_reason: string | null;
-  promotion_triage_review_id: number | null;
-  promotion_review_price_pln: number | null;
-  promotion_note: string | null;
-  promotion_evidence_reason: string | null;
-  quarterly_review_due_on: string | null;
-  material_event_review_policy: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -243,7 +280,7 @@ export interface CompanyOverlay {
 export interface CompanyProfile {
   id: number;
   research_case_id: number;
-  schema_version: "company-profile-v1" | "company-profile-v2";
+  schema_version: "company-profile-v2";
   version: number;
   archetype: ResearchArchetype;
   archetype_version: string;
@@ -251,7 +288,6 @@ export interface CompanyProfile {
   drivers: ResearchDriver[];
   kpis: ResearchKpi[];
   provenance: "codex-proposed" | "human-confirmed" | "human-corrected";
-  author: string;
   reason: string | null;
   based_on_profile_id: number | null;
   created_at: string;
@@ -399,7 +435,7 @@ export interface ResearchVerifierResult {
     outlook_and_thesis_plausibility: string;
   } | null;
   summary: string;
-  verification_standard: "adversarial-v1" | "legacy-incomplete";
+  verification_standard: "adversarial-v1";
 }
 
 export interface ResearchStatementProvenance {
@@ -414,10 +450,7 @@ export interface ResearchSnapshot {
   agent_run_id: number;
   verification_run_id: number;
   version: number;
-  contract_version:
-    | "research-snapshot-v1"
-    | "research-snapshot-v2"
-    | "research-snapshot-v3";
+  contract_version: "research-snapshot-v3";
   status: ResearchSnapshotStatus;
   as_of: string;
   input_fingerprint: string;
@@ -522,29 +555,55 @@ export interface ValuationTemplate {
 
 export interface ValuationAssumptionValue {
   value: number;
-  provenance: "evidence" | "human_assumption";
+  basis: "reported_fact" | "street_estimate" | "codex_judgment" | "human_override";
   rationale: string;
   source_fact_ids: number[];
+  research_claim_paths: string[];
+}
+
+export interface ValuationForecastYear {
+  period: string;
+  revenue_pln_thousands: ValuationAssumptionValue;
+  ebitda_margin_pct: ValuationAssumptionValue;
+  depreciation_pct_revenue: ValuationAssumptionValue;
+  capex_pct_revenue: ValuationAssumptionValue;
+  delta_nwc_pct_revenue: ValuationAssumptionValue;
+  cash_tax_rate_pct: ValuationAssumptionValue;
+  net_financial_result_pct_revenue: ValuationAssumptionValue;
+  fcff_period_fraction: ValuationAssumptionValue;
+  fcff_discount_years: ValuationAssumptionValue;
 }
 
 export interface ValuationScenarioAssumptions {
   kind: ValuationScenarioKind;
   label: string;
-  quarter_revenue_growth_pct: ValuationAssumptionValue;
-  year_revenue_growth_pct: ValuationAssumptionValue;
-  gross_margin_pct: ValuationAssumptionValue;
-  operating_cost_ratio_pct: ValuationAssumptionValue;
-  financial_result_ratio_pct: ValuationAssumptionValue;
-  tax_rate_pct: ValuationAssumptionValue;
-  cash_conversion_pct: ValuationAssumptionValue;
-  capex_spend_ratio_pct: ValuationAssumptionValue;
-  target_pe: ValuationAssumptionValue;
-  event_one_off_net_pln_thousands?: ValuationAssumptionValue | null;
+  forecast_years: ValuationForecastYear[];
+  target_pe: ValuationAssumptionValue | null;
+  target_ev_ebitda: ValuationAssumptionValue | null;
+  target_ev_ebit: ValuationAssumptionValue | null;
+  wacc_pct: ValuationAssumptionValue | null;
+  terminal_growth_pct: ValuationAssumptionValue | null;
+  event_impact: {
+    period: string;
+    recurring: false;
+    pnl_net_pln_thousands: ValuationAssumptionValue;
+    cash_pln_thousands: ValuationAssumptionValue;
+  } | null;
+}
+
+export type ValuationMethod = "pe" | "ev_ebitda" | "ev_ebit" | "fcff_dcf";
+
+export interface ValuationMethodology {
+  primary_method: ValuationMethod;
+  cross_checks: ValuationMethod[];
+  valuation_period: string;
+  rationale: string;
 }
 
 export interface ValuationRequest {
   research_snapshot_id: number;
   assumptions: ValuationScenarioAssumptions[];
+  methodology: ValuationMethodology;
   as_of: string;
 }
 
@@ -553,35 +612,96 @@ export interface ValuationQueueRequest {
   as_of?: string;
 }
 
-export interface ValuationProjection {
+export interface ValuationForecastOutput {
+  period: string;
   revenue_pln_thousands: number;
-  gross_profit_pln_thousands: number;
+  ebitda_pln_thousands: number;
+  depreciation_pln_thousands: number;
   ebit_pln_thousands: number;
   financial_result_pln_thousands: number;
   pretax_result_pln_thousands: number;
-  tax_pln_thousands: number;
-  net_result_pln_thousands: number;
-  eps_pln: number;
-  cfo_pln_thousands: number;
-  capex_spend_pln_thousands: number;
-  fcf_pln_thousands: number;
+  cash_tax_pln_thousands: number;
+  recurring_net_result_pln_thousands: number;
+  reported_net_result_pln_thousands: number;
+  recurring_eps_pln: number;
+  capex_pln_thousands: number;
+  delta_nwc_pln_thousands: number;
+  fcff_pln_thousands: number;
+  fcff_period_fraction: number;
+  fcff_discount_years: number;
+  event_cash_pln_thousands: number;
+}
+
+export interface ValuationMethodOutput {
+  status: "calculated" | "unavailable";
+  price_pln: number | null;
+  target_multiple?: number;
+  enterprise_value_pln_thousands?: number;
+  equity_value_pln_thousands?: number;
+  terminal_value_share_pct?: number;
+  wacc_pct?: number;
+  terminal_growth_pct?: number;
+  net_debt_pln_thousands?: number;
+  sensitivity?: Array<{
+    wacc_pct: number;
+    terminal_growth_pct: number;
+    price_pln: number;
+  }>;
+}
+
+export interface ValuationExpectationBridgePeriod {
+  period: string;
+  metrics: Array<{
+    metric: string;
+    workbench_pln_thousands: number;
+    street_pln_thousands: number | null;
+    street_range: { low: number | null; high: number | null; forecast_count: number | null } | null;
+    variance_pct: number | null;
+    status: "compared" | "street_unknown";
+  }>;
 }
 
 export interface ValuationScenarioOutput {
   kind: ValuationScenarioKind;
   label: string;
-  quarter: ValuationProjection;
-  forward_12m: ValuationProjection;
-  target_pe: number;
+  forecast_path: ValuationForecastOutput[];
+  expectation_bridge: ValuationExpectationBridgePeriod[];
+  methods: Record<ValuationMethod, ValuationMethodOutput>;
+  primary_method: ValuationMethod;
+  cross_check_methods: ValuationMethod[];
   target_price_pln: number | null;
   return_pct: number | null;
-  valuation_status?: "priced" | "not_meaningful" | string;
-  valuation_gap?: string | null;
+  valuation_status: "calculated" | "unavailable";
+  valuation_gap: string | null;
+  cross_check_range_pln: { low: number; high: number } | null;
+  method_dispersion_pct: number | null;
 }
 
 export interface ValuationDeterministicOutputs {
   engine_version: string;
   current_price_pln: number;
+  methodology: ValuationMethodology;
+  street_expectations: Record<string, unknown>;
+  priced_in_expectations: {
+    valuation_period: string;
+    market_cap_pln: number;
+    enterprise_value_pln: number | null;
+    methods: {
+      pe?: { target_multiple: number; implied_net_income_pln_thousands: number };
+      ev_ebitda?: { target_multiple: number; implied_ebitda_pln_thousands: number };
+      [key: string]: Record<string, number> | undefined;
+    };
+    reverse_dcf?: {
+      status: "calculated" | "unavailable";
+      valuation_period: string;
+      implied_revenue_pln_thousands: number | null;
+      street_revenue_pln_thousands: number | null;
+      variance_to_street_revenue_pct: number | null;
+      implied_revenue_path_scale_pct: number | null;
+      repricing_residual_bps: number | null;
+      gap?: string | null;
+    };
+  };
   scenarios: ValuationScenarioOutput[];
   probability_weighted: {
     status: "calculated" | "unavailable";
@@ -589,7 +709,7 @@ export interface ValuationDeterministicOutputs {
     return_pct: number | null;
     gap: string | null;
   } | null;
-  own_history_sensitivity: { status: string; note: string };
+  final_probabilities?: Array<{ kind: ValuationScenarioKind; probability_pct: number; rationale: string; posture: string }>;
 }
 
 export interface ValuationPreview {
@@ -610,14 +730,14 @@ export interface CanonicalValuationSnapshot {
   agent_run_id: number | null;
   verification_run_id: number | null;
   version: number;
-  contract_version: string;
+  contract_version: "valuation-snapshot-v2";
   status: ValuationSnapshotStatus;
   origin: "codex" | "human-override";
   as_of: string;
   template_id: string;
   template_version: string;
   calculation_engine_version: string;
-  assumptions: { scenarios: ValuationScenarioAssumptions[] };
+  assumptions: { scenarios: ValuationScenarioAssumptions[]; methodology: ValuationMethodology };
   base_values: Record<string, unknown>;
   deterministic_outputs: ValuationDeterministicOutputs;
   codex_judgment: {
@@ -625,12 +745,12 @@ export interface CanonicalValuationSnapshot {
     scenarios?: Array<{
       kind: ValuationScenarioKind;
       mechanism: string;
-      probability_pct: number;
-      probability_rationale: string;
+      probability_pct: number | null;
       catalyst_or_counter_driver: string;
       falsifier: string;
       gaps: string[];
     }>;
+    probability_model?: { posture: "uncalibrated" | "judgmental_unvalidated" | "empirical_calibrated" };
     catalysts?: string[];
     falsifiers?: string[];
   };

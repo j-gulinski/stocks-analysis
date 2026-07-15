@@ -647,6 +647,14 @@ _FORECAST_MONEY_UNITS = {
     "net_margin_pct": "%",
     "pe": "x",
 }
+_FORECAST_CONSENSUS_GROWTH_METRICS = {
+    "revenue",
+    "ebitda",
+    "operating_profit",
+    "net_income",
+    "capex",
+    "depreciation",
+}
 # O4K (TTM) rows worth keeping as their own advanced_metrics entry — feeds
 # scenarios.ScenarioInputs.ebitda_ttm (EV/EBITDA scenarios for energy names)
 # plus two adjacent TTM facts the AI prompt can use as-is.
@@ -654,7 +662,12 @@ _FORECAST_TTM_METRICS = ("ebitda", "capex", "depreciation")
 
 
 def _upsert_forecasts(
-    db: Session, company: Company, table: biznesradar.ForecastTable
+    db: Session,
+    company: Company,
+    table: biznesradar.ForecastTable,
+    *,
+    source_version_id: int,
+    source_as_of: datetime,
 ) -> tuple[list[str], list[str]]:
     """Merge a parsed /prognozy table into CompanyMarketData.
 
@@ -673,14 +686,48 @@ def _upsert_forecasts(
     for row in table.rows:
         if row.metric is None:
             continue
-        for column, value in zip(table.columns, row.values):
-            if value is None or column.kind != "konsensus":
+        previous_annual_value: float | None = None
+        previous_annual_period: str | None = None
+        for column, value, estimate_range in zip(
+            table.columns, row.values, row.estimate_ranges, strict=True
+        ):
+            if value is None:
                 continue
-            forecast_consensus.setdefault(column.label, {})[row.metric] = {
+            if column.kind == "raport":
+                previous_annual_value = value
+                previous_annual_period = column.label
+                continue
+            if column.kind != "konsensus":
+                continue
+            metric_payload = {
                 "value": value,
                 "unit": _FORECAST_MONEY_UNITS.get(row.metric, ""),
                 "source": "biznesradar_forecasts",
+                "source_document_version_id": source_version_id,
+                "source_as_of": source_as_of.isoformat(),
+                "period_kind": "fiscal_year",
+                "growth_pct": (
+                    round((value / previous_annual_value - 1.0) * 100.0, 2)
+                    if previous_annual_value not in {None, 0}
+                    else None
+                ),
+                "growth_base_period": previous_annual_period,
             }
+            if row.metric == "pe":
+                metric_payload.update(
+                    {
+                        "semantic": "forward_trading_multiple",
+                        "derived_from": "current_market_cap / forecast_net_income",
+                        "not_a_target_multiple": True,
+                    }
+                )
+            if estimate_range is not None:
+                metric_payload["forecast_count"] = estimate_range.forecast_count
+                metric_payload["range_min"] = estimate_range.minimum
+                metric_payload["range_max"] = estimate_range.maximum
+            forecast_consensus.setdefault(column.label, {})[row.metric] = metric_payload
+            previous_annual_value = value
+            previous_annual_period = column.label
         if (
             ttm_column_index is not None
             and row.metric in _FORECAST_TTM_METRICS
@@ -750,30 +797,102 @@ def _refresh_forecasts(
         summary["forecasts"] = f"error: {exc}"
         return
 
-    consensus_years, ttm_keys = _upsert_forecasts(db, company, table)
+    consensus_years, ttm_keys = _upsert_forecasts(
+        db,
+        company,
+        table,
+        source_version_id=recorded.version.id,
+        source_as_of=recorded.version.fetched_at,
+    )
     for row in table.rows:
         if row.metric is None:
             continue
-        for column, value in zip(table.columns, row.values):
-            if column.kind != "konsensus" or value is None:
+        previous_annual_value: float | None = None
+        previous_annual_period: str | None = None
+        for column, value, estimate_range in zip(
+            table.columns, row.values, row.estimate_ranges, strict=True
+        ):
+            if value is None:
                 continue
+            if column.kind == "raport":
+                previous_annual_value = value
+                previous_annual_period = column.label
+                continue
+            if column.kind != "konsensus":
+                continue
+            locator = {
+                "url": page.effective_url,
+                "table": "profile-forecast",
+                "row": row.label,
+                "column": column.label,
+                "statistic": "consensus",
+                "semantic": (
+                    "market_context_only"
+                    if row.metric == "pe"
+                    else "analyst_expectation"
+                ),
+                "not_a_target_multiple": row.metric == "pe",
+                "coverage_window_months": 6,
+            }
+            value_key = (
+                "market_implied.forward_pe"
+                if row.metric == "pe"
+                else f"consensus.{row.metric}.value"
+            )
             evidence.record_numeric_fact(
                 db,
                 company,
                 recorded.version,
-                fact_type="analyst_forecast",
-                fact_key=f"forecast.{row.metric}",
+                fact_type=(
+                    "market_context" if row.metric == "pe" else "analyst_forecast"
+                ),
+                fact_key=value_key,
                 value=value,
                 unit=_FORECAST_MONEY_UNITS.get(row.metric, ""),
                 period=column.label,
-                locator={
-                    "url": page.effective_url,
-                    "table": "profile-forecast",
-                    "row": row.label,
-                    "column": column.label,
-                },
-                extractor_version="biznesradar-forecasts@1",
+                locator=locator,
+                extractor_version="biznesradar-forecasts@2",
             )
+            if (
+                row.metric in _FORECAST_CONSENSUS_GROWTH_METRICS
+                and previous_annual_value not in {None, 0}
+            ):
+                evidence.record_numeric_fact(
+                    db,
+                    company,
+                    recorded.version,
+                    fact_type="analyst_forecast",
+                    fact_key=f"consensus.{row.metric}.growth_pct",
+                    value=round((value / previous_annual_value - 1.0) * 100.0, 4),
+                    unit="%",
+                    period=column.label,
+                    locator={
+                        **locator,
+                        "statistic": "growth_pct",
+                        "growth_base_period": previous_annual_period,
+                    },
+                    extractor_version="biznesradar-forecasts@2",
+                )
+            if estimate_range is not None and row.metric != "pe":
+                for suffix, range_value, unit in (
+                    ("low", estimate_range.minimum, _FORECAST_MONEY_UNITS.get(row.metric, "")),
+                    ("high", estimate_range.maximum, _FORECAST_MONEY_UNITS.get(row.metric, "")),
+                    ("forecast_count", estimate_range.forecast_count, "count"),
+                ):
+                    evidence.record_numeric_fact(
+                        db,
+                        company,
+                        recorded.version,
+                        fact_type="analyst_forecast",
+                        fact_key=f"consensus.{row.metric}.{suffix}",
+                        value=range_value,
+                        unit=unit,
+                        period=column.label,
+                        locator={**locator, "statistic": suffix},
+                        extractor_version="biznesradar-forecasts@2",
+                    )
+            previous_annual_value = value
+            previous_annual_period = column.label
     evidence.mark_parse_result(recorded.version, success=True)
     consensus_columns = [c.label for c in table.columns if c.kind == "konsensus"]
     if consensus_years:

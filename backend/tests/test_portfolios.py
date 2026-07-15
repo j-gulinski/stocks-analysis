@@ -29,6 +29,21 @@ from app.services.portfolio import normalize_myfund
 from app.services.valuation_engine import canonical_hash
 
 
+def _canonical_research_verifier_result() -> dict:
+    return {
+        "model_role": "verifier_strict",
+        "verifier_model": "test",
+        "verdict": "pass",
+        "findings": [],
+        "justifications": {
+            "evidence_and_claim_fit": "Fixture evidence stays bound to the stored source inputs for this deterministic portfolio contract test.",
+            "company_specificity": "The fixture uses this company identity only and does not infer a reusable cross-company research result.",
+            "outlook_and_thesis_plausibility": "The fixture retains only the bounded point-in-time research state required for portfolio eligibility.",
+        },
+        "summary": "Canonical Research verification fixture.",
+    }
+
+
 def payload(*, snt_value=6000.0):
     total = snt_value + 4000
     return {
@@ -707,7 +722,7 @@ def test_risk_context_freezes_research_profiles_current_falsifiers_and_coexposur
         profile = CompanyProfile(
             research_case_id=case.id,
             version=1,
-            schema_version="v2",
+            schema_version="company-profile-v2",
             archetype="industrial-consumer",
             archetype_version="v1",
             company_overlay={},
@@ -740,7 +755,7 @@ def test_risk_context_freezes_research_profiles_current_falsifiers_and_coexposur
             agent_run_id=run.id,
             verification_run_id=verification.id,
             version=1,
-            contract_version="v2",
+            contract_version="research-snapshot-v3",
             status="verified",
             as_of=as_of - timedelta(days=30),
             input_fingerprint="i",
@@ -751,7 +766,7 @@ def test_risk_context_freezes_research_profiles_current_falsifiers_and_coexposur
             gaps=["named-gap"] if company.ticker == "ABS" else [],
             next_checks=[],
             statement_provenance=[],
-            verifier_result={},
+            verifier_result=_canonical_research_verifier_result(),
         )
         db.add(research)
         research_rows.append(research)
@@ -782,7 +797,7 @@ def test_risk_context_freezes_research_profiles_current_falsifiers_and_coexposur
             agent_run_id=future_run.id,
             verification_run_id=future_verification.id,
             version=2,
-            contract_version="v2",
+            contract_version="research-snapshot-v3",
             status="verified",
             as_of=as_of + timedelta(days=1),
             input_fingerprint="future",
@@ -793,7 +808,7 @@ def test_risk_context_freezes_research_profiles_current_falsifiers_and_coexposur
             gaps=[],
             next_checks=[],
             statement_provenance=[],
-            verifier_result={},
+            verifier_result=_canonical_research_verifier_result(),
         )
     )
     falsifier = ThesisFalsifier(
@@ -1005,7 +1020,7 @@ def test_verified_scenario_aggregation_is_point_in_time_and_arithmetic(
     profile = CompanyProfile(
         research_case_id=case.id,
         version=1,
-        schema_version="v2",
+        schema_version="company-profile-v2",
         archetype="industrial_consumer",
         archetype_version="v1",
         company_overlay={},
@@ -1038,7 +1053,7 @@ def test_verified_scenario_aggregation_is_point_in_time_and_arithmetic(
         agent_run_id=research_run.id,
         verification_run_id=research_verify.id,
         version=1,
-        contract_version="v2",
+        contract_version="research-snapshot-v3",
         status="verified",
         as_of=datetime(2026, 7, 10, tzinfo=timezone.utc),
         input_fingerprint="i",
@@ -1049,7 +1064,7 @@ def test_verified_scenario_aggregation_is_point_in_time_and_arithmetic(
         gaps=[],
         next_checks=[],
         statement_provenance=[],
-        verifier_result={},
+        verifier_result=_canonical_research_verifier_result(),
     )
     db.add(research)
     db.flush()
@@ -1077,12 +1092,12 @@ def test_verified_scenario_aggregation_is_point_in_time_and_arithmetic(
         agent_run_id=val_run.id,
         verification_run_id=val_verify.id,
         version=1,
-        contract_version="v1",
+        contract_version="valuation-snapshot-v2",
         status="verified",
         as_of=datetime(2026, 7, 10, tzinfo=timezone.utc),
         template_id="industrial",
         template_version="v1",
-        calculation_engine_version="v2",
+        calculation_engine_version="valuation-engine-v3",
         assumptions={},
         base_values={},
         deterministic_outputs={
@@ -1128,7 +1143,7 @@ def test_verified_scenario_aggregation_is_point_in_time_and_arithmetic(
         agent_run_id=future_run.id,
         verification_run_id=future_verify.id,
         version=2,
-        contract_version="v2",
+        contract_version="research-snapshot-v3",
         status="verified",
         as_of=datetime(2027, 1, 1, tzinfo=timezone.utc),
         input_fingerprint="future",
@@ -1139,7 +1154,7 @@ def test_verified_scenario_aggregation_is_point_in_time_and_arithmetic(
         gaps=[],
         next_checks=[],
         statement_provenance=[],
-        verifier_result={},
+        verifier_result=_canonical_research_verifier_result(),
     )
     db.add(future)
     db.commit()
@@ -1227,7 +1242,7 @@ def _review_draft(
         },
         "requested_model_role": "worker_standard",
         "requested_model": "gpt-5.6-terra",
-        "reasoning_effort": "high",
+        "reasoning_effort": "medium",
         "actual_host_model": "host deployment not exposed",
         "substitution_or_escalation": None,
     }
@@ -1351,7 +1366,7 @@ def test_exact_review_verification_and_atomic_provisional_save(
     assert saved.json()["status"] == "provisional"
     assert saved.json()["draft_requested_model_role"] == "worker_standard"
     assert saved.json()["draft_requested_model"] == "gpt-5.6-terra"
-    assert saved.json()["draft_reasoning_effort"] == "high"
+    assert saved.json()["draft_reasoning_effort"] == "medium"
     assert saved.json()["draft_actual_host_model"] == actual_host_model
     assert (
         saved.json()["draft_substitution_or_escalation"] == substitution_or_escalation
@@ -1480,7 +1495,7 @@ def test_review_contract_policy_scripts_and_transaction_advice_gate(
         "analytics_version": "portfolio-analytics-v1",
         "draft_model_role": "worker_standard",
         "draft_model": "gpt-5.6-terra",
-        "draft_reasoning_effort": "high",
+        "draft_reasoning_effort": "medium",
         "verifier_model_role": "verifier_strict",
         "verifier_model": "gpt-5.6-sol",
         "verifier_reasoning_effort": "high",
@@ -1489,6 +1504,8 @@ def test_review_contract_policy_scripts_and_transaction_advice_gate(
     assert (
         policy["draft_model"] == "gpt-5.6-terra"
         and policy["verifier_model"] == "gpt-5.6-sol"
+        and policy["draft_reasoning_effort"] == "medium"
+        and policy["verifier_reasoning_effort"] == "high"
     )
     scripts = Path(__file__).resolve().parents[1] / "scripts"
     assert (scripts / "codex_verify_portfolio_review.py").is_file()

@@ -76,13 +76,18 @@ The pivot data model converges on:
 - `Portfolio`, `PortfolioSync`, `PortfolioPositionSnapshot`,
   `InstrumentMapping`, `PortfolioOperation` (imported transactions/flows),
   and value points;
-- one provider-neutral run/artifact family. Legacy direct Anthropic dossier
-  paths and method-perspective artifacts are deleted (V2, V10); historical
-  rows may remain in the database but have no read path or UI.
+- one provider-neutral run/artifact family. Legacy direct-provider dossier
+  paths, method-perspective artifacts, fields, adapters and rows are deleted
+  (V2, V10); there is no compatibility read mode or retained legacy data.
 
-Implementation may extend the current schema incrementally, but disposable
-local database state does not justify compatibility layers. Use one forward
-migration per coherent schema slice.
+During the active recovery implementation, keep at most one temporary forward
+migration for coherent schema work. When its canonical models and code are
+finished, delete the entire historical Alembic revision chain and generate one
+clean baseline migration. Then drop and recreate the disposable local database,
+migrate empty → head and rebuild only canonical data. Never write compatibility
+or data-backfill migrations for stale local versions. Later slices may add one
+forward migration per new coherent schema outcome until the next explicitly
+authorized clean-baseline checkpoint.
 
 ## Portfolio boundary
 
@@ -194,8 +199,9 @@ document from its declared source search. Each driver horizon declares its own
 searched channels. Channel and manifest-role eligibility derive from stored
 source type/provider/host identity rather than draft labels; BiznesRadar stays
 normalized and PortalAnaliz stays a lead. Lead/context-only evidence cannot
-support a conclusion. Legacy v1/v2 write paths are deleted (V10); old
-snapshots remain readable as history.
+support a conclusion. Legacy v1/v2 write and read paths, adapters and stored
+snapshots are deleted at the clean-baseline reset (V10). History begins with
+canonical v3 snapshots rebuilt after that reset.
 
 A run that collects its own evidence freezes the exact post-collection source
 manifest and cutoff in the draft before independent verification. A replacement
@@ -225,6 +231,13 @@ It preserves the complete survivor count but returns at most 100 rows ordered
 by the deterministic five-component potential score defined in Strategy. The
 score is emitted only with all five source-backed inputs; its raw values,
 percentiles and equal weights remain machine-inspectable.
+At batch creation, a material explicit discontinued-result fact invokes the
+generic continuing-operation bridge for net-profit growth and trailing C/Z.
+The row freezes the reported/normalized pair, threshold, fact IDs and detailed
+document versions, and those additional versions participate in batch
+idempotence and the handoff fingerprint. An incomplete bridge yields `null` for
+the affected component. The evaluator also blocks B4 when current normalized
+C/Z would otherwise be compared with raw own-history snapshots.
 There is exactly one sieve; alternative strategies are a new version, never a
 parallel filter (V1). Reading Discover writes nothing; `Dodaj do Research` is
 the only per-row command. Its typed handoff names the batch and sieve version;
@@ -300,57 +313,88 @@ mismatched lineage stays a named gap. One company may have only one queued or
 running valuation; snapshot version is assigned at execution and checked again
 at verify/save.
 
-The valuation draft freezes the engine and template versions, typed
-assumptions with fact bindings, drafted probabilities with rationale,
-deterministic outputs and input/calculation fingerprints. The drafter owns
-mechanisms, assumptions and probabilities — all company-specific (V4).
+The valuation draft freezes the engine and template versions, the retained
+Street expectation curve, typed five-year assumptions with semantic fact or
+Research-claim bindings, a selected primary method plus independent
+cross-checks, an optional conditional probability tree, deterministic outputs
+and input/calculation fingerprints. The drafter owns mechanisms, assumptions,
+method selection and any judgmental conditional probabilities — all
+company-specific (V4). Python owns the arithmetic and derived leaf/scenario
+probabilities.
 
 **Valuation structural gates (computed by the backend before any verifier
 opinion; any hit → automatic `rejected` with the reason stored):**
 
 1. exact-draft integrity — saved payload equals the frozen draft;
-2. math recomputation — deterministic outputs reproduce bit-equal;
-3. probability structure — per-scenario probability present, in (0, 100),
-   summing to 100 ± 1, and not equal to a known house-default mix or any
-   permutation of one;
-4. rationale present — every scenario probability carries non-empty,
-   scenario-specific evidence rationale; every core assumption either binds
-   ≥ 1 research fact ID or is flagged `judgment` with rationale;
-5. company-specificity — the assumption vector (growth, margins, target
-   multiple, probabilities) must not equal any template seed and must not be
-   a near-duplicate (relative distance below threshold) of another current
-   company's live valuation;
-6. scenario completeness — each scenario names mechanism, catalyst or
-   counter-driver, and a dated falsifier; an event scenario states its
-   one-off explicitly and is mutually exclusive;
-7. lineage — fingerprints current, look-ahead boundaries respected,
+2. identity and source semantics — price × shares reconciles to market cap;
+   each `street_estimate` cites the matching `consensus.<metric>.*` fact; a
+   current-price-derived forward trading multiple is forbidden as a target;
+3. five-year math recomputation — P&L, recurring/reported bridge, FCFF,
+   EV-to-equity bridge, P/E, EV/EBITDA, EV/EBIT, DCF sensitivities and reverse
+   DCF reproduce deterministically; a partly elapsed first fiscal year has an
+   explicit FCFF fraction and discount exponent rather than a hidden full year;
+4. unknown neutrality — absence can lower coverage or disable a method, but
+   cannot become zero, an adverse assumption or a probability input;
+5. methodology independence — one company-specific primary method plus
+   relative/intrinsic cross-check coverage; calculated methods reconcile and
+   excessive dispersion fails instead of being hidden by averaging;
+6. conditional probability structure — Python derives mutually exclusive and
+   exhaustive leaf/scenario probabilities from evidence-bound nodes. Direct
+   unexplained percentages, known house defaults and cross-company
+   near-duplicates fail. `uncalibrated` carries no percentages or weighted
+   value; empirical claims require a frozen dataset fingerprint, cutoff,
+   sample, Brier score and reliability bins;
+7. rationale and company-specificity — every core assumption binds a
+   semantically eligible fact/Research claim or is explicit judgment; the full
+   five-year vector must differ from templates and other live companies;
+8. scenario completeness — each scenario names mechanism, catalyst or
+   counter-driver and a dated falsifier; an event splits recurring P&L from
+   one-off P&L/cash and is mutually exclusive;
+9. lineage — fingerprints current, look-ahead boundaries respected,
    drafter ≠ verifier worker.
 
 The strict verifier then judges what cannot be computed — evidence fit,
 mechanism plausibility, probability reasonableness — and must return either
 concrete findings or per-check justification referencing the evidence
 examined (V5). A verdict with empty findings and empty justifications is
-itself rejected. Save recalculates the weighted output, binds the exact
+itself rejected. Save recomputes every deterministic output, including a
+weighted value only when the probability posture supports one, binds the exact
 draft fingerprint, creates one `ValuationSnapshot`, terminalizes the run and
-clears its lease. Passing output with any named upstream or scalar-lineage
-gap is `provisional`.
+clears its lease. Passing output with any named upstream or scalar-lineage gap
+is `provisional`.
 
-Route work — app jobs and development sessions alike — by the lightest tier
-that can reliably finish it; escalate one tier only on evidence. This is the
-single routing table (the ledger lives in `docs/model-usage.md`):
+Route app jobs and development sessions by task shape, using the lowest
+reasoning effort that reliably passes the relevant gate. Use exact public model
+slugs in queued policy and the Roadmap; `Sol high`-style shorthand is not a
+durable model identity. This is the single routing table (the ledger lives in
+`docs/model-usage.md`):
 
-| Work | Tier | Typical use |
-|---|---|---|
-| Deterministic | no model | fetch, parse, normalize, calculate, query, DB assembly |
-| Mechanical | GPT-5.3 high | repetitive extraction, validation, tests, fixtures, small fixes |
-| Bounded low-risk implementation | Luna medium | CRUD/UI wiring; never investment judgment |
-| Default implementation/research | Terra high | normal features, debugging, classification, ordinary company research |
-| Deep analysis | Sol high | architecture, cross-source research, scenario probabilities, valuation/portfolio synthesis |
-| Strict verification | Sol high (independent) | decision-relevant approval; a drafting model never lowers this gate |
-| Exceptional escalation | Sol ultra | only after a concrete Sol-high failure; never a default |
+| Work shape | Requested Codex model | Reasoning | Typical use |
+|---|---|---|---|
+| Deterministic | no model | none | fetch, parse, normalize, calculate, query, fingerprints, DB assembly |
+| Mechanical coding/check loop | `gpt-5.3-codex-spark` | model default | near-instant text-only test, lint and focused UI/code iteration when the Pro research preview is available; never financial judgment or a queued artifact worker |
+| Clear and repeatable | `gpt-5.6-luna` | low | bounded extraction, classification, transformation, fixture shaping and structured summaries with a known good result |
+| Everyday implementation | `gpt-5.6-terra` | medium | scoped API/UI wiring, ordinary debugging, scraper fixes, queue plumbing |
+| Multi-source company Research | `gpt-5.6-terra` | high | evidence synthesis, driver/outlook drafting, ordinary company review |
+| High-value ambiguous work | `gpt-5.6-sol` | high | product/architecture decisions, valuation scenarios and probabilities, complex portfolio or replay synthesis |
+| Strict decision verification | `gpt-5.6-sol` | high, independent | adversarial Research, valuation, portfolio and replay approval; never the drafting context |
+| Evidence-backed escalation | `gpt-5.6-sol` | xhigh | only after a representative eval or concrete high-effort failure shows that more checking is needed |
+| Exceptional single-task escalation | `gpt-5.6-sol` | max | only after a concrete xhigh failure or representative eval shows a material gain |
 
-Record role, requested tier, concrete host when exposed, substitutions, and
-verification in `docs/model-usage.md`; never infer the hidden deployment.
+This mapping follows OpenAI's current Codex guidance: Luna for clear repeatable
+work, Terra as the everyday workhorse, Sol for complex/high-value work, and the
+lowest reasoning effort that achieves the outcome. `Ultra` is multi-agent
+orchestration, not a model or reasoning tier; use it only for genuinely
+independent workstreams when the user or applicable agent/skill instruction
+requests delegation. Sources: [Codex model selection](https://learn.chatgpt.com/docs/models),
+[Codex speed and Spark](https://learn.chatgpt.com/docs/agent-configuration/speed),
+[GPT-5.6 model guidance](https://developers.openai.com/api/docs/guides/latest-model).
+
+Record requested model and effort separately from `actual_host_model`. If the
+surface cannot select or expose the requested deployment, record
+`host deployment not exposed` plus the substitution; never imply that a
+requested model actually ran. A drafter and verifier must remain distinct
+contexts even if both legitimately use Sol.
 
 Status meanings:
 

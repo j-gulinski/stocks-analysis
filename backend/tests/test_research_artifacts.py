@@ -409,7 +409,7 @@ def test_verified_snapshot_is_immutable_terminal_and_read_only(client, db):
     assert client.post(f"/api/research-cases/{case_id}/snapshots", json=changed).status_code == 409
 
 
-def test_legacy_verifier_snapshot_remains_readable_without_v5_upgrade(client, db):
+def test_incomplete_verifier_snapshot_cannot_become_current_research(client, db):
     from app.db.models import ResearchSnapshot
 
     case_id, run, company = _claimed_case(client, db)
@@ -437,15 +437,8 @@ def test_legacy_verifier_snapshot_remains_readable_without_v5_upgrade(client, db
 
     workspace = client.get("/api/research-cases/by-ticker/SNT")
     assert workspace.status_code == 200, workspace.text
-    verifier = workspace.json()["latest_snapshot"]["verifier_result"]
-    assert verifier["verification_standard"] == "legacy-incomplete"
-    assert verifier["justifications"] is None
-    assert verifier["findings"] == []
-    assert "checks" not in verifier
-    assert any(
-        "pełnego standardu V5" in reason
-        for reason in workspace.json()["research_case"]["agenda_reasons"]
-    )
+    assert workspace.json()["latest_snapshot"] is None
+    assert workspace.json()["history"] == []
 
 
 def test_research_agenda_is_derived_from_stored_case_state(client, db):
@@ -740,7 +733,7 @@ def test_existing_case_queues_idempotent_review_and_saves_next_snapshot(client, 
         ),
         "refresh_scope": "all",
         "required_verification": "verifier_strict",
-        "watchlist_policy": "do not add automatically",
+        "research_list_policy": "do not add automatically",
     }
     assert review.inputs["review"]["prior_research_snapshot_id"] == first["id"]
     assert review.inputs["review"]["prior_artifact_fingerprint"] == first["artifact_fingerprint"]
@@ -890,7 +883,6 @@ def test_human_profile_successor_is_immutable_and_frozen_into_same_source_review
     corrected = correction.json()
     assert corrected["version"] == 2
     assert corrected["provenance"] == "human-corrected"
-    assert corrected["author"] == "user"
     assert corrected["reason"] == "Potwierdzono z emitentem rolę wolumenu w wyniku."
     assert corrected["based_on_profile_id"] == original.id
     db.refresh(original)

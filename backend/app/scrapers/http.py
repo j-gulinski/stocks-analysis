@@ -97,7 +97,9 @@ def fetch(
     """
     host = urlparse(url).netloc
     sess = session or requests.Session()
-    sess.headers.setdefault("User-Agent", USER_AGENT)
+    current_user_agent = sess.headers.get("User-Agent", "")
+    if not current_user_agent or current_user_agent.startswith("python-requests/"):
+        sess.headers["User-Agent"] = USER_AGENT
 
     last_error: str = "unknown"
     for attempt in range(1, MAX_ATTEMPTS + 1):

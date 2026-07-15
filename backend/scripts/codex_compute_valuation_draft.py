@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.api.schemas import (
     ValuationDraftJudgment,
+    ValuationMethodology,
     ValuationScenarioAssumptions,
     ValuationSnapshotDraftIn,
 )
@@ -49,6 +50,7 @@ class ComputeDraftIn(BaseModel):
     agent_run_id: int = Field(ge=1)
     lease_owner: str = Field(min_length=1, max_length=200)
     assumptions: list[ValuationScenarioAssumptions] = Field(min_length=3, max_length=4)
+    methodology: ValuationMethodology
     codex_judgment: ValuationDraftJudgment | None = None
 
 
@@ -80,7 +82,9 @@ def main() -> int:
             "gaps": frozen.get("gaps") or [],
         }
         try:
-            computed = compute_scenarios(base, payload.assumptions)
+            computed = compute_scenarios(
+                base, payload.assumptions, payload.methodology
+            )
         except ValuationInputError as exc:
             raise ScriptError(str(exc)) from exc
         latest = db.scalar(
@@ -101,6 +105,7 @@ def main() -> int:
             "template_id": frozen["template_id"],
             "template_version": frozen["template_version"],
             "assumptions": [row.model_dump(mode="json") for row in payload.assumptions],
+            "methodology": payload.methodology.model_dump(mode="json"),
             "base_values": frozen["base_values"],
             "deterministic_outputs": computed["deterministic_outputs"],
             "input_manifest": frozen["input_manifest"],

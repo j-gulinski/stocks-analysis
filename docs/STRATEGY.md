@@ -52,6 +52,16 @@ is a new sieve version. Missing data is a visible coverage gap, never a
 synthetic negative — hard kills fire only on *present* bad facts, with the
 single exception of fundamentals that must exist (equity).
 
+Material discontinued results are normalized before the affected net-profit
+momentum and current C/Z components enter the cross-section. The immutable
+batch stores reported and continuing-operation values plus exact detailed fact
+and document lineage. An incomplete continuing bridge removes only that score
+component; it never converts missingness into a bad signal. A normalized current
+C/Z cannot trigger the own-history improvement test against raw historical C/Z.
+Retained BiznesRadar consensus is shown alongside Discover as the expectation
+baseline to challenge in Research and Valuation, never as another sieve or a
+score contribution.
+
 **Layer A — wykluczenia (any hit → out, reason stored):**
 
 | Rule | Kill condition (v1) |
@@ -124,24 +134,27 @@ from the company's own evidence:
    scenario (bad/base/good, optional mutually-exclusive event).
 2. Set assumption values per scenario bound to fact IDs (reported dynamics,
    backlog, contracts, margin history) or named judgment with rationale.
-3. Distinguish durable result from one-offs; model cash conversion and
-   capex explicitly.
-4. Choose the valuation bridge appropriate to the archetype (earnings
-   multiple vs own history band, sector marker where earnings are
-   meaningless); never re-rate above own-history evidence without a stated
-   mechanism.
-5. Assign probabilities from evidence weight (catalyst proximity, base-rate
-   of the driver materializing, management credibility facts) — with the
-   rationale written down. House defaults do not exist.
+3. Start with the retained analyst expectation curve—levels, growth, count and
+   range—and show the evidence-backed Workbench variance for every forecast
+   year. Distinguish durable result from one-offs; model cash conversion,
+   operating working capital and capex explicitly.
+4. Select one company-specific primary method and independent relative and
+   intrinsic cross-checks. Never average methods or use current-price-derived
+   forward multiples as target evidence; show DCF sensitivity, method
+   disagreement and reverse market-implied expectations.
+5. Build probabilities from conditional evidence/base-rate/judgment nodes and
+   let Python derive the scenario mix. House defaults and unexplained direct
+   percentages do not exist. If a calibrated or explicit judgmental tree cannot
+   be defended, show `uncalibrated` and omit the weighted value.
 6. State per scenario: catalyst, counter-driver, falsifier with a date.
 7. Net cash, backlog, and cash conversion function as margin-of-safety
    adjustments, stated explicitly.
 
 Structural gates (enforced in backend code, not by agent goodwill):
-probability sum ≈ 100, no seed/default equality, no cross-company
-near-duplicate assumption vectors, every probability has rationale text and
-every core assumption has fact bindings or an explicit judgment flag, math
-recomputation matches, drafter ≠ verifier.
+semantic source binding, price/share/market-cap identity, five-year method and
+reverse-DCF recomputation, unknown neutrality, conditional-tree derivation, no
+seed/default equality, no cross-company near-duplicate assumption vectors,
+every core assumption fact-bound or explicit judgment, and drafter ≠ verifier.
 
 ## The learning loop (V8)
 

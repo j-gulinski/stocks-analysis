@@ -135,6 +135,57 @@ function ClaimBasis({ claim }: { claim: ResearchClaim }) {
   );
 }
 
+function ValuationDecision({
+  ticker,
+  valuationStrip,
+}: {
+  ticker: string;
+  valuationStrip: ResearchCaseSummary["valuation_strip"];
+}) {
+  if (!valuationStrip) {
+    return (
+      <section className="snapshot-decision snapshot-valuation-empty" aria-labelledby="snapshot-decision">
+        <div>
+          <span className="snapshot-label">Decyzja / Valuation</span>
+          <h2 id="snapshot-decision">Brak bieżącej wyceny</h2>
+          <p>Research jest gotowy do przełożenia na scenariusze właściwe dla spółki.</p>
+        </div>
+        <Link className="btn accent" href={`/valuation/${ticker}`}>Przejdź do Valuation <IconArrowRight size={14} /></Link>
+      </section>
+    );
+  }
+
+  const hasWeightedValue = valuationStrip.weighted_value_pln != null;
+
+  return (
+    <section className="snapshot-decision" aria-labelledby="snapshot-decision">
+      <header><span className="snapshot-label">Decyzja / Valuation</span><h2 id="snapshot-decision">{hasWeightedValue ? "Scenariusze i wartość ważona" : "Scenariusze bez arbitralnych wag"}</h2></header>
+      <div className="snapshot-valuation-summary">
+        <div className="research-valuation-prices">
+          {Object.entries(valuationStrip.scenario_prices_pln).map(([kind, price]) => (
+            <span key={kind}>
+              {SCENARIO_LABELS[kind] ?? kind}
+              <strong>{fmtPln(price)}</strong>
+              {valuationStrip.scenario_probabilities_pct[kind] != null && <small>{fmtPct(valuationStrip.scenario_probabilities_pct[kind])}</small>}
+            </span>
+          ))}
+        </div>
+        <dl>
+          <div><dt>Wynik ważony</dt><dd>{hasWeightedValue ? fmtPln(valuationStrip.weighted_value_pln) : "Celowo niepublikowany"}</dd></div>
+          <div><dt>Kurs odniesienia</dt><dd>{fmtPln(valuationStrip.current_price_pln)}</dd></div>
+          <div><dt>Potencjał ważony</dt><dd className={valuationStrip.upside_pct != null && valuationStrip.upside_pct >= 0 ? "pos" : valuationStrip.upside_pct != null ? "neg" : ""}>{valuationStrip.upside_pct == null ? "Nie dotyczy" : fmtPct(valuationStrip.upside_pct, { signed: true })}</dd></div>
+        </dl>
+        <div className="snapshot-valuation-action">
+          <span className={`badge ${valuationStrip.verification_status === "verified" ? "success" : valuationStrip.verification_status === "rejected" ? "danger" : "warning"}`}>Wycena {valuationStrip.verification_status}</span>
+          {valuationStrip.catalyst && <small>Katalizator: {valuationStrip.catalyst}</small>}
+          <small>Stan na {fmtDate(valuationStrip.as_of)}</small>
+          <Link className="btn" href={`/valuation/${ticker}`}>Otwórz pełną wycenę <IconArrowRight size={14} /></Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function ResearchSnapshotView({
   ticker,
   companyName,
@@ -181,8 +232,8 @@ export default function ResearchSnapshotView({
   ]));
   const status = STATUS[snapshot.status];
   const sectionNumbers = outlook
-    ? { thesis: "06", valuation: "07", history: "08" }
-    : { thesis: "05", valuation: "06", history: "07" };
+    ? { thesis: "06", history: "07" }
+    : { thesis: "05", history: "06" };
 
   return (
     <article className="research-snapshot">
@@ -198,24 +249,7 @@ export default function ResearchSnapshotView({
         </div>
       </header>
 
-      <aside className="snapshot-profile" aria-label="Profil badawczy spółki">
-        <div>
-          <span className="snapshot-label">Profil</span>
-          <strong>{archetypePack?.label ?? ARCHETYPE_LABELS[profile.archetype]}</strong>
-          <small>
-            pakiet {archetypePack?.version ?? profile.archetype_version} · profil v{profile.version}
-            {archetypePack && ` · Zakres pakietu ${archetypePack.coverage_count}/${archetypePack.required_markers.length}`}
-          </small>
-        </div>
-        <div>
-          <span className="snapshot-label">Segmenty</span>
-          <strong>{profile.company_overlay.segments.join(" · ") || "Do ustalenia"}</strong>
-        </div>
-        <div>
-          <span className="snapshot-label">Konkurenci</span>
-          <strong>{profile.company_overlay.competitors.join(" · ") || "Do ustalenia"}</strong>
-        </div>
-      </aside>
+      <ValuationDecision ticker={ticker} valuationStrip={valuationStrip} />
 
       <section className="snapshot-section snapshot-brief" aria-labelledby="snapshot-brief">
         <header><span>01</span><h2 id="snapshot-brief">Brief</h2></header>
@@ -226,6 +260,30 @@ export default function ResearchSnapshotView({
         </div>
       </section>
 
+      <details className="snapshot-detail">
+        <summary>Profil badawczy spółki</summary>
+        <aside className="snapshot-profile" aria-label="Profil badawczy spółki">
+          <div>
+            <span className="snapshot-label">Profil</span>
+            <strong>{archetypePack?.label ?? ARCHETYPE_LABELS[profile.archetype]}</strong>
+            <small>
+              pakiet {archetypePack?.version ?? profile.archetype_version} · profil v{profile.version}
+              {archetypePack && ` · Zakres pakietu ${archetypePack.coverage_count}/${archetypePack.required_markers.length}`}
+            </small>
+          </div>
+          <div>
+            <span className="snapshot-label">Segmenty</span>
+            <strong>{profile.company_overlay.segments.join(" · ") || "Do ustalenia"}</strong>
+          </div>
+          <div>
+            <span className="snapshot-label">Konkurenci</span>
+            <strong>{profile.company_overlay.competitors.join(" · ") || "Do ustalenia"}</strong>
+          </div>
+        </aside>
+      </details>
+
+      <details className="snapshot-detail">
+        <summary>Biznes i czynniki wyniku</summary>
       <section className="snapshot-section" aria-labelledby="snapshot-business">
         <header><span>02</span><h2 id="snapshot-business">Biznes i czynniki wyniku</h2></header>
         <div className="snapshot-two-column">
@@ -243,7 +301,10 @@ export default function ResearchSnapshotView({
         </div>
         <ClaimList claims={sections.business_and_drivers.claims} />
       </section>
+      </details>
 
+      <details className="snapshot-detail">
+        <summary>Wyniki</summary>
       <section className="snapshot-section" aria-labelledby="snapshot-performance">
         <header><span>03</span><h2 id="snapshot-performance">Wyniki</h2></header>
         <p className="snapshot-lead">{sections.performance.summary}</p>
@@ -258,7 +319,10 @@ export default function ResearchSnapshotView({
         </div>
         <ClaimList claims={sections.performance.claims} />
       </section>
+      </details>
 
+      <details className="snapshot-detail snapshot-evidence-workspace">
+        <summary>Dowody i źródła</summary>
       <section className="snapshot-section" aria-labelledby="snapshot-evidence">
         <header><span>04</span><h2 id="snapshot-evidence">Dowody</h2></header>
         <p className="snapshot-lead">{sections.evidence.summary}</p>
@@ -281,9 +345,22 @@ export default function ResearchSnapshotView({
             </div>
           </div>
         )}
+        <section className="snapshot-source-workspace">
+          <h3>Źródła użyte w snapshotcie</h3>
+          {snapshot.source_manifest.length === 0 ? <EmptyLine>Snapshot nie zawiera manifestu źródeł.</EmptyLine> : snapshot.source_manifest.map((source) => (
+            <div className="snapshot-source-row" key={`${source.document_version_id}-${source.role}`}>
+              <span className="badge neutral">{source.role}</span>
+              <strong>Dokument v{source.document_version_id}</strong>
+              <p>{source.purpose}</p>
+            </div>
+          ))}
+        </section>
       </section>
+      </details>
 
       {outlook && (
+        <details className="snapshot-detail">
+          <summary>Perspektywa</summary>
         <section className="snapshot-section snapshot-outlook" aria-labelledby="snapshot-outlook">
           <header><span>05</span><h2 id="snapshot-outlook">Perspektywa</h2></header>
           <p className="snapshot-lead">{outlook.summary}</p>
@@ -350,8 +427,11 @@ export default function ResearchSnapshotView({
           </details>
           <ClaimList claims={outlook.claims} />
         </section>
+        </details>
       )}
 
+      <details className="snapshot-detail">
+        <summary>Teza</summary>
       <section className="snapshot-section" aria-labelledby="snapshot-thesis">
         <header><span>{sectionNumbers.thesis}</span><h2 id="snapshot-thesis">Teza</h2></header>
         <div className="snapshot-thesis-core">
@@ -370,40 +450,10 @@ export default function ResearchSnapshotView({
           <TextList items={checkItems} empty="Brak kolejnych kontroli." />
         </div>
       </section>
+      </details>
 
-      <section className="snapshot-section" aria-labelledby="snapshot-valuation">
-        <header><span>{sectionNumbers.valuation}</span><h2 id="snapshot-valuation">Valuation</h2></header>
-        {valuationStrip ? (
-          <div className="snapshot-valuation-summary">
-            <div className="research-valuation-prices">
-              {Object.entries(valuationStrip.scenario_prices_pln).map(([kind, price]) => (
-                <span key={kind}>
-                  {SCENARIO_LABELS[kind] ?? kind}
-                  <strong>{fmtPln(price)}</strong>
-                  {valuationStrip.scenario_probabilities_pct[kind] != null && <small>{fmtPct(valuationStrip.scenario_probabilities_pct[kind])}</small>}
-                </span>
-              ))}
-            </div>
-            <dl>
-              <div><dt>Wartość ważona</dt><dd>{fmtPln(valuationStrip.weighted_value_pln)}</dd></div>
-              <div><dt>Kurs odniesienia</dt><dd>{fmtPln(valuationStrip.current_price_pln)}</dd></div>
-              <div><dt>Potencjał</dt><dd className={valuationStrip.upside_pct != null && valuationStrip.upside_pct >= 0 ? "pos" : "neg"}>{fmtPct(valuationStrip.upside_pct, { signed: true })}</dd></div>
-            </dl>
-            {valuationStrip.catalyst && <p><span className="snapshot-label">Katalizator</span>{valuationStrip.catalyst}</p>}
-            <div className="snapshot-valuation-action">
-              <span className={`badge ${valuationStrip.verification_status === "verified" ? "success" : valuationStrip.verification_status === "rejected" ? "danger" : "warning"}`}>Wycena {valuationStrip.verification_status}</span>
-              <small>Stan na {fmtDate(valuationStrip.as_of)}</small>
-              <Link className="btn" href={`/valuation/${ticker}`}>Otwórz pełną wycenę <IconArrowRight size={14} /></Link>
-            </div>
-          </div>
-        ) : (
-          <div className="snapshot-valuation-empty">
-            <p>Brak bieżącej wyceny powiązanej z tym snapshotem Research.</p>
-            <Link className="btn accent" href={`/valuation/${ticker}`}>Uzupełnij założenia scenariuszy <IconArrowRight size={14} /></Link>
-          </div>
-        )}
-      </section>
-
+      <details className="snapshot-detail">
+        <summary>Historia</summary>
       <section className="snapshot-section" aria-labelledby="snapshot-history">
         <header><span>{sectionNumbers.history}</span><h2 id="snapshot-history">Historia</h2></header>
         <TextList items={sections.history.changes_since_previous} empty="To pierwszy zapisany snapshot — nie ma jeszcze zmian do porównania." />
@@ -415,6 +465,7 @@ export default function ResearchSnapshotView({
           })}
         </div>
       </section>
+      </details>
 
       <details className="snapshot-audit">
         <summary><IconDatabase size={15} /> Audyt źródeł i weryfikacji</summary>
@@ -489,9 +540,7 @@ export default function ResearchSnapshotView({
           <section>
             <h3>Wynik verifiera</h3>
             <p>{snapshot.verifier_result.summary}</p>
-            {snapshot.verifier_result.verification_standard === "legacy-incomplete" ? (
-              <div className="snapshot-verifier-warning"><IconAlertTriangle size={15} /><span>Ten historyczny zapis nie zawiera trzech adversarialnych uzasadnień V5. Dawne pola kontrolne nie są prezentowane jako dowód weryfikacji.</span></div>
-            ) : snapshot.verifier_result.justifications && (
+            {snapshot.verifier_result.justifications && (
               <dl className="snapshot-verifier-justifications">
                 {VERIFIER_JUSTIFICATIONS.map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{snapshot.verifier_result.justifications?.[key]}</dd></div>)}
               </dl>

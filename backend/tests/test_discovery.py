@@ -14,7 +14,11 @@ from app.db.models import (
     MarketFactorRow,
 )
 from app.scrapers.biznesradar import ParseError, parse_market_factor_page, parse_market_rating
-from app.services.discovery import MARKET_PAGE_SPECS
+from app.api.discovery import _expectation_payload
+from app.services.discovery import (
+    MARKET_PAGE_SPECS,
+    _derive_discontinued_score_normalizations,
+)
 from app.services.workbench_sieve import SCORE_COMPONENT_COUNT, evaluate_workbench_sieve
 from tests.conftest import FakeResponse, load_fixture
 
@@ -602,6 +606,128 @@ def test_potential_score_bounds_low_base_outliers_before_ranking():
     assert components["operating_margin"].ranking_value == 40.0
 
 
+def test_discontinued_result_normalization_recomputes_growth_and_trailing_pe():
+    def value(amount: float, fact_id: int) -> dict:
+        return {
+            "value": amount,
+            "fact_id": fact_id,
+            "source_version_id": 30,
+        }
+
+    row = SimpleNamespace(
+        cz=5.97,
+        net_income_dyn_rr_pct=1953.65,
+        extras={"source_periods": {"net_income": "2026Q2"}},
+    )
+    quarterly = {
+        "2025Q2": {
+            "IncomeNetProfit": value(14_431, 1),
+            "IncomeDiscontinuedProfit": value(-7_604, 2),
+        },
+        "2025Q3": {
+            "IncomeNetProfit": value(23_712, 3),
+            "IncomeDiscontinuedProfit": value(-6_829, 4),
+        },
+        "2025Q4": {
+            "IncomeNetProfit": value(31_656, 5),
+            "IncomeDiscontinuedProfit": value(-8_658, 6),
+        },
+        "2026Q1": {
+            "IncomeNetProfit": value(34_971, 7),
+            "IncomeDiscontinuedProfit": value(-8_100, 8),
+        },
+        "2026Q2": {
+            "IncomeNetProfit": value(296_362, 9),
+            "IncomeDiscontinuedProfit": value(256_562, 10),
+        },
+    }
+
+    result = _derive_discontinued_score_normalizations(
+        row,
+        quarterly_values=quarterly,
+        market_cap={
+            "value": 3_346_830_134,
+            "fact_id": 11,
+            "source_version_id": 29,
+        },
+    )
+    by_component = {item["component_id"]: item for item in result}
+
+    assert by_component["net_income_growth"]["reported_value"] == 1953.65
+    assert by_component["net_income_growth"]["normalized_value"] == pytest.approx(
+        80.6217
+    )
+    assert by_component["current_pe"]["reported_value"] == 5.97
+    assert by_component["current_pe"]["normalized_value"] == pytest.approx(21.7714)
+    assert by_component["current_pe"]["discontinued_share_pct"] == pytest.approx(
+        86.5705
+    )
+    assert by_component["current_pe"]["source_document_version_ids"] == [29, 30]
+    assert by_component["current_pe"]["source_fact_ids"] == list(range(3, 12))
+
+
+def test_sieve_uses_frozen_normalized_values_instead_of_one_off_market_values():
+    normalizations = [
+        {
+            "component_id": "net_income_growth",
+            "label": "Dynamika zysku działalności kontynuowanej r/r",
+            "reported_value": 1953.65,
+            "normalized_value": 80.6217,
+            "discontinued_share_pct": 86.5714,
+            "period": "2026Q2",
+            "reason": "Materialny wynik działalności zaniechanej.",
+            "source_fact_ids": [1, 2, 9, 10],
+            "source_document_version_ids": [30],
+        },
+        {
+            "component_id": "current_pe",
+            "label": "C/Z działalności kontynuowanej (niżej lepiej)",
+            "reported_value": 5.97,
+            "normalized_value": 21.7714,
+            "discontinued_share_pct": 86.5714,
+            "period": "2026Q2",
+            "reason": "Materialny wynik działalności zaniechanej.",
+            "source_fact_ids": list(range(3, 12)),
+            "source_document_version_ids": [29, 30],
+        },
+    ]
+    row = SimpleNamespace(
+        ticker="SNT",
+        name="Synektik",
+        report_period="2026Q2",
+        altman_value=8.0,
+        piotroski_f=7.0,
+        cz=5.97,
+        cz_delta_rr_pct=None,
+        op_margin_pct=20.0,
+        op_margin_delta_pp=4.0,
+        revenue_dyn_rr_pct=40.0,
+        net_income_dyn_rr_pct=1953.65,
+        net_debt_ebitda=1.0,
+        net_income_ttm_pln_thousands=None,
+        equity_pln_thousands=100.0,
+        turnover_present=None,
+        extras={
+            "source_periods": {
+                "revenue": "2026Q2",
+                "net_income": "2026Q2",
+                "operating_margin": "2026Q2",
+                "cz": "2026Q2",
+            },
+            "score_normalizations": normalizations,
+        },
+    )
+
+    candidate = evaluate_workbench_sieve([row]).candidates[0]
+    components = {component.id: component for component in candidate.score_components}
+
+    assert components["net_income_growth"].raw_value == pytest.approx(80.6217)
+    assert components["current_pe"].raw_value == pytest.approx(21.7714)
+    assert components["net_income_growth"].label.startswith("Dynamika zysku działalności")
+    assert candidate.score_normalizations[0].reported_value == 5.97
+    assert candidate.frozen_evidence()["score_normalizations"]
+
+
 def test_potential_score_uses_unrounded_percentiles_before_final_rounding():
     rows = [
         SimpleNamespace(
@@ -819,3 +945,52 @@ def test_stale_or_misaligned_periods_remain_visible_but_do_not_affect_score():
         for gap in by_ticker["STALEMISS"].factor_gaps
     )
     assert by_ticker["STALEMISS"].potential_score is None
+
+
+def test_discover_expectation_curve_exposes_growth_count_range_and_dispersion():
+    record = SimpleNamespace(
+        updated_at=None,
+        forecast_consensus={
+            "2026": {
+                "revenue": {
+                    "value": 923_600,
+                    "unit": "tys. PLN",
+                    "growth_pct": 35.5,
+                    "growth_base_period": "2025",
+                    "forecast_count": 6,
+                    "range_min": 903_800,
+                    "range_max": 960_500,
+                    "source_document_version_id": 36,
+                    "source_as_of": "2026-07-14T22:26:36+00:00",
+                },
+                "net_income": {
+                    "value": 158_300,
+                    "unit": "tys. PLN",
+                    "growth_pct": 53.84,
+                    "growth_base_period": "2025",
+                    "forecast_count": 6,
+                    "range_min": 152_000,
+                    "range_max": 168_300,
+                },
+            }
+        },
+    )
+
+    result = _expectation_payload(record)
+    revenue = next(
+        metric
+        for metric in result["periods"][0]["metrics"]
+        if metric["metric"] == "revenue"
+    )
+
+    assert result["status"] == "available"
+    assert revenue["growth_pct"] == 35.5
+    assert revenue["forecast_count"] == 6
+    assert revenue["dispersion_pct"] == 6.14
+    assert result["source_document_version_id"] == 36
+
+
+def test_missing_discover_consensus_is_neutral_coverage_gap():
+    result = _expectation_payload(None)
+    assert result["status"] == "unavailable"
+    assert "nie negatywna" in result["note"]

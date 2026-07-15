@@ -30,7 +30,6 @@ def test_research_lab_creates_one_idempotent_manual_case_and_initial_job(client,
         Company,
         ResearchCase,
         ResearchCaseStepHistory,
-        WatchlistItem,
     )
 
     first = client.post("/api/research-cases", json={"ticker": "dek"})
@@ -67,7 +66,6 @@ def test_research_lab_creates_one_idempotent_manual_case_and_initial_job(client,
     assert run.inputs["task"]["company_profile_schema_version"] == "company-profile-v2"
     assert run.inputs["task"]["archetype_contract_version"] == "archetype-packs-v1"
     assert run.inputs["task"]["required_verification"] == "verifier_strict"
-    assert db.scalar(select(func.count()).select_from(WatchlistItem)) == 0
 
     duplicate = client.post("/api/research-cases", json={"ticker": "DEK"})
     assert duplicate.status_code == 200

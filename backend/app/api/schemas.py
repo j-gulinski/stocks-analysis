@@ -13,26 +13,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-# ---------------------------------------------------------------- watchlist
-
-
-class WatchlistAddIn(BaseModel):
-    ticker: str = Field(min_length=1, max_length=12)
-    note: str | None = Field(default=None, max_length=500)
-
-
-class WatchlistItemOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    ticker: str
-    name: str | None
-    note: str | None
-    added_at: datetime
-    risk_level: str = "none"
-    fired_falsifiers: int = 0
-    warning_falsifiers: int = 0
-
-
 CaseState = Literal[
     "new",
     "ingesting",
@@ -176,9 +156,7 @@ class CompanyOverlay(StrictResearchModel):
 
 
 class CompanyProfileIn(StrictResearchModel):
-    schema_version: Literal["company-profile-v1", "company-profile-v2"] = (
-        "company-profile-v2"
-    )
+    schema_version: Literal["company-profile-v2"] = "company-profile-v2"
     version: int = Field(ge=1)
     archetype: ResearchArchetype
     archetype_version: str = Field(min_length=1, max_length=40)
@@ -204,7 +182,6 @@ class CompanyProfileOut(CompanyProfileIn):
     id: int
     research_case_id: int
     provenance: Literal["codex-proposed", "human-confirmed", "human-corrected"]
-    author: str
     reason: str | None
     based_on_profile_id: int | None
     created_at: datetime
@@ -469,43 +446,10 @@ class ResearchVerifierResult(StrictResearchModel):
         return self
 
 
-class ResearchVerifierResultOut(StrictResearchModel):
-    """Read projection that keeps legacy snapshots visible without upgrading them."""
+class ResearchVerifierResultOut(ResearchVerifierResult):
+    """Canonical V5 verifier evidence attached to a readable snapshot."""
 
-    model_role: Literal["verifier_strict"] = "verifier_strict"
-    verifier_model: str = Field(min_length=1, max_length=80)
-    verdict: Literal["pass", "fail", "needs-human"]
-    findings: list[ResearchVerifierFinding] = Field(default_factory=list, max_length=20)
-    justifications: ResearchVerifierJustifications | None = None
-    summary: str = Field(min_length=1, max_length=4000)
-    verification_standard: Literal["adversarial-v1", "legacy-incomplete"]
-
-    @model_validator(mode="before")
-    @classmethod
-    def project_legacy_verifier_result(cls, value):
-        if not isinstance(value, dict):
-            return value
-        projected = dict(value)
-        has_adversarial_justifications = isinstance(
-            projected.get("justifications"), dict
-        )
-        projected.pop("checks", None)
-        projected.setdefault("model_role", "verifier_strict")
-        projected.setdefault("verifier_model", "unknown-legacy-verifier")
-        projected.setdefault("verdict", "needs-human")
-        projected.setdefault("findings", [])
-        projected.setdefault(
-            "summary",
-            "Historyczny wynik verifiera nie zawiera pełnego uzasadnienia V5.",
-        )
-        projected["verification_standard"] = (
-            "adversarial-v1"
-            if has_adversarial_justifications
-            else "legacy-incomplete"
-        )
-        if not has_adversarial_justifications:
-            projected["justifications"] = None
-        return projected
+    verification_standard: Literal["adversarial-v1"] = "adversarial-v1"
 
 
 class ResearchSnapshotDraftIn(StrictResearchModel):
@@ -550,11 +494,7 @@ class ResearchSnapshotOut(BaseModel):
     agent_run_id: int
     verification_run_id: int
     version: int
-    contract_version: Literal[
-        "research-snapshot-v1",
-        "research-snapshot-v2",
-        "research-snapshot-v3",
-    ]
+    contract_version: Literal["research-snapshot-v3"]
     status: ResearchSnapshotStatus
     as_of: datetime
     input_fingerprint: str
@@ -616,7 +556,7 @@ class ResearchCaseWorkspaceOut(BaseModel):
     archetype_pack: ArchetypePackOut | None = None
 
 
-# --------------------------------------------------------------- valuation v1
+# -------------------------------------------------------------- valuation
 
 ValuationScenarioKind = Literal["negative", "base", "positive", "event"]
 ValuationStatus = Literal["provisional", "verified", "rejected", "needs-human"]
@@ -624,9 +564,15 @@ ValuationStatus = Literal["provisional", "verified", "rejected", "needs-human"]
 
 class ValuationAssumptionValue(StrictResearchModel):
     value: float
-    provenance: Literal["evidence", "human_assumption"]
+    basis: Literal[
+        "reported_fact",
+        "street_estimate",
+        "codex_judgment",
+        "human_override",
+    ]
     rationale: str = Field(min_length=1, max_length=1000)
     source_fact_ids: list[int] = Field(default_factory=list)
+    research_claim_paths: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_provenance(self):
@@ -634,56 +580,126 @@ class ValuationAssumptionValue(StrictResearchModel):
 
         if not isfinite(self.value):
             raise ValueError("assumption values must be finite")
-        if self.provenance == "evidence" and not self.source_fact_ids:
-            raise ValueError("evidence assumptions require source_fact_ids")
-        if self.provenance == "human_assumption" and self.source_fact_ids:
-            raise ValueError("human assumptions cannot claim source_fact_ids")
+        if self.basis in {"reported_fact", "street_estimate"} and not self.source_fact_ids:
+            raise ValueError("reported/street assumptions require source_fact_ids")
+        if self.basis == "human_override" and self.source_fact_ids:
+            raise ValueError("human overrides cannot claim source_fact_ids")
         return self
+
+
+class ValuationForecastYear(StrictResearchModel):
+    period: str = Field(pattern=r"^\d{4}$")
+    revenue_pln_thousands: ValuationAssumptionValue
+    ebitda_margin_pct: ValuationAssumptionValue
+    depreciation_pct_revenue: ValuationAssumptionValue
+    capex_pct_revenue: ValuationAssumptionValue
+    delta_nwc_pct_revenue: ValuationAssumptionValue
+    cash_tax_rate_pct: ValuationAssumptionValue
+    net_financial_result_pct_revenue: ValuationAssumptionValue
+    # DCF timing is explicit because a fiscal-year forecast may be partly elapsed
+    # at the valuation cutoff.  The first value scales annual FCFF to the
+    # remaining stub; the second is the year-end discount exponent from as_of.
+    fcff_period_fraction: ValuationAssumptionValue
+    fcff_discount_years: ValuationAssumptionValue
+
+    @model_validator(mode="after")
+    def validate_ranges(self):
+        if self.revenue_pln_thousands.value <= 0:
+            raise ValueError("forecast revenue must be positive")
+        if not -100 <= self.ebitda_margin_pct.value <= 100:
+            raise ValueError("EBITDA margin must be bounded to -100..100%")
+        if not 0 <= self.depreciation_pct_revenue.value <= 100:
+            raise ValueError("depreciation ratio must be 0..100%")
+        if not 0 <= self.capex_pct_revenue.value <= 100:
+            raise ValueError("capex ratio must be 0..100%")
+        if not -100 <= self.delta_nwc_pct_revenue.value <= 100:
+            raise ValueError("delta NWC ratio must be bounded to -100..100%")
+        if not 0 <= self.cash_tax_rate_pct.value <= 100:
+            raise ValueError("cash tax rate must be 0..100%")
+        if not -100 <= self.net_financial_result_pct_revenue.value <= 100:
+            raise ValueError("net financial result ratio must be bounded to -100..100%")
+        if not 0 < self.fcff_period_fraction.value <= 1:
+            raise ValueError("FCFF period fraction must be in (0, 1]")
+        if not 0 < self.fcff_discount_years.value <= 10:
+            raise ValueError("FCFF discount timing must be in (0, 10] years")
+        return self
+
+
+class ValuationEventImpact(StrictResearchModel):
+    period: str = Field(pattern=r"^\d{4}$")
+    recurring: Literal[False] = False
+    pnl_net_pln_thousands: ValuationAssumptionValue
+    cash_pln_thousands: ValuationAssumptionValue
 
 
 class ValuationScenarioAssumptions(StrictResearchModel):
     kind: ValuationScenarioKind
     label: str = Field(min_length=1, max_length=120)
-    quarter_revenue_growth_pct: ValuationAssumptionValue
-    year_revenue_growth_pct: ValuationAssumptionValue
-    gross_margin_pct: ValuationAssumptionValue
-    operating_cost_ratio_pct: ValuationAssumptionValue
-    financial_result_ratio_pct: ValuationAssumptionValue
-    tax_rate_pct: ValuationAssumptionValue
-    cash_conversion_pct: ValuationAssumptionValue
-    capex_spend_ratio_pct: ValuationAssumptionValue
-    target_pe: ValuationAssumptionValue
-    event_one_off_net_pln_thousands: ValuationAssumptionValue | None = None
+    forecast_years: list[ValuationForecastYear] = Field(min_length=5, max_length=5)
+    # Optional methods are still explicit inputs.  ``None`` means "method not
+    # available for this scenario"; omitting a field must never seed a hidden
+    # default (VISION V4).
+    target_pe: ValuationAssumptionValue | None
+    target_ev_ebitda: ValuationAssumptionValue | None
+    target_ev_ebit: ValuationAssumptionValue | None
+    wacc_pct: ValuationAssumptionValue | None
+    terminal_growth_pct: ValuationAssumptionValue | None
+    event_impact: ValuationEventImpact | None
 
     @model_validator(mode="after")
     def validate_ranges(self):
-        if (
-            self.quarter_revenue_growth_pct.value <= -100
-            or self.year_revenue_growth_pct.value <= -100
+        years = [int(row.period) for row in self.forecast_years]
+        if years != list(range(years[0], years[0] + 5)):
+            raise ValueError("forecast years must be five sequential fiscal periods")
+        fractions = [row.fcff_period_fraction.value for row in self.forecast_years]
+        if any(abs(value - 1.0) > 1e-6 for value in fractions[1:]):
+            raise ValueError("only the first DCF forecast period may be a stub")
+        timings = [row.fcff_discount_years.value for row in self.forecast_years]
+        if timings[0] > 1.25 or any(
+            not 0.75 <= later - earlier <= 1.25
+            for earlier, later in zip(timings, timings[1:])
         ):
-            raise ValueError("revenue growth must stay above -100%")
-        if not -200 <= self.gross_margin_pct.value <= 200:
-            raise ValueError("gross margin must be bounded to -200..200%")
-        if not -100 <= self.operating_cost_ratio_pct.value <= 300:
-            raise ValueError("operating cost ratio must be bounded to -100..300%")
-        if not -300 <= self.financial_result_ratio_pct.value <= 300:
-            raise ValueError("financial result ratio must be bounded to -300..300%")
-        if not 0 <= self.tax_rate_pct.value <= 100:
-            raise ValueError("tax rate must be 0..100%")
-        if not -500 <= self.cash_conversion_pct.value <= 500:
-            raise ValueError("cash conversion must be bounded to -500..500%")
-        if not 0 <= self.capex_spend_ratio_pct.value <= 100:
-            raise ValueError("capex spend ratio must be 0..100% positive magnitude")
-        if self.target_pe.value <= 0:
-            raise ValueError("target_pe must be positive")
-        if self.capex_spend_ratio_pct.value < 0:
-            raise ValueError("capex spend is a positive outlay ratio")
-        if self.kind != "event" and self.event_one_off_net_pln_thousands is not None:
-            raise ValueError("event one-off is allowed only in the event scenario")
-        if self.kind == "event" and self.event_one_off_net_pln_thousands is None:
             raise ValueError(
-                "event scenario requires an explicit net one-off assumption"
+                "DCF timings must start within 1.25 years and advance by about one year"
             )
+        for name in ("target_pe", "target_ev_ebitda", "target_ev_ebit", "wacc_pct"):
+            value = getattr(self, name)
+            if value is not None and value.value <= 0:
+                raise ValueError(f"{name} must be positive")
+        if self.wacc_pct and self.terminal_growth_pct:
+            if self.wacc_pct.value <= self.terminal_growth_pct.value:
+                raise ValueError("WACC must be above terminal growth")
+        if self.kind != "event" and self.event_impact is not None:
+            raise ValueError("event impact is allowed only in the event scenario")
+        if self.kind == "event" and self.event_impact is None:
+            raise ValueError("event scenario requires an explicit non-recurring impact")
+        return self
+
+
+ValuationMethod = Literal["pe", "ev_ebitda", "ev_ebit", "fcff_dcf"]
+
+
+class ValuationMethodology(StrictResearchModel):
+    primary_method: ValuationMethod
+    cross_checks: list[ValuationMethod] = Field(min_length=1, max_length=3)
+    valuation_period: str = Field(pattern=r"^\d{4}$")
+    rationale: str = Field(min_length=30, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_methods(self):
+        if self.primary_method in self.cross_checks:
+            raise ValueError("primary method cannot also be a cross-check")
+        if len(set(self.cross_checks)) != len(self.cross_checks):
+            raise ValueError("cross-check methods must be unique")
+        families = {
+            "pe": "relative",
+            "ev_ebitda": "relative",
+            "ev_ebit": "relative",
+            "fcff_dcf": "intrinsic",
+        }
+        selected = [self.primary_method, *self.cross_checks]
+        if len({families[item] for item in selected}) < 2:
+            raise ValueError("methodology requires relative and intrinsic method families")
         return self
 
 
@@ -692,6 +708,7 @@ class ValuationRequestIn(StrictResearchModel):
 
     research_snapshot_id: int = Field(ge=1)
     assumptions: list[ValuationScenarioAssumptions] = Field(min_length=3, max_length=4)
+    methodology: ValuationMethodology
     as_of: datetime
 
     @model_validator(mode="after")
@@ -712,17 +729,100 @@ class ValuationScenarioJudgment(StrictResearchModel):
     """Drafter-owned, company-specific scenario judgment (VISION V4)."""
 
     kind: ValuationScenarioKind
+    # Required even when unavailable: ``None`` is the explicit uncalibrated
+    # posture, while a number must reconcile to the probability tree.
+    probability_pct: float | None
     mechanism: str = Field(min_length=30, max_length=2000)
-    probability_pct: int = Field(ge=0, le=100)
-    probability_rationale: str = Field(min_length=30, max_length=1000)
     catalyst_or_counter_driver: str = Field(min_length=1, max_length=1000)
     falsifier: str = Field(min_length=1, max_length=1000)
     gaps: list[str] = Field(default_factory=list)
 
 
+class ValuationProbabilityNode(StrictResearchModel):
+    node_id: str = Field(min_length=1, max_length=80)
+    parent_id: str | None = Field(default=None, max_length=80)
+    condition: str = Field(min_length=10, max_length=1000)
+    conditional_probability_pct: float = Field(gt=0, lt=100)
+    basis: Literal[
+        "empirical_frequency",
+        "forecast_distribution",
+        "company_history",
+        "judgment",
+    ]
+    numerator: int | None = Field(default=None, ge=0)
+    denominator: int | None = Field(default=None, gt=0)
+    source_fact_ids: list[int] = Field(default_factory=list)
+    research_claim_paths: list[str] = Field(default_factory=list)
+    rationale: str = Field(min_length=30, max_length=1000)
+    scenario_kind: ValuationScenarioKind | None = None
+
+    @model_validator(mode="after")
+    def validate_empirical_basis(self):
+        if self.basis == "empirical_frequency":
+            if self.numerator is None or self.denominator is None:
+                raise ValueError("empirical probability requires numerator/denominator")
+            expected = self.numerator / self.denominator * 100.0
+            if abs(expected - self.conditional_probability_pct) > 0.05:
+                raise ValueError("empirical probability does not reconcile to its sample")
+        return self
+
+
+class ValuationReliabilityBin(StrictResearchModel):
+    lower_probability_pct: float = Field(ge=0, le=100)
+    upper_probability_pct: float = Field(ge=0, le=100)
+    sample_count: int = Field(ge=1)
+    predicted_mean_pct: float = Field(ge=0, le=100)
+    observed_frequency_pct: float = Field(ge=0, le=100)
+
+    @model_validator(mode="after")
+    def validate_bin(self):
+        if self.lower_probability_pct >= self.upper_probability_pct:
+            raise ValueError("reliability-bin lower bound must be below upper bound")
+        if not self.lower_probability_pct <= self.predicted_mean_pct <= self.upper_probability_pct:
+            raise ValueError("predicted mean must fall inside its reliability bin")
+        return self
+
+
+class ValuationProbabilityModel(StrictResearchModel):
+    posture: Literal[
+        "uncalibrated",
+        "judgmental_unvalidated",
+        "empirical_calibrated",
+    ]
+    nodes: list[ValuationProbabilityNode] = Field(default_factory=list)
+    dataset_fingerprint: str | None = Field(default=None, min_length=64, max_length=64)
+    brier_score: float | None = Field(default=None, ge=0)
+    calibration_engine_version: Literal["probability-calibration-v1"] | None = None
+    calibration_cutoff: datetime | None = None
+    sample_size: int | None = Field(default=None, ge=30)
+    reliability_bins: list[ValuationReliabilityBin] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_posture(self):
+        if self.posture == "uncalibrated" and self.nodes:
+            raise ValueError("uncalibrated probability model cannot publish percentages")
+        if self.posture != "uncalibrated" and not self.nodes:
+            raise ValueError("probability posture requires an auditable tree")
+        if self.posture == "empirical_calibrated" and (
+            not self.dataset_fingerprint
+            or self.brier_score is None
+            or self.calibration_engine_version is None
+            or self.calibration_cutoff is None
+            or self.sample_size is None
+            or not self.reliability_bins
+        ):
+            raise ValueError(
+                "calibrated posture requires dataset fingerprint, engine, cutoff, sample, Brier score and reliability bins"
+            )
+        if self.calibration_cutoff is not None and self.calibration_cutoff.tzinfo is None:
+            raise ValueError("calibration cutoff must include timezone")
+        return self
+
+
 class ValuationDraftJudgment(StrictResearchModel):
     strategy_read: str = Field(min_length=1, max_length=4000)
     scenarios: list[ValuationScenarioJudgment] = Field(min_length=3, max_length=4)
+    probability_model: ValuationProbabilityModel
     catalysts: list[str] = Field(default_factory=list)
     falsifiers: list[str] = Field(default_factory=list)
 
@@ -731,17 +831,23 @@ class ValuationDraftJudgment(StrictResearchModel):
         kinds = [row.kind for row in self.scenarios]
         if len(kinds) != len(set(kinds)):
             raise ValueError("judgment scenario kinds must be unique")
-        total = sum(row.probability_pct for row in self.scenarios)
-        if not 99 <= total <= 101:
-            raise ValueError("scenario probabilities must sum to 100")
+        probabilities = [row.probability_pct for row in self.scenarios]
+        if self.probability_model.posture == "uncalibrated":
+            if any(value is not None for value in probabilities):
+                raise ValueError("uncalibrated posture cannot publish scenario percentages")
+        else:
+            if any(value is None for value in probabilities):
+                raise ValueError("auditable probability trees require scenario percentages")
+            if abs(sum(value for value in probabilities if value is not None) - 100.0) > 0.05:
+                raise ValueError("scenario probabilities must sum to 100%")
         return self
 
 
 class ValuationSnapshotDraftIn(StrictResearchModel):
     contract_version: Literal["valuation-snapshot-v2"] = "valuation-snapshot-v2"
-    engine_version: Literal["valuation-engine-v2"] = "valuation-engine-v2"
-    template_contract_version: Literal["valuation-templates-v1"] = (
-        "valuation-templates-v1"
+    engine_version: Literal["valuation-engine-v3"] = "valuation-engine-v3"
+    template_contract_version: Literal["valuation-templates-v2"] = (
+        "valuation-templates-v2"
     )
     agent_run_id: int = Field(ge=1)
     lease_owner: str = Field(min_length=1, max_length=200)
@@ -751,6 +857,7 @@ class ValuationSnapshotDraftIn(StrictResearchModel):
     template_id: str
     template_version: str
     assumptions: list[ValuationScenarioAssumptions]
+    methodology: ValuationMethodology
     base_values: dict
     deterministic_outputs: dict
     input_manifest: dict
@@ -842,7 +949,7 @@ class ValuationSnapshotOut(BaseModel):
     agent_run_id: int | None
     verification_run_id: int | None
     version: int
-    contract_version: str
+    contract_version: Literal["valuation-snapshot-v2"]
     status: ValuationStatus
     origin: Literal["codex", "human-override"]
     as_of: datetime
@@ -937,7 +1044,7 @@ class PortfolioReviewDraftIn(StrictResearchModel):
     sections: PortfolioReviewSections
     requested_model_role: Literal["worker_standard"] = "worker_standard"
     requested_model: str = Field(min_length=1, max_length=80)
-    reasoning_effort: Literal["high"] = "high"
+    reasoning_effort: Literal["medium"] = "medium"
     actual_host_model: str = Field(min_length=1, max_length=160)
     substitution_or_escalation: str | None = Field(default=None, max_length=1000)
 
@@ -1125,6 +1232,46 @@ class DiscoveryScoreComponentOut(BaseModel):
     weight: float = Field(gt=0.0, le=1.0)
 
 
+class DiscoveryExpectationMetricOut(BaseModel):
+    metric: Literal["revenue", "ebitda", "operating_profit", "net_income"]
+    label: str
+    value: float
+    unit: str
+    growth_pct: float | None = None
+    growth_base_period: str | None = None
+    forecast_count: int | None = Field(default=None, ge=1)
+    range_min: float | None = None
+    range_max: float | None = None
+    dispersion_pct: float | None = Field(default=None, ge=0)
+
+
+class DiscoveryExpectationPeriodOut(BaseModel):
+    period: str
+    period_kind: Literal["fiscal_year"] = "fiscal_year"
+    metrics: list[DiscoveryExpectationMetricOut]
+
+
+class DiscoveryAnalystExpectationsOut(BaseModel):
+    provider: Literal["biznesradar"] = "biznesradar"
+    status: Literal["available", "unavailable"]
+    periods: list[DiscoveryExpectationPeriodOut] = Field(default_factory=list)
+    source_document_version_id: int | None = None
+    source_as_of: datetime | None = None
+    note: str
+
+
+class DiscoveryScoreNormalizationOut(BaseModel):
+    component_id: Literal["net_income_growth", "current_pe"]
+    label: str
+    reported_value: float | None = None
+    normalized_value: float | None = None
+    discontinued_share_pct: float = Field(ge=0.0)
+    period: str
+    reason: str
+    source_fact_ids: list[int] = Field(default_factory=list)
+    source_document_version_ids: list[int] = Field(default_factory=list)
+
+
 class DiscoveryCandidateOut(BaseModel):
     ticker: str
     name: str | None
@@ -1135,6 +1282,10 @@ class DiscoveryCandidateOut(BaseModel):
     improvement_signals: list[str]
     potential_score: float | None = Field(default=None, ge=0.0, le=100.0)
     score_components: list[DiscoveryScoreComponentOut] = Field(default_factory=list)
+    score_normalizations: list[DiscoveryScoreNormalizationOut] = Field(
+        default_factory=list
+    )
+    analyst_expectations: DiscoveryAnalystExpectationsOut
 
 
 class DiscoveryExcludedOut(BaseModel):
@@ -1143,6 +1294,9 @@ class DiscoveryExcludedOut(BaseModel):
     kill_reasons: list[str] = Field(min_length=1)
     factors: list[DiscoveryFactorOut]
     factor_gaps: list[str]
+    score_normalizations: list[DiscoveryScoreNormalizationOut] = Field(
+        default_factory=list
+    )
 
 
 class DiscoverySieveFactorCoverageOut(BaseModel):
@@ -1270,49 +1424,6 @@ class PriceOut(BaseModel):
     basis_version: str | None
     adjustment_status: str
     scraped_at: datetime | None
-
-
-# -------------------------------------------------------------------- forum
-
-
-class TopicLinkIn(BaseModel):
-    url: str = Field(max_length=500)
-    ticker: str = Field(min_length=1, max_length=12)
-
-
-class ForumTopicOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    url: str
-    title: str | None
-    last_post_at: datetime | None
-    last_synced_at: datetime | None
-
-
-class ForumSyncOut(BaseModel):
-    topic_id: int
-    new_posts: int
-    total_posts: int
-
-
-class ForumPostOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    phpbb_post_id: int
-    author: str
-    posted_at: datetime | None
-    upvotes: int | None
-
-
-class ForumPageOut(BaseModel):
-    total: int
-    page: int
-    page_size: int
-    posts: list[ForumPostOut]
-
-
-# ------------------------------------------------------------------ dossier
 
 
 class CheckOut(BaseModel):
@@ -1690,36 +1801,6 @@ class ValuationOut(BaseModel):
     ai_notes: dict | None = None
 
 
-# ----------------------------------------------------------------- analyses
-
-
-class AnalysisOut(BaseModel):
-    """One persisted AI analysis run (services/claude_client.py, Phase 5).
-    `output` is the verdict object (PLAN §8 schema) kept as a permissive dict —
-    it is rendered by the frontend, not re-validated field-by-field here."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    created_at: datetime
-    completed_at: datetime | None
-    as_of: datetime | None
-    provider: str | None
-    model: str
-    purpose: str
-    status: str
-    skill_version: str | None
-    skill_hash: str | None
-    validation: dict | None
-    latency_ms: int | None
-    alignment_score: int | None
-    input_tokens: int | None
-    output_tokens: int | None
-    input_hash: str | None = None
-    created_by: str | None
-    output: dict | None
-
-
 class AgentRunOut(BaseModel):
     """One Codex workflow run, regardless of whether it produced analysis."""
 
@@ -1765,22 +1846,6 @@ class ResearchReviewQueueOut(BaseModel):
     profile_id: int
     profile_version: int
     profile_fingerprint: str
-
-
-class MonitorChangeOut(BaseModel):
-    id: int
-    from_snapshot_id: int
-    to_snapshot_id: int
-    changes: list[dict]
-    created_at: datetime
-
-
-class MonitorCheckOut(BaseModel):
-    baseline_exists: bool
-    changed: bool
-    snapshot_id: int
-    snapshot_hash: str
-    change: MonitorChangeOut | None
 
 
 class FalsifierOut(BaseModel):

@@ -15,16 +15,17 @@ calls a model. Only the commands below may mutate durable state.
 | Check the app | `./workbench doctor` then `./workbench status` | Read-only health report |
 | Start or stop | `./workbench start` / `./workbench stop` | Local services only |
 | Refresh Discover evidence | `POST /api/discovery/refresh` | One immutable all-page market-factor batch; no Research job |
-| Inspect Discover | `GET /api/discovery` | One `workbench_sieve_v1` state with full survivor count, at most 100 potential-scored rows, exclusions and gaps |
+| Inspect Discover | `GET /api/discovery` | One `workbench_sieve_v1` state plus any retained BiznesRadar expectation curves (levels, growth, count and range), at most 100 survivors, exclusions and gaps |
 | Add a company | `POST /api/research-cases` with ticker, or `ticker` + typed frozen Discover `batch_id`/sieve version | One company, one active case, at most one initial Research job; Discover origin is server-recomputed and frozen |
 | Inspect Research | `GET /api/research-cases` / `GET /api/research-cases/by-ticker/{ticker}` | Stored-state agenda plus phase-aware rows, or one canonical Research → Valuation → History workspace |
 | Refresh company evidence | `POST /api/companies/{ticker}/refresh?scope=all` | Bounded stored evidence refresh; no snapshot or model result |
+| Authorize one blocked official PDF | `codex_ingest_issuer_ir_report.py --authorize-direct-official-url --ticker ... --url ... --title ... --authorization-reason ...` | One immutable exact-URL authorization claim, followed by the unchanged bounded PDF fetch; registered HTTPS issuer host and `.pdf` only |
 | Confirm/correct profile | `POST /api/research-cases/{id}/profiles` | Next immutable human-confirmed/corrected profile |
 | Queue Research review | `POST /api/research-cases/{id}/review-runs` | One content-idempotent review job |
 | Verify/save Research | Canonical `verify_research_snapshot` then `save_research_snapshot` adapters | One verifier-gated immutable v3 snapshot; terminal job |
-| Open valuation | `GET /api/research-cases/{id}/valuation-workspace` | Read-only template and immutable valuation history |
-| Preview human assumptions | `POST /api/research-cases/{id}/valuation-preview` | Zero-write deterministic comparison |
-| Queue Codex valuation | `POST /api/research-cases/{id}/valuation-runs` | Valuation artifact frozen to Research/base inputs; Codex drafts assumptions/probabilities |
+| Open valuation | `GET /api/research-cases/{id}/valuation-workspace` | Read-only Street bridge, five-period paths, independent method anchors, DCF sensitivity, reverse expectations and immutable valuation audit |
+| Preview explicit advanced assumptions | `POST /api/research-cases/{id}/valuation-preview` | Zero-write five-year, multi-method deterministic comparison; API only |
+| Queue Codex valuation | `POST /api/research-cases/{id}/valuation-runs` | Valuation frozen to Research/Street inputs; Codex challenges/confirms the baseline and drafts methodology plus conditional probability evidence |
 | Verify/save valuation | Canonical valuation verify then save adapters | Structurally gated immutable valuation; terminal job |
 | Open Portfolio | `GET /api/portfolios/workspace` | Zero-write stored holdings, mappings, analytics and review history |
 | Synchronize myfund | `POST /api/portfolios/sync/myfund` | Durable attempt and reused or next immutable snapshot |
@@ -41,17 +42,42 @@ calls a model. Only the commands below may mutate durable state.
   this manifest, so A6/B5/A7 remain named coverage gaps and B4 starts after an
   earlier positive C/Z batch is at least 30 days old. The one potential score
   uses only mutually aligned, recent factor periods; stale survivors remain
-  visible but unscored.
+  visible but unscored. Analyst expectations are shown for companies whose
+  `/prognozy` evidence has been explicitly retained by a company refresh;
+  absent consensus is a visible collection gap and never lowers rank.
+  When a detailed report explicitly shows a material discontinued result,
+  batch v6 uses source-bound continuing-operation net-profit growth and
+  trailing C/Z. If the quarterly bridge is incomplete the affected score
+  component is unavailable, not pessimistically imputed; raw and normalized
+  values plus fact/document IDs remain visible. Normalized current C/Z is not
+  compared with raw C/Z history.
 - Company refresh and Research collection may retain forum material only as a
   labelled lead. Conclusions require permitted primary or normalized evidence.
-- Research writes only `company-research-v3` / `research-snapshot-v3`.
-  Historical snapshots remain readable; a verifier payload without the three
-  adversarial V5 justifications is labelled `legacy-incomplete`, and its old
-  boolean checks are not surfaced as verification evidence. There is no legacy
-  write path.
-- Valuation queueing freezes the Research/base boundary. Scenario mechanisms,
-  assumptions and probability rationales belong to the company-specific Codex
-  draft; there are no default grids or probabilities.
+- If an issuer index is temporarily blocked, an explicitly authorized exact
+  official PDF URL may be frozen as discovery evidence. It does not count as
+  report content: a Research claim still requires the bounded PDF fetch and
+  parsed page locators. A 403 stops retries and leaves the primary channel
+  unavailable.
+- Research reads and writes only `company-research-v3` /
+  `research-snapshot-v3`. The clean-baseline reset deletes older snapshots,
+  verifier shapes and compatibility adapters; they are not presented as
+  readable history.
+- Valuation queueing freezes the Research/base boundary including BiznesRadar
+  fiscal-year levels, growth, forecast counts and ranges. The draft must expose
+  a five-year variance bridge, recurring/non-recurring split, P/E/EV/DCF
+  methods, reverse expectations, explicit first-period stub timing, DCF
+  sensitivity and conditional probability posture. The UI displays method
+  anchors and makes the five-period path inspectable without leading on audit
+  metadata. There are no default grids, direct unexplained percentages or
+  current-price-derived target multiples. Missing data affects coverage only;
+  an uncalibrated posture publishes neither scenario percentages nor a weighted
+  value.
+- Queue policy freezes an exact public Codex model and reasoning effort from
+  the Architecture routing table. Requested and actual host identity remain
+  separate; an unavailable host identity is never presented as a match.
+- After any implementation changes one of these actions or its visible result,
+  run `../verify-workbench-vision/SKILL.md` in the live in-app browser before
+  marking the Roadmap gate accepted.
 - Portfolio reconciliation mismatches warn and identify affected figures. They
   never hide the whole dashboard. Operations import, auto-coverage and outcome
   scoring remain open Roadmap gates until their deterministic paths are green.
@@ -60,6 +86,8 @@ calls a model. Only the commands below may mutate durable state.
 
 1. `./workbench start` starts services and migrations only. It does not fetch,
    enqueue, or claim analysis work.
+   The destructive clean-baseline reset is a one-time Roadmap gate performed
+   only after canonical code is finished; normal startup never drops data.
 2. Add/reactivate Research through `/api/research-cases`; repeated content
    reuses the case and eligible job while preserving snapshots/history.
 3. New Research review jobs require a human-confirmed/corrected profile with a
@@ -69,9 +97,11 @@ calls a model. Only the commands below may mutate durable state.
    regulatory-primary, BiznesRadar, PortalAnaliz, and other-web attempt; every
    driver gets next-quarter and 12-month Outlook assessments and every frozen
    company question is resolved or retained as a named gap.
-5. Valuation structural gates recompute math, validate probability structure,
-   rationale/provenance, scenario completeness, company-specific vector
-   distance, lineage, and drafter/verifier separation before judgment review.
+5. Valuation structural gates recompute method math and conditional
+   probabilities, validate source semantics (including the ban on BR forward
+   trading P/E as a target), unknown neutrality, method reconciliation,
+   scenario completeness, company-specific vector distance, lineage, and
+   drafter/verifier separation before judgment review.
 6. Portfolio sync stores unknown instruments and reconciliation differences.
    Auto-produced coverage jobs must be idempotent, logged, and prioritized by
    position weight × staleness when S4 enables that producer.

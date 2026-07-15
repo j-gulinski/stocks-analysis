@@ -1,4 +1,4 @@
-"""CX.6 GPW ESPI/EBI parser and watchlist ingestion tests."""
+"""GPW ESPI/EBI parser and canonical Research ingestion tests."""
 from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -7,15 +7,15 @@ import pytest
 from tests.conftest import load_fixture
 
 
-def _watched_kruk(db, *, added_at=None):
-    from app.db.models import Company, WatchlistItem
+def _researched_kruk(db, *, created_at=None):
+    from app.db.models import Company, ResearchCase
 
     kruk = Company(ticker="KRU", name="KRUK")
     db.add(kruk)
     db.commit()
-    item = WatchlistItem(company_id=kruk.id)
-    if added_at is not None:
-        item.added_at = added_at
+    item = ResearchCase(company_id=kruk.id)
+    if created_at is not None:
+        item.created_at = created_at
     db.add(item)
     db.commit()
     return kruk
@@ -260,15 +260,15 @@ def test_parse_gpw_espi_detail_accepts_credible_english_labels():
     assert detail.parsed["subject"] == "Current report about portfolio investments"
 
 
-def test_poll_watchlist_reports_upserts_matching_company(db, monkeypatch):
-    from app.db.models import Company, DocumentVersion, Event, EventReport, WatchlistItem
+def test_poll_research_reports_upserts_matching_company(db, monkeypatch):
+    from app.db.models import Company, DocumentVersion, Event, EventReport, ResearchCase
     from app.scrapers import espi
 
     kruk = Company(ticker="KRU", name="KRUK")
     eurotel = Company(ticker="ETL", name="EUROTEL")
     db.add_all([kruk, eurotel])
     db.commit()
-    db.add(WatchlistItem(company_id=kruk.id))
+    db.add(ResearchCase(company_id=kruk.id))
     db.commit()
 
     summaries = espi.parse_report_list(load_fixture("gpw_espi_list.html"))
@@ -284,7 +284,7 @@ def test_poll_watchlist_reports_upserts_matching_company(db, monkeypatch):
     )
     monkeypatch.setattr(espi, "fetch_report_detail", lambda _url: detail)
 
-    result = espi.poll_watchlist_reports(db)
+    result = espi.poll_research_reports(db)
     assert result["ok"] is True
     assert result["complete"] is True
     assert result["pages_fetched"] == 1
@@ -306,7 +306,7 @@ def test_poll_watchlist_reports_upserts_matching_company(db, monkeypatch):
     assert event.verification_state == "unverified"
     assert event.claims[1]["locator"] == {"section": "report-data", "field": "subject"}
 
-    second = espi.poll_watchlist_reports(db)
+    second = espi.poll_research_reports(db)
     assert second["matched"] == 1
     assert second["new"] == 0
     assert second["complete"] is True
@@ -315,7 +315,7 @@ def test_poll_watchlist_reports_upserts_matching_company(db, monkeypatch):
     assert db.query(Event).count() == 1
 
 
-def test_poll_watchlist_reports_can_scope_to_ticker(db, monkeypatch):
+def test_poll_research_reports_can_scope_to_ticker(db, monkeypatch):
     from app.db.models import Company, EventReport
     from app.scrapers import espi
 
@@ -338,7 +338,7 @@ def test_poll_watchlist_reports_can_scope_to_ticker(db, monkeypatch):
         lambda _url: espi.parse_report_detail(load_fixture("gpw_espi_detail.html")),
     )
 
-    result = espi.poll_watchlist_reports(db, ticker="KRU")
+    result = espi.poll_research_reports(db, ticker="KRU")
 
     assert result["matched"] == 1
     assert db.query(EventReport).count() == 1
@@ -353,7 +353,7 @@ def test_poll_unknown_ticker_fails_without_fetch_or_state(db, monkeypatch):
 
     monkeypatch.setattr(espi, "fetch_report_list_page", fail_fetch)
 
-    result = espi.poll_watchlist_reports(db, ticker="NOPE")
+    result = espi.poll_research_reports(db, ticker="NOPE")
 
     assert result["ok"] is False
     assert result["complete"] is False
@@ -362,7 +362,7 @@ def test_poll_unknown_ticker_fails_without_fetch_or_state(db, monkeypatch):
     assert db.query(ListPollState).count() == 0
 
 
-def test_global_empty_watchlist_fails_without_fetch_or_state(db, monkeypatch):
+def test_global_empty_research_fails_without_fetch_or_state(db, monkeypatch):
     from app.db.models import Company, ListPollState
     from app.scrapers import espi
 
@@ -370,15 +370,15 @@ def test_global_empty_watchlist_fails_without_fetch_or_state(db, monkeypatch):
     db.commit()
 
     def fail_fetch(**_kwargs):
-        raise AssertionError("empty watchlist must not fetch")
+        raise AssertionError("empty Research set must not fetch")
 
     monkeypatch.setattr(espi, "fetch_report_list_page", fail_fetch)
 
-    result = espi.poll_watchlist_reports(db)
+    result = espi.poll_research_reports(db)
 
     assert result["ok"] is False
     assert result["complete"] is False
-    assert result["incomplete_reason"] == "empty_watchlist"
+    assert result["incomplete_reason"] == "empty_research"
     assert result["pages_fetched"] == 0
     assert db.query(ListPollState).count() == 0
 
@@ -388,7 +388,7 @@ def test_first_run_bootstrap_walks_to_pager_end_and_records_stable_cutoff(db, mo
     from app.scrapers import espi
 
     bootstrap_target = datetime(2026, 7, 10, 6, 30, tzinfo=timezone.utc)
-    _watched_kruk(db, added_at=bootstrap_target)
+    _researched_kruk(db, created_at=bootstrap_target)
     p1 = _page(
         [_summary("1", datetime(2026, 7, 10, 10, 0, tzinfo=espi.WARSAW_TZ))],
         next_offset=15,
@@ -397,7 +397,7 @@ def test_first_run_bootstrap_walks_to_pager_end_and_records_stable_cutoff(db, mo
     calls = _patch_pages(monkeypatch, [p1, p2])
     monkeypatch.setattr(espi, "fetch_report_detail", lambda url: _detail(url))
 
-    result = espi.poll_watchlist_reports(db)
+    result = espi.poll_research_reports(db)
 
     assert result["complete"] is True
     assert result["previous_watermark"] is None
@@ -421,7 +421,7 @@ def test_poll_walks_multiple_pages_until_inclusive_boundary_page(db, monkeypatch
     from app.db.models import EventReport, ListPollState
     from app.scrapers import espi
 
-    _watched_kruk(db)
+    _researched_kruk(db)
     watermark = datetime(2026, 7, 10, 11, 0, tzinfo=timezone.utc)
     _set_watermark(db, watermark)
     calls = _patch_pages(
@@ -446,7 +446,7 @@ def test_poll_walks_multiple_pages_until_inclusive_boundary_page(db, monkeypatch
     )
     monkeypatch.setattr(espi, "fetch_report_detail", lambda url: _detail(url))
 
-    result = espi.poll_watchlist_reports(db)
+    result = espi.poll_research_reports(db)
 
     assert result["complete"] is True
     assert result["boundary_reached"] is True
@@ -472,7 +472,7 @@ def test_poll_dedupes_duplicate_ids_and_equal_timestamp_boundary(db, monkeypatch
     from app.db.models import EventReport
     from app.scrapers import espi
 
-    _watched_kruk(db)
+    _researched_kruk(db)
     watermark = datetime(2026, 7, 10, 11, 0, tzinfo=timezone.utc)
     _set_watermark(db, watermark)
     _patch_pages(
@@ -493,7 +493,7 @@ def test_poll_dedupes_duplicate_ids_and_equal_timestamp_boundary(db, monkeypatch
     )
     monkeypatch.setattr(espi, "fetch_report_detail", lambda url: _detail(url))
 
-    result = espi.poll_watchlist_reports(db)
+    result = espi.poll_research_reports(db)
 
     assert result["complete"] is True
     assert result["boundary_reached"] is True
@@ -511,7 +511,7 @@ def test_poll_rejects_non_descending_timestamps_within_page(db, monkeypatch):
     from app.db.models import EventReport, ListPollState
     from app.scrapers import espi
 
-    _watched_kruk(db)
+    _researched_kruk(db)
     watermark = datetime(2026, 7, 9, 11, 0, tzinfo=timezone.utc)
     _set_watermark(db, watermark)
     _patch_pages(
@@ -531,7 +531,7 @@ def test_poll_rejects_non_descending_timestamps_within_page(db, monkeypatch):
         lambda _url: (_ for _ in ()).throw(AssertionError("must fail before details")),
     )
 
-    result = espi.poll_watchlist_reports(db)
+    result = espi.poll_research_reports(db)
 
     assert result["ok"] is False
     assert result["complete"] is False
@@ -545,7 +545,7 @@ def test_poll_rejects_non_descending_timestamps_across_pages(db, monkeypatch):
     from app.db.models import EventReport, ListPollState
     from app.scrapers import espi
 
-    _watched_kruk(db)
+    _researched_kruk(db)
     watermark = datetime(2026, 7, 9, 11, 0, tzinfo=timezone.utc)
     _set_watermark(db, watermark)
     _patch_pages(
@@ -557,7 +557,7 @@ def test_poll_rejects_non_descending_timestamps_across_pages(db, monkeypatch):
     )
     monkeypatch.setattr(espi, "fetch_report_detail", lambda url: _detail(url))
 
-    result = espi.poll_watchlist_reports(db)
+    result = espi.poll_research_reports(db)
 
     assert result["ok"] is False
     assert result["complete"] is False
@@ -573,7 +573,7 @@ def test_existing_watermark_cap_resumes_cursor_and_advances_once(db, monkeypatch
     from app.db.models import EventReport, ListPollState
     from app.scrapers import espi
 
-    _watched_kruk(db)
+    _researched_kruk(db)
     watermark = datetime(2026, 7, 9, 11, 0, tzinfo=timezone.utc)
     _set_watermark(db, watermark)
     monkeypatch.setattr(espi, "GPW_REPORTS_HARD_PAGE_CAP", 1)
@@ -585,7 +585,7 @@ def test_existing_watermark_cap_resumes_cursor_and_advances_once(db, monkeypatch
     )
     monkeypatch.setattr(espi, "fetch_report_detail", lambda url: _detail(url))
 
-    first = espi.poll_watchlist_reports(db)
+    first = espi.poll_research_reports(db)
 
     assert first["complete"] is False
     assert first["cap_reached"] is True
@@ -605,7 +605,7 @@ def test_existing_watermark_cap_resumes_cursor_and_advances_once(db, monkeypatch
         [_page([_summary("2", watermark)])],
     )
 
-    second = espi.poll_watchlist_reports(db)
+    second = espi.poll_research_reports(db)
 
     assert second["complete"] is True
     assert second["previous_watermark"] == watermark.isoformat()
@@ -624,7 +624,7 @@ def test_first_run_bootstrap_cap_resumes_cursor_and_advances_once(db, monkeypatc
     from app.scrapers import espi
 
     bootstrap_target = datetime(2026, 7, 10, 12, 30, tzinfo=timezone.utc)
-    _watched_kruk(db, added_at=bootstrap_target)
+    _researched_kruk(db, created_at=bootstrap_target)
     monkeypatch.setattr(espi, "GPW_REPORTS_HARD_PAGE_CAP", 1)
     first_calls = _patch_pages(
         monkeypatch,
@@ -637,7 +637,7 @@ def test_first_run_bootstrap_cap_resumes_cursor_and_advances_once(db, monkeypatc
     )
     monkeypatch.setattr(espi, "fetch_report_detail", lambda url: _detail(url))
 
-    first = espi.poll_watchlist_reports(db)
+    first = espi.poll_research_reports(db)
 
     assert first["ok"] is False
     assert first["complete"] is False
@@ -658,7 +658,7 @@ def test_first_run_bootstrap_cap_resumes_cursor_and_advances_once(db, monkeypatc
         [_page([_summary("2", bootstrap_target)])],
     )
 
-    second = espi.poll_watchlist_reports(db)
+    second = espi.poll_research_reports(db)
 
     assert second["ok"] is True
     assert second["complete"] is True
@@ -676,7 +676,7 @@ def test_list_page_failure_is_incomplete_and_keeps_watermark(db, monkeypatch):
     from app.db.models import EventReport, ListPollState
     from app.scrapers import espi
 
-    _watched_kruk(db)
+    _researched_kruk(db)
     watermark = datetime(2026, 7, 9, 11, 0, tzinfo=timezone.utc)
     _set_watermark(db, watermark)
     _patch_pages(
@@ -688,7 +688,7 @@ def test_list_page_failure_is_incomplete_and_keeps_watermark(db, monkeypatch):
     )
     monkeypatch.setattr(espi, "fetch_report_detail", lambda url: _detail(url))
 
-    result = espi.poll_watchlist_reports(db)
+    result = espi.poll_research_reports(db)
 
     assert result["complete"] is False
     assert result["pages_fetched"] == 1
@@ -704,10 +704,10 @@ def test_first_run_bootstrap_fetch_failure_preserves_stable_cutoff(db, monkeypat
     from app.db.models import ListPollState
     from app.scrapers import espi
 
-    _watched_kruk(db)
+    _researched_kruk(db)
     first_calls = _patch_pages(monkeypatch, [RuntimeError("HTTP 500")])
 
-    result = espi.poll_watchlist_reports(db)
+    result = espi.poll_research_reports(db)
 
     assert result["ok"] is False
     assert result["complete"] is False
@@ -718,7 +718,7 @@ def test_first_run_bootstrap_fetch_failure_preserves_stable_cutoff(db, monkeypat
     first_cutoff = _iso_utc(state.scan_started_at)
 
     retry_calls = _patch_pages(monkeypatch, [RuntimeError("HTTP 500")])
-    retry = espi.poll_watchlist_reports(db)
+    retry = espi.poll_research_reports(db)
 
     assert retry["ok"] is False
     assert retry_calls == [{"offset": 0, "limit": espi.GPW_REPORTS_LIMIT}]
@@ -729,7 +729,7 @@ def test_later_page_parse_failure_is_incomplete_and_keeps_watermark(db, monkeypa
     from app.db.models import EventReport, ListPollState
     from app.scrapers import espi
 
-    _watched_kruk(db)
+    _researched_kruk(db)
     watermark = datetime(2026, 7, 9, 11, 0, tzinfo=timezone.utc)
     _set_watermark(db, watermark)
     _patch_pages(
@@ -744,7 +744,7 @@ def test_later_page_parse_failure_is_incomplete_and_keeps_watermark(db, monkeypa
     )
     monkeypatch.setattr(espi, "fetch_report_detail", lambda url: _detail(url))
 
-    result = espi.poll_watchlist_reports(db)
+    result = espi.poll_research_reports(db)
 
     assert result["ok"] is False
     assert result["complete"] is False
@@ -759,7 +759,7 @@ def test_detail_failure_after_successful_page_retries_same_cursor(db, monkeypatc
     from app.db.models import EventReport, ListPollState
     from app.scrapers import espi
 
-    _watched_kruk(db)
+    _researched_kruk(db)
     watermark = datetime(2026, 7, 9, 11, 0, tzinfo=timezone.utc)
     _set_watermark(db, watermark)
     first_calls = _patch_pages(
@@ -780,7 +780,7 @@ def test_detail_failure_after_successful_page_retries_same_cursor(db, monkeypatc
 
     monkeypatch.setattr(espi, "fetch_report_detail", fake_detail)
 
-    result = espi.poll_watchlist_reports(db)
+    result = espi.poll_research_reports(db)
 
     assert result["complete"] is False
     assert result["incomplete_reason"].startswith("detail_error:")
@@ -799,7 +799,7 @@ def test_detail_failure_after_successful_page_retries_same_cursor(db, monkeypatc
     second_calls = _patch_pages(monkeypatch, [_page([_summary("2", watermark)])])
     monkeypatch.setattr(espi, "fetch_report_detail", lambda url: _detail(url))
 
-    retry = espi.poll_watchlist_reports(db)
+    retry = espi.poll_research_reports(db)
 
     assert retry["complete"] is True
     assert second_calls == [{"offset": 15, "limit": 15}]
@@ -811,7 +811,7 @@ def test_no_details_ingests_metadata_but_never_advances_watermark(db, monkeypatc
     from app.db.models import EventReport, ListPollState
     from app.scrapers import espi
 
-    _watched_kruk(db)
+    _researched_kruk(db)
     watermark = datetime(2026, 7, 10, 11, 0, tzinfo=timezone.utc)
     _set_watermark(db, watermark)
     _patch_pages(monkeypatch, [_page([_summary("1", watermark)])])
@@ -821,7 +821,7 @@ def test_no_details_ingests_metadata_but_never_advances_watermark(db, monkeypatc
 
     monkeypatch.setattr(espi, "fetch_report_detail", fail_detail)
 
-    result = espi.poll_watchlist_reports(db, fetch_details=False)
+    result = espi.poll_research_reports(db, fetch_details=False)
 
     assert result["ok"] is False
     assert result["complete"] is False
@@ -841,18 +841,18 @@ def test_no_details_ingests_metadata_but_never_advances_watermark(db, monkeypatc
 def test_scoped_poll_does_not_initialize_global_watermark_then_global_ingests_other(
     db, monkeypatch
 ):
-    from app.db.models import Company, EventReport, ListPollState, WatchlistItem
+    from app.db.models import Company, EventReport, ListPollState, ResearchCase
     from app.scrapers import espi
 
     kruk = Company(ticker="KRU", name="KRUK")
     eurotel = Company(ticker="ETL", name="EUROTEL")
     db.add_all([kruk, eurotel])
     db.commit()
-    added_at = datetime(2026, 7, 10, 6, 30, tzinfo=timezone.utc)
+    created_at = datetime(2026, 7, 10, 6, 30, tzinfo=timezone.utc)
     db.add_all(
         [
-            WatchlistItem(company_id=kruk.id, added_at=added_at),
-            WatchlistItem(company_id=eurotel.id, added_at=added_at),
+            ResearchCase(company_id=kruk.id, created_at=created_at),
+            ResearchCase(company_id=eurotel.id, created_at=created_at),
         ]
     )
     db.commit()
@@ -872,7 +872,7 @@ def test_scoped_poll_does_not_initialize_global_watermark_then_global_ingests_ot
     calls = _patch_pages(monkeypatch, [p1, p2])
     monkeypatch.setattr(espi, "fetch_report_detail", lambda url: _detail(url))
 
-    scoped = espi.poll_watchlist_reports(db, ticker="KRU")
+    scoped = espi.poll_research_reports(db, ticker="KRU")
 
     assert scoped["ok"] is True
     assert scoped["complete"] is True
@@ -882,7 +882,7 @@ def test_scoped_poll_does_not_initialize_global_watermark_then_global_ingests_ot
 
     calls.clear()
     _patch_pages(monkeypatch, [p1, p2])
-    global_result = espi.poll_watchlist_reports(db)
+    global_result = espi.poll_research_reports(db)
 
     assert global_result["ok"] is True
     assert global_result["complete"] is True
@@ -897,7 +897,7 @@ def test_existing_raw_text_skips_detail_refetch(db, monkeypatch):
     from app.db.models import EventReport
     from app.scrapers import espi
 
-    kruk = _watched_kruk(db)
+    kruk = _researched_kruk(db)
     watermark = datetime(2026, 7, 10, 11, 0, tzinfo=timezone.utc)
     _set_watermark(db, watermark)
     db.add(
@@ -921,7 +921,7 @@ def test_existing_raw_text_skips_detail_refetch(db, monkeypatch):
 
     monkeypatch.setattr(espi, "fetch_report_detail", fail_detail)
 
-    result = espi.poll_watchlist_reports(db)
+    result = espi.poll_research_reports(db)
 
     assert result["complete"] is True
     report = db.query(EventReport).one()
@@ -936,7 +936,7 @@ def test_revisit_fills_missing_raw_text_without_resetting_reviewed_materiality(
     from app.db.models import EventReport
     from app.scrapers import espi
 
-    kruk = _watched_kruk(db)
+    kruk = _researched_kruk(db)
     watermark = datetime(2026, 7, 10, 11, 0, tzinfo=timezone.utc)
     _set_watermark(db, watermark)
     db.add(
@@ -956,7 +956,7 @@ def test_revisit_fills_missing_raw_text_without_resetting_reviewed_materiality(
     _patch_pages(monkeypatch, [_page([_summary("1", watermark)])])
     monkeypatch.setattr(espi, "fetch_report_detail", lambda _url: _detail("new detail"))
 
-    result = espi.poll_watchlist_reports(db)
+    result = espi.poll_research_reports(db)
 
     assert result["complete"] is True
     report = db.query(EventReport).one()
@@ -969,13 +969,13 @@ def test_revisit_fills_missing_raw_text_without_resetting_reviewed_materiality(
 def test_get_recent_source_deltas_reads_stored_events(db):
     from datetime import datetime, timezone
 
-    from app.db.models import Company, EventReport, WatchlistItem
+    from app.db.models import Company, EventReport, ResearchCase
     from app.mcp import stock_tools
 
     kruk = Company(ticker="KRU", name="KRUK")
     db.add(kruk)
     db.commit()
-    db.add(WatchlistItem(company_id=kruk.id))
+    db.add(ResearchCase(company_id=kruk.id))
     db.add(
         EventReport(
             company_id=kruk.id,

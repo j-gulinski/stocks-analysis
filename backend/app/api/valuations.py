@@ -37,6 +37,11 @@ from app.db.models import (
     utcnow,
 )
 from app.services.model_policy import default_model_for_workflow
+from app.services.artifact_contracts import (
+    RESEARCH_PROFILE_SCHEMA,
+    canonical_research_snapshot_predicate,
+    canonical_valuation_snapshot_predicate,
+)
 from app.services.valuation_artifacts import (
     CONTRACT_VERSION,
     SKILL_VERSION,
@@ -87,7 +92,15 @@ def _raise_input(exc: ValuationInputError | ValuationArtifactError) -> None:
 def _latest_research(db: Session, case_id: int) -> ResearchSnapshot | None:
     return db.scalar(
         select(ResearchSnapshot)
-        .where(ResearchSnapshot.research_case_id == case_id)
+        .join(
+            CompanyProfile,
+            ResearchSnapshot.company_profile_id == CompanyProfile.id,
+        )
+        .where(
+            ResearchSnapshot.research_case_id == case_id,
+            *canonical_research_snapshot_predicate(),
+            CompanyProfile.schema_version == RESEARCH_PROFILE_SCHEMA,
+        )
         .order_by(ResearchSnapshot.version.desc(), ResearchSnapshot.id.desc())
         .limit(1)
     )
@@ -101,19 +114,40 @@ def valuation_workspace(case_id: int, db: Session = Depends(get_db)) -> dict:
     case = _case(db, case_id)
     research = _latest_research(db, case.id)
     profile = db.get(CompanyProfile, research.company_profile_id) if research else None
+    if profile is not None and profile.schema_version != RESEARCH_PROFILE_SCHEMA:
+        profile = None
     template = get_template(profile.archetype) if profile else None
     rows = list(
         db.scalars(
             select(ValuationSnapshot)
-            .where(ValuationSnapshot.research_case_id == case.id)
+            .join(
+                ResearchSnapshot,
+                ValuationSnapshot.research_snapshot_id == ResearchSnapshot.id,
+            )
+            .join(
+                CompanyProfile,
+                ResearchSnapshot.company_profile_id == CompanyProfile.id,
+            )
+            .where(
+                ValuationSnapshot.research_case_id == case.id,
+                *canonical_valuation_snapshot_predicate(),
+                *canonical_research_snapshot_predicate(),
+                CompanyProfile.schema_version == RESEARCH_PROFILE_SCHEMA,
+            )
             .order_by(ValuationSnapshot.version.desc(), ValuationSnapshot.id.desc())
         ).all()
+    )
+    latest_usable = next(
+        (row for row in rows if row.status in {"verified", "provisional"}),
+        None,
     )
     return {
         "research_case_id": case.id,
         "latest_research_snapshot_id": research.id if research else None,
         "template": template.to_dict() if template else None,
-        "latest_valuation": rows[0] if rows else None,
+        # Rejected/needs-human drafts stay auditable in history but cannot
+        # silently become the current decision surface.
+        "latest_valuation": latest_usable,
         "history": [
             {
                 "id": row.id,
@@ -137,7 +171,20 @@ def valuation_history(case_id: int, db: Session = Depends(get_db)) -> list[dict]
     case = _case(db, case_id)
     rows = db.scalars(
         select(ValuationSnapshot)
-        .where(ValuationSnapshot.research_case_id == case.id)
+        .join(
+            ResearchSnapshot,
+            ValuationSnapshot.research_snapshot_id == ResearchSnapshot.id,
+        )
+        .join(
+            CompanyProfile,
+            ResearchSnapshot.company_profile_id == CompanyProfile.id,
+        )
+        .where(
+            ValuationSnapshot.research_case_id == case.id,
+            *canonical_valuation_snapshot_predicate(),
+            *canonical_research_snapshot_predicate(),
+            CompanyProfile.schema_version == RESEARCH_PROFILE_SCHEMA,
+        )
         .order_by(ValuationSnapshot.version.desc(), ValuationSnapshot.id.desc())
     ).all()
     return [
@@ -159,9 +206,21 @@ def get_valuation(
 ) -> ValuationSnapshot:
     case = _case(db, case_id)
     row = db.scalar(
-        select(ValuationSnapshot).where(
+        select(ValuationSnapshot)
+        .join(
+            ResearchSnapshot,
+            ValuationSnapshot.research_snapshot_id == ResearchSnapshot.id,
+        )
+        .join(
+            CompanyProfile,
+            ResearchSnapshot.company_profile_id == CompanyProfile.id,
+        )
+        .where(
             ValuationSnapshot.id == valuation_id,
             ValuationSnapshot.research_case_id == case.id,
+            *canonical_valuation_snapshot_predicate(),
+            *canonical_research_snapshot_predicate(),
+            CompanyProfile.schema_version == RESEARCH_PROFILE_SCHEMA,
         )
     )
     if row is None:

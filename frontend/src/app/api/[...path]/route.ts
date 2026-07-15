@@ -36,7 +36,7 @@ async function proxy(
       cache: "no-store",
     });
     // 204/205/304 must have a null body — Response() throws otherwise,
-    // which broke watchlist DELETE (backend replies 204 No Content).
+    // which broke DELETE responses that correctly return 204 No Content.
     if ([204, 205, 304].includes(response.status)) {
       return new NextResponse(null, { status: response.status });
     }

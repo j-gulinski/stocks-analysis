@@ -44,6 +44,17 @@ out the worst and the not-improving — with every kill explainable.
   survivors while preserving the full survivor count.
   The row leads with the single score; its normalized contributions, raw
   values, source versions and freshness stay inspectable one click deeper.
+- A material explicitly reported discontinued result cannot win attention via
+  distorted net-profit growth or C/Z. When detailed quarterly facts are
+  retained before the batch cutoff, Discover freezes a continuing-operation
+  bridge and uses its growth and trailing C/Z; the raw market values, threshold,
+  fact IDs and document versions remain adjacent. An incomplete bridge makes
+  the affected component unavailable without penalty or imputation. A
+  continuing-operation C/Z is not compared with raw historical C/Z.
+- Retained BiznesRadar analyst expectations are the visible baseline for
+  Research: fiscal-year revenue, EBITDA, EBIT and net-income levels, growth,
+  range and contributor count. They do not add score points; missing coverage
+  is neutral, and Valuation must confirm or challenge the baseline with evidence.
 - Excluded companies remain inspectable in an `Odrzucone` drawer with their
   kill reasons — the sieve is auditable and tunable, never a black box.
 - Factor coverage gaps are visible; missing data is a gap, never a negative
@@ -70,8 +81,8 @@ Discover rows — never job IDs first:
 - **Zbadana** — one-line current understanding (thesis kernel), freshness,
   the main gap, next useful action.
 - **Wyceniona** — adds the valuation strip: bad/base/good (+event) price
-  range, probability-weighted value vs current price, upside %, catalyst,
-  and verification status.
+  range, value vs current price, catalyst and verification status. A weighted
+  value and upside appear only when a complete labelled probability tree exists.
 - **W portfelu** *(enabled by the S4 portfolio-coverage gate)* — adds position
   weight and portfolio priority; holdings sort first (weight × staleness), then
   Discover candidates, then the rest.
@@ -83,15 +94,29 @@ uncovered holdings. Zero-write to open.
 
 ### The company view
 
-One canonical renderer over verifier-gated snapshots (no legacy modes):
-**Brief** (current understanding, freshness, main gap, next action) →
-**Business & drivers** → **Performance** (result bridge, sector KPIs) →
-**Evidence** (documents, claims, conflicts, gaps) → **Outlook** (driver-by-
-driver next quarter / 12 months, resolved questions, catalysts) →
-**Thesis** (why now, counter-thesis, falsifiers, next dated checks) →
-**Valuation summary** (current scenario set inline, link to the workspace) →
-**History** (what changed between snapshots). Run metadata and verifier
-internals live in an audit drawer.
+One canonical renderer over verifier-gated snapshots (no legacy modes). Its
+default reading path is deliberately short:
+
+1. **Decision header** — when a current valuation exists, show its bad/base/good
+   range, primary-method values vs current price, probability posture, status
+   and nearest catalyst first. Show weighted value/upside only when calculated.
+   Otherwise show the missing-valuation state and the next action.
+2. **Brief** — current understanding, freshness, main gap and next useful action.
+3. **Details on demand** — Business & drivers, Performance, Outlook, Thesis and
+   History are separate collapsed sections. Opening one section must not open
+   the others.
+4. **Evidence and sources** — claims, conflicts, gaps and the source manifest are
+   a separate collapsed evidence workspace. Sources may be filtered/selected;
+   the page never expands every source and every claim at once.
+
+Run metadata, fingerprints and verifier internals live only in the final audit
+drawer. A historical verifier warning may affect the status and next action,
+but it does not lead the list or company page as investor-facing content (V3,
+V5).
+
+After the recovery reset, History contains only canonical v3 Research created
+from the clean baseline. The product has no v1/v2 Research reader,
+compatibility badge or legacy-verifier presentation (V10).
 
 Layers stay: common spine → sector/archetype pack → company overlay
 (segments, KPIs, company-specific questions) proposed by Codex, confirmable
@@ -104,28 +129,46 @@ Goal: convert researched drivers into explicit, company-specific
 bad/base/good (+optional event) scenarios with prices and probabilities that
 could only belong to this company.
 
-- Valuation starts from a frozen research snapshot and deterministic sourced
-  base values. The Codex skill drafts everything company-specific:
-  - scenario mechanisms tied to this company's drivers and catalysts;
-  - assumption values each bound to research facts (fact IDs) or named as
-    explicit judgment with rationale;
-  - probabilities with stated evidence rationale — never a house default.
-- Python computes all math deterministically: projected P&L, cash
-  conversion, FCF, EPS, valuation bridge, per-share outcomes, weighted
-  value. A non-positive forward EPS has no earnings-multiple price.
+- Valuation starts from a frozen Research snapshot and the retained
+  BiznesRadar analyst expectation curve. Revenue, EBITDA, EBIT and net-profit
+  levels, year-on-year growth, analyst count and range are the visible Street
+  baseline—not a price target. Codex must show where its forecast confirms or
+  challenges that baseline and which issuer evidence explains the variance.
+- Every scenario contains an explicit five-year operating path through revenue,
+  EBITDA, EBIT, recurring net income, EPS and FCFF. Reported one-offs are shown
+  separately and are never capitalized as recurring earnings.
+- Python computes all math deterministically. The company-specific methodology
+  selects one primary method and at least one independent method from both
+  relative and intrinsic families: recurring P/E, EV/EBITDA, EV/EBIT and FCFF
+  DCF. Enterprise-value methods reconcile cash, debt and leases to equity; an
+  unknown bridge item disables the affected method instead of becoming zero.
+  A partly elapsed first fiscal year is an explicit stub: only remaining FCFF
+  is included and every cash flow carries its discount timing from the cutoff.
+- Methods are not averaged. The primary method supplies the scenario value;
+  cross-checks expose a range and dispersion, while the DCF shows WACC/terminal
+  growth sensitivity and terminal-value concentration. Reverse valuation shows
+  what growth/margin path and trading multiples the current price implies.
+- Scenario probabilities, when published, come from an explicit conditional
+  tree whose leaf probabilities are computed by Python. Judgmental nodes are
+  labelled `judgmental_unvalidated`; empirical calibration additionally needs
+  its frozen point-in-time dataset, sample, Brier score and reliability bins.
+  When neither posture is defensible, the result is visibly `uncalibrated` and
+  no weighted value is invented.
 - The backend enforces company-specificity structurally (see
-  ARCHITECTURE — valuation gates): template-seed equality, cross-company
-  near-duplicate vectors, probability defaults, missing evidence rationale,
-  and math mismatches are auto-rejected before any verifier opinion.
+  ARCHITECTURE — valuation gates): source semantics, Street-to-Codex bridge,
+  method math/independence, conditional probabilities, template equality,
+  cross-company near-duplicates and lineage are computed before any verifier
+  opinion. A current-price-derived forward P/E is market context and cannot
+  anchor a target multiple.
 - Verification is adversarial (V5): the strict verifier must attach findings
   or per-check justification; computable checks are computed, not attested.
-- Kuba can override any assumption; overrides create a new version and a
-  recompute — the draft lineage stays.
+- An explicit human override is separately labelled and creates a recomputed
+  version; it cannot masquerade as a reported fact or Street estimate.
 - Scenario outcomes are scored when actuals land (V8) and engine calibration
   is visible per version.
-- The main result is one comparison row per scenario: probability, revenue /
-  result / EPS / FCF effects, price range, catalyst, falsifier — plus the
-  weighted value against the current price.
+- The screen opens with methodology and the scenario result, then the five-year
+  Street expectation bridge, method reconciliation, reverse expectations and
+  audit trail. It does not lead with an arbitrary one-year input grid.
 
 ## Stage 4 — Portfolio: my real money, analyzed the most (V7)
 

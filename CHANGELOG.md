@@ -3,8 +3,110 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-15 · SNT expectation-led valuation recovery
+
+- Tightened the V4 structural gate to compare every five-year economic input,
+  optional-method availability and a non-recurring event payload. A changed
+  cash-tax, depreciation, financing or event assumption can no longer evade
+  company-specificity checks or falsely reject a valid event scenario.
+- Regenerated the clean baseline after deleting the remaining retired artifact,
+  raw-forum, watchlist and monitor schema paths. The disposable PostgreSQL
+  database was recreated from empty; migration parity, a fresh Discover batch
+  and a fresh myfund Portfolio snapshot pass. Canonical Research/Valuation are
+  deliberately not recreated until Kuba renews authorization for that
+  cost-bearing queue work.
+- Made retained BiznesRadar analyst expectations a visible baseline in
+  Discover and Valuation, including fiscal-year revenue/EBITDA/EBIT/net-income
+  levels, growth, ranges, forecast counts and dispersion. Missing consensus is
+  neutral and never reduces a candidate's score.
+- Repaired Discover's treatment of material discontinued results. Immutable
+  batch v6 now freezes a detailed continuing-operation bridge and uses it for
+  earnings growth and trailing C/Z, or leaves the component neutral when the
+  bridge is incomplete. SNT therefore uses +80.62% and 21.77x instead of the
+  Syn2Bio-distorted +1,953.65% and 5.97x, with the raw values and exact lineage
+  visible; it no longer compares normalized current C/Z with raw history.
+- Replaced the failed one-period SNT valuation logic with
+  `valuation-engine-v3`: a five-period operating/FCFF path with explicit stub
+  timing, recurring-result normalization, independent P/E and EV/EBITDA
+  cross-checks, DCF sensitivity, method-dispersion gates and reverse
+  expectations. BiznesRadar forward P/E is classified as a current-price
+  identity, never a target multiple. Uncalibrated scenarios publish no
+  probabilities or weighted value.
+- Completed adversarial fail/repair/pass cycles for both SNT Research and
+  Valuation. The live UI now exposes the Street variance bridge, five-year
+  paths, valuation anchors, reverse DCF and sensitivity; the obsolete
+  engine-v2 SNT snapshot/run was deleted. Full backend tests, production build
+  and browser acceptance pass; the remaining WACC component-source gap stays
+  visible and non-directional, while the pre-demerger multiple comparability
+  caveat is shown adjacent to the affected methods.
+- A final independent cross-stage audit recomputed the continuing-profit
+  bridge, batch admission fingerprint and valuation fingerprints, verified the
+  null probability/weighted-value posture and canonical-only storage, and
+  passed with no open severity-1/2 finding. Fresh Discover batch #2 ranks SNT
+  #26 at 63.2 instead of the distorted #5 at 80.7.
+
 ## 2026-07-14 · VISION reset phase boundary
 
+- Reopened S2–S3 after the owner rejected the first clean-baseline SNT output:
+  the saved Research omitted publicly available issuer evidence about the
+  non-cash Syn2bio demerger, retained radiopharma operations, order visibility
+  and recurring revenue, while the valuation treated a derived BiznesRadar
+  forward trading C/Z as an independent target multiple and exposed unsupported
+  32/46/22 probabilities. Valuation now renders each saved probability rationale
+  beside its percentage. The issuer adapter can freeze one explicitly
+  authorized exact same-host PDF URL before using the unchanged bounded detail
+  fetch; this does not promote an authorization link to report evidence. Fixed
+  the shared polite fetcher so a new Requests session replaces its built-in
+  `python-requests` user-agent with the configured browser user-agent. The SNT
+  index plus H1, ESPI 23, ESPI 28 and ESPI 36 are now retained canonically; no
+  replacement artifact is created before the owner confirms the exact company
+  profile required by V4.
+- Closed the fresh-artifact S2–S5 gate with canonical SNT snapshots after the
+  clean-baseline reset. Research v3 has 11 explicit evidence/coverage gaps and
+  one strict-verifier minor finding on duplicate gross-margin facts. Valuation
+  v2 normalizes the 2026Q2 discontinued-result uplift, keeps gross margin as a
+  visible judgment, retains raw-price/market-cap mismatch, and is therefore
+  provisional. Both jobs terminalized through their independent verifier gates;
+  the queue is empty. Browser acceptance confirms the real SNT artifact across
+  Discover, Research list/company, Valuation and Portfolio, with Portfolio
+  correctly excluding a provisional valuation from scenario aggregation.
+- Completed the S2–S5 mechanical recovery boundary: current Research reads now
+  require a v3 snapshot, v2 profile and complete V5 verifier evidence; current
+  Valuation reads require a v2 artifact bound to that Research. Direct stale
+  IDs are rejected rather than projected into compatibility output. The company
+  view leads with Valuation/Brief and keeps profile, evidence and details
+  independently collapsed; a saved scenario result precedes editable inputs.
+- Replaced all 32 historical Alembic revisions with generated
+  `0001_canonical_clean_baseline`, removed retired Research/valuation tables
+  and promotion/author fields from the ORM, and recreated the disposable local
+  PostgreSQL database from empty. Alembic/ORM parity, the full backend suite
+  and the frontend production build pass. A fresh Discover batch and myfund
+  Portfolio snapshot have been rebuilt; no canonical Research or Valuation
+  artifact is created until the user selects a company and authorizes queue
+  execution.
+- Reopened Research + Valuation as one recovery slice after live acceptance
+  showed legacy v1 valuations, author-labelled judgment, repeated probability
+  mixes and metadata-led layouts still reaching the current UI. The Roadmap is
+  now the only execution plan: canonical read boundaries and the short
+  valuation-first reading path precede a disposable-data reset and queue
+  rebuild; Portfolio resumes only after that gate passes.
+- Replaced ambiguous model-tier prose with one exact routing contract and
+  executable queue policy: deterministic work uses no model, mechanical coding
+  loops may use the `gpt-5.3-codex-spark` preview, clear repeatable work
+  requests `gpt-5.6-luna` low, everyday work requests
+  `gpt-5.6-terra` at the lowest sufficient effort, and ambiguous/high-value
+  work requests `gpt-5.6-sol`. Requested and actual host identity are recorded
+  separately; Ultra is orchestration, never a model tier.
+- Added a browser-first Vision acceptance skill and made it mandatory after
+  implementation sessions. Focused deterministic tests retain contract/math
+  coverage, while the running Discover → Research → Valuation → Portfolio flow
+  is the acceptance artifact; raw unit-test count is no longer treated as
+  product proof.
+- Made the S2–S5 recovery explicitly destructive under V10: finish canonical
+  code first, delete all legacy readers/adapters/schema fields, replace the 32
+  historical Alembic revisions with one generated baseline, then drop/recreate
+  the disposable local database and refetch/rebuild only canonical artifacts.
+  Normal startup remains non-destructive.
 - Made V1–V10 binding through `docs/VISION.md` and an executable drift gate.
   Discover now exposes one honestly blocked Workbench sieve until its complete
   market-factor batch exists; Research is phase-aware and accepts only v3

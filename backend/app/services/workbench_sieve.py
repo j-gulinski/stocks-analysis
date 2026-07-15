@@ -64,6 +64,21 @@ class SieveScoreComponent:
 
 
 @dataclass(frozen=True)
+class SieveScoreNormalization:
+    """One source-bound replacement of a distorted market-page component."""
+
+    component_id: str
+    label: str
+    reported_value: float | None
+    normalized_value: float | None
+    discontinued_share_pct: float
+    period: str
+    reason: str
+    source_fact_ids: tuple[int, ...]
+    source_document_version_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class SieveCandidate:
     ticker: str
     name: str | None
@@ -74,6 +89,7 @@ class SieveCandidate:
     improvement_signals: tuple[str, ...]
     potential_score: float | None
     score_components: tuple[SieveScoreComponent, ...]
+    score_normalizations: tuple[SieveScoreNormalization, ...] = ()
 
     def frozen_evidence(self) -> dict:
         return {
@@ -86,6 +102,9 @@ class SieveCandidate:
             "factors": [asdict(factor) for factor in self.factors],
             "potential_score": self.potential_score,
             "score_components": [asdict(component) for component in self.score_components],
+            "score_normalizations": [
+                asdict(normalization) for normalization in self.score_normalizations
+            ],
         }
 
 
@@ -96,6 +115,7 @@ class SieveExcluded:
     kill_reasons: tuple[str, ...]
     factors: tuple[SieveFactor, ...]
     factor_gaps: tuple[str, ...]
+    score_normalizations: tuple[SieveScoreNormalization, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -248,6 +268,38 @@ def _source_period(row: FactorRow, key: str) -> str | None:
     )
 
 
+def _score_normalizations(row: FactorRow) -> tuple[SieveScoreNormalization, ...]:
+    raw_items = getattr(row, "extras", {}).get("score_normalizations", [])
+    result: list[SieveScoreNormalization] = []
+    for raw in raw_items:
+        if not isinstance(raw, dict) or raw.get("component_id") not in SCORE_COMPONENT_IDS:
+            continue
+        result.append(
+            SieveScoreNormalization(
+                component_id=str(raw["component_id"]),
+                label=str(raw.get("label") or _SCORE_LABELS[str(raw["component_id"])]),
+                reported_value=(
+                    float(raw["reported_value"])
+                    if raw.get("reported_value") is not None
+                    else None
+                ),
+                normalized_value=(
+                    float(raw["normalized_value"])
+                    if raw.get("normalized_value") is not None
+                    else None
+                ),
+                discontinued_share_pct=float(raw["discontinued_share_pct"]),
+                period=str(raw.get("period") or row.report_period or "unknown"),
+                reason=str(raw.get("reason") or "Material result distortion."),
+                source_fact_ids=tuple(int(value) for value in raw.get("source_fact_ids", [])),
+                source_document_version_ids=tuple(
+                    int(value) for value in raw.get("source_document_version_ids", [])
+                ),
+            )
+        )
+    return tuple(sorted(result, key=lambda item: item.component_id))
+
+
 def evaluate_workbench_sieve(
     rows: Iterable[FactorRow],
     *,
@@ -281,6 +333,21 @@ def evaluate_workbench_sieve(
         period = row.report_period
         source_periods = getattr(row, "extras", {}).get("source_periods", {})
         factor_period = lambda factor_id: source_periods.get(factor_id, period)
+        normalizations = _score_normalizations(row)
+        normalization_by_component = {
+            item.component_id: item for item in normalizations
+        }
+        normalized_net_income_growth = (
+            normalization_by_component["net_income_growth"].normalized_value
+            if "net_income_growth" in normalization_by_component
+            else row.net_income_dyn_rr_pct
+        )
+        normalized_current_pe = (
+            normalization_by_component["current_pe"].normalized_value
+            if "current_pe" in normalization_by_component
+            else row.cz
+        )
+        current_pe_was_normalized = "current_pe" in normalization_by_component
         factors = (
             _factor("altman_em_score", value=row.altman_value, delta=None, period=period),
             _factor("piotroski_f_score", value=row.piotroski_f, delta=None, period=period),
@@ -288,9 +355,14 @@ def evaluate_workbench_sieve(
             _factor("revenue_growth", value=row.revenue_dyn_rr_pct, delta=row.revenue_dyn_rr_pct, period=factor_period("revenue")),
             _factor(
                 "net_income_growth",
-                value=row.net_income_dyn_rr_pct,
-                delta=row.net_income_dyn_rr_pct,
+                value=normalized_net_income_growth,
+                delta=normalized_net_income_growth,
                 period=factor_period("net_income"),
+                note=(
+                    normalization_by_component["net_income_growth"].reason
+                    if "net_income_growth" in normalization_by_component
+                    else None
+                ),
             ),
             _factor("operating_margin", value=row.op_margin_pct, delta=row.op_margin_delta_pp, period=factor_period("operating_margin")),
             _factor(
@@ -309,10 +381,14 @@ def evaluate_workbench_sieve(
             ),
             _factor(
                 "current_pe",
-                value=row.cz,
+                value=normalized_current_pe,
                 delta=None,
                 period=factor_period("cz"),
-                note="Do wyniku trafia wyłącznie dodatnie C/Z; niższe jest lepsze.",
+                note=(
+                    normalization_by_component["current_pe"].reason
+                    if "current_pe" in normalization_by_component
+                    else "Do wyniku trafia wyłącznie dodatnie C/Z; niższe jest lepsze."
+                ),
             ),
         )
         history_points = _history_points(history, row.ticker)
@@ -335,20 +411,28 @@ def evaluate_workbench_sieve(
             else None
         )
         valuation_delta = (
-            ((previous_cz_median - row.cz) / abs(previous_cz_median) * 100.0)
-            if row.cz is not None and row.cz > 0.0 and previous_cz_median not in (None, 0.0)
+            ((previous_cz_median - normalized_current_pe) / abs(previous_cz_median) * 100.0)
+            if not current_pe_was_normalized
+            and normalized_current_pe is not None
+            and normalized_current_pe > 0.0
+            and previous_cz_median not in (None, 0.0)
             else None
         )
         factors += (
             _factor(
                 "valuation_vs_own_history",
-                value=row.cz,
+                value=normalized_current_pe,
                 delta=valuation_delta,
                 period=factor_period("cz"),
                 note=(
-                    f"Mediana wcześniejszych snapshotów: {previous_cz_median:g}"
-                    if previous_cz_median is not None
-                    else "Brak snapshotu C/Z starszego o co najmniej 30 dni."
+                    "Bieżące C/Z oczyszczono do działalności kontynuowanej, "
+                    "a historyczne snapshoty są raportowane; nie porównano różnych semantyk."
+                    if current_pe_was_normalized
+                    else (
+                        f"Mediana wcześniejszych snapshotów: {previous_cz_median:g}"
+                        if previous_cz_median is not None
+                        else "Brak snapshotu C/Z starszego o co najmniej 30 dni."
+                    )
                 ),
                 history_median=previous_cz_median,
                 history_batch_ids=tuple(
@@ -375,14 +459,19 @@ def evaluate_workbench_sieve(
                 continue
             if value is not None:
                 coverage[factor_id] += 1
-        if row.cz is not None and row.cz > 0.0 and previous_cz_median is not None:
+        if (
+            not current_pe_was_normalized
+            and normalized_current_pe is not None
+            and normalized_current_pe > 0.0
+            and previous_cz_median is not None
+        ):
             coverage["valuation_vs_own_history"] += 1
         base_inputs = (
             row.altman_value,
             row.piotroski_f,
             row.equity_pln_thousands,
             row.revenue_dyn_rr_pct,
-            row.net_income_dyn_rr_pct,
+            normalized_net_income_growth,
             row.op_margin_delta_pp,
             row.net_debt_ebitda,
         )
@@ -398,7 +487,7 @@ def evaluate_workbench_sieve(
             gaps.append("Brak publikowalnego kapitału własnego (fundamental wymagany).")
         if row.revenue_dyn_rr_pct is None:
             gaps.append("Brak dynamiki przychodów r/r.")
-        if row.net_income_dyn_rr_pct is None:
+        if normalized_net_income_growth is None:
             gaps.append("Brak dynamiki zysku netto r/r.")
         if row.op_margin_delta_pp is None:
             gaps.append("Brak trendu marży operacyjnej.")
@@ -408,9 +497,14 @@ def evaluate_workbench_sieve(
             gaps.append("Brak punktowego zysku netto TTM do testu A7.")
         if row.turnover_present is None:
             gaps.append("Brak źródła obrotu w oknie snapshotu.")
-        if row.cz is None or row.cz <= 0.0:
+        if normalized_current_pe is None or normalized_current_pe <= 0.0:
             gaps.append("C/Z nie jest dodatnie i nie może wejść do wyniku potencjału.")
-        if previous_cz_median is None:
+        if current_pe_was_normalized:
+            gaps.append(
+                "B4 niedostępny: oczyszczone bieżące C/Z nie jest porównywalne "
+                "z raportowaną historią C/Z."
+            )
+        elif previous_cz_median is None:
             gaps.append(
                 "Brak dodatniej historii C/Z starszej o co najmniej 30 dni do testu B4."
             )
@@ -450,13 +544,14 @@ def evaluate_workbench_sieve(
             signals.append("B1 · Przychody rosną r/r")
         if row.op_margin_delta_pp is not None and row.op_margin_delta_pp > 0.0:
             signals.append("B2 · Marża operacyjna rośnie")
-        if row.net_income_dyn_rr_pct is not None and row.net_income_dyn_rr_pct > 0.0:
+        if normalized_net_income_growth is not None and normalized_net_income_growth > 0.0:
             signals.append("B3 · Zysk netto rośnie r/r")
         if (
-            row.cz is not None
-            and row.cz > 0.0
+            not current_pe_was_normalized
+            and normalized_current_pe is not None
+            and normalized_current_pe > 0.0
             and previous_cz_median is not None
-            and row.cz < previous_cz_median
+            and normalized_current_pe < previous_cz_median
         ):
             signals.append("B4 · C/Z poniżej własnej mediany snapshotów")
 
@@ -468,6 +563,7 @@ def evaluate_workbench_sieve(
                     kill_reasons=tuple(kills),
                     factors=factors,
                     factor_gaps=tuple(gaps),
+                    score_normalizations=normalizations,
                 )
             )
             continue
@@ -479,15 +575,20 @@ def evaluate_workbench_sieve(
                     kill_reasons=("stagnacja · mniej niż dwa sygnały poprawy B1–B5.",),
                     factors=factors,
                     factor_gaps=tuple(gaps),
+                    score_normalizations=normalizations,
                 )
             )
             continue
         score_raw_values = {
             "revenue_growth": row.revenue_dyn_rr_pct,
-            "net_income_growth": row.net_income_dyn_rr_pct,
+            "net_income_growth": normalized_net_income_growth,
             "operating_margin_change": row.op_margin_delta_pp,
             "operating_margin": row.op_margin_pct,
-            "current_pe": row.cz if row.cz is not None and row.cz > 0.0 else None,
+            "current_pe": (
+                normalized_current_pe
+                if normalized_current_pe is not None and normalized_current_pe > 0.0
+                else None
+            ),
         }
         score_periods = {
             "revenue_growth": factor_period("revenue"),
@@ -548,6 +649,7 @@ def evaluate_workbench_sieve(
                     improvement_signals=tuple(signals),
                     potential_score=None,
                     score_components=(),
+                    score_normalizations=normalizations,
                 ),
                 score_raw_values,
                 tuple(score_blockers),
@@ -574,11 +676,16 @@ def evaluate_workbench_sieve(
     }
     scored: list[SieveCandidate] = []
     for candidate, raw_values, blockers in candidates:
+        normalized_labels = {
+            item.component_id: item.label for item in candidate.score_normalizations
+        }
         components = (
             tuple(
                 SieveScoreComponent(
                     id=component_id,
-                    label=_SCORE_LABELS[component_id],
+                    label=normalized_labels.get(
+                        component_id, _SCORE_LABELS[component_id]
+                    ),
                     raw_value=float(raw_values[component_id]),
                     ranking_value=_ranking_value(
                         component_id, float(raw_values[component_id])
@@ -622,6 +729,7 @@ def evaluate_workbench_sieve(
                 improvement_signals=candidate.improvement_signals,
                 potential_score=potential_score,
                 score_components=components,
+                score_normalizations=candidate.score_normalizations,
             )
         )
 
@@ -644,6 +752,7 @@ def evaluate_workbench_sieve(
             improvement_signals=candidate.improvement_signals,
             potential_score=candidate.potential_score,
             score_components=candidate.score_components,
+            score_normalizations=candidate.score_normalizations,
         )
         for index, candidate in enumerate(ranked, start=1)
     )

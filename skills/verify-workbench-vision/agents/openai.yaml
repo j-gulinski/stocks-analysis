@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Workbench Vision"
+  short_description: "Browser acceptance against V1–V10"
+  default_prompt: "Use $verify-workbench-vision to test the running Workbench against the Vision North Star and report concrete drift findings."

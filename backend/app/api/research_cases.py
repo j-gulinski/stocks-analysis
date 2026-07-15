@@ -46,6 +46,11 @@ from app.services.company_profiles import (
 )
 from app.services.discovery import DiscoveryAdmission, admit_discovery_candidate
 from app.services.model_policy import default_model_for_workflow
+from app.services.artifact_contracts import (
+    RESEARCH_PROFILE_SCHEMA,
+    canonical_research_snapshot_predicate,
+    canonical_valuation_snapshot_predicate,
+)
 from app.services.research_artifacts import (
     ResearchArtifactError,
     save_research_snapshot,
@@ -122,10 +127,6 @@ def _agenda_reasons(
 
     if latest_snapshot.status in {"rejected", "needs-human"}:
         reasons.append("Snapshot Research wymaga decyzji lub ponownej weryfikacji.")
-
-    verifier_result = latest_snapshot.verifier_result or {}
-    if not isinstance(verifier_result.get("justifications"), dict):
-        reasons.append("Historyczna weryfikacja nie spełnia pełnego standardu V5.")
 
     snapshot_as_of = latest_snapshot.as_of
     if snapshot_as_of.tzinfo is None:
@@ -311,7 +312,15 @@ def _summary(
 def _latest_snapshot(db: Session, case_id: int) -> ResearchSnapshot | None:
     return db.scalar(
         select(ResearchSnapshot)
-        .where(ResearchSnapshot.research_case_id == case_id)
+        .join(
+            CompanyProfile,
+            ResearchSnapshot.company_profile_id == CompanyProfile.id,
+        )
+        .where(
+            ResearchSnapshot.research_case_id == case_id,
+            *canonical_research_snapshot_predicate(),
+            CompanyProfile.schema_version == RESEARCH_PROFILE_SCHEMA,
+        )
         .order_by(ResearchSnapshot.version.desc(), ResearchSnapshot.id.desc())
         .limit(1)
     )
@@ -329,6 +338,8 @@ def _latest_valuation(
         .where(
             ValuationSnapshot.research_case_id == case_id,
             ValuationSnapshot.research_snapshot_id == latest_snapshot.id,
+            ValuationSnapshot.status.in_(("verified", "provisional")),
+            *canonical_valuation_snapshot_predicate(),
         )
         .order_by(ValuationSnapshot.version.desc(), ValuationSnapshot.id.desc())
         .limit(1)
@@ -489,7 +500,7 @@ def _ensure_research_case(
                 ),
                 "refresh_scope": "all",
                 "required_verification": "verifier_strict",
-                "watchlist_policy": "do not add automatically",
+                "research_list_policy": "do not add automatically",
             },
         }
         if discovery_origin is not None:
@@ -567,8 +578,16 @@ def get_research_workspace(
     agent = _initial_research_run(db, research_case)
     snapshots = list(
         db.scalars(
-            select(ResearchSnapshot)
-            .where(ResearchSnapshot.research_case_id == research_case.id)
+                select(ResearchSnapshot)
+                .join(
+                    CompanyProfile,
+                    ResearchSnapshot.company_profile_id == CompanyProfile.id,
+                )
+                .where(
+                    ResearchSnapshot.research_case_id == research_case.id,
+                    *canonical_research_snapshot_predicate(),
+                    CompanyProfile.schema_version == RESEARCH_PROFILE_SCHEMA,
+            )
             .order_by(ResearchSnapshot.version.desc(), ResearchSnapshot.id.desc())
         )
     )
@@ -576,7 +595,10 @@ def get_research_workspace(
     profiles = list(
         db.scalars(
             select(CompanyProfile)
-            .where(CompanyProfile.research_case_id == research_case.id)
+            .where(
+                CompanyProfile.research_case_id == research_case.id,
+                CompanyProfile.schema_version == RESEARCH_PROFILE_SCHEMA,
+            )
             .order_by(CompanyProfile.version.desc(), CompanyProfile.id.desc())
         )
     )
@@ -685,7 +707,10 @@ def queue_research_review(
 
     profile = db.scalar(
         select(CompanyProfile)
-        .where(CompanyProfile.research_case_id == case.id)
+        .where(
+            CompanyProfile.research_case_id == case.id,
+            CompanyProfile.schema_version == RESEARCH_PROFILE_SCHEMA,
+        )
         .order_by(CompanyProfile.version.desc(), CompanyProfile.id.desc())
         .limit(1)
     )
@@ -780,7 +805,7 @@ def queue_research_review(
                 ),
                 "refresh_scope": "all",
                 "required_verification": "verifier_strict",
-                "watchlist_policy": "do not add automatically",
+                "research_list_policy": "do not add automatically",
             },
             "review": {
                 "prior_research_snapshot_id": latest_snapshot.id,

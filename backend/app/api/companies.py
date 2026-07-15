@@ -32,7 +32,7 @@ def _get_company_or_404(db: Session, ticker: str) -> Company:
     if company is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Unknown company '{ticker.upper()}' — add it to the watchlist "
+            detail=f"Unknown company '{ticker.upper()}' — add it to Research "
             "or refresh it first.",
         )
     return company

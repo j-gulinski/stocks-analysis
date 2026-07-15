@@ -4,10 +4,12 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import DiscoveryOut, DiscoverySieveOut
 from app.db.base import get_db
+from app.db.models import Company, CompanyMarketData
 from app.scrapers import http as polite_http
 from app.scrapers.biznesradar import ParseError
 from app.services.discovery import (
@@ -38,6 +40,12 @@ _FACTOR_LABELS = {
     "current_pe": "C/Z bieżące",
     "valuation_vs_own_history": "C/Z względem własnej historii",
     "net_cash_or_debt_trend": "Gotówka netto / trend długu",
+}
+_EXPECTATION_LABELS = {
+    "revenue": "Przychody",
+    "ebitda": "EBITDA",
+    "operating_profit": "EBIT",
+    "net_income": "Zysk netto",
 }
 
 
@@ -83,12 +91,105 @@ def _factors(items, source_by_factor: dict[str, dict], freshness: dict) -> list[
     return result
 
 
+def _expectation_payload(record: CompanyMarketData | None) -> dict:
+    """Typed BR baseline for Discover; absence is coverage, never a bad signal."""
+    consensus = (record.forecast_consensus or {}) if record is not None else {}
+    previous: dict[str, tuple[str, float]] = {}
+    periods: list[dict] = []
+    source_version_id: int | None = None
+    source_as_of = None
+    for period in sorted(key for key in consensus if str(key).isdigit()):
+        raw_period = consensus.get(period) or {}
+        metrics: list[dict] = []
+        for metric, label in _EXPECTATION_LABELS.items():
+            payload = raw_period.get(metric)
+            if not isinstance(payload, dict) or payload.get("value") is None:
+                continue
+            value = float(payload["value"])
+            growth_pct = payload.get("growth_pct")
+            growth_base_period = payload.get("growth_base_period")
+            if growth_pct is None and metric in previous and previous[metric][1] != 0:
+                growth_base_period, prior_value = previous[metric]
+                growth_pct = round((value / prior_value - 1.0) * 100.0, 2)
+            low = payload.get("range_min")
+            high = payload.get("range_max")
+            dispersion = (
+                round((float(high) - float(low)) / abs(value) * 100.0, 2)
+                if low is not None and high is not None and value != 0
+                else None
+            )
+            metrics.append(
+                {
+                    "metric": metric,
+                    "label": label,
+                    "value": value,
+                    "unit": payload.get("unit") or "tys. PLN",
+                    "growth_pct": growth_pct,
+                    "growth_base_period": growth_base_period,
+                    "forecast_count": payload.get("forecast_count"),
+                    "range_min": low,
+                    "range_max": high,
+                    "dispersion_pct": dispersion,
+                }
+            )
+            previous[metric] = (str(period), value)
+            source_version_id = source_version_id or payload.get(
+                "source_document_version_id"
+            )
+            source_as_of = source_as_of or payload.get("source_as_of")
+        if metrics:
+            periods.append(
+                {
+                    "period": str(period),
+                    "period_kind": "fiscal_year",
+                    "metrics": metrics,
+                }
+            )
+    if not periods:
+        return {
+            "provider": "biznesradar",
+            "status": "unavailable",
+            "periods": [],
+            "source_document_version_id": None,
+            "source_as_of": record.updated_at if record is not None else None,
+            "note": (
+                "Brak zachowanego konsensusu BiznesRadar. To luka pokrycia, "
+                "nie negatywna przesłanka o spółce."
+            ),
+        }
+    return {
+        "provider": "biznesradar",
+        "status": "available",
+        "periods": periods,
+        "source_document_version_id": source_version_id,
+        "source_as_of": source_as_of or record.updated_at,
+        "note": (
+            "Konsensus jest bazową krzywą oczekiwań. Research ma ją potwierdzić "
+            "lub zakwestionować; zakres i liczba prognoz pokazują niepewność."
+        ),
+    }
+
+
+def _expectations_by_ticker(db: Session, tickers: list[str]) -> dict[str, dict]:
+    if not tickers:
+        return {}
+    rows = db.execute(
+        select(Company.ticker, CompanyMarketData)
+        .outerjoin(CompanyMarketData, CompanyMarketData.company_id == Company.id)
+        .where(Company.ticker.in_(tickers))
+    ).all()
+    return {ticker: _expectation_payload(record) for ticker, record in rows}
+
+
 def _out(db: Session, batch) -> DiscoveryOut:
     outcome = evaluate_batch(db, batch)
     visible_candidates = outcome.candidates[:DISCOVERY_RESULT_LIMIT]
     freshness = _freshness(batch_freshness(db, batch))
     sources = batch_sources(db, batch)
     source_by_factor = factor_source_versions(db, batch)
+    expectations = _expectations_by_ticker(
+        db, [item.ticker for item in visible_candidates]
+    )
     total = len(outcome.candidates) + len(outcome.excluded)
     coverage = [
         {
@@ -167,6 +268,25 @@ def _out(db: Session, batch) -> DiscoveryOut:
                     }
                     for component in item.score_components
                 ],
+                "score_normalizations": [
+                    {
+                        "component_id": normalization.component_id,
+                        "label": normalization.label,
+                        "reported_value": normalization.reported_value,
+                        "normalized_value": normalization.normalized_value,
+                        "discontinued_share_pct": normalization.discontinued_share_pct,
+                        "period": normalization.period,
+                        "reason": normalization.reason,
+                        "source_fact_ids": list(normalization.source_fact_ids),
+                        "source_document_version_ids": list(
+                            normalization.source_document_version_ids
+                        ),
+                    }
+                    for normalization in item.score_normalizations
+                ],
+                "analyst_expectations": expectations.get(
+                    item.ticker, _expectation_payload(None)
+                ),
             }
             for item in visible_candidates
         ],
@@ -177,6 +297,22 @@ def _out(db: Session, batch) -> DiscoveryOut:
                 "kill_reasons": list(item.kill_reasons),
                 "factors": _factors(item.factors, source_by_factor, freshness),
                 "factor_gaps": list(item.factor_gaps),
+                "score_normalizations": [
+                    {
+                        "component_id": normalization.component_id,
+                        "label": normalization.label,
+                        "reported_value": normalization.reported_value,
+                        "normalized_value": normalization.normalized_value,
+                        "discontinued_share_pct": normalization.discontinued_share_pct,
+                        "period": normalization.period,
+                        "reason": normalization.reason,
+                        "source_fact_ids": list(normalization.source_fact_ids),
+                        "source_document_version_ids": list(
+                            normalization.source_document_version_ids
+                        ),
+                    }
+                    for normalization in item.score_normalizations
+                ],
             }
             for item in outcome.excluded
         ],

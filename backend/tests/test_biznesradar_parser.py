@@ -304,6 +304,23 @@ def test_forecasts_percent_and_ratio_rows_are_not_scaled():
     assert pe.values == [44.08, 41.5, 40.1, 37.8, 36.0]  # "44.08" / "40,10"
 
 
+def test_forecasts_preserve_consensus_count_and_range():
+    html = load_fixture("br_forecasts.html").replace(
+        "<td>275 000,0</td>",
+        "<td>275 000,0 6 (270 000,0 - 280 000,0)</td>",
+        1,
+    )
+    table = parse_forecasts(html)
+    revenue = next(r for r in table.rows if r.metric == "revenue")
+
+    assert revenue.estimate_ranges[:2] == [None, None]
+    estimate = revenue.estimate_ranges[2]
+    assert estimate is not None
+    assert estimate.forecast_count == 6
+    assert estimate.minimum == 270_000_000.0
+    assert estimate.maximum == 280_000_000.0
+
+
 def test_forecasts_unmapped_label_is_reported_not_dropped():
     """A row BiznesRadar doesn't actually show (added to the fixture on
     purpose) must surface in unmapped_labels, same discipline as the

@@ -1,7 +1,7 @@
-"""GPW ESPI/EBI report ingestion.
+"""GPW ESPI/EBI report ingestion for canonical Research cases.
 
-Fetch GPW list pages politely, ingest watched-company reports idempotently, and
-advance the durable completeness watermark only after a complete page walk.
+Fetch GPW list pages politely, ingest Research-company reports idempotently,
+and advance the durable completeness watermark only after a complete page walk.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from app.db.models import (
     Event,
     EventReport,
     ListPollState,
-    WatchlistItem,
+    ResearchCase,
     utcnow,
 )
 from app.scrapers import http
@@ -213,7 +213,7 @@ def parse_report_detail(html: str) -> GpwReportDetail:
     return GpwReportDetail(raw_text=raw_text, parsed={k: v for k, v in parsed.items() if v})
 
 
-def poll_watchlist_reports(
+def poll_research_reports(
     db: Session,
     *,
     ticker: str | None = None,
@@ -221,7 +221,7 @@ def poll_watchlist_reports(
 ) -> dict:
     global_poll = ticker is None
     metadata_only = not fetch_details
-    companies = _watched_companies(db, ticker=ticker)
+    companies = _researched_companies(db, ticker=ticker)
     if ticker is not None and not companies:
         return _poll_result(
             matched_count=0,
@@ -250,7 +250,7 @@ def poll_watchlist_reports(
             complete=False,
             ok=False,
             metadata_only=metadata_only,
-            incomplete_reason="empty_watchlist",
+            incomplete_reason="empty_research",
         )
 
     poll_started_at = utcnow()
@@ -270,7 +270,7 @@ def poll_watchlist_reports(
             limit = state.scan_next_limit or GPW_REPORTS_LIMIT
         else:
             scan_started_at = poll_started_at
-            scan_target_at = previous_watermark or _bootstrap_target_watermark(
+            scan_target_at = previous_watermark or _bootstrap_research_watermark(
                 db,
                 fallback=poll_started_at,
             )
@@ -557,11 +557,11 @@ def _scan_in_progress(state: ListPollState) -> bool:
     )
 
 
-def _bootstrap_target_watermark(db: Session, *, fallback: datetime) -> datetime:
-    added_at = db.scalar(
-        select(WatchlistItem.added_at).order_by(WatchlistItem.added_at).limit(1)
+def _bootstrap_research_watermark(db: Session, *, fallback: datetime) -> datetime:
+    created_at = db.scalar(
+        select(ResearchCase.created_at).order_by(ResearchCase.created_at).limit(1)
     )
-    target = _aware_utc(added_at) or _aware_utc(fallback)
+    target = _aware_utc(created_at) or _aware_utc(fallback)
     fallback_utc = _aware_utc(fallback)
     if target is not None and fallback_utc is not None and target > fallback_utc:
         return fallback_utc
@@ -766,13 +766,15 @@ def _merged_parsed(
     return parsed
 
 
-def _watched_companies(db: Session, *, ticker: str | None) -> list[Company]:
+def _researched_companies(db: Session, *, ticker: str | None) -> list[Company]:
     stmt = select(Company)
     if ticker:
         stmt = stmt.where(Company.ticker == ticker.upper())
     else:
-        stmt = stmt.join(WatchlistItem, WatchlistItem.company_id == Company.id)
-    return list(db.scalars(stmt.order_by(Company.ticker)))
+        stmt = stmt.join(ResearchCase, ResearchCase.company_id == Company.id).where(
+            ResearchCase.state != "closed"
+        )
+    return list(db.scalars(stmt.order_by(Company.ticker).distinct()))
 
 
 def _matching_company(issuer_name: str, companies: Iterable[Company]) -> Company | None:
