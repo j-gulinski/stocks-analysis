@@ -3,6 +3,27 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-15 · Portfolio return precision
+
+- Replaced the hardcoded unavailable Portfolio return path with the sole typed
+  `portfolio-performance-v1` contract. Python compounds TWR from consecutive
+  daily provider value/contribution rows after excluding each end-of-day
+  contribution change, and solves XIRR from opening window value, dated
+  contribution changes and the exact current provider total using ACT/365.
+  Missing calendar days, alignment, terminal identity and non-unique roots are
+  named gaps rather than smoothed or guessed; position reconciliation does not
+  black out independent provider-history returns.
+- The Portfolio UI now leads history with visible TWR/XIRR values, status,
+  window, observations, flow count and method while retaining provider return
+  and benchmark as separate labels. Chart gaps are no longer connected.
+  Frozen Portfolio review advanced to `portfolio-analytics-v2` and
+  deterministically recomputes performance, rejecting fingerprint-consistent
+  forged values.
+- The live 1,260-day portfolio series independently reproduces 193.079779% TWR
+  and 41.120758% annual XIRR from 47 contribution changes through 2026-07-15;
+  focused backend tests, the production frontend build and browser acceptance
+  pass. Mapping and weight × staleness auto-coverage remain the next S4 gate.
+
 ## 2026-07-15 · Evidence-bound potential bridge
 
 - Reviewed an authenticated eight-thread user-nominated PortalAnaliz cohort,

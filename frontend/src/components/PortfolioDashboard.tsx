@@ -396,15 +396,35 @@ function HistorySection({ workspace }: { workspace: PortfolioWorkspace }) {
   const methods = workspace.performance_methods;
   const benchmark = workspace.snapshot?.benchmark_name;
   const historyQuality = workspace.history_quality;
+  const performanceWindow = methods?.window_start && methods.window_end
+    ? `${fmtDate(methods.window_start)}–${fmtDate(methods.window_end)}`
+    : "brak pełnego okna";
   return (
     <section className="portfolio-section" aria-labelledby="portfolio-history-title">
       <div className="portfolio-section-heading"><div><p className="section-label">Historia</p><h2 id="portfolio-history-title">Wartość i wyniki wg myfund</h2></div><span>{benchmark ? `Benchmark dostawcy: ${benchmark}` : "Brak benchmarku dostawcy"}</span></div>
       {historyQuality?.status === "partial" && <div className="portfolio-history-partial"><IconAlertTriangle size={15} /><div><strong>Historia jest częściowa</strong><span>{historyQuality.gaps.join(" ")}</span></div></div>}
-      {workspace.history.length === 0 ? <div className="portfolio-valid-empty"><strong>Brak historii od dostawcy</strong><span>Bieżący skład pozostaje użyteczny; nie wyliczamy stopy zwrotu z przybliżeń.</span></div> : <div className="portfolio-chart-grid">
-        <div><h3>Wartość i wkład</h3><div className="portfolio-chart"><ResponsiveContainer width="100%" height="100%"><LineChart data={workspace.history}><CartesianGrid stroke="#2a3440" vertical={false} /><XAxis dataKey="date" tickFormatter={(value) => fmtDate(String(value))} tick={{ fill: "#8797a8", fontSize: 10 }} /><YAxis tick={{ fill: "#8797a8", fontSize: 10 }} width={68} /><Tooltip labelFormatter={(value) => fmtDate(String(value))} formatter={(value) => fmtPln(typeof value === "number" ? value : null)} /><Legend /><Line type="monotone" dataKey="value" name="Wartość" stroke="#58a6ff" dot={false} connectNulls /><Line type="monotone" dataKey="contributed" name="Wpłacony kapitał wg myfund" stroke="#9fb0bf" dot={false} connectNulls /></LineChart></ResponsiveContainer></div></div>
-        <div><h3>Stopy zwrotu dostawcy</h3><div className="portfolio-chart"><ResponsiveContainer width="100%" height="100%"><LineChart data={workspace.history}><CartesianGrid stroke="#2a3440" vertical={false} /><XAxis dataKey="date" tickFormatter={(value) => fmtDate(String(value))} tick={{ fill: "#8797a8", fontSize: 10 }} /><YAxis tickFormatter={(value) => `${value}%`} tick={{ fill: "#8797a8", fontSize: 10 }} width={46} /><Tooltip labelFormatter={(value) => fmtDate(String(value))} formatter={(value) => typeof value === "number" ? fmtPct(value) : "—"} /><Legend /><Line type="monotone" dataKey="provider_return_pct" name="Portfel wg myfund" stroke="#3fd0a4" dot={false} connectNulls /><Line type="monotone" dataKey="benchmark_return_pct" name={benchmark ? `${benchmark} wg myfund` : "Benchmark wg myfund"} stroke="#efb454" dot={false} connectNulls /></LineChart></ResponsiveContainer></div></div>
+      {methods && <div className="portfolio-performance-grid" aria-label="Niezależnie obliczone wyniki portfela">
+        <div>
+          <span>TWR · wynik w oknie</span>
+          <strong className={signClass(methods.twr_pct)}>{methods.twr_pct == null ? "niedostępny" : fmtPct(methods.twr_pct, { signed: true, digits: 2 })}</strong>
+          <small>{methods.twr_status === "complete" ? "pełna seria" : methods.twr_status === "partial" ? "częściowa seria" : "brak podstawy"} · {performanceWindow}</small>
+        </div>
+        <div>
+          <span>XIRR · rocznie</span>
+          <strong className={signClass(methods.xirr_pct)}>{methods.xirr_pct == null ? "niedostępny" : fmtPct(methods.xirr_pct, { signed: true, digits: 2 })}</strong>
+          <small>{methods.xirr_status === "complete" ? "pełna seria" : methods.xirr_status === "partial" ? "częściowa seria" : "brak podstawy"} · ACT/365</small>
+        </div>
+        <div>
+          <span>Podstawa</span>
+          <strong>{methods.observation_count.toLocaleString("pl-PL")} dni</strong>
+          <small>{methods.external_flow_count} zmian wkładu · przepływ na koniec dnia</small>
+        </div>
       </div>}
-      <div className="portfolio-method-note"><strong>Metoda</strong><span>Stopa portfela: {methods?.provider_return ?? "niedostępna"}. Benchmark: {methods?.benchmark ?? "niedostępny"}.</span><span>TWR: {methods?.twr ?? "niedostępny"} · XIRR: {methods?.xirr ?? "niedostępny"}.</span>{methods?.gap && <span>{methods.gap}</span>}<span>Workbench nie potwierdził, że benchmark jest indeksem dochodowym.</span></div>
+      {workspace.history.length === 0 ? <div className="portfolio-valid-empty"><strong>Brak historii od dostawcy</strong><span>Bieżący skład pozostaje użyteczny; nie wyliczamy stopy zwrotu z przybliżeń.</span></div> : <div className="portfolio-chart-grid">
+        <div><h3>Wartość i wkład</h3><div className="portfolio-chart"><ResponsiveContainer width="100%" height="100%"><LineChart data={workspace.history}><CartesianGrid stroke="#2a3440" vertical={false} /><XAxis dataKey="date" tickFormatter={(value) => fmtDate(String(value))} tick={{ fill: "#8797a8", fontSize: 10 }} /><YAxis tick={{ fill: "#8797a8", fontSize: 10 }} width={68} /><Tooltip labelFormatter={(value) => fmtDate(String(value))} formatter={(value) => fmtPln(typeof value === "number" ? value : null)} /><Legend /><Line type="monotone" dataKey="value" name="Wartość" stroke="#58a6ff" dot={false} /><Line type="monotone" dataKey="contributed" name="Wpłacony kapitał wg myfund" stroke="#9fb0bf" dot={false} /></LineChart></ResponsiveContainer></div></div>
+        <div><h3>Stopy zwrotu dostawcy</h3><div className="portfolio-chart"><ResponsiveContainer width="100%" height="100%"><LineChart data={workspace.history}><CartesianGrid stroke="#2a3440" vertical={false} /><XAxis dataKey="date" tickFormatter={(value) => fmtDate(String(value))} tick={{ fill: "#8797a8", fontSize: 10 }} /><YAxis tickFormatter={(value) => `${value}%`} tick={{ fill: "#8797a8", fontSize: 10 }} width={46} /><Tooltip labelFormatter={(value) => fmtDate(String(value))} formatter={(value) => typeof value === "number" ? fmtPct(value) : "—"} /><Legend /><Line type="monotone" dataKey="provider_return_pct" name="Portfel wg myfund" stroke="#3fd0a4" dot={false} /><Line type="monotone" dataKey="benchmark_return_pct" name={benchmark ? `${benchmark} wg myfund` : "Benchmark wg myfund"} stroke="#efb454" dot={false} /></LineChart></ResponsiveContainer></div></div>
+      </div>}
+      <div className="portfolio-method-note"><strong>Metoda</strong><span>Stopa portfela i benchmark na wykresie: raportowane przez myfund.</span><span>TWR: dzienne wartości i zmiany wkładu, przepływ na koniec dnia. XIRR: wartość otwarcia okna, datowane zmiany wkładu i wartość końcowa, ACT/365.</span><span>Workbench nie potwierdził, że benchmark jest indeksem dochodowym.</span></div>
     </section>
   );
 }

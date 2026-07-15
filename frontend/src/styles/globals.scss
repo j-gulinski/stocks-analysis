@@ -720,6 +720,19 @@ button, a, input, select {
   div { display: grid; gap: 1px; }
   span { color: var(--text-secondary); font-size: 10px; }
 }
+.portfolio-performance-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 12px;
+  overflow: hidden;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  > div { display: grid; gap: 3px; padding: 12px 13px; border-left: 0.5px solid var(--border); }
+  > div:first-child { border-left: 0; }
+  span, small { color: var(--text-muted); font-size: 10px; }
+  strong { font-size: 17px; }
+}
 .portfolio-chart { height: 230px; font-size: 10px; }
 .portfolio-method-note {
   display: flex;
@@ -871,6 +884,9 @@ button, a, input, select {
   .portfolio-position-row > div:nth-child(4),
   .portfolio-position-row > div:nth-child(5) { padding-top: 7px; border-top: 0.5px solid var(--border); }
   .portfolio-chart-grid { grid-template-columns: 1fr; }
+  .portfolio-performance-grid { grid-template-columns: 1fr; }
+  .portfolio-performance-grid > div { border-top: 0.5px solid var(--border); border-left: 0; }
+  .portfolio-performance-grid > div:first-child { border-top: 0; }
 }
 
 @media (max-width: 640px) {

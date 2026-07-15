@@ -24,6 +24,7 @@ from app.db.models import (
     PortfolioPositionSnapshot,
     PortfolioReviewSnapshot,
     PortfolioSnapshot,
+    PortfolioValuePoint,
     ResearchCase,
     ResearchSnapshot,
     CompanyProfile,
@@ -33,13 +34,13 @@ from app.db.models import (
 )
 from app.services.agent_queue import clear_agent_lease
 from app.services.model_policy import default_model_for_workflow, get_model_policy
-from app.services.portfolio import portfolio_workspace
+from app.services.portfolio import calculate_portfolio_performance, portfolio_workspace
 from app.services.valuation_engine import canonical_hash
 
 WORKFLOW = "stock-portfolio-review"
 SKILL_VERSION = "portfolio-review-v1"
 CONTRACT_VERSION = "portfolio-review-v1"
-ANALYTICS_VERSION = "portfolio-analytics-v1"
+ANALYTICS_VERSION = "portfolio-analytics-v2"
 _TRANSACTION_OBJECT = (
     r"(?:pozycj(?:ę|i)|akcj(?:e|i)|walor(?:y|ów)|udział(?:y|u)?|papiery|papierów|"
     r"spółk(?:ę|i)|ekspozycj(?:ę|i)|koncentracj(?:ę|i)|gotówk(?:ę|i))"
@@ -133,8 +134,7 @@ def _review_gaps(workspace: dict[str, Any]) -> list[str]:
             "Nie wszystkie pozycje mają kwalifikującą się zweryfikowaną wycenę."
         )
     methods = workspace.get("performance_methods") or {}
-    if methods.get("twr") == "unavailable" or methods.get("xirr") == "unavailable":
-        gaps.append("Brak przepływów wymaganych do niezależnego TWR/XIRR.")
+    gaps.extend(methods.get("gaps") or [])
     risk_companies = (workspace.get("risk_context") or {}).get("companies") or []
     if any((row.get("research") or {}).get("stale") for row in risk_companies):
         gaps.append("Co najmniej jedna pozycja ma brakujące lub nieaktualne Research.")
@@ -411,6 +411,39 @@ def _validate_frozen_integrity(
         raise PortfolioReviewArtifactError(
             "Portfolio snapshot identity changed.", kind="conflict"
         )
+    stored_history = [
+        {
+            "date": point.date.isoformat(),
+            "value": float(point.value) if point.value is not None else None,
+            "contributed": (
+                float(point.contributed) if point.contributed is not None else None
+            ),
+            "profit": float(point.profit) if point.profit is not None else None,
+            "provider_return_pct": (
+                float(point.provider_return_pct)
+                if point.provider_return_pct is not None
+                else None
+            ),
+            "benchmark_return_pct": (
+                float(point.benchmark_return_pct)
+                if point.benchmark_return_pct is not None
+                else None
+            ),
+            "daily_change": (
+                float(point.daily_change) if point.daily_change is not None else None
+            ),
+        }
+        for point in db.scalars(
+            select(PortfolioValuePoint)
+            .where(PortfolioValuePoint.snapshot_id == snapshot.id)
+            .order_by(PortfolioValuePoint.date)
+        )
+    ]
+    if frozen["analytics"].get("history") != stored_history:
+        raise PortfolioReviewArtifactError(
+            "Frozen portfolio history differs from retained snapshot rows.",
+            kind="conflict",
+        )
     if canonical_hash(frozen["analytics"]) != draft.analytics_fingerprint:
         raise PortfolioReviewArtifactError(
             "Frozen portfolio analytics fingerprint is invalid.", kind="conflict"
@@ -480,15 +513,16 @@ def _validate_frozen_integrity(
         raise PortfolioReviewArtifactError(
             "History/benchmark method labels changed.", kind="conflict"
         )
-    if (
-        methods.get("provider_return") != "provider-reported"
-        or methods.get("benchmark")
-        != "provider-reported; total-return basis unverified"
-        or methods.get("twr") != "unavailable"
-        or methods.get("xirr") != "unavailable"
-    ):
+    expected_methods = _json_safe(
+        calculate_portfolio_performance(
+            stored_history,
+            terminal_value=total,
+            terminal_date=snapshot.as_of.date(),
+        )
+    )
+    if methods != expected_methods:
         raise PortfolioReviewArtifactError(
-            "Unsupported performance method label.", kind="conflict"
+            "Frozen performance analytics do not recompute.", kind="conflict"
         )
     _validate_scenario_arithmetic(db, frozen, total)
     text = " ".join(

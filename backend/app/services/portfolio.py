@@ -35,6 +35,7 @@ from app.services.artifact_contracts import (
 
 PARSER_VERSION = "myfund-portfolio-v2"
 RISK_CONTEXT_VERSION = "portfolio-risk-context-v1"
+PERFORMANCE_METHOD_VERSION = "portfolio-performance-v1"
 RESEARCH_STALE_DAYS = 180
 
 
@@ -492,6 +493,12 @@ def portfolio_workspace(db: Session, snapshot: PortfolioSnapshot) -> dict[str, A
     history_gaps = [
         gap for gap in (snapshot.gaps or []) if str(gap).startswith("Historia ")
     ]
+    performance_methods = calculate_portfolio_performance(
+        history,
+        terminal_value=total,
+        terminal_date=snapshot.as_of.date(),
+    )
+    performance_gaps = list(performance_methods["gaps"])
     return {
         "snapshot": {
             "id": snapshot.id,
@@ -510,19 +517,13 @@ def portfolio_workspace(db: Session, snapshot: PortfolioSnapshot) -> dict[str, A
         "concentration": concentration,
         "history": history,
         "history_quality": {
-            "status": "partial" if history_gaps else "complete",
-            "gaps": history_gaps,
+            "status": "partial" if history_gaps or performance_gaps else "complete",
+            "gaps": list(dict.fromkeys(history_gaps + performance_gaps)),
         },
         "liquidity": liquidity,
         "scenario_sensitivity": scenarios,
         "risk_context": risk_context,
-        "performance_methods": {
-            "provider_return": "provider-reported",
-            "benchmark": "provider-reported; total-return basis unverified",
-            "twr": "unavailable",
-            "xirr": "unavailable",
-            "gap": "Brak historii i semantyki przepływów zewnętrznych wymaganych do obliczeń.",
-        },
+        "performance_methods": performance_methods,
         "coverage": {
             "mapped_company_value_pct": (
                 round(mapped_value / total * 100, 2) if total else None
@@ -541,6 +542,318 @@ def portfolio_workspace(db: Session, snapshot: PortfolioSnapshot) -> dict[str, A
 
 def _float(value: Any) -> float | None:
     return float(value) if value is not None else None
+
+
+def _performance_date(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return _date(value)
+
+
+def _scaled_exponential_value(
+    terms: list[tuple[float, float]], log_one_plus_rate: float
+) -> tuple[float, float]:
+    """Return a scale-free exponential-sum value and absolute magnitude."""
+    exponents = [-time * log_one_plus_rate for time, _ in terms]
+    pivot = max(exponents)
+    weighted = [
+        amount * math.exp(exponent - pivot)
+        for exponent, (_, amount) in zip(exponents, terms)
+    ]
+    return sum(weighted), sum(abs(item) for item in weighted)
+
+
+def _exponential_sign(
+    terms: list[tuple[float, float]], log_one_plus_rate: float
+) -> int:
+    value, magnitude = _scaled_exponential_value(terms, log_one_plus_rate)
+    tolerance = max(1e-12 * magnitude, 1e-12)
+    if abs(value) <= tolerance:
+        return 0
+    return 1 if value > 0.0 else -1
+
+
+def _bisect_exponential_root(
+    terms: list[tuple[float, float]], low: float, high: float
+) -> float:
+    low_sign = _exponential_sign(terms, low)
+    for _ in range(160):
+        middle = (low + high) / 2.0
+        middle_sign = _exponential_sign(terms, middle)
+        if middle_sign == 0 or high - low <= 1e-12:
+            return middle
+        if middle_sign == low_sign:
+            low = middle
+        else:
+            high = middle
+    return (low + high) / 2.0
+
+
+def _limit_bracket(
+    terms: list[tuple[float, float]],
+    *,
+    anchor: float,
+    direction: int,
+    limit_sign: int,
+) -> float | None:
+    step = 1.0
+    for _ in range(32):
+        point = anchor + direction * step
+        sign = _exponential_sign(terms, point)
+        if sign == limit_sign:
+            return point
+        if sign == 0:
+            return None
+        step *= 2.0
+    return None
+
+
+def _isolate_exponential_roots(
+    terms: list[tuple[float, float]],
+) -> tuple[list[float], bool]:
+    """Isolate every real root using recursively proven monotonic intervals.
+
+    Factoring the first exponential from the derivative reduces its term count
+    by one. Its recursively isolated roots partition the current function into
+    monotonic intervals, so every sign change identifies exactly one root.
+    A stationary value numerically indistinguishable from zero is rejected as
+    ambiguous instead of silently treating a repeated or clustered root as
+    unique.
+    """
+    if len(terms) <= 1:
+        return [], False
+    derivative = [
+        (time, -time * amount) for time, amount in terms[1:]
+    ]
+    first_time = derivative[0][0]
+    normalized_derivative = [
+        (time - first_time, amount) for time, amount in derivative
+    ]
+    critical_points, ambiguous = _isolate_exponential_roots(
+        normalized_derivative
+    )
+    if ambiguous:
+        return [], True
+    critical_signs = [
+        _exponential_sign(terms, point) for point in critical_points
+    ]
+    if any(sign == 0 for sign in critical_signs):
+        return [], True
+
+    left_limit_sign = 1 if terms[-1][1] > 0.0 else -1
+    right_limit_sign = 1 if terms[0][1] > 0.0 else -1
+    roots: list[float] = []
+    if not critical_points:
+        if left_limit_sign == right_limit_sign:
+            return roots, False
+        low = _limit_bracket(
+            terms, anchor=0.0, direction=-1, limit_sign=left_limit_sign
+        )
+        high = _limit_bracket(
+            terms, anchor=0.0, direction=1, limit_sign=right_limit_sign
+        )
+        if low is None or high is None:
+            return [], True
+        roots.append(_bisect_exponential_root(terms, low, high))
+        return roots, False
+
+    if left_limit_sign != critical_signs[0]:
+        low = _limit_bracket(
+            terms,
+            anchor=critical_points[0],
+            direction=-1,
+            limit_sign=left_limit_sign,
+        )
+        if low is None:
+            return [], True
+        roots.append(
+            _bisect_exponential_root(terms, low, critical_points[0])
+        )
+    for index in range(len(critical_points) - 1):
+        if critical_signs[index] != critical_signs[index + 1]:
+            roots.append(
+                _bisect_exponential_root(
+                    terms, critical_points[index], critical_points[index + 1]
+                )
+            )
+    if critical_signs[-1] != right_limit_sign:
+        high = _limit_bracket(
+            terms,
+            anchor=critical_points[-1],
+            direction=1,
+            limit_sign=right_limit_sign,
+        )
+        if high is None:
+            return [], True
+        roots.append(
+            _bisect_exponential_root(terms, critical_points[-1], high)
+        )
+    return roots, False
+
+
+def _solve_xirr(cashflows: list[tuple[date, float]]) -> float | None:
+    """Solve one unambiguous dated-flow IRR using actual days / 365.
+
+    Recursive derivative roots partition log(1+r) space into proven monotonic
+    intervals over the full valid domain ``r > -1``. Multiple or numerically
+    ambiguous roots are rejected rather than choosing one silently.
+    """
+    compact = [(day, amount) for day, amount in cashflows if abs(amount) > 1e-9]
+    if (
+        len(compact) < 2
+        or compact[0][0] == compact[-1][0]
+        or not any(amount < 0 for _, amount in compact)
+        or not any(amount > 0 for _, amount in compact)
+    ):
+        return None
+    origin = compact[0][0]
+    terms = [
+        ((flow_date - origin).days / 365.0, amount)
+        for flow_date, amount in compact
+    ]
+    roots, ambiguous = _isolate_exponential_roots(terms)
+    if ambiguous or len(roots) != 1 or roots[0] > 700.0:
+        return None
+    return math.expm1(roots[0])
+
+
+def calculate_portfolio_performance(
+    history: list[dict[str, Any]],
+    *,
+    terminal_value: float,
+    terminal_date: date,
+) -> dict[str, Any]:
+    """Compute canonical portfolio-level TWR and XIRR from retained history."""
+    performance_history = [
+        item
+        for item in history
+        if item.get("value") is not None or item.get("contributed") is not None
+    ]
+    result: dict[str, Any] = {
+        "version": PERFORMANCE_METHOD_VERSION,
+        "provider_return_basis": "provider-reported",
+        "benchmark_basis": "provider-reported; total-return basis unverified",
+        "twr_status": "unavailable",
+        "twr_pct": None,
+        "twr_method": "flow-adjusted daily compound",
+        "xirr_status": "unavailable",
+        "xirr_pct": None,
+        "xirr_method": (
+            "dated opening value + contribution changes + terminal value"
+        ),
+        "flow_timing": "end-of-day",
+        "day_count": "actual/365",
+        "window_start": None,
+        "window_end": None,
+        "terminal_date": terminal_date.isoformat(),
+        "terminal_value": round(float(terminal_value), 2),
+        "observation_count": len(performance_history),
+        "external_flow_count": 0,
+        "gaps": [],
+    }
+    if len(performance_history) < 2:
+        result["gaps"].append(
+            "TWR/XIRR wymagają co najmniej dwóch dziennych obserwacji wartości i wkładu."
+        )
+        return result
+
+    rows: list[tuple[date, float, float]] = []
+    for item in performance_history:
+        try:
+            day = _performance_date(item.get("date"))
+        except ValueError:
+            day = None
+        value = item.get("value")
+        contributed = item.get("contributed")
+        if day is None or value is None or contributed is None:
+            result["gaps"].append(
+                "Historia wartości/wkładu ma brakujący dzień lub wartość; szeregu nie wygładzono."
+            )
+            return result
+        value_number = float(value)
+        contribution_number = float(contributed)
+        if (
+            not math.isfinite(value_number)
+            or not math.isfinite(contribution_number)
+            or value_number < 0.0
+        ):
+            result["gaps"].append(
+                "Historia wartości/wkładu zawiera liczbę poza dozwolonym zakresem."
+            )
+            return result
+        rows.append((day, value_number, contribution_number))
+    if any(current[0] <= previous[0] for previous, current in zip(rows, rows[1:])):
+        result["gaps"].append(
+            "Daty historii wartości/wkładu nie są ściśle rosnące."
+        )
+        return result
+    if any(
+        (current[0] - previous[0]).days != 1
+        for previous, current in zip(rows, rows[1:])
+    ):
+        result["gaps"].append(
+            "Historia wartości/wkładu nie jest ciągłą serią dzienną; brakujących dni nie wygładzono."
+        )
+        return result
+
+    result["window_start"] = rows[0][0].isoformat()
+    result["window_end"] = rows[-1][0].isoformat()
+    twr_factor = 1.0
+    twr_valid = True
+    external_flows: list[tuple[date, float]] = [(rows[0][0], -rows[0][1])]
+    flow_count = 0
+    for previous, current in zip(rows, rows[1:]):
+        previous_value = previous[1]
+        contribution_change = current[2] - previous[2]
+        if abs(contribution_change) > 1e-9:
+            external_flows.append((current[0], -contribution_change))
+            flow_count += 1
+        if previous_value <= 0.0:
+            twr_valid = False
+            continue
+        period_factor = (current[1] - contribution_change) / previous_value
+        if period_factor < 0.0 or not math.isfinite(period_factor):
+            twr_valid = False
+        elif twr_valid:
+            twr_factor *= period_factor
+    result["external_flow_count"] = flow_count
+    if twr_valid:
+        result["twr_status"] = "complete"
+        result["twr_pct"] = round((twr_factor - 1.0) * 100.0, 6)
+    else:
+        result["gaps"].append(
+            "TWR jest niedostępny: poprzednia wartość była niedodatnia albo przepływ przekroczył wartość okresu."
+        )
+
+    parsed_terminal_date = _performance_date(terminal_date)
+    if parsed_terminal_date is None or rows[-1][0] != parsed_terminal_date:
+        if result["twr_status"] == "complete":
+            result["twr_status"] = "partial"
+        result["gaps"].append(
+            "XIRR jest niedostępny: dzienna historia nie dochodzi do daty bieżącej wartości portfela."
+        )
+    elif abs(rows[-1][1] - terminal_value) > 0.02:
+        if result["twr_status"] == "complete":
+            result["twr_status"] = "partial"
+        result["gaps"].append(
+            "XIRR jest niedostępny: końcowa wartość historii nie zgadza się z bieżącą wartością portfela."
+        )
+    else:
+        external_flows.append((rows[-1][0], terminal_value))
+        by_day: dict[date, float] = {}
+        for day, amount in external_flows:
+            by_day[day] = by_day.get(day, 0.0) + amount
+        xirr = _solve_xirr(sorted(by_day.items()))
+        if xirr is None:
+            result["gaps"].append(
+                "XIRR jest niedostępny: przepływy nie mają jednego rozwiązania w dozwolonej dziedzinie."
+            )
+        else:
+            result["xirr_status"] = "complete"
+            result["xirr_pct"] = round(xirr * 100.0, 6)
+    return result
 
 
 def _shares(groups: dict[str, float], total: float) -> list[dict[str, Any]]:

@@ -27,7 +27,7 @@ calls a model. Only the commands below may mutate durable state.
 | Preview explicit advanced assumptions | `POST /api/research-cases/{id}/valuation-preview` | Zero-write five-year, multi-method deterministic comparison; API only |
 | Queue Codex valuation | `POST /api/research-cases/{id}/valuation-runs` | Valuation frozen to Research/Street inputs; the queued Codex skill performs the company-specific causal analysis and drafts evidence-bound annual drivers, runway, capital allocation/net debt, terminal economics, method fit and conditional probability evidence; Python only validates and computes |
 | Verify/save valuation | Canonical valuation verify then save adapters | Structurally gated immutable valuation; terminal job |
-| Open Portfolio | `GET /api/portfolios/workspace` | Zero-write stored holdings, mappings, analytics and review history |
+| Open Portfolio | `GET /api/portfolios/workspace` | Zero-write stored holdings, mappings, review history and typed `portfolio-performance-v1` TWR/XIRR evidence (status, value, method, window, timing, day count, terminal identity, flow count and gaps) |
 | Synchronize myfund | `POST /api/portfolios/sync/myfund` | Durable attempt and reused or next immutable snapshot |
 | Correct mapping | `PATCH /api/portfolios/mappings/{id}` | Explicit current identity interpretation |
 | Queue portfolio review | `POST /api/portfolios/review-runs` | One content-idempotent frozen review job |
@@ -84,8 +84,15 @@ calls a model. Only the commands below may mutate durable state.
   run `../verify-workbench-vision/SKILL.md` in the live in-app browser before
   marking the Roadmap gate accepted.
 - Portfolio reconciliation mismatches warn and identify affected figures. They
-  never hide the whole dashboard. Operations import, auto-coverage and outcome
-  scoring remain open Roadmap gates until their deterministic paths are green.
+  never hide the whole dashboard. Independent TWR uses consecutive daily
+  provider value/contribution observations and excludes each end-of-day
+  contribution delta before compounding. XIRR uses opening window value,
+  dated contribution deltas and the current provider total on the exact
+  snapshot date with ACT/365; it does not depend on position-row
+  reconciliation. Missing days, alignment, terminal identity or a unique root
+  are named gaps, never approximated. Operations import, auto-coverage and
+  outcome scoring remain open Roadmap gates until their deterministic paths
+  are green.
 
 ## Lifecycle and safety
 
@@ -109,9 +116,12 @@ calls a model. Only the commands below may mutate durable state.
    scenario completeness, company-specific vector distance, lineage, and
    drafter/verifier separation before evidence, mechanism, potential and
    probability judgment review.
-6. Portfolio sync stores unknown instruments and reconciliation differences.
-   Auto-produced coverage jobs must be idempotent, logged, and prioritized by
-   position weight × staleness when S4 enables that producer.
+6. Portfolio sync stores unknown instruments, reconciliation differences and
+   provider daily history. Python alone computes the typed TWR/XIRR contract;
+   frozen portfolio-review verification recomputes it rather than trusting
+   labels or supplied values. Auto-produced coverage jobs must be idempotent,
+   logged, and prioritized by position weight × staleness when S4 enables that
+   producer.
 7. `$workbench-run-queue` clears eligible work with lease recovery and bounded
    failure caps; it is not a recurring process.
 

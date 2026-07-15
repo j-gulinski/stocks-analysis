@@ -63,9 +63,14 @@ tolerance, reproduce and name the difference, identify which analytics depend
 on incomplete rows, and keep unaffected provider and deterministic views
 visible with explicit partial labels.
 
-Do not call provider-reported return `TWR`, benchmark return `total return`, or
-calculate `XIRR` unless the frozen contract includes the required dated
-external flows, method and successful deterministic reconciliation.
+Do not call provider-reported return `TWR` or benchmark return `total return`.
+Recompute `portfolio-performance-v1` from the frozen daily value/contribution
+rows: TWR excludes each end-of-day contribution delta before compounding;
+XIRR uses opening window value, dated contribution deltas and the provider
+terminal total on the exact snapshot date with ACT/365. Position-row
+reconciliation does not gate those provider-history calculations. Missing
+calendar days, value/contribution alignment, terminal identity or one unique
+XIRR root must remain named gaps; never bridge, smooth or approximate them.
 
 ### 2. Interpret without changing inputs
 
@@ -91,9 +96,9 @@ never a company's assumptions, probability, target price or status.
 
 Give the exact draft to a separate verifier context. It must independently
 check snapshot/source identity, full-value reconciliation, mapping inclusion,
-history and benchmark labels, liquidity method, eligible valuation IDs,
-scenario arithmetic, exclusion coverage, no look-ahead, no hidden advice and
-the draft fingerprint.
+history and benchmark labels, recompute typed TWR/XIRR values/method/window,
+liquidity method, eligible valuation IDs, scenario arithmetic, exclusion
+coverage, no look-ahead, no hidden advice and the draft fingerprint.
 
 Persist the verdict through the canonical verification adapter named in the
 claimed execution contract:

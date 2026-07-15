@@ -36,6 +36,74 @@ CaseStep = Literal[
 ]
 
 
+class PortfolioPerformanceOut(BaseModel):
+    """One enforced deterministic provider-history performance contract."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    version: Literal["portfolio-performance-v1"]
+    provider_return_basis: Literal["provider-reported"]
+    benchmark_basis: Literal[
+        "provider-reported; total-return basis unverified"
+    ]
+    twr_status: Literal["complete", "partial", "unavailable"]
+    twr_pct: float | None
+    twr_method: Literal["flow-adjusted daily compound"]
+    xirr_status: Literal["complete", "partial", "unavailable"]
+    xirr_pct: float | None
+    xirr_method: Literal[
+        "dated opening value + contribution changes + terminal value"
+    ]
+    flow_timing: Literal["end-of-day"]
+    day_count: Literal["actual/365"]
+    window_start: date | None
+    window_end: date | None
+    terminal_date: date
+    terminal_value: float = Field(ge=0)
+    observation_count: int = Field(ge=0)
+    external_flow_count: int = Field(ge=0)
+    gaps: list[str]
+
+
+class PortfolioWorkspaceOut(BaseModel):
+    """Top-level Portfolio read model with enforced performance semantics."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    configured: bool
+    provider: str
+    portfolio_label: str | None
+    latest_sync: dict[str, Any] | None
+    last_sync_failure: dict[str, Any] | None
+    snapshot: dict[str, Any] | None
+    positions: list[dict[str, Any]]
+    reconciliation: dict[str, Any] | None
+    concentration: dict[str, Any] | None
+    history: list[dict[str, Any]]
+    history_quality: dict[str, Any] | None
+    liquidity: list[dict[str, Any]]
+    scenario_sensitivity: dict[str, Any] | None
+    risk_context: dict[str, Any] | None
+    performance_methods: PortfolioPerformanceOut | None
+    coverage: dict[str, Any]
+    portfolio_review: dict[str, Any]
+
+
+class PortfolioSyncWorkspaceOut(PortfolioWorkspaceOut):
+    sync: dict[str, Any]
+
+
+class PortfolioMappingOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    provider_key: str
+    mapping_kind: str
+    mapping_status: str
+    company_id: int | None
+    reason: str
+
+
 class DiscoveryResearchOriginIn(BaseModel):
     """A typed, server-recomputed handoff from the one Discover sieve."""
 

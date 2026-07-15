@@ -1,8 +1,9 @@
 """Immutable portfolio sync, read, mapping, analytics and auth contracts."""
 
+import copy
 import hashlib
 from types import SimpleNamespace
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import func, select
@@ -25,7 +26,11 @@ from app.db.models import (
     ThesisFalsifier,
 )
 from app.services.agent_queue import claim_agent_run
-from app.services.portfolio import normalize_myfund
+from app.services.portfolio import (
+    _solve_xirr,
+    calculate_portfolio_performance,
+    normalize_myfund,
+)
 from app.services.valuation_engine import canonical_hash
 
 
@@ -148,6 +153,254 @@ def test_normalizer_reports_each_malformed_history_series_point():
         "Historia benchmark_return_pct: pominięto 2 z 3 błędnych punktów."
         in normalized.gaps
     )
+
+
+def test_twr_excludes_daily_contribution_changes_before_compounding():
+    result = calculate_portfolio_performance(
+        [
+            {"date": "2026-01-01", "value": 100.0, "contributed": 100.0},
+            {"date": "2026-01-02", "value": 110.0, "contributed": 100.0},
+            {"date": "2026-01-03", "value": 165.0, "contributed": 150.0},
+        ],
+        terminal_value=165.0,
+        terminal_date=date(2026, 1, 3),
+    )
+
+    assert result["twr_pct"] == pytest.approx(15.0)
+    assert result["twr_status"] == "complete"
+    assert result["external_flow_count"] == 1
+
+
+def test_twr_excludes_withdrawal_and_ignores_benchmark_only_dates():
+    result = calculate_portfolio_performance(
+        [
+            {"date": "2025-12-31", "benchmark_return_pct": 1.0},
+            {"date": "2026-01-01", "value": 100.0, "contributed": 100.0},
+            {"date": "2026-01-02", "value": 110.0, "contributed": 100.0},
+            {"date": "2026-01-03", "value": 90.0, "contributed": 80.0},
+        ],
+        terminal_value=90.0,
+        terminal_date=date(2026, 1, 3),
+    )
+
+    assert result["twr_pct"] == pytest.approx(10.0)
+    assert result["observation_count"] == 3
+    assert result["external_flow_count"] == 1
+
+
+def test_xirr_uses_actual_dated_contribution_flows_and_terminal_value():
+    start = date(2025, 1, 1)
+    history = [
+        {
+            "date": start + timedelta(days=offset),
+            "value": 110.0 if offset == 365 else 100.0,
+            "contributed": 100.0,
+        }
+        for offset in range(366)
+    ]
+    result = calculate_portfolio_performance(
+        history,
+        terminal_value=110.0,
+        terminal_date=date(2026, 1, 1),
+    )
+
+    assert result["twr_pct"] == pytest.approx(10.0)
+    assert result["xirr_pct"] == pytest.approx(10.0)
+    assert result["xirr_status"] == "complete"
+    assert result["window_start"] == "2025-01-01"
+    assert result["window_end"] == "2026-01-01"
+
+
+def test_xirr_uses_actual_365_across_leap_year_and_aggregates_terminal_day_flow():
+    start = date(2024, 1, 1)
+    history = [
+        {
+            "date": start + timedelta(days=offset),
+            "value": 160.0 if offset == 366 else 100.0,
+            "contributed": 150.0 if offset == 366 else 100.0,
+        }
+        for offset in range(367)
+    ]
+    result = calculate_portfolio_performance(
+        history,
+        terminal_value=160.0,
+        terminal_date=date(2025, 1, 1),
+    )
+
+    expected = ((110.0 / 100.0) ** (365.0 / 366.0) - 1.0) * 100.0
+    assert result["twr_pct"] == pytest.approx(10.0)
+    assert result["xirr_pct"] == pytest.approx(expected, abs=1e-6)
+    assert result["external_flow_count"] == 1
+
+
+def test_performance_does_not_smooth_missing_values_or_series_days():
+    incomplete = calculate_portfolio_performance(
+        [
+            {"date": "2025-01-01", "value": 100.0, "contributed": 100.0},
+            {"date": "2025-01-02", "value": 110.0, "contributed": None},
+        ],
+        terminal_value=110.0,
+        terminal_date=date(2025, 1, 2),
+    )
+    assert incomplete["twr_pct"] is None
+    assert incomplete["xirr_pct"] is None
+    assert any("nie wygładzono" in gap for gap in incomplete["gaps"])
+
+    missing_day = calculate_portfolio_performance(
+        [
+            {"date": "2025-01-01", "value": 100.0, "contributed": 100.0},
+            {"date": "2025-01-03", "value": 110.0, "contributed": 100.0},
+        ],
+        terminal_value=110.0,
+        terminal_date=date(2025, 1, 3),
+    )
+    assert missing_day["twr_pct"] is None
+    assert missing_day["xirr_pct"] is None
+    assert any("ciągłą serią dzienną" in gap for gap in missing_day["gaps"])
+
+
+def test_performance_rejects_duplicate_days_nonfinite_values_and_ambiguous_xirr():
+    duplicate = calculate_portfolio_performance(
+        [
+            {"date": "2026-01-01", "value": 100.0, "contributed": 100.0},
+            {"date": "2026-01-01", "value": 110.0, "contributed": 100.0},
+        ],
+        terminal_value=110.0,
+        terminal_date=date(2026, 1, 1),
+    )
+    nonfinite = calculate_portfolio_performance(
+        [
+            {"date": "2026-01-01", "value": 100.0, "contributed": 100.0},
+            {"date": "2026-01-02", "value": float("nan"), "contributed": 100.0},
+        ],
+        terminal_value=110.0,
+        terminal_date=date(2026, 1, 2),
+    )
+    start = date(2024, 1, 1)
+    ambiguous_history = []
+    for offset in range(731):
+        contribution = 100.0
+        if offset >= 365:
+            contribution = -130.0
+        if offset >= 730:
+            contribution = 2.0
+        ambiguous_history.append(
+            {
+                "date": start + timedelta(days=offset),
+                "value": 0.0 if offset == 730 else 100.0,
+                "contributed": contribution,
+            }
+        )
+    ambiguous = calculate_portfolio_performance(
+        ambiguous_history,
+        terminal_value=0.0,
+        terminal_date=start + timedelta(days=730),
+    )
+
+    assert duplicate["twr_pct"] is None
+    assert any("ściśle rosnące" in gap for gap in duplicate["gaps"])
+    assert nonfinite["twr_pct"] is None
+    assert any("poza dozwolonym" in gap for gap in nonfinite["gaps"])
+    assert ambiguous["xirr_pct"] is None
+    assert any("jednego rozwiązania" in gap for gap in ambiguous["gaps"])
+
+
+def test_xirr_rejects_three_tightly_clustered_roots_inside_one_legacy_scan_cell():
+    result = _solve_xirr(
+        [
+            (date(2023, 1, 1), -565_525_438.6995369),
+            (date(2024, 1, 1), 2_051_652_614.347875),
+            (date(2024, 12, 31), -2_480_960_098.432616),
+            (date(2025, 12, 31), 1_000_000_000.0),
+        ]
+    )
+
+    assert result is None
+
+
+def test_portfolio_openapi_enforces_the_performance_contract(client):
+    document = client.get("/openapi.json").json()
+    workspace = document["components"]["schemas"]["PortfolioWorkspaceOut"]
+    performance_ref = workspace["properties"]["performance_methods"]["anyOf"][0][
+        "$ref"
+    ]
+    performance = document["components"]["schemas"][performance_ref.rsplit("/", 1)[-1]]
+
+    assert set(performance["required"]) == {
+        "version",
+        "provider_return_basis",
+        "benchmark_basis",
+        "twr_status",
+        "twr_pct",
+        "twr_method",
+        "xirr_status",
+        "xirr_pct",
+        "xirr_method",
+        "flow_timing",
+        "day_count",
+        "window_start",
+        "window_end",
+        "terminal_date",
+        "terminal_value",
+        "observation_count",
+        "external_flow_count",
+        "gaps",
+    }
+    assert performance["properties"]["version"]["const"] == (
+        "portfolio-performance-v1"
+    )
+
+
+def test_xirr_opens_with_window_market_value_not_lifetime_contributions():
+    start = date(2025, 1, 1)
+    history = [
+        {
+            "date": start + timedelta(days=offset),
+            "value": 110.0 if offset == 365 else 100.0,
+            "contributed": 60.0,
+        }
+        for offset in range(366)
+    ]
+    result = calculate_portfolio_performance(
+        history,
+        terminal_value=110.0,
+        terminal_date=date(2026, 1, 1),
+    )
+
+    assert result["xirr_pct"] == pytest.approx(10.0)
+    assert result["external_flow_count"] == 0
+
+
+def test_xirr_requires_terminal_history_to_match_current_value():
+    result = calculate_portfolio_performance(
+        [
+            {"date": "2025-01-01", "value": 100.0, "contributed": 100.0},
+            {"date": "2025-01-02", "value": 109.0, "contributed": 100.0},
+        ],
+        terminal_value=110.0,
+        terminal_date=date(2025, 1, 2),
+    )
+
+    assert result["twr_pct"] == pytest.approx(9.0)
+    assert result["xirr_pct"] is None
+    assert result["twr_status"] == "partial"
+    assert any("końcowa wartość historii" in gap for gap in result["gaps"])
+
+
+def test_stale_history_keeps_twr_but_does_not_attach_current_value_to_old_date():
+    result = calculate_portfolio_performance(
+        [
+            {"date": "2026-01-01", "value": 100.0, "contributed": 100.0},
+            {"date": "2026-01-02", "value": 105.0, "contributed": 100.0},
+        ],
+        terminal_value=105.0,
+        terminal_date=date(2026, 1, 3),
+    )
+
+    assert result["twr_pct"] == pytest.approx(5.0)
+    assert result["xirr_pct"] is None
+    assert result["twr_status"] == "partial"
+    assert any("nie dochodzi do daty" in gap for gap in result["gaps"])
 
 
 def test_current_cost_and_profit_come_only_from_complete_position_rows():
@@ -556,7 +809,9 @@ def test_sync_preserves_unknowns_reuses_identical_and_versions_changes(
     assert len(body["positions"]) == 3
     assert {p["mapping_status"] for p in body["positions"]} == {"exact", "unmatched"}
     assert body["snapshot"]["cash_value"] == 1000
-    assert body["performance_methods"]["twr"] == "unavailable"
+    assert body["performance_methods"]["twr_pct"] == pytest.approx(
+        (10000 / 9900 - 1) * 100
+    )
     assert body["scenario_sensitivity"]["coverage_value_pct"] == 0
     assert any(
         x.get("latest_status") is None
@@ -643,7 +898,12 @@ def test_history_quality_is_partial_and_future_known_price_is_excluded(
     monkeypatch.setattr(portfolios.polite_http, "fetch", lambda *a, **k: Response(raw))
     synced = client.post("/api/portfolios/sync/myfund").json()
     assert synced["history_quality"]["status"] == "partial"
-    assert len(synced["history_quality"]["gaps"]) == 1
+    assert any(
+        "benchmark_return_pct" in gap for gap in synced["history_quality"]["gaps"]
+    )
+    assert any(
+        "nie dochodzi do daty" in gap for gap in synced["history_quality"]["gaps"]
+    )
     snapshot = db.get(PortfolioSnapshot, synced["snapshot"]["id"])
     as_of = (
         snapshot.as_of.replace(tzinfo=timezone.utc)
@@ -1308,8 +1568,12 @@ def test_review_queue_is_json_safe_content_idempotent_and_zero_fetch(
         "exact",
         "unmatched",
     }
-    assert frozen["history_method"]["twr"] == "unavailable"
-    assert frozen["analytics_version"] == "portfolio-analytics-v1"
+    assert frozen["history_method"]["version"] == "portfolio-performance-v1"
+    assert frozen["history_method"]["twr_pct"] == pytest.approx(
+        (10000 / 9900 - 1) * 100
+    )
+    assert frozen["history_method"]["twr_status"] == "partial"
+    assert frozen["analytics_version"] == "portfolio-analytics-v2"
     assert len(frozen["analytics_fingerprint"]) == 64
     assert (
         client.get("/api/portfolios/workspace").json()["portfolio_review"][
@@ -1317,6 +1581,84 @@ def test_review_queue_is_json_safe_content_idempotent_and_zero_fetch(
         ]["id"]
         == agent.id
     )
+
+
+def test_review_verifier_recomputes_frozen_performance_instead_of_trusting_values(
+    client, db, monkeypatch
+):
+    from app.api import portfolios
+
+    db.add(Company(ticker="SNT", name="Synektik"))
+    db.commit()
+    monkeypatch.setattr(portfolios, "get_settings", settings)
+    monkeypatch.setattr(
+        portfolios.polite_http, "fetch", lambda *a, **k: Response(payload())
+    )
+    client.post("/api/portfolios/sync/myfund")
+    queued = client.post("/api/portfolios/review-runs").json()
+    agent = claim_agent_run(
+        db, agent_run_id=queued["agent_run_id"], worker_id="portfolio-drafter"
+    )
+    inputs = copy.deepcopy(agent.inputs)
+    frozen = inputs["portfolio_review"]
+    forged = float(frozen["history_method"]["twr_pct"]) + 1.0
+    frozen["history_method"]["twr_pct"] = forged
+    frozen["analytics"]["performance_methods"]["twr_pct"] = forged
+    frozen["analytics_fingerprint"] = canonical_hash(frozen["analytics"])
+    manifest = {key: value for key, value in frozen.items() if key != "input_fingerprint"}
+    frozen["input_fingerprint"] = canonical_hash(manifest)
+    agent.inputs = inputs
+    db.commit()
+    db.refresh(agent)
+
+    response = client.post(
+        "/api/portfolios/review-verifications",
+        json=_review_verification(_review_draft(agent)),
+    )
+
+    assert response.status_code == 409, response.text
+
+
+def test_review_verifier_rejects_consistently_refingerprinted_history_forgery(
+    client, db, monkeypatch
+):
+    from app.api import portfolios
+
+    db.add(Company(ticker="SNT", name="Synektik"))
+    db.commit()
+    monkeypatch.setattr(portfolios, "get_settings", settings)
+    monkeypatch.setattr(
+        portfolios.polite_http, "fetch", lambda *a, **k: Response(payload())
+    )
+    client.post("/api/portfolios/sync/myfund")
+    queued = client.post("/api/portfolios/review-runs").json()
+    agent = claim_agent_run(
+        db, agent_run_id=queued["agent_run_id"], worker_id="portfolio-drafter"
+    )
+    inputs = copy.deepcopy(agent.inputs)
+    frozen = inputs["portfolio_review"]
+    frozen["analytics"]["history"][0]["value"] = 9800.0
+    snapshot = db.get(PortfolioSnapshot, frozen["snapshot"]["id"])
+    forged_methods = calculate_portfolio_performance(
+        frozen["analytics"]["history"],
+        terminal_value=float(snapshot.total_value),
+        terminal_date=snapshot.as_of.date(),
+    )
+    frozen["history_method"] = forged_methods
+    frozen["analytics"]["performance_methods"] = forged_methods
+    frozen["analytics_fingerprint"] = canonical_hash(frozen["analytics"])
+    manifest = {key: value for key, value in frozen.items() if key != "input_fingerprint"}
+    frozen["input_fingerprint"] = canonical_hash(manifest)
+    agent.inputs = inputs
+    db.commit()
+    db.refresh(agent)
+
+    response = client.post(
+        "/api/portfolios/review-verifications",
+        json=_review_verification(_review_draft(agent)),
+    )
+
+    assert response.status_code == 409, response.text
 
 
 @pytest.mark.parametrize(
@@ -1492,7 +1834,7 @@ def test_review_contract_policy_scripts_and_transaction_advice_gate(
     assert contract["provenance_contract"] == {
         "skill_version": "portfolio-review-v1",
         "output_contract_version": "portfolio-review-v1",
-        "analytics_version": "portfolio-analytics-v1",
+        "analytics_version": "portfolio-analytics-v2",
         "draft_model_role": "worker_standard",
         "draft_model": "gpt-5.6-terra",
         "draft_reasoning_effort": "medium",

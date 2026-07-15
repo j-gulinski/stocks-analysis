@@ -25,6 +25,9 @@ from app.db.models import (
     utcnow,
 )
 from app.api.schemas import (
+    PortfolioMappingOut,
+    PortfolioSyncWorkspaceOut,
+    PortfolioWorkspaceOut,
     PortfolioReviewSaveIn,
     PortfolioReviewSnapshotOut,
     PortfolioReviewVerificationIn,
@@ -217,7 +220,7 @@ def _artifact_http_error(exc: PortfolioReviewArtifactError) -> HTTPException:
     return HTTPException(status_code=code, detail=str(exc))
 
 
-@router.get("/workspace")
+@router.get("/workspace", response_model=PortfolioWorkspaceOut)
 def get_portfolio_workspace(db: Session = Depends(get_db)) -> dict[str, Any]:
     return _workspace(db, _portfolio(db))
 
@@ -297,7 +300,7 @@ def create_review_snapshot(
         raise _artifact_http_error(exc) from exc
 
 
-@router.post("/sync/myfund")
+@router.post("/sync/myfund", response_model=PortfolioSyncWorkspaceOut)
 def sync_myfund(db: Session = Depends(get_db)) -> dict[str, Any]:
     settings = get_settings()
     if not settings.myfund_api_key or not settings.myfund_portfolio:
@@ -504,7 +507,7 @@ def date_from_iso(value: str):
     return datetime.fromisoformat(value).date()
 
 
-@router.patch("/mappings/{mapping_id}")
+@router.patch("/mappings/{mapping_id}", response_model=PortfolioMappingOut)
 def patch_mapping(
     mapping_id: int, payload: MappingPatchIn, db: Session = Depends(get_db)
 ) -> dict[str, Any]:

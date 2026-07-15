@@ -1849,11 +1849,24 @@ export interface PortfolioWorkspace {
   scenario_sensitivity: PortfolioScenarioSensitivity | null;
   risk_context: PortfolioRiskContext | null;
   performance_methods: {
-    provider_return: string;
-    benchmark: string;
-    twr: string;
-    xirr: string;
-    gap: string;
+    version: string;
+    provider_return_basis: string;
+    benchmark_basis: string;
+    twr_status: "complete" | "partial" | "unavailable";
+    twr_pct: number | null;
+    twr_method: string;
+    xirr_status: "complete" | "partial" | "unavailable";
+    xirr_pct: number | null;
+    xirr_method: string;
+    flow_timing: "end-of-day";
+    day_count: "actual/365";
+    window_start: string | null;
+    window_end: string | null;
+    terminal_date: string;
+    terminal_value: number;
+    observation_count: number;
+    external_flow_count: number;
+    gaps: string[];
   } | null;
   coverage: {
     mapped_company_value_pct: number | null;
