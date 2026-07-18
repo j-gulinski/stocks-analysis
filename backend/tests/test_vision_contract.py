@@ -311,11 +311,13 @@ def test_v10_clean_baseline_has_no_legacy_artifact_schema() -> None:
     from app.db.models import CompanyProfile, ResearchCase, VerificationRun
 
     migrations = sorted(
-        path.name
+        path
         for path in (BACKEND / "alembic" / "versions").glob("*.py")
         if path.name != "__init__.py"
     )
-    assert migrations == ["0001_canonical_clean_baseline.py"]
+    assert migrations[0].name == "0001_canonical_clean_baseline.py"
+    baseline_source = migrations[0].read_text(encoding="utf-8")
+    assert "down_revision = None" in baseline_source
 
     retired_tables = {
         "assumption_sets",
@@ -335,6 +337,13 @@ def test_v10_clean_baseline_has_no_legacy_artifact_schema() -> None:
         "agent_evaluation_runs",
         "agent_evaluation_observations",
     }
+    migration_source = "\n".join(
+        path.read_text(encoding="utf-8") for path in migrations
+    )
+    assert not any(
+        f"'{table}'" in migration_source or f'"{table}"' in migration_source
+        for table in retired_tables
+    )
     assert retired_tables.isdisjoint(Base.metadata.tables)
     assert not hasattr(CompanyProfile, "author")
     assert not {

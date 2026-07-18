@@ -65,6 +65,30 @@ class PortfolioPerformanceOut(BaseModel):
     gaps: list[str]
 
 
+class PortfolioOperationsFileIn(BaseModel):
+    """A local myfund operation-history CSV transported as text for preview."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    filename: str = Field(min_length=1, max_length=255)
+    content: str = Field(min_length=1, max_length=5_000_000)
+
+    @field_validator("filename")
+    @classmethod
+    def csv_filename(cls, value: str) -> str:
+        filename = value.strip()
+        if not filename.casefold().endswith(".csv"):
+            raise ValueError("Wymagany jest plik CSV z historii operacji myfund.")
+        return filename
+
+
+class PortfolioOperationsImportIn(PortfolioOperationsFileIn):
+    """Confirm replacement only for the exact previewed full export."""
+
+    expected_fingerprint: str = Field(min_length=64, max_length=64)
+    confirm_full_export: Literal[True]
+
+
 class PortfolioWorkspaceOut(BaseModel):
     """Top-level Portfolio read model with enforced performance semantics."""
 
@@ -85,6 +109,7 @@ class PortfolioWorkspaceOut(BaseModel):
     scenario_sensitivity: dict[str, Any] | None
     risk_context: dict[str, Any] | None
     performance_methods: PortfolioPerformanceOut | None
+    operations: dict[str, Any]
     coverage: dict[str, Any]
     portfolio_review: dict[str, Any]
 
@@ -143,6 +168,24 @@ class ResearchValuationStripOut(BaseModel):
     as_of: datetime
 
 
+class ReportCalendarOut(BaseModel):
+    status: Literal["missing", "scheduled", "unavailable", "overdue"]
+    version: Literal["report-calendar-v1"]
+    report_date: date | None
+    report_label: str | None
+    source_version_id: int | None
+    observed_at: datetime | None
+    automation_status: Literal[
+        "not-eligible", "scheduled", "blocked", "already-covered"
+    ]
+    automation_reason: str | None
+    review_available_at: datetime | None
+    research_agent_run_id: int | None
+    research_status: str | None
+    valuation_agent_run_id: int | None
+    valuation_status: str | None
+
+
 class ResearchCaseSummaryOut(BaseModel):
     """Phase-aware Research row; queue metadata belongs in the audit path."""
 
@@ -164,8 +207,15 @@ class ResearchCaseSummaryOut(BaseModel):
     agenda_reasons: list[str] = Field(default_factory=list)
     collection_progress: ResearchCollectionProgressOut | None
     valuation_strip: ResearchValuationStripOut | None
+    report_calendar: ReportCalendarOut
     latest_snapshot_status: str | None = None
     latest_snapshot_as_of: datetime | None = None
+    origin: Literal["manual", "discover", "portfolio"]
+    is_portfolio_holding: bool = False
+    portfolio_weight_pct: float | None = None
+    portfolio_priority_score: float | None = None
+    portfolio_staleness_days: int | None = None
+    portfolio_coverage_state: str | None = None
 
 
 ResearchArchetype = Literal[
@@ -2181,6 +2231,7 @@ class AgentRunOut(BaseModel):
     model_role: str | None
     model: str | None
     orchestrator_model: str | None
+    queue_priority: float
     inputs: dict
     outputs: dict
     error: str | None

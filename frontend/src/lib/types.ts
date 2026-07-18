@@ -201,6 +201,27 @@ export interface ResearchCaseSummary {
   company_id: number;
   ticker: string;
   name: string | null;
+  origin: "manual" | "discover" | "portfolio";
+  is_portfolio_holding: boolean;
+  portfolio_weight_pct: number | null;
+  portfolio_priority_score: number | null;
+  portfolio_staleness_days: number | null;
+  portfolio_coverage_state: string | null;
+  report_calendar: {
+    status: "missing" | "scheduled" | "unavailable" | "overdue";
+    version: "report-calendar-v1";
+    report_date: string | null;
+    report_label: string | null;
+    source_version_id: number | null;
+    observed_at: string | null;
+    automation_status: "not-eligible" | "scheduled" | "blocked" | "already-covered";
+    automation_reason: string | null;
+    review_available_at: string | null;
+    research_agent_run_id: number | null;
+    research_status: string | null;
+    valuation_agent_run_id: number | null;
+    valuation_status: string | null;
+  };
   purpose: string;
   state: ResearchCaseState;
   current_step: ResearchCaseStep;
@@ -1604,6 +1625,10 @@ export interface PortfolioPosition {
   value: number;
   cost_basis: number | null;
   profit: number | null;
+  operation_cost_basis: number | null;
+  operation_profit: number | null;
+  operation_cost_basis_status: "missing" | "unavailable" | "mismatch" | "reconciled";
+  operation_cost_basis_gaps: string[];
   allocation_pct: number | null;
 }
 
@@ -1630,11 +1655,12 @@ export interface PortfolioLiquidity {
 export interface PortfolioScenarioSensitivity {
   label: string;
   coverage_value_pct: number;
+  weighted_coverage_value_pct: number;
   portfolio_values: {
     negative: number;
     base: number;
     positive: number;
-    weighted: number;
+    weighted: number | null;
   };
   covered: Array<{
     position_id: number;
@@ -1644,7 +1670,7 @@ export interface PortfolioScenarioSensitivity {
     negative_value: number;
     base_value: number;
     positive_value: number;
-    weighted_value: number;
+    weighted_value: number | null;
   }>;
   exclusions: Array<{
     position_id: number;
@@ -1825,6 +1851,77 @@ export interface PortfolioReviewQueueResult {
   risk_context_fingerprint: string;
 }
 
+export interface PortfolioOperationItem {
+  id?: number;
+  occurred_on: string;
+  occurred_at: string | null;
+  kind: string;
+  kind_label: string;
+  instrument_name: string | null;
+  ticker: string | null;
+  quantity: number | null;
+  price: number | null;
+  commission: number | null;
+  tax: number | null;
+  amount_pln: number | null;
+  currency: string;
+  cash_balance_after: number | null;
+  source?: string;
+}
+
+export interface PortfolioOperationsWorkspace {
+  status: "missing" | "imported";
+  version: string;
+  count: number;
+  date_from: string | null;
+  date_to: string | null;
+  deposit_total_pln: number;
+  withdrawal_total_pln: number;
+  unclassified_count: number;
+  currency_defaulted_rows: number;
+  content_fingerprint: string | null;
+  flow_reconciliation: {
+    status: "unavailable" | "partial" | "reconciled" | "mismatch";
+    matched_days: number;
+    mismatches: Array<{
+      date: string;
+      provider_contribution_change_pln: number;
+      operation_external_flow_pln: number;
+    }>;
+    provider_contribution_change_pln: number | null;
+    operation_external_flow_pln: number | null;
+  };
+  recent: PortfolioOperationItem[];
+  gaps: string[];
+}
+
+export interface PortfolioOperationsPreview {
+  filename: string;
+  version: string;
+  fingerprint: string;
+  summary: {
+    row_count: number;
+    date_from: string;
+    date_to: string;
+    deposit_total_pln: number;
+    withdrawal_total_pln: number;
+    external_flow_count: number;
+    unclassified_count: number;
+    currency_defaulted_rows: number;
+  };
+  sample: PortfolioOperationItem[];
+}
+
+export interface PortfolioOperationsImportResult {
+  import: {
+    changed: boolean;
+    replaced_count: number;
+    imported_count: number;
+    fingerprint: string;
+  };
+  workspace: PortfolioWorkspace;
+}
+
 export interface PortfolioWorkspace {
   configured: boolean;
   provider: string;
@@ -1869,6 +1966,7 @@ export interface PortfolioWorkspace {
     external_flow_count: number;
     gaps: string[];
   } | null;
+  operations: PortfolioOperationsWorkspace;
   coverage: {
     mapped_company_value_pct: number | null;
     unmapped_positions: number;

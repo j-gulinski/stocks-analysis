@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { IconArrowRight, IconDatabaseOff, IconPlus } from "@tabler/icons-react";
 import { addResearchCase, getResearchCases } from "@/lib/api";
 import { LoadingMessages, SkeletonRows } from "@/components/Loading";
-import { fmtPct, fmtPln, relativeDate } from "@/lib/format";
+import { fmtDate, fmtNumber, fmtPct, fmtPln, relativeDate } from "@/lib/format";
 import type { ResearchCaseSummary } from "@/lib/types";
 
 const SCENARIO_LABELS: Record<string, string> = {
@@ -16,10 +16,31 @@ const SCENARIO_LABELS: Record<string, string> = {
   event: "zdarzeniowy",
 };
 
+const MISSING_RESEARCH_COVERAGE = new Set([
+  "research_queued",
+  "research_pending",
+  "research_blocked",
+  "research_profile_blocked",
+]);
+
 function valuationTone(status: string) {
   if (status === "verified") return "success";
   if (status === "rejected") return "danger";
   return "warning";
+}
+
+function portfolioCoverageSummary(item: ResearchCaseSummary) {
+  const priority = item.portfolio_priority_score == null
+    ? "Priorytet —"
+    : `Priorytet ${fmtNumber(item.portfolio_priority_score)}`;
+  const freshness = MISSING_RESEARCH_COVERAGE.has(item.portfolio_coverage_state ?? "")
+    ? "brak zweryfikowanego Research"
+    : item.portfolio_staleness_days == null
+    ? item.portfolio_coverage_state
+      ? "brak bieżącego pokrycia"
+      : "nieaktualność —"
+    : `nieaktualność ${fmtNumber(item.portfolio_staleness_days, 0)} ${item.portfolio_staleness_days === 1 ? "dzień" : "dni"}`;
+  return `Udział ${fmtPct(item.portfolio_weight_pct)} · ${priority} · ${freshness}`;
 }
 
 export default function ResearchPage() {
@@ -125,11 +146,23 @@ export default function ResearchPage() {
                   <span className={`badge ${item.phase === "collecting" ? "accent" : item.phase === "valued" ? "success" : "neutral"}`}>{item.phase_label}</span>
                   <strong>{item.phase_summary}</strong>
                   {item.main_gap && <small>Główna luka: {item.main_gap}</small>}
+                  <small>
+                    {item.report_calendar.report_date
+                      ? `Następny raport: ${item.report_calendar.report_label ?? "raport okresowy"} · ${fmtDate(item.report_calendar.report_date)}`
+                      : "Kalendarz raportów: brak użytecznej daty"}
+                    {item.report_calendar.automation_reason && ` · ${item.report_calendar.automation_reason}`}
+                  </small>
                   {item.collection_progress && (
                     <small>
                       {item.collection_progress.percent == null ? "Postęp bez wiarygodnego procentu" : `Postęp ${item.collection_progress.percent.toLocaleString("pl-PL")}%`}
                       {item.collection_progress.remaining_sources.length > 0 && ` · pozostało: ${item.collection_progress.remaining_sources.join(", ")}`}
                     </small>
+                  )}
+                  {item.is_portfolio_holding && (
+                    <div className="research-portfolio-context">
+                      <span className="badge accent">W portfelu</span>
+                      <small>{portfolioCoverageSummary(item)}</small>
+                    </div>
                   )}
                 </div>
 

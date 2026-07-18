@@ -1,7 +1,7 @@
 """P1 immutable research artifact contract and save-gate tests."""
 
 from copy import deepcopy
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import sys
 
@@ -15,6 +15,7 @@ def _document(
     ticker=None,
     source_name="Issuer IR",
     source_type="issuer_ir_report",
+    scope_key=None,
     canonical_url="https://investor.example.test/report",
 ):
     from app.db.models import DocumentVersion, SourceDocument, utcnow
@@ -25,7 +26,7 @@ def _document(
         company_ticker=ticker or company.ticker,
         source_name=source_name,
         source_type=source_type,
-        scope_key=f"report-{ticker or company.ticker}",
+        scope_key=scope_key or f"report-{ticker or company.ticker}",
         canonical_url=canonical_url,
         first_seen_at=now,
         last_fetched_at=now,
@@ -741,7 +742,11 @@ def test_existing_case_queues_idempotent_review_and_saves_next_snapshot(client, 
         "source_document_id": version.source_document_id,
         "document_version_id": version.id,
         "content_hash": version.content_hash,
-        "fetched_at": version.fetched_at.isoformat(),
+        "fetched_at": (
+            version.fetched_at
+            if version.fetched_at.tzinfo is not None
+            else version.fetched_at.replace(tzinfo=timezone.utc)
+        ).isoformat(),
     }]
 
     repeated = client.post(f"/api/research-cases/{case_id}/review-runs").json()
@@ -806,9 +811,143 @@ def test_existing_case_queues_idempotent_review_and_saves_next_snapshot(client, 
     assert saved.json()["agent_run_id"] == review.id
     assert saved.json()["sections"]["history"]["prior_snapshot_id"] == first["id"]
     completed_repeat = client.post(f"/api/research-cases/{case_id}/review-runs").json()
-    assert completed_repeat["created"] is False
-    assert completed_repeat["agent_run_id"] == review.id
-    assert completed_repeat["prior_snapshot_id"] == first["id"]
+    assert completed_repeat["created"] is True
+    assert completed_repeat["agent_run_id"] != review.id
+    assert completed_repeat["prior_snapshot_id"] == saved.json()["id"]
+    same_prior_repeat = client.post(f"/api/research-cases/{case_id}/review-runs").json()
+    assert same_prior_repeat == {**completed_repeat, "created": False}
+
+
+def test_report_calendar_research_hands_usable_snapshot_to_canonical_valuation(
+    client, db, monkeypatch
+):
+    from app.db.models import AgentRun, CompanyReportSchedule, utcnow
+    from app.services import valuation_queue
+    from app.services.agent_queue import claim_agent_run
+    from app.services.report_calendar import ensure_report_review, record_profile_schedule
+
+    case_id, initial_run, company = _claimed_case(client, db)
+    issuer_version = _document(db, company)
+    first_payload = _approve(
+        client, case_id, _payload(initial_run.id, issuer_version.id)
+    )
+    first = client.post(
+        f"/api/research-cases/{case_id}/snapshots", json=first_payload
+    )
+    assert first.status_code == 200, first.text
+    confirmed = _confirm_profile(client, case_id)
+
+    profile_version = _document(
+        db,
+        company,
+        source_name="biznesradar",
+        source_type="company_profile",
+        scope_key="current",
+        canonical_url="https://www.biznesradar.pl/notowania/SNT",
+    )
+    schedule = record_profile_schedule(
+        db,
+        company=company,
+        source_version=profile_version,
+        report_date=utcnow().date() - timedelta(days=2),
+        report_label="raport kwartalny",
+    )
+    ensure_report_review(db, schedule=schedule)
+    db.commit()
+    review = db.get(AgentRun, schedule.research_agent_run_id)
+    assert review is not None
+    assert review.trigger == "report-calendar"
+    assert review.inputs["report_calendar"]["schedule_id"] == schedule.id
+    review = claim_agent_run(
+        db, agent_run_id=review.id, worker_id="calendar-review-worker"
+    )
+
+    second_payload = _payload(
+        review.id,
+        issuer_version.id,
+        lease_owner="calendar-review-worker",
+    )
+    second_payload["version"] = 2
+    second_payload["as_of"] = utcnow().isoformat()
+    second_payload["profile"] = _profile_input(confirmed)
+    second_payload["sections"]["history"] = {
+        "changes_since_previous": ["Sprawdzono źródła po dacie raportu."],
+        "prior_snapshot_id": first.json()["id"],
+        "claims": [],
+    }
+    second_payload["statement_provenance"].append(
+        {
+            "path": "/sections/history/changes_since_previous/0",
+            "claim": {
+                "text": "Sprawdzono źródła po dacie raportu.",
+                "kind": "fact",
+                "source_document_version_ids": [issuer_version.id],
+            },
+        }
+    )
+    approved = _approve(
+        client,
+        case_id,
+        second_payload,
+        verifier_worker_id="calendar-review-verifier",
+    )
+
+    captured = {}
+
+    def fake_enqueue_valuation(
+        session, *, case, research_snapshot_id, as_of, trigger, **_kwargs
+    ):
+        captured.update(
+            case_id=case.id,
+            research_snapshot_id=research_snapshot_id,
+            as_of=as_of,
+            trigger=trigger,
+        )
+        valuation = AgentRun(
+            workflow="stock-company-valuation",
+            trigger=trigger,
+            status="queued",
+            company_id=company.id,
+            idempotency_key=f"test-calendar-valuation:{research_snapshot_id}",
+            inputs={"research_snapshot_id": research_snapshot_id},
+            outputs={},
+        )
+        session.add(valuation)
+        session.flush()
+        return valuation_queue.ValuationQueueResult(
+            agent=valuation,
+            created=True,
+            input_fingerprint="f" * 64,
+        )
+
+    monkeypatch.setattr(valuation_queue, "enqueue_valuation", fake_enqueue_valuation)
+    saved = client.post(
+        f"/api/research-cases/{case_id}/snapshots", json=approved
+    )
+
+    assert saved.status_code == 200, saved.text
+    assert captured == {
+        "case_id": case_id,
+        "research_snapshot_id": saved.json()["id"],
+        "as_of": datetime.fromisoformat(approved["as_of"]),
+        "trigger": "report-calendar",
+    }
+    db.refresh(schedule)
+    assert schedule.automation_status == "scheduled"
+    assert schedule.valuation_agent_run_id is not None
+    valuation = db.get(AgentRun, schedule.valuation_agent_run_id)
+    assert valuation is not None and valuation.workflow == "stock-company-valuation"
+    db.refresh(review)
+    assert review.outputs["report_calendar"] == {
+        "schedule_id": schedule.id,
+        "research_snapshot_id": saved.json()["id"],
+        "valuation_status": "queued",
+        "valuation_agent_run_id": valuation.id,
+        "valuation_created": True,
+    }
+    assert db.scalar(
+        select(func.count()).select_from(CompanyReportSchedule)
+    ) == 1
 
 
 def test_review_queue_requires_a_confirmed_company_specific_question(client, db):

@@ -405,6 +405,7 @@ def test_discovery_handoff_recomputes_membership_and_freezes_origin(
 
     created = client.post("/api/research-cases", json=payload)
     assert created.status_code == 200
+    assert created.json()["research_case"]["origin"] == "discover"
     run = db.get(AgentRun, created.json()["agent_run"]["id"])
     assert run.inputs["discovery_origin"]["batch_id"] == batch_id
     assert run.inputs["discovery_origin"]["candidate"]["ticker"] == "GOOD"

@@ -88,3 +88,46 @@ def test_queue_claim_skips_scheduled_work_until_it_is_due(db):
     assert claimed.id == due.id
     db.refresh(future)
     assert future.status == "queued"
+
+
+def test_queue_claims_highest_numeric_priority_then_fifo(db):
+    from app.db.models import AgentRun
+    from app.services.agent_queue import claim_agent_run
+
+    oldest_low = AgentRun(
+        workflow="stock-initial-research",
+        status="queued",
+        queue_priority=10,
+        inputs={},
+        outputs={},
+    )
+    first_high = AgentRun(
+        workflow="stock-initial-research",
+        status="queued",
+        queue_priority=25.5,
+        inputs={},
+        outputs={},
+    )
+    second_high = AgentRun(
+        workflow="stock-company-valuation",
+        status="queued",
+        queue_priority=25.5,
+        inputs={},
+        outputs={},
+    )
+    db.add_all([oldest_low, first_high, second_high])
+    db.flush()
+    # Make the FIFO tie deterministic independently of clock precision.
+    now = datetime.now(timezone.utc)
+    oldest_low.created_at = now - timedelta(minutes=2)
+    first_high.created_at = now - timedelta(minutes=1)
+    second_high.created_at = now
+    db.commit()
+
+    claimed = claim_agent_run(db, worker_id="priority-worker")
+    assert claimed is not None and claimed.id == first_high.id
+    claimed.status = "completed"
+    claimed.finished_at = datetime.now(timezone.utc)
+    db.commit()
+    claimed = claim_agent_run(db, worker_id="priority-worker")
+    assert claimed is not None and claimed.id == second_high.id

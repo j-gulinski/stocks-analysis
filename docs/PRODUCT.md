@@ -86,6 +86,9 @@ Discover rows — never job IDs first:
 - **W portfelu** *(enabled by the S4 portfolio-coverage gate)* — adds position
   weight and portfolio priority; holdings sort first (weight × staleness), then
   Discover candidates, then the rest.
+- A source-backed next periodic-report date appears with its scheduling state.
+  Missing or malformed source dates remain visible gaps; an unconfirmed company
+  profile is a blocker, never an implicit approval.
 
 The list opens with the `Do sprawdzenia` agenda derived only from stored
 state: new evidence since last snapshot, stale cases, fired falsifiers,
@@ -102,10 +105,13 @@ default reading path is deliberately short:
    and nearest catalyst first. Show weighted value/upside only when calculated.
    Otherwise show the missing-valuation state and the next action.
 2. **Brief** — current understanding, freshness, main gap and next useful action.
-3. **Details on demand** — Business & drivers, Performance, Outlook, Thesis and
+3. **Next report** — when the latest stored BiznesRadar profile publishes a
+   date, show the report label/date and whether its review is scheduled,
+   completed or blocked.
+4. **Details on demand** — Business & drivers, Performance, Outlook, Thesis and
    History are separate collapsed sections. Opening one section must not open
    the others.
-4. **Evidence and sources** — claims, conflicts, gaps and the source manifest are
+5. **Evidence and sources** — claims, conflicts, gaps and the source manifest are
    a separate collapsed evidence workspace. Sources may be filtered/selected;
    the page never expands every source and every claim at once.
 
@@ -218,6 +224,11 @@ case.
   backend queues research and valuation jobs for uncovered or stale mapped
   holdings, prioritized by weight × staleness. This is the automatic path;
   Kuba reviews results, not queue buttons.
+- A company refresh stores the latest source-linked periodic-report date. For
+  an eligible confirmed Research case it creates one future review available
+  only after the scheduled publication day; a usable verifier-gated Research
+  result then hands off to the one canonical valuation queue. Reopening pages
+  never schedules or claims work.
 - Show value, cost, gain/loss, cash, allocation, concentration, liquidity,
   contribution history, benchmark, and the aggregated scenario range from
   current verified valuations; surface stale coverage, fired falsifiers,

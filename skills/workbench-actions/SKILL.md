@@ -17,18 +17,20 @@ calls a model. Only the commands below may mutate durable state.
 | Refresh Discover evidence | `POST /api/discovery/refresh` | One immutable all-page market-factor batch; no Research job |
 | Inspect Discover | `GET /api/discovery` | One `workbench_sieve_v1` state plus any retained BiznesRadar expectation curves (levels, growth, count and range), at most 100 survivors, exclusions and gaps |
 | Add a company | `POST /api/research-cases` with ticker, or `ticker` + typed frozen Discover `batch_id`/sieve version | One company, one active case, at most one initial Research job; Discover origin is server-recomputed and frozen |
-| Inspect Research | `GET /api/research-cases` / `GET /api/research-cases/by-ticker/{ticker}` | Stored-state agenda plus phase-aware rows, or one canonical Research → Valuation → History workspace |
-| Refresh company evidence | `POST /api/companies/{ticker}/refresh?scope=all` | Bounded stored evidence refresh; no snapshot or model result |
+| Inspect Research | `GET /api/research-cases` / `GET /api/research-cases/by-ticker/{ticker}` | Stored-state agenda plus phase-aware rows; current portfolio holdings lead by frozen weight × staleness priority and show subordinate holding context, source-backed next-report state, or one canonical Research → Valuation → History workspace |
+| Refresh company evidence | `POST /api/companies/{ticker}/refresh?scope=all` | Bounded stored evidence refresh; a same-company parsed BiznesRadar profile date is retained as `report-calendar-v1`, then one future Research review may be created/reused only after all refreshed page versions are frozen; no snapshot/model call occurs in the request |
 | Authorize one blocked official PDF | `codex_ingest_issuer_ir_report.py --authorize-direct-official-url --ticker ... --url ... --title ... --authorization-reason ...` | One immutable exact-URL authorization claim, followed by the unchanged bounded PDF fetch; registered HTTPS issuer host and `.pdf` only |
-| Confirm/correct profile | `POST /api/research-cases/{id}/profiles` | Next immutable human-confirmed/corrected profile |
-| Queue Research review | `POST /api/research-cases/{id}/review-runs` | One content-idempotent review job |
+| Confirm/correct profile | `POST /api/research-cases/{id}/profiles` | Next immutable human-confirmed/corrected profile; the latest stored report schedule is reconciled and may become eligible |
+| Queue Research review | `POST /api/research-cases/{id}/review-runs` | One canonical review job idempotent for the prior snapshot, current source manifest and confirmed profile |
 | Verify/save Research | Canonical `verify_research_snapshot` then `save_research_snapshot` adapters | One verifier-gated immutable v3 snapshot; terminal job |
 | Open valuation | `GET /api/research-cases/{id}/valuation-workspace` | Read-only evidence→driver→forecast→value bridge, runway/reinvestment, Street bridge, five-period paths, independent method anchors, DCF sensitivity, reverse expectations and immutable valuation audit |
 | Preview explicit advanced assumptions | `POST /api/research-cases/{id}/valuation-preview` | Zero-write five-year, multi-method deterministic comparison; API only |
 | Queue Codex valuation | `POST /api/research-cases/{id}/valuation-runs` | Valuation frozen to Research/Street inputs; the queued Codex skill performs the company-specific causal analysis and drafts evidence-bound annual drivers, runway, capital allocation/net debt, terminal economics, method fit and conditional probability evidence; Python only validates and computes |
 | Verify/save valuation | Canonical valuation verify then save adapters | Structurally gated immutable valuation; terminal job |
-| Open Portfolio | `GET /api/portfolios/workspace` | Zero-write stored holdings, mappings, review history and typed `portfolio-performance-v1` TWR/XIRR evidence (status, value, method, window, timing, day count, terminal identity, flow count and gaps) |
-| Synchronize myfund | `POST /api/portfolios/sync/myfund` | Durable attempt and reused or next immutable snapshot; one canonical resolver refreshes current mappings without rewriting frozen position rows |
+| Open Portfolio | `GET /api/portfolios/workspace` | Zero-write stored holdings, mappings, operation history/reconciliation, review history and typed `portfolio-performance-v1` TWR/XIRR evidence (status, value, method, window, timing, day count, terminal identity, flow count and gaps) |
+| Synchronize myfund | `POST /api/portfolios/sync/myfund` | Durable attempt and reused or next immutable snapshot; one canonical resolver refreshes current mappings without rewriting frozen position rows, then atomically logs and queues/reuses eligible initial Research, Research review and valuation coverage by weight × staleness |
+| Preview operations CSV | `POST /api/portfolios/operations/preview` with local filename/content | Zero-write parsing of the official full myfund history export; exact headers, optional times/source sequence, signs, units × price ± commission with tax kept separate, and a sequence-bound content fingerprint |
+| Import operations CSV | `POST /api/portfolios/operations/import` with the same content/fingerprint and `confirm_full_export=true` | Atomically replaces prior CSV rows only; repeated identical content is idempotent, contribution flows are reconciled and ticker cost basis appears only when quantity and timestamp ordering reconcile; ambiguous date-only/equal-time buy/sell sequences remain unpublished |
 | Correct mapping | `PATCH /api/portfolios/mappings/{id}` with company ticker or ignored flag plus rationale | Locked explicit current identity interpretation; a mislabeled row may bind to an existing GPW company, while creating a missing company still requires one exact terminal `Akcje GPW`/PLN identity; exact cash cannot be changed |
 | Queue portfolio review | `POST /api/portfolios/review-runs` | One content-idempotent frozen review job |
 | Drain queue | Invoke `$workbench-run-queue` | Lease recovery and repeated claim/verify/save until empty or a safety cap fires |
@@ -96,9 +98,18 @@ calls a model. Only the commands below may mutate durable state.
   mislabeled row only to an existing GPW company; it may create a missing
   company only from one exact terminal `Akcje GPW`/PLN identity. Identical sync
   may repair the current mapping but never rewrites the frozen position
-  classification. Operations import,
-  auto-coverage and outcome scoring remain open Roadmap gates until their
-  deterministic paths are green.
+  classification. Successful sync auto-coverage is deterministic, idempotent
+  and logged; live sync #4 mapped 99.97% of portfolio value and produced six
+  queued initial-Research jobs plus one honest profile blocker. Current-only
+  scenario aggregation rejects fallback to an older verified valuation and
+  never publishes an uncalibrated weighted value. Operation import requires a
+  full, unfiltered CSV: preview is zero-write, confirmation replaces only CSV
+  rows, and missing real history remains a named gap. Staleness/falsifier event
+  producers outside sync, the real operations import, outcome scoring and the
+  six cost-bearing Research jobs remain open; they are not run by page reads.
+  SNT's stored BiznesRadar profile names its next report for 5 August 2026,
+  but calendar automation is correctly blocked until Kuba confirms or corrects
+  the current Codex-proposed profile.
 
 ## Lifecycle and safety
 
@@ -125,10 +136,18 @@ calls a model. Only the commands below may mutate durable state.
 6. Portfolio sync stores unknown instruments, reconciliation differences and
    provider daily history. Python alone computes the typed TWR/XIRR contract;
    frozen portfolio-review verification recomputes it rather than trusting
-   labels or supplied values. Auto-produced coverage jobs must be idempotent,
-   logged, and prioritized by position weight × staleness when S4 enables that
-   producer.
-7. `$workbench-run-queue` clears eligible work with lease recovery and bounded
+   labels or supplied values. The successful-sync coverage producer creates or
+   reuses canonical jobs atomically, logs every inclusion/exclusion/blocker and
+   prioritizes claims by numeric position weight × staleness with FIFO ties.
+   Operations import first previews without writes, then requires explicit
+   confirmation of the same full-export fingerprint; changing operations after
+   a Portfolio review is queued invalidates that frozen review input.
+7. Company refresh stores one schedule per immutable profile version. Eligible
+   confirmed cases reuse the canonical Research review with a post-publication
+   `available_at`; manual review accelerates the same job. A usable saved review
+   queues canonical Valuation in the same transaction. A source gap, profile
+   gate or valuation-input conflict stays visible and does not fabricate work.
+8. `$workbench-run-queue` clears eligible work with lease recovery and bounded
    failure caps; it is not a recurring process.
 
 Never request or store myfund login/password data, automate a provider web UI,

@@ -22,6 +22,7 @@ from app.db.models import (
     AgentRun,
     Company,
     CompanyProfile,
+    CompanyReportSchedule,
     DocumentVersion,
     ResearchCase,
     ResearchSnapshot,
@@ -1045,6 +1046,90 @@ def save_research_snapshot(
                 changed_by="codex-worker",
             )
         )
+
+    report_context = (agent.inputs or {}).get("report_calendar")
+    if report_context:
+        schedule = db.scalar(
+            select(CompanyReportSchedule).where(
+                CompanyReportSchedule.id == report_context.get("schedule_id"),
+                CompanyReportSchedule.company_id == case.company_id,
+                CompanyReportSchedule.research_agent_run_id == agent.id,
+            )
+        )
+        calendar_output: dict[str, object] = {
+            "schedule_id": report_context.get("schedule_id"),
+            "research_snapshot_id": snapshot.id,
+        }
+        if final_status not in {"verified", "provisional"}:
+            calendar_output["valuation_status"] = "not-queued"
+            calendar_output["valuation_reason"] = (
+                "Research verification did not produce a usable snapshot."
+            )
+            if schedule is not None:
+                schedule.automation_status = "blocked"
+                schedule.automation_reason = (
+                    "Research po raporcie wymaga decyzji; wycena nie została zlecona."
+                )
+        else:
+            from app.services.valuation_engine import ValuationInputError
+            from app.services.valuation_queue import (
+                ValuationQueueError,
+                enqueue_valuation,
+            )
+
+            try:
+                queued_valuation = enqueue_valuation(
+                    db,
+                    case=case,
+                    research_snapshot_id=snapshot.id,
+                    as_of=payload.as_of,
+                    trigger="report-calendar",
+                )
+            except (ValuationInputError, ValuationQueueError) as exc:
+                calendar_output["valuation_status"] = "blocked"
+                calendar_output["valuation_reason"] = str(exc)
+                if schedule is not None:
+                    schedule.automation_status = "blocked"
+                    schedule.automation_reason = (
+                        "Research po raporcie zapisano, ale automatyczna wycena jest "
+                        f"zablokowana: {exc}"
+                    )
+            else:
+                calendar_output["valuation_status"] = queued_valuation.agent.status
+                calendar_output["valuation_agent_run_id"] = queued_valuation.agent.id
+                calendar_output["valuation_created"] = queued_valuation.created
+                if schedule is not None:
+                    schedule.valuation_agent_run_id = queued_valuation.agent.id
+                    if queued_valuation.agent.status in {"queued", "running"}:
+                        schedule.automation_status = "scheduled"
+                        schedule.automation_reason = (
+                            "Research po raporcie zapisano; wycena została zlecona "
+                            "kanoniczną kolejką."
+                        )
+                    elif queued_valuation.agent.status in {
+                        "verified",
+                        "provisional",
+                        "completed",
+                    }:
+                        schedule.automation_status = "already-covered"
+                        schedule.automation_reason = (
+                            "Research i wycena dla tej obserwacji zostały już przetworzone."
+                        )
+                    else:
+                        calendar_output["valuation_status"] = "blocked"
+                        calendar_output["valuation_reason"] = (
+                            "Matching canonical valuation is not usable: "
+                            f"{queued_valuation.agent.status}."
+                        )
+                        schedule.automation_status = "blocked"
+                        schedule.automation_reason = (
+                            "Research po raporcie zapisano, ale istniejąca wycena "
+                            "wymaga decyzji przed ponowieniem."
+                        )
+        agent.outputs = {
+            **(agent.outputs or {}),
+            "report_calendar": calendar_output,
+        }
     try:
         db.commit()
     except IntegrityError as exc:

@@ -7,6 +7,7 @@ import {
   IconArrowRight,
   IconBriefcase,
   IconDatabaseOff,
+  IconFileUpload,
   IconRefresh,
   IconShieldCheck,
   IconSparkles,
@@ -21,13 +22,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { getPortfolioWorkspace, queuePortfolioReview, syncMyfundPortfolio } from "@/lib/api";
+import { getPortfolioWorkspace, importPortfolioOperations, previewPortfolioOperations, queuePortfolioReview, syncMyfundPortfolio } from "@/lib/api";
 import { fmtDate, fmtPct, fmtPln, signClass } from "@/lib/format";
 import type {
   PortfolioLiquidity,
   PortfolioPosition,
   PortfolioReviewSnapshot,
   PortfolioReviewStatus,
+  PortfolioOperationsPreview,
   PortfolioWorkspace,
 } from "@/lib/types";
 
@@ -108,6 +110,11 @@ export default function PortfolioDashboard({ initial }: { initial: PortfolioWork
   const [commandError, setCommandError] = useState<string | null>(null);
   const [reviewQueueing, setReviewQueueing] = useState(false);
   const [reviewNotice, setReviewNotice] = useState<string | null>(null);
+  const [operationsPayload, setOperationsPayload] = useState<{ filename: string; content: string } | null>(null);
+  const [operationsPreview, setOperationsPreview] = useState<PortfolioOperationsPreview | null>(null);
+  const [operationsBusy, setOperationsBusy] = useState(false);
+  const [operationsNotice, setOperationsNotice] = useState<string | null>(null);
+  const [operationsError, setOperationsError] = useState<string | null>(null);
   const snapshot = workspace.snapshot;
   const provider = providerLabel(workspace.provider);
 
@@ -166,6 +173,49 @@ export default function PortfolioDashboard({ initial }: { initial: PortfolioWork
     }
   }
 
+  async function previewOperations(file: File) {
+    setOperationsBusy(true);
+    setOperationsNotice(null);
+    setOperationsError(null);
+    setOperationsPreview(null);
+    setOperationsPayload(null);
+    try {
+      if (file.size > 5_000_000) throw new Error("Plik przekracza limit 5 MB.");
+      const payload = { filename: file.name, content: await file.text() };
+      const preview = await previewPortfolioOperations(payload);
+      setOperationsPayload(payload);
+      setOperationsPreview(preview);
+      setOperationsNotice("Podgląd jest gotowy. Żadna operacja nie została jeszcze zapisana.");
+    } catch (error) {
+      setOperationsError(error instanceof Error ? error.message : "Nie udało się odczytać pliku CSV.");
+    } finally {
+      setOperationsBusy(false);
+    }
+  }
+
+  async function confirmOperationsImport() {
+    if (!operationsPayload || !operationsPreview) return;
+    setOperationsBusy(true);
+    setOperationsError(null);
+    try {
+      const result = await importPortfolioOperations({
+        ...operationsPayload,
+        expected_fingerprint: operationsPreview.fingerprint,
+        confirm_full_export: true,
+      });
+      setWorkspace(result.workspace);
+      setOperationsPayload(null);
+      setOperationsPreview(null);
+      setOperationsNotice(result.import.changed
+        ? `Zapisano pełną historię: ${result.import.imported_count} operacji.`
+        : "Ten sam pełny eksport jest już zapisany.");
+    } catch (error) {
+      setOperationsError(error instanceof Error ? error.message : "Import historii operacji nie powiódł się.");
+    } finally {
+      setOperationsBusy(false);
+    }
+  }
+
   if (!workspace.configured) {
     return (
       <main className="page-stack portfolio-page">
@@ -211,6 +261,8 @@ export default function PortfolioDashboard({ initial }: { initial: PortfolioWork
   if (analyticsAvailable && scenarioCoverage === 0 && workspace.positions.some((item) => item.mapping_kind === "company")) attention.push("Żadna pozycja nie ma aktualnej zweryfikowanej wyceny; wrażliwość scenariuszowa jest niedostępna.");
   else if (scenario && scenario.exclusions.length > 0) attention.push(`${scenario.exclusions.length} pozycji nie wchodzi do wrażliwości scenariuszowej.`);
   if (workspace.history.length === 0) attention.push("myfund nie zwrócił historii wartości i stóp zwrotu dla tego snapshotu.");
+  if (workspace.operations.status === "missing") attention.push("Brak historii operacji; zaimportuj pełny eksport CSV z myfund, aby uzgodnić przepływy.");
+  else if (workspace.operations.flow_reconciliation.status === "mismatch") attention.push("Historia operacji nie uzgadnia się ze zmianami wkładu myfund.");
   snapshot.gaps.filter((gap) => !historyGaps.has(gap)).forEach((gap) => attention.push(gap));
 
   return (
@@ -254,6 +306,15 @@ export default function PortfolioDashboard({ initial }: { initial: PortfolioWork
       )}
 
       <HistorySection workspace={workspace} />
+      <OperationsSection
+        workspace={workspace}
+        preview={operationsPreview}
+        busy={operationsBusy}
+        notice={operationsNotice}
+        error={operationsError}
+        onFile={previewOperations}
+        onImport={confirmOperationsImport}
+      />
       <ScenarioSection workspace={workspace} analyticsAvailable={analyticsAvailable} />
       <PortfolioReviewSection workspace={workspace} queueing={reviewQueueing} notice={reviewNotice} onQueue={queueReview} analyticsAvailable={analyticsAvailable} />
       <LiquidityAudit workspace={workspace} />
@@ -370,7 +431,7 @@ function PositionsSection({ positions, total, liquidity, covered, exclusions, an
                   {badge && <small className="portfolio-mapping-reason">{position.mapping_reason}</small>}
                 </div>
                 <div role="cell"><strong>{fmtPln(position.value)}</strong>{allocation != null && <span>{fmtPct(allocation)}</span>}{position.quantity != null && <small>{position.quantity.toLocaleString("pl-PL", { maximumFractionDigits: 4 })} szt.</small>}</div>
-                <div role="cell"><strong>{fmtPln(position.cost_basis)}</strong><span className={signClass(position.profit)}>{signedPln(position.profit)}</span><small>wg dostawcy</small></div>
+                <div role="cell"><strong>{fmtPln(position.cost_basis)}</strong><span className={signClass(position.profit)}>{signedPln(position.profit)}</span><small>wg dostawcy</small>{position.operation_cost_basis_status === "reconciled" && <small>z operacji: koszt {fmtPln(position.operation_cost_basis)} · wynik {signedPln(position.operation_profit)}</small>}{position.operation_cost_basis_status === "mismatch" && <small title={position.operation_cost_basis_gaps.join(" ")}>operacje: ilość nieuzgodniona</small>}</div>
                 <div role="cell" className="portfolio-liquidity-cell">{analyticsAvailable ? liquidityLabel(liquidity.get(position.id)) : <span className="muted">brak zachowanych danych</span>}</div>
                 <div role="cell">
                   {!analyticsAvailable ? <span className="muted">brak zachowanych danych</span> : covered.has(position.id) ? <><span className="badge success">pokryta</span><small>zweryfikowana wycena</small></> : position.mapping_kind === "company" ? <><span className="badge muted">bez pokrycia</span><small title={excluded?.reason}>{excluded?.latest_status ? `ostatnia: ${excluded.latest_status}` : "brak aktualnej zweryfikowanej wyceny"}</small></> : <span className="muted">nie dotyczy</span>}
@@ -430,6 +491,65 @@ function HistorySection({ workspace }: { workspace: PortfolioWorkspace }) {
   );
 }
 
+function OperationsSection({ workspace, preview, busy, notice, error, onFile, onImport }: {
+  workspace: PortfolioWorkspace;
+  preview: PortfolioOperationsPreview | null;
+  busy: boolean;
+  notice: string | null;
+  error: string | null;
+  onFile: (file: File) => Promise<void>;
+  onImport: () => Promise<void>;
+}) {
+  const operations = workspace.operations;
+  const flowLabels: Record<typeof operations.flow_reconciliation.status, string> = {
+    reconciled: "Uzgodnione ze zmianami wkładu",
+    mismatch: "Niezgodne ze zmianami wkładu",
+    partial: "Uzgodnienie częściowe",
+    unavailable: "Brak podstawy do uzgodnienia",
+  };
+  return (
+    <section className="portfolio-section portfolio-operations" aria-labelledby="portfolio-operations-title">
+      <div className="portfolio-section-heading">
+        <div><p className="section-label">Przepływy</p><h2 id="portfolio-operations-title">Historia operacji</h2></div>
+        <span>{operations.count > 0 ? `${operations.count} operacji · ${fmtDate(operations.date_from)}–${fmtDate(operations.date_to)}` : "Pełny eksport CSV z myfund"}</span>
+      </div>
+
+      {operations.status === "imported" ? <>
+        <div className="portfolio-operation-metrics">
+          <div><span>Wpłaty</span><strong>{fmtPln(operations.deposit_total_pln)}</strong></div>
+          <div><span>Wypłaty</span><strong>{fmtPln(operations.withdrawal_total_pln)}</strong></div>
+          <div><span>Uzgodnienie przepływów</span><strong>{flowLabels[operations.flow_reconciliation.status]}</strong><small>{operations.flow_reconciliation.matched_days} zgodnych dni</small></div>
+        </div>
+        {operations.gaps.length > 0 && <div className="portfolio-history-partial"><IconAlertTriangle size={15} /><div><strong>Historia wymaga uwagi</strong><span>{operations.gaps.join(" ")}</span></div></div>}
+        {operations.recent.length > 0 && <details className="portfolio-operation-history">
+          <summary>Ostatnie operacje ({Math.min(20, operations.recent.length)})</summary>
+          <div className="portfolio-operation-table" role="table" aria-label="Ostatnie operacje portfela">
+            <div className="portfolio-operation-row head" role="row"><span>Data i typ</span><span>Walor</span><span>Ilość / cena</span><span>Wartość</span></div>
+            {operations.recent.map((row) => <div className="portfolio-operation-row" role="row" key={row.id}>
+              <div role="cell"><strong>{fmtDate(row.occurred_on)}{row.occurred_at ? ` · ${row.occurred_at.slice(11, 16)}` : ""}</strong><span>{row.kind_label}</span></div>
+              <div role="cell"><strong>{row.ticker || row.instrument_name || "Gotówka"}</strong><span>{row.instrument_name}</span></div>
+              <div role="cell"><strong>{row.quantity == null ? "—" : row.quantity.toLocaleString("pl-PL", { maximumFractionDigits: 6 })}</strong><span>{row.price == null ? "bez ceny" : fmtPln(row.price)}{row.commission ? ` · prowizja ${fmtPln(row.commission)}` : ""}{row.tax ? ` · podatek ${fmtPln(row.tax)}` : ""}</span></div>
+              <div role="cell"><strong className={signClass(row.amount_pln)}>{signedPln(row.amount_pln)}</strong><span>{row.currency}</span></div>
+            </div>)}
+          </div>
+        </details>}
+      </> : <div className="portfolio-valid-empty"><strong>Brak historii operacji</strong><span>Bieżący skład i obliczenia z dziennej serii pozostają widoczne. Pełny eksport pozwoli niezależnie uzgodnić wpłaty i wypłaty.</span></div>}
+
+      <div className="portfolio-operation-import">
+        <div><strong>Import pełnego eksportu</strong><span>W myfund otwórz Operacje → Historia i modyfikacja, usuń filtry, ustaw wartości w walucie portfela i wybierz eksport CSV. Podgląd nie zapisuje danych.</span></div>
+        <label className="btn" htmlFor="portfolio-operations-file"><IconFileUpload size={14} /> {busy ? "Sprawdzam…" : "Wybierz CSV"}</label>
+        <input id="portfolio-operations-file" type="file" accept=".csv,text/csv" disabled={busy} onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void onFile(file); }} />
+      </div>
+      {notice && <div className="portfolio-review-notice" role="status">{notice}</div>}
+      {error && <div className="error-box" role="alert">{error}</div>}
+      {preview && <div className="portfolio-operation-preview">
+        <div><strong>Podgląd: {preview.summary.row_count} operacji</strong><span>{fmtDate(preview.summary.date_from)}–{fmtDate(preview.summary.date_to)} · wpłaty {fmtPln(preview.summary.deposit_total_pln)} · wypłaty {fmtPln(preview.summary.withdrawal_total_pln)}</span><small>{preview.summary.unclassified_count > 0 ? `${preview.summary.unclassified_count} nierozpoznanych typów pozostanie jawnie oznaczone.` : "Wszystkie typy użyte do przepływów są rozpoznane."}</small></div>
+        <button className="btn accent" disabled={busy} onClick={() => void onImport()}>{busy ? "Zapisuję…" : "Potwierdź pełny eksport i zastąp historię"}</button>
+      </div>}
+    </section>
+  );
+}
+
 function ScenarioSection({ workspace, analyticsAvailable }: { workspace: PortfolioWorkspace; analyticsAvailable: boolean }) {
   const scenario = workspace.scenario_sensitivity;
   const current = workspace.snapshot!.total_value;
@@ -440,8 +560,8 @@ function ScenarioSection({ workspace, analyticsAvailable }: { workspace: Portfol
         <div className="portfolio-scenario-grid">
           {[{ key: "negative", label: "Spadkowy" }, { key: "base", label: "Bazowy" }, { key: "positive", label: "Wzrostowy" }, { key: "weighted", label: "Ważony w spółkach" }].map(({ key, label }) => {
             const value = scenario.portfolio_values[key as keyof typeof scenario.portfolio_values];
-            const change = current > 0 ? (value / current - 1) * 100 : null;
-            return <div key={key}><span>{label}</span><strong>{fmtPln(value)}</strong><small className={signClass(change)}>{fmtPct(change, { signed: true })} wobec obecnej wartości</small></div>;
+            const change = value != null && current > 0 ? (value / current - 1) * 100 : null;
+            return <div key={key}><span>{label}</span><strong>{value == null ? "Celowo niepublikowany" : fmtPln(value)}</strong><small className={signClass(change)}>{value == null ? "Brak skalibrowanych wag dla całego pokrycia" : `${fmtPct(change, { signed: true })} wobec obecnej wartości`}</small></div>;
           })}
         </div>
         <p className="portfolio-scenario-note">Pokrycie {fmtPct(scenario.coverage_value_pct)}. To równoległa wrażliwość, a nie wspólny rozkład prawdopodobieństwa ani rekomendacja.</p>

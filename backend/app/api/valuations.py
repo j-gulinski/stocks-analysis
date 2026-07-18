@@ -11,7 +11,6 @@ from datetime import timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
@@ -29,22 +28,18 @@ from app.api.schemas import (
 )
 from app.db.base import get_db
 from app.db.models import (
-    AgentRun,
     CompanyProfile,
     ResearchCase,
     ResearchSnapshot,
     ValuationSnapshot,
     utcnow,
 )
-from app.services.model_policy import default_model_for_workflow
 from app.services.artifact_contracts import (
     RESEARCH_PROFILE_SCHEMA,
     canonical_research_snapshot_predicate,
     canonical_valuation_snapshot_predicate,
 )
 from app.services.valuation_artifacts import (
-    CONTRACT_VERSION,
-    SKILL_VERSION,
     ValuationArtifactError,
     save_valuation_override,
     save_valuation_snapshot,
@@ -52,16 +47,16 @@ from app.services.valuation_artifacts import (
     verify_valuation_snapshot,
 )
 from app.services.valuation_engine import (
-    ENGINE_VERSION,
-    TEMPLATE_CONTRACT_VERSION,
     ValuationInputError,
     prepare_valuation,
-    prepare_valuation_base,
+)
+from app.services.valuation_queue import (
+    ValuationQueueError,
+    enqueue_valuation,
 )
 from app.services.valuation_templates import get_template
 
 router = APIRouter(tags=["valuations"])
-WORKFLOW = "stock-company-valuation"
 
 
 def _case(db: Session, case_id: int) -> ResearchCase:
@@ -277,88 +272,26 @@ def queue_valuation(
         research_snapshot_id = research.id
     as_of = payload.as_of or utcnow().replace(tzinfo=timezone.utc)
     try:
-        base = prepare_valuation_base(
-            db, case=case, research_snapshot_id=research_snapshot_id, as_of=as_of
+        queued = enqueue_valuation(
+            db,
+            case=case,
+            research_snapshot_id=research_snapshot_id,
+            as_of=as_of,
         )
-    except ValuationInputError as exc:
-        _raise_input(exc)
-    key = f"valuation:{case.id}:{base['input_fingerprint']}"
-    existing = db.scalar(select(AgentRun).where(AgentRun.idempotency_key == key))
-    if existing is not None:
-        return ValuationQueueOut(
-            agent_run_id=existing.id,
-            status=existing.status,
-            created=False,
-            input_fingerprint=base["input_fingerprint"],
-        )
-    active_peer = db.scalar(
-        select(AgentRun).where(
-            AgentRun.company_id == case.company_id,
-            AgentRun.workflow == WORKFLOW,
-            AgentRun.status.in_(("queued", "running")),
-        )
-    )
-    if active_peer is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Another valuation for this company is already queued or running; "
-                "finish it before freezing different inputs."
-            ),
-        )
-    frozen = {
-        "research_snapshot_id": research_snapshot_id,
-        "as_of": as_of.isoformat(),
-        "template_id": base["template"].id,
-        "template_version": base["template"].version,
-        "profile_archetype": base["template"].archetype,
-        "base_values": base["base_values"],
-        "input_manifest": base["input_manifest"],
-        "gaps": base["gaps"],
-        "input_fingerprint": base["input_fingerprint"],
-    }
-    model = default_model_for_workflow(WORKFLOW)
-    agent = AgentRun(
-        workflow=WORKFLOW,
-        trigger="valuation-command",
-        status="queued",
-        company_id=case.company_id,
-        model_role="analyst_deep",
-        model=model,
-        orchestrator_model=model,
-        idempotency_key=key,
-        inputs={
-            "research_case_id": case.id,
-            "ticker": frozen["base_values"]["company"]["ticker"],
-            "task": {
-                "skill": "company-valuation",
-                "skill_version": SKILL_VERSION,
-                "output_contract_version": CONTRACT_VERSION,
-                "engine_version": ENGINE_VERSION,
-                "template_contract_version": TEMPLATE_CONTRACT_VERSION,
-                "required_verification": "verifier_strict",
-            },
-            "valuation": frozen,
-        },
-    )
-    db.add(agent)
-    try:
         db.commit()
-    except IntegrityError:
+    except (ValuationInputError, ValuationQueueError) as exc:
         db.rollback()
-        existing = db.scalar(select(AgentRun).where(AgentRun.idempotency_key == key))
-        if existing is None:
-            raise
-        agent = existing
-        created = False
-    else:
-        db.refresh(agent)
-        created = True
+        if isinstance(exc, ValuationInputError):
+            _raise_input(exc)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    db.refresh(queued.agent)
     return ValuationQueueOut(
-        agent_run_id=agent.id,
-        status=agent.status,
-        created=created,
-        input_fingerprint=base["input_fingerprint"],
+        agent_run_id=queued.agent.id,
+        status=queued.agent.status,
+        created=queued.created,
+        input_fingerprint=queued.input_fingerprint,
     )
 
 

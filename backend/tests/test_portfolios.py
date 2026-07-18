@@ -22,6 +22,7 @@ from app.db.models import (
     AgentRun,
     VerificationRun,
     PortfolioReviewSnapshot,
+    PortfolioOperation,
     Price,
     ThesisFalsifier,
 )
@@ -118,6 +119,704 @@ class Response:
 
     def json(self):
         return self.value
+
+
+def operations_csv() -> str:
+    return "\n".join(
+        [
+            "Data;Operacja;Konto;Walor;Waluta;Liczba jednostek;Cena;Prowizja;Podatek;Wartość;Stan konta po operacji",
+            "2026-07-09;Wpłata;mBank;Gotówka;;;;;;9000;9000",
+            "2026-07-10;Wpłata;mBank;Gotówka;;;;;;1000;3995",
+            "2026-07-10;Kupno;mBank;SYNEKTIK (SNT);PLN;20;300;5;0;-6005;2995",
+        ]
+    )
+
+
+def _append_valuation(
+    db,
+    *,
+    company: Company,
+    case: ResearchCase,
+    research: ResearchSnapshot,
+    version: int,
+    status: str,
+    weighted_price: float | None,
+    fingerprint: str,
+) -> ValuationSnapshot:
+    run = AgentRun(
+        workflow="stock-company-valuation",
+        status="completed",
+        company_id=company.id,
+        inputs={},
+        outputs={},
+    )
+    db.add(run)
+    db.flush()
+    verification_id = None
+    if status == "verified":
+        verification = VerificationRun(
+            agent_run_id=run.id,
+            model_role="verifier_strict",
+            verifier_model="test",
+            verdict="pass",
+            checks={},
+        )
+        db.add(verification)
+        db.flush()
+        verification_id = verification.id
+    valuation = ValuationSnapshot(
+        research_case_id=case.id,
+        research_snapshot_id=research.id,
+        agent_run_id=run.id,
+        verification_run_id=verification_id,
+        version=version,
+        contract_version="valuation-snapshot-v3",
+        status=status,
+        as_of=datetime(2026, 7, 10, tzinfo=timezone.utc),
+        template_id="industrial",
+        template_version="v1",
+        calculation_engine_version="valuation-engine-v4",
+        assumptions={},
+        base_values={},
+        deterministic_outputs={
+            "scenarios": [
+                {"kind": "negative", "target_price_pln": 100},
+                {"kind": "base", "target_price_pln": 200},
+                {"kind": "positive", "target_price_pln": 400},
+            ],
+            "probability_weighted": {"price_pln": weighted_price},
+        },
+        codex_judgment={},
+        input_manifest={},
+        gaps=[],
+        input_fingerprint=fingerprint,
+        calculation_fingerprint=fingerprint,
+        artifact_fingerprint=fingerprint,
+        verifier_result={},
+    )
+    db.add(valuation)
+    db.commit()
+    return valuation
+
+
+def test_sync_coverage_is_idempotent_logged_prioritized_and_drives_research_read(
+    client, db, monkeypatch
+):
+    from app.api import portfolios
+    from app.services.research_queue import ensure_research_case
+
+    db.add(Company(ticker="SNT", name="Synektik", market="GPW"))
+    db.commit()
+    manual = ensure_research_case(db, ticker="SNT", origin="manual")
+    db.commit()
+    original_agent_id = manual.agent.id
+    monkeypatch.setattr(portfolios, "get_settings", settings)
+    monkeypatch.setattr(
+        portfolios.polite_http, "fetch", lambda *a, **k: Response(payload())
+    )
+
+    first = client.post("/api/portfolios/sync/myfund")
+    assert first.status_code == 200, first.text
+    first_body = first.json()
+    included = [
+        row for row in first_body["sync"]["coverage_decisions"] if row["included"]
+    ]
+    excluded = [
+        row for row in first_body["sync"]["coverage_decisions"] if not row["included"]
+    ]
+    assert len(included) == 1
+    assert included[0]["company_id"] == manual.company.id
+    assert included[0]["research_origin"] == "manual"
+    assert included[0]["agent_run_id"] == original_agent_id
+    assert included[0]["created_job"] is False
+    assert included[0]["staleness_days"] == 31
+    assert included[0]["weight_pct"] == 60
+    assert included[0]["priority_score"] == 1860
+    assert excluded
+    assert {reason for row in excluded for reason in row["reasons"]} == {
+        "mapping_not_company"
+    }
+    db.refresh(manual.agent)
+    assert float(manual.agent.queue_priority) == 1860
+    assert manual.agent.inputs["portfolio_coverage"]["portfolio_sync_id"] == first_body[
+        "sync"
+    ]["id"]
+
+    repeated = client.post("/api/portfolios/sync/myfund")
+    assert repeated.status_code == 200, repeated.text
+    repeated_body = repeated.json()
+    assert repeated_body["sync"]["reused_snapshot"] is True
+    repeated_decision = next(
+        row for row in repeated_body["sync"]["coverage_decisions"] if row["included"]
+    )
+    assert repeated_decision["agent_run_id"] == original_agent_id
+    assert repeated_decision["created_job"] is False
+    assert db.scalar(select(func.count()).select_from(AgentRun)) == 1
+    assert db.scalar(select(func.count()).select_from(ResearchCase)) == 1
+
+    ensure_research_case(
+        db,
+        ticker="DIS",
+        origin="discover",
+        discovery_origin={"candidate": {"name": "Discover SA"}},
+    )
+    ensure_research_case(db, ticker="MAN", origin="manual")
+    db.commit()
+    before = {
+        "syncs": db.scalar(select(func.count()).select_from(PortfolioSync)),
+        "cases": db.scalar(select(func.count()).select_from(ResearchCase)),
+        "runs": db.scalar(select(func.count()).select_from(AgentRun)),
+    }
+    listed = client.get("/api/research-cases")
+    assert listed.status_code == 200, listed.text
+    rows = listed.json()
+    assert [row["ticker"] for row in rows] == ["SNT", "DIS", "MAN"]
+    holding = rows[0]
+    assert holding["origin"] == "manual"
+    assert holding["is_portfolio_holding"] is True
+    assert holding["portfolio_weight_pct"] == 60
+    assert holding["portfolio_priority_score"] == 1860
+    assert holding["portfolio_staleness_days"] == 31
+    assert holding["portfolio_coverage_state"] == "research_pending"
+    assert any("zweryfikowanego Research" in reason for reason in holding["agenda_reasons"])
+    assert all("job" not in reason.casefold() for reason in holding["agenda_reasons"])
+    after = {
+        "syncs": db.scalar(select(func.count()).select_from(PortfolioSync)),
+        "cases": db.scalar(select(func.count()).select_from(ResearchCase)),
+        "runs": db.scalar(select(func.count()).select_from(AgentRun)),
+    }
+    assert after == before
+
+
+def test_operations_csv_requires_preview_then_atomically_replaces_and_reconciles(
+    client, db, monkeypatch
+):
+    from app.api import portfolios
+
+    raw = payload()
+    raw["wkladWCzasie"]["2026-07-10"] = "10000"
+    monkeypatch.setattr(portfolios, "get_settings", settings)
+    monkeypatch.setattr(
+        portfolios.polite_http, "fetch", lambda *a, **k: Response(raw)
+    )
+    assert client.post("/api/portfolios/sync/myfund").status_code == 200
+    file_payload = {"filename": "historia-operacji.csv", "content": operations_csv()}
+
+    before = db.scalar(select(func.count()).select_from(PortfolioOperation))
+    preview = client.post("/api/portfolios/operations/preview", json=file_payload)
+    assert preview.status_code == 200, preview.text
+    preview_body = preview.json()
+    assert db.scalar(select(func.count()).select_from(PortfolioOperation)) == before
+    assert preview_body["version"] == "myfund-operations-csv-v1"
+    assert len(preview_body["fingerprint"]) == 64
+    assert preview_body["summary"] == {
+        "row_count": 3,
+        "date_from": "2026-07-09",
+        "date_to": "2026-07-10",
+        "deposit_total_pln": 10000,
+        "withdrawal_total_pln": 0,
+        "external_flow_count": 2,
+        "unclassified_count": 0,
+        "currency_defaulted_rows": 2,
+    }
+
+    stale = client.post(
+        "/api/portfolios/operations/import",
+        json={
+            **file_payload,
+            "expected_fingerprint": "0" * 64,
+            "confirm_full_export": True,
+        },
+    )
+    assert stale.status_code == 409
+    assert db.scalar(select(func.count()).select_from(PortfolioOperation)) == 0
+
+    imported = client.post(
+        "/api/portfolios/operations/import",
+        json={
+            **file_payload,
+            "expected_fingerprint": preview_body["fingerprint"],
+            "confirm_full_export": True,
+        },
+    )
+    assert imported.status_code == 200, imported.text
+    assert imported.json()["import"] == {
+        "changed": True,
+        "replaced_count": 0,
+        "imported_count": 3,
+        "fingerprint": preview_body["fingerprint"],
+    }
+    operations = imported.json()["workspace"]["operations"]
+    assert operations["status"] == "imported"
+    assert operations["count"] == 3
+    assert operations["flow_reconciliation"] == {
+        "status": "reconciled",
+        "matched_days": 1,
+        "mismatches": [],
+        "provider_contribution_change_pln": 1000,
+        "operation_external_flow_pln": 1000,
+    }
+    buy_operation = next(row for row in operations["recent"] if row["ticker"] == "SNT")
+    assert buy_operation["commission"] == 5
+    snt_position = next(
+        row for row in imported.json()["workspace"]["positions"] if row["ticker"] == "SNT"
+    )
+    assert snt_position["operation_cost_basis_status"] == "reconciled"
+    assert snt_position["operation_cost_basis"] == 6005
+    assert snt_position["operation_profit"] == -5
+
+    repeated = client.post(
+        "/api/portfolios/operations/import",
+        json={
+            **file_payload,
+            "expected_fingerprint": preview_body["fingerprint"],
+            "confirm_full_export": True,
+        },
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["import"]["changed"] is False
+    assert db.scalar(select(func.count()).select_from(PortfolioOperation)) == 3
+
+    queued_review = client.post("/api/portfolios/review-runs").json()
+    review_agent = claim_agent_run(
+        db,
+        agent_run_id=queued_review["agent_run_id"],
+        worker_id="operations-review-drafter",
+    )
+    replacement_content = "\n".join(operations_csv().splitlines()[:-1])
+    replacement_payload = {
+        "filename": "historia-operacji.csv",
+        "content": replacement_content,
+    }
+    replacement_preview = client.post(
+        "/api/portfolios/operations/preview", json=replacement_payload
+    ).json()
+    assert (
+        client.post(
+            "/api/portfolios/operations/import",
+            json={
+                **replacement_payload,
+                "expected_fingerprint": replacement_preview["fingerprint"],
+                "confirm_full_export": True,
+            },
+        ).status_code
+        == 200
+    )
+    changed_after_freeze = client.post(
+        "/api/portfolios/review-verifications",
+        json=_review_verification(_review_draft(review_agent)),
+    )
+    assert changed_after_freeze.status_code == 409
+    assert "operations changed" in changed_after_freeze.json()["detail"]
+
+
+def test_operations_csv_rejects_wrong_shape_or_sign_without_replacing_history(
+    client, db, monkeypatch
+):
+    from app.api import portfolios
+
+    monkeypatch.setattr(portfolios, "get_settings", settings)
+    monkeypatch.setattr(
+        portfolios.polite_http, "fetch", lambda *a, **k: Response(payload())
+    )
+    assert client.post("/api/portfolios/sync/myfund").status_code == 200
+    valid = {"filename": "operacje.csv", "content": operations_csv()}
+    preview = client.post("/api/portfolios/operations/preview", json=valid).json()
+    assert (
+        client.post(
+            "/api/portfolios/operations/import",
+            json={
+                **valid,
+                "expected_fingerprint": preview["fingerprint"],
+                "confirm_full_export": True,
+            },
+        ).status_code
+        == 200
+    )
+    before_hashes = list(
+        db.scalars(
+            select(PortfolioOperation.content_hash).order_by(
+                PortfolioOperation.content_hash
+            )
+        )
+    )
+
+    wrong_sign = operations_csv().replace(";-6005;2995", ";6005;2995")
+    rejected = client.post(
+        "/api/portfolios/operations/preview",
+        json={"filename": "operacje.csv", "content": wrong_sign},
+    )
+    assert rejected.status_code == 422
+    assert "znak Wartości" in rejected.json()["detail"]
+    wrong_math = operations_csv().replace(";-6005;2995", ";-6004;2995")
+    arithmetic_rejected = client.post(
+        "/api/portfolios/operations/preview",
+        json={"filename": "operacje.csv", "content": wrong_math},
+    )
+    assert arithmetic_rejected.status_code == 422
+    assert "nie uzgadnia" in arithmetic_rejected.json()["detail"]
+    missing_header = client.post(
+        "/api/portfolios/operations/preview",
+        json={"filename": "operacje.csv", "content": "Data;Operacja\n2026-07-10;Kupno"},
+    )
+    assert missing_header.status_code == 422
+    assert list(
+        db.scalars(
+            select(PortfolioOperation.content_hash).order_by(
+                PortfolioOperation.content_hash
+            )
+        )
+    ) == before_hashes
+
+
+def test_operation_cost_basis_is_withheld_for_ambiguous_same_day_buy_sell_order(
+    client, monkeypatch
+):
+    from app.api import portfolios
+
+    monkeypatch.setattr(portfolios, "get_settings", settings)
+    monkeypatch.setattr(
+        portfolios.polite_http, "fetch", lambda *a, **k: Response(payload())
+    )
+    assert client.post("/api/portfolios/sync/myfund").status_code == 200
+    header = operations_csv().splitlines()[0]
+    ambiguous = "\n".join(
+        [
+            header,
+            "2026-07-10;Kupno;mBank;SYNEKTIK (SNT);PLN;10;100;0;0;-1000;9000",
+            "2026-07-10;Sprzedaż;mBank;SYNEKTIK (SNT);PLN;-5;200;0;0;1000;10000",
+            "2026-07-10;Kupno;mBank;SYNEKTIK (SNT);PLN;15;300;0;0;-4500;5500",
+        ]
+    )
+    file_payload = {"filename": "operacje.csv", "content": ambiguous}
+    preview = client.post(
+        "/api/portfolios/operations/preview", json=file_payload
+    ).json()
+    imported = client.post(
+        "/api/portfolios/operations/import",
+        json={
+            **file_payload,
+            "expected_fingerprint": preview["fingerprint"],
+            "confirm_full_export": True,
+        },
+    )
+    assert imported.status_code == 200, imported.text
+    position = next(
+        row for row in imported.json()["workspace"]["positions"] if row["ticker"] == "SNT"
+    )
+    assert position["operation_cost_basis_status"] == "unavailable"
+    assert position["operation_cost_basis"] is None
+    assert any(
+        "pewną kolejność" in gap
+        for gap in position["operation_cost_basis_gaps"]
+    )
+
+
+def test_operations_csv_preserves_timestamps_and_excludes_tax_from_value_math(
+    client, monkeypatch
+):
+    from app.api import portfolios
+
+    monkeypatch.setattr(portfolios, "get_settings", settings)
+    monkeypatch.setattr(
+        portfolios.polite_http, "fetch", lambda *a, **k: Response(payload())
+    )
+    assert client.post("/api/portfolios/sync/myfund").status_code == 200
+    header = operations_csv().splitlines()[0]
+    timestamped = "\n".join(
+        [
+            header,
+            "2026-07-10 11:00;Kupno;mBank;SYNEKTIK (SNT);PLN;15;300;0;0;-4500;5500",
+            "2026-07-10 10:00;Sprzedaż;mBank;SYNEKTIK (SNT);PLN;-5;200;5;10;995;10000",
+            "2026-07-10 09:00;Kupno;mBank;SYNEKTIK (SNT);PLN;10;100;0;0;-1000;9000",
+        ]
+    )
+    file_payload = {"filename": "operacje.csv", "content": timestamped}
+    preview = client.post(
+        "/api/portfolios/operations/preview", json=file_payload
+    )
+    assert preview.status_code == 200, preview.text
+    preview_body = preview.json()
+    assert preview_body["sample"][0]["occurred_at"] == "2026-07-10T11:00:00"
+    reordered = "\n".join(
+        [timestamped.splitlines()[0], *reversed(timestamped.splitlines()[1:])]
+    )
+    reordered_preview = client.post(
+        "/api/portfolios/operations/preview",
+        json={"filename": "operacje.csv", "content": reordered},
+    )
+    assert reordered_preview.status_code == 200, reordered_preview.text
+    assert reordered_preview.json()["fingerprint"] != preview_body["fingerprint"]
+
+    imported = client.post(
+        "/api/portfolios/operations/import",
+        json={
+            **file_payload,
+            "expected_fingerprint": preview_body["fingerprint"],
+            "confirm_full_export": True,
+        },
+    )
+    assert imported.status_code == 200, imported.text
+    operations = imported.json()["workspace"]["operations"]
+    assert [row["occurred_at"] for row in operations["recent"]] == [
+        "2026-07-10T11:00:00",
+        "2026-07-10T10:00:00",
+        "2026-07-10T09:00:00",
+    ]
+    sale = next(row for row in operations["recent"] if row["kind"] == "sell")
+    assert sale["occurred_at"] == "2026-07-10T10:00:00"
+    assert sale["amount_pln"] == 995
+    assert sale["commission"] == 5
+    assert sale["tax"] == 10
+    position = next(
+        row
+        for row in imported.json()["workspace"]["positions"]
+        if row["ticker"] == "SNT"
+    )
+    assert position["operation_cost_basis_status"] == "reconciled"
+    assert position["operation_cost_basis"] == 5000
+
+
+def test_sync_coverage_queues_and_reuses_valuation_for_latest_verified_research(
+    client, db, monkeypatch
+):
+    from app.api import portfolios
+    from app.services import portfolio_coverage
+
+    company = Company(ticker="SNT", name="Synektik", market="GPW")
+    db.add(company)
+    db.commit()
+    monkeypatch.setattr(portfolios, "get_settings", settings)
+    monkeypatch.setattr(
+        portfolios.polite_http, "fetch", lambda *a, **k: Response(payload())
+    )
+    assert client.post("/api/portfolios/sync/myfund").status_code == 200
+    case = db.scalar(
+        select(ResearchCase).where(ResearchCase.company_id == company.id)
+    )
+    assert case is not None
+    profile = CompanyProfile(
+        research_case_id=case.id,
+        version=1,
+        schema_version="company-profile-v2",
+        archetype="industrial-consumer",
+        archetype_version="archetype-packs-v1",
+        company_overlay={},
+        drivers=[],
+        kpis=[],
+        provenance="human-confirmed",
+    )
+    db.add(profile)
+    db.flush()
+    research_run = AgentRun(
+        workflow="stock-company-review",
+        status="verified",
+        company_id=company.id,
+        inputs={"research_case_id": case.id},
+        outputs={},
+    )
+    db.add(research_run)
+    db.flush()
+    verification = VerificationRun(
+        agent_run_id=research_run.id,
+        model_role="verifier_strict",
+        verifier_model="test",
+        verdict="pass",
+        checks={},
+    )
+    db.add(verification)
+    db.flush()
+    research = ResearchSnapshot(
+        research_case_id=case.id,
+        company_profile_id=profile.id,
+        agent_run_id=research_run.id,
+        verification_run_id=verification.id,
+        version=1,
+        contract_version="research-snapshot-v3",
+        status="verified",
+        as_of=datetime.now(timezone.utc) - timedelta(minutes=1),
+        input_fingerprint="coverage-research-input",
+        artifact_fingerprint="c" * 64,
+        sections={},
+        source_manifest=[],
+        conflicts=[],
+        gaps=[],
+        next_checks=[],
+        statement_provenance=[],
+        verifier_result=_canonical_research_verifier_result(),
+    )
+    db.add(research)
+    db.commit()
+    calls = []
+
+    def fake_enqueue(db, *, case, research_snapshot_id, trigger, queue_priority,
+                     portfolio_coverage, **_kwargs):
+        calls.append(research_snapshot_id)
+        run = AgentRun(
+            workflow="stock-company-valuation",
+            trigger=trigger,
+            status="queued",
+            company_id=case.company_id,
+            idempotency_key=f"test-auto-valuation:{research_snapshot_id}",
+            queue_priority=queue_priority,
+            inputs={
+                "research_case_id": case.id,
+                "valuation": {"research_snapshot_id": research_snapshot_id},
+                "portfolio_coverage": portfolio_coverage,
+            },
+            outputs={},
+        )
+        db.add(run)
+        db.flush()
+        return SimpleNamespace(
+            agent=run, created=True, input_fingerprint="test-auto-valuation"
+        )
+
+    monkeypatch.setattr(portfolio_coverage, "enqueue_valuation", fake_enqueue)
+    first = client.post("/api/portfolios/sync/myfund").json()
+    decision = next(
+        row for row in first["sync"]["coverage_decisions"] if row["included"]
+    )
+    assert decision["coverage_state"] == "valuation_queued"
+    assert decision["research_snapshot_id"] == research.id
+    assert calls == [research.id]
+    valuation_run_id = decision["agent_run_id"]
+
+    repeated = client.post("/api/portfolios/sync/myfund").json()
+    decision = next(
+        row for row in repeated["sync"]["coverage_decisions"] if row["included"]
+    )
+    assert decision["coverage_state"] == "valuation_pending"
+    assert decision["agent_run_id"] == valuation_run_id
+    assert calls == [research.id]
+    assert db.scalar(
+        select(func.count()).select_from(AgentRun).where(
+            AgentRun.workflow == "stock-company-valuation"
+        )
+    ) == 1
+
+
+@pytest.mark.parametrize(
+    ("research_status", "age_days", "falsifier_fired", "expected_reason"),
+    [
+        ("verified", 31, False, "research_older_than_30_days"),
+        ("verified", 0, True, "current_falsifier_fired"),
+        ("provisional", 0, False, "current_research_provisional"),
+    ],
+)
+def test_sync_coverage_queues_one_canonical_research_review_idempotently(
+    client,
+    db,
+    monkeypatch,
+    research_status,
+    age_days,
+    falsifier_fired,
+    expected_reason,
+):
+    from app.api import portfolios
+
+    company = Company(ticker="SNT", name="Synektik", market="GPW")
+    db.add(company)
+    db.commit()
+    monkeypatch.setattr(portfolios, "get_settings", settings)
+    monkeypatch.setattr(
+        portfolios.polite_http, "fetch", lambda *a, **k: Response(payload())
+    )
+    assert client.post("/api/portfolios/sync/myfund").status_code == 200
+    case = db.scalar(
+        select(ResearchCase).where(ResearchCase.company_id == company.id)
+    )
+    initial = db.scalar(
+        select(AgentRun).where(
+            AgentRun.company_id == company.id,
+            AgentRun.workflow == "stock-initial-research",
+        )
+    )
+    assert case is not None and initial is not None
+    initial.status = research_status
+    initial.finished_at = datetime.now(timezone.utc)
+    profile = CompanyProfile(
+        research_case_id=case.id,
+        version=1,
+        schema_version="company-profile-v2",
+        archetype="industrial-consumer",
+        archetype_version="archetype-packs-v1",
+        company_overlay={"source_questions": ["Co zmieniło się w backlogu?"]},
+        drivers=[],
+        kpis=[],
+        provenance="human-confirmed",
+    )
+    db.add(profile)
+    db.flush()
+    verification = VerificationRun(
+        agent_run_id=initial.id,
+        model_role="verifier_strict",
+        verifier_model="test",
+        verdict="pass",
+        checks={},
+    )
+    db.add(verification)
+    db.flush()
+    research = ResearchSnapshot(
+        research_case_id=case.id,
+        company_profile_id=profile.id,
+        agent_run_id=initial.id,
+        verification_run_id=verification.id,
+        version=1,
+        contract_version="research-snapshot-v3",
+        status=research_status,
+        as_of=datetime.now(timezone.utc) - timedelta(days=age_days, minutes=1),
+        input_fingerprint=f"coverage-{research_status}-{age_days}",
+        artifact_fingerprint=("d" if research_status == "verified" else "e") * 64,
+        sections={},
+        source_manifest=[],
+        conflicts=[],
+        gaps=[],
+        next_checks=[],
+        statement_provenance=[],
+        verifier_result=_canonical_research_verifier_result(),
+    )
+    db.add(research)
+    if falsifier_fired:
+        db.add(
+            ThesisFalsifier(
+                company_id=company.id,
+                key="coverage-risk",
+                statement="Current portfolio thesis condition failed.",
+                status="fired",
+                reason="Focused coverage producer test.",
+            )
+        )
+    db.commit()
+
+    first = client.post("/api/portfolios/sync/myfund").json()
+    first_decision = next(
+        row for row in first["sync"]["coverage_decisions"] if row["included"]
+    )
+    assert first_decision["coverage_state"] == "research_review_queued"
+    assert expected_reason in first_decision["reasons"]
+    review_id = first_decision["agent_run_id"]
+    review = db.get(AgentRun, review_id)
+    assert review.workflow == "stock-company-review"
+    assert review.trigger == "portfolio-sync-coverage"
+    assert review.inputs["review"]["prior_research_snapshot_id"] == research.id
+    assert review.inputs["portfolio_coverage"]["reason"] == expected_reason
+
+    repeated = client.post("/api/portfolios/sync/myfund").json()
+    repeated_decision = next(
+        row for row in repeated["sync"]["coverage_decisions"] if row["included"]
+    )
+    assert repeated_decision["coverage_state"] == "research_review_pending"
+    assert repeated_decision["agent_run_id"] == review_id
+    assert db.scalar(
+        select(func.count()).select_from(AgentRun).where(
+            AgentRun.workflow == "stock-company-review"
+        )
+    ) == 1
+    research_row = client.get("/api/research-cases").json()[0]
+    assert research_row["portfolio_coverage_state"] == "research_review_pending"
+    assert any("odświeżenia Research" in reason for reason in research_row["agenda_reasons"])
+    assert all("research_review" not in reason for reason in research_row["agenda_reasons"])
 
 
 def test_normalizer_accepts_scalar_status_and_tuple_series_and_rejects_bad_values():
@@ -593,7 +1292,7 @@ def test_sequential_dict_keys_are_positions_not_native_identity():
     assert account_rows[0]["provider_key"] != account_rows[1]["provider_key"]
 
 
-def test_terminal_gpw_identity_creates_minimal_company_without_coverage_jobs(
+def test_terminal_gpw_identity_creates_minimal_company_with_coverage_jobs(
     client, db, monkeypatch
 ):
     from app.api import portfolios
@@ -629,8 +1328,13 @@ def test_terminal_gpw_identity_creates_minimal_company_without_coverage_jobs(
     assert by_name["ALPHA (ABC)"]["mapping_status"] == "exact"
     created = db.scalar(select(Company).where(Company.ticker == "ABC"))
     assert created is not None and created.name == "ALPHA" and created.market == "GPW"
-    assert db.scalar(select(func.count()).select_from(ResearchCase)) == 0
-    assert db.scalar(select(func.count()).select_from(AgentRun)) == 0
+    included = [
+        row for row in synced["sync"]["coverage_decisions"] if row["included"]
+    ]
+    assert {row["coverage_state"] for row in included} == {"research_queued"}
+    assert db.scalar(select(func.count()).select_from(ResearchCase)) == len(included)
+    assert db.scalar(select(func.count()).select_from(AgentRun)) == len(included)
+    assert all(row["research_origin"] == "portfolio" for row in included)
 
 
 def test_identical_sync_repairs_current_name_mapping_without_rewriting_snapshot(
@@ -680,8 +1384,9 @@ def test_identical_sync_repairs_current_name_mapping_without_rewriting_snapshot(
     db.refresh(company)
     assert frozen.mapping_status == "unmatched" and frozen.company_id is None
     assert company.market == "GPW"
-    assert db.scalar(select(func.count()).select_from(ResearchCase)) == 0
-    assert db.scalar(select(func.count()).select_from(AgentRun)) == 0
+    assert db.scalar(select(func.count()).select_from(ResearchCase)) == 1
+    assert db.scalar(select(func.count()).select_from(AgentRun)) == 1
+    assert repeated["sync"]["coverage_decisions"][0]["coverage_state"] == "research_queued"
 
 
 def test_name_fallback_exposes_ambiguity_without_creating_identity_or_job(
@@ -1062,14 +1767,12 @@ def test_risk_context_freezes_research_profiles_current_falsifiers_and_coexposur
     )
     research_rows = []
     for company in companies:
-        case = ResearchCase(
-            company_id=company.id,
-            purpose="investment-research",
-            state="monitoring",
-            current_step="research",
+        case = db.scalar(
+            select(ResearchCase).where(ResearchCase.company_id == company.id)
         )
-        db.add(case)
-        db.flush()
+        assert case is not None
+        case.state = "monitoring"
+        case.current_step = "research"
         profile = CompanyProfile(
             research_case_id=case.id,
             version=1,
@@ -1277,8 +1980,8 @@ def test_mapping_patch_reinterprets_workspace_and_survives_identical_sync(
     company = db.scalar(select(Company).where(Company.ticker == "ABC"))
     assert company is not None
     assert company.name == "Alpha SA" and company.market == "GPW"
-    assert db.scalar(select(func.count()).select_from(ResearchCase)) == 0
-    assert db.scalar(select(func.count()).select_from(AgentRun)) == 0
+    assert db.scalar(select(func.count()).select_from(ResearchCase)) == 1
+    assert db.scalar(select(func.count()).select_from(AgentRun)) == 1
     reread = client.get("/api/portfolios/workspace").json()
     interpreted = next(
         p for p in reread["positions"] if p["mapping_id"] == unmatched["mapping_id"]
@@ -1440,14 +2143,12 @@ def test_verified_scenario_aggregation_is_point_in_time_and_arithmetic(
     )
     synced = client.post("/api/portfolios/sync/myfund").json()
     snapshot_id = synced["snapshot"]["id"]
-    case = ResearchCase(
-        company_id=company.id,
-        purpose="investment-research",
-        state="monitoring",
-        current_step="research",
+    case = db.scalar(
+        select(ResearchCase).where(ResearchCase.company_id == company.id)
     )
-    db.add(case)
-    db.flush()
+    assert case is not None
+    case.state = "monitoring"
+    case.current_step = "research"
     profile = CompanyProfile(
         research_case_id=case.id,
         version=1,
@@ -1617,6 +2318,68 @@ def test_verified_scenario_aggregation_is_point_in_time_and_arithmetic(
     )
     assert checked.status_code == 200, checked.text
 
+    uncalibrated = _append_valuation(
+        db,
+        company=company,
+        case=case,
+        research=research,
+        version=2,
+        status="verified",
+        weighted_price=None,
+        fingerprint="f" * 64,
+    )
+    uncalibrated_result = client.get("/api/portfolios/workspace").json()[
+        "scenario_sensitivity"
+    ]
+    assert uncalibrated_result["coverage_value_pct"] == 60
+    assert uncalibrated_result["weighted_coverage_value_pct"] == 0
+    assert uncalibrated_result["portfolio_values"] == {
+        "negative": 6000,
+        "base": 8000,
+        "positive": 12000,
+        "weighted": None,
+    }
+    assert uncalibrated_result["covered"][0]["weighted_value"] is None
+    uncalibrated_review = client.post("/api/portfolios/review-runs").json()
+    uncalibrated_agent = claim_agent_run(
+        db,
+        agent_run_id=uncalibrated_review["agent_run_id"],
+        worker_id="uncalibrated-review-drafter",
+    )
+    assert uncalibrated_agent.inputs["portfolio_review"]["eligible_valuations"] == [
+        {
+            "position_snapshot_id": uncalibrated_result["covered"][0]["position_id"],
+            "valuation_snapshot_id": uncalibrated.id,
+            "valuation_fingerprint": uncalibrated.artifact_fingerprint,
+        }
+    ]
+    uncalibrated_checked = client.post(
+        "/api/portfolios/review-verifications",
+        json=_review_verification(_review_draft(uncalibrated_agent)),
+    )
+    assert uncalibrated_checked.status_code == 200, uncalibrated_checked.text
+
+    provisional = _append_valuation(
+        db,
+        company=company,
+        case=case,
+        research=research,
+        version=3,
+        status="provisional",
+        weighted_price=250,
+        fingerprint="9" * 64,
+    )
+    superseded_result = client.get("/api/portfolios/workspace").json()[
+        "scenario_sensitivity"
+    ]
+    assert superseded_result["coverage_value_pct"] == 0
+    assert superseded_result["covered"] == []
+    assert superseded_result["portfolio_values"]["weighted"] is None
+    assert any(
+        row.get("latest_status") == provisional.status
+        for row in superseded_result["exclusions"]
+    )
+
 
 def test_configured_backend_token_protects_api_but_not_health(client, monkeypatch):
     from app import main
@@ -1744,7 +2507,7 @@ def test_review_queue_is_json_safe_content_idempotent_and_zero_fetch(
         (10000 / 9900 - 1) * 100
     )
     assert frozen["history_method"]["twr_status"] == "partial"
-    assert frozen["analytics_version"] == "portfolio-analytics-v2"
+    assert frozen["analytics_version"] == "portfolio-analytics-v3"
     assert len(frozen["analytics_fingerprint"]) == 64
     assert (
         client.get("/api/portfolios/workspace").json()["portfolio_review"][
@@ -2012,7 +2775,7 @@ def test_review_contract_policy_scripts_and_transaction_advice_gate(
     assert contract["provenance_contract"] == {
         "skill_version": "portfolio-review-v1",
         "output_contract_version": "portfolio-review-v1",
-        "analytics_version": "portfolio-analytics-v2",
+        "analytics_version": "portfolio-analytics-v3",
         "draft_model_role": "worker_standard",
         "draft_model": "gpt-5.6-terra",
         "draft_reasoning_effort": "medium",

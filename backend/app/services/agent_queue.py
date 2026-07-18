@@ -59,7 +59,11 @@ def claim_agent_run(
             stmt = stmt.where(AgentRun.id == agent_run_id)
         elif workflow:
             stmt = stmt.where(AgentRun.workflow == workflow)
-        stmt = stmt.order_by(AgentRun.created_at.asc(), AgentRun.id.asc()).limit(1)
+        stmt = stmt.order_by(
+            AgentRun.queue_priority.desc(),
+            AgentRun.created_at.asc(),
+            AgentRun.id.asc(),
+        ).limit(1)
         candidate_id = db.scalar(stmt)
         if candidate_id is None:
             if agent_run_id is not None and db.get(AgentRun, agent_run_id) is None:

@@ -80,6 +80,9 @@ class CompanyProfile:
     # stale/misparsed (production: a >1 mld PLN company scored "small").
     market_cap: float | None = None  # PLN
     enterprise_value: float | None = None  # PLN
+    next_report_date: date | None = None
+    next_report_label: str | None = None
+    next_report_parse_error: str | None = None
 
 
 @dataclass
@@ -867,6 +870,29 @@ def parse_profile(html: str, ticker: str) -> CompanyProfile:
     """
     soup = BeautifulSoup(html, "html.parser")
     profile = CompanyProfile()
+
+    report_block = soup.select_one(".report-date")
+    if report_block is not None:
+        countdown = report_block.select_one(".countdown")
+        date_text = countdown.get_text(" ", strip=True) if countdown else ""
+        date_match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", date_text)
+        label_node = report_block.find("label")
+        label_text = label_node.get_text(" ", strip=True) if label_node else ""
+        if countdown is not None:
+            label_text = label_text.replace(date_text, " ")
+        label_text = " ".join(label_text.split()).strip(" -–")
+        if date_match is None:
+            profile.next_report_parse_error = (
+                "Sekcja najbliższego raportu nie zawiera daty RRRR-MM-DD."
+            )
+        else:
+            try:
+                profile.next_report_date = date.fromisoformat(date_match.group(1))
+                profile.next_report_label = label_text or "raport okresowy"
+            except ValueError:
+                profile.next_report_parse_error = (
+                    "Sekcja najbliższego raportu zawiera nieprawidłową datę."
+                )
 
     name_pattern = re.compile(
         r"([0-9A-Z\u0104\u0106\u0118\u0141\u0143\u00d3\u015a\u0179\u017b]"

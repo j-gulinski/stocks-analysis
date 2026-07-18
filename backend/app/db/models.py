@@ -66,6 +66,55 @@ class Company(Base):
     )
 
 
+class CompanyReportSchedule(Base):
+    """One source-linked observation of the company's next periodic report."""
+
+    __tablename__ = "company_report_schedules"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "source_version_id",
+            name="uq_company_report_schedule_source_version",
+        ),
+        CheckConstraint(
+            "source_status IN ('scheduled', 'unavailable')",
+            name="ck_company_report_schedule_source_status",
+        ),
+        CheckConstraint(
+            "automation_status IN ('not-eligible', 'scheduled', 'blocked', 'already-covered')",
+            name="ck_company_report_schedule_automation_status",
+        ),
+        Index(
+            "ix_company_report_schedules_company_observed",
+            "company_id",
+            "observed_at",
+        ),
+        Index("ix_company_report_schedules_report_date", "report_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), index=True
+    )
+    source_version_id: Mapped[int] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="RESTRICT"), index=True
+    )
+    report_date: Mapped[date | None] = mapped_column(Date)
+    report_label: Mapped[str | None] = mapped_column(String(160))
+    source_status: Mapped[str] = mapped_column(String(30))
+    automation_status: Mapped[str] = mapped_column(
+        String(30), default="not-eligible"
+    )
+    automation_reason: Mapped[str | None] = mapped_column(String(500))
+    research_agent_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL"), index=True
+    )
+    valuation_agent_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL"), index=True
+    )
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class ResearchCase(Base):
     """Durable workflow root for one company and research purpose."""
 
@@ -74,6 +123,10 @@ class ResearchCase(Base):
         UniqueConstraint(
             "company_id", "purpose", name="uq_research_case_company_purpose"
         ),
+        CheckConstraint(
+            "origin IN ('manual', 'discover', 'portfolio')",
+            name="ck_research_case_origin",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -81,6 +134,7 @@ class ResearchCase(Base):
         ForeignKey("companies.id", ondelete="CASCADE"), index=True
     )
     purpose: Mapped[str] = mapped_column(String(80), default="investment-research")
+    origin: Mapped[str] = mapped_column(String(20), default="manual")
     state: Mapped[str] = mapped_column(String(40), default="new", index=True)
     current_step: Mapped[str] = mapped_column(String(40), default="ingest")
     as_of: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -541,6 +595,11 @@ class PortfolioSync(Base):
         String(40), default="myfund-portfolio-v1"
     )
     reused_snapshot: Mapped[bool] = mapped_column(default=False)
+    coverage_version: Mapped[str | None] = mapped_column(String(40))
+    coverage_evaluated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    coverage_decisions: Mapped[list] = mapped_column(JSONVariant, default=list)
 
 
 class InstrumentMapping(Base):
@@ -897,6 +956,12 @@ class AgentRun(Base):
     __tablename__ = "agent_runs"
     __table_args__ = (
         Index("ix_agent_runs_status_created", "status", "created_at"),
+        Index(
+            "ix_agent_runs_status_priority_created",
+            "status",
+            "queue_priority",
+            "created_at",
+        ),
         Index("ix_agent_runs_workflow_created", "workflow", "created_at"),
     )
 
@@ -913,6 +978,7 @@ class AgentRun(Base):
     idempotency_key: Mapped[str | None] = mapped_column(
         String(160), unique=True, index=True
     )
+    queue_priority: Mapped[float] = mapped_column(Numeric(20, 6), default=0)
     inputs: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     outputs: Mapped[dict] = mapped_column(JSONVariant, default=dict)
     error: Mapped[str | None] = mapped_column(Text)

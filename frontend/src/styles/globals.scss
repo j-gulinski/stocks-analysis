@@ -745,6 +745,76 @@ button, a, input, select {
   strong { color: var(--text-secondary); }
 }
 
+.portfolio-operation-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 10px;
+  overflow: hidden;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  > div { display: grid; gap: 3px; padding: 12px 13px; border-left: 0.5px solid var(--border); }
+  > div:first-child { border-left: 0; }
+  span, small { color: var(--text-muted); font-size: 10px; }
+  strong { font-size: 14px; }
+}
+.portfolio-operation-history {
+  margin: 9px 0;
+  padding: 9px 11px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  > summary { cursor: pointer; color: var(--text-secondary); font-size: 11px; }
+}
+.portfolio-operation-table { margin-top: 9px; border-top: 0.5px solid var(--border); }
+.portfolio-operation-row {
+  display: grid;
+  grid-template-columns: minmax(120px, .7fr) minmax(180px, 1.2fr) minmax(180px, 1fr) minmax(110px, .6fr);
+  gap: 12px;
+  padding: 9px 4px;
+  border-top: 0.5px solid var(--border);
+  > div { display: grid; gap: 2px; min-width: 0; }
+  strong { font-size: 11px; }
+  span { overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; }
+  &.head {
+    padding-block: 7px;
+    border-top: 0;
+    color: var(--text-muted);
+    font-size: 9px;
+    text-transform: uppercase;
+  }
+}
+.portfolio-operation-import {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  margin-top: 10px;
+  padding: 12px 13px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  > div { display: grid; gap: 2px; }
+  > div > strong { font-size: 12px; }
+  > div > span { max-width: 780px; color: var(--text-muted); font-size: 10px; line-height: 1.45; }
+  input { display: none; }
+  .btn { cursor: pointer; }
+}
+.portfolio-operation-preview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  margin-top: 9px;
+  padding: 11px 13px;
+  border: 0.5px solid var(--border-accent);
+  border-radius: var(--radius);
+  background: var(--bg-accent);
+  > div { display: grid; gap: 2px; }
+  strong { font-size: 12px; }
+  span, small { color: var(--text-secondary); font-size: 10px; }
+  small { color: var(--text-muted); }
+}
+
 .portfolio-scenario-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -888,6 +958,7 @@ button, a, input, select {
   .portfolio-performance-grid { grid-template-columns: 1fr; }
   .portfolio-performance-grid > div { border-top: 0.5px solid var(--border); border-left: 0; }
   .portfolio-performance-grid > div:first-child { border-top: 0; }
+  .portfolio-operation-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 640px) {
@@ -903,6 +974,13 @@ button, a, input, select {
   .portfolio-position-row > div { padding-top: 7px; border-top: 0.5px solid var(--border); }
   .portfolio-position-name { padding-top: 0 !important; border-top: 0 !important; }
   .portfolio-two-column { grid-template-columns: 1fr; gap: 4px; }
+  .portfolio-operation-metrics { grid-template-columns: 1fr; }
+  .portfolio-operation-metrics > div { border-top: 0.5px solid var(--border); border-left: 0; }
+  .portfolio-operation-metrics > div:first-child { border-top: 0; }
+  .portfolio-operation-import,
+  .portfolio-operation-preview { grid-template-columns: 1fr; }
+  .portfolio-operation-import .btn,
+  .portfolio-operation-preview .btn { justify-self: start; }
   .portfolio-scenario-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .portfolio-scenario-grid > div:nth-child(3) { border-top: 0.5px solid var(--border); border-left: 0; }
   .portfolio-scenario-grid > div:nth-child(4) { border-top: 0.5px solid var(--border); }
@@ -3078,6 +3156,15 @@ textarea {
   strong { font-size: 12px; line-height: 1.4; }
   small { color: var(--text-muted); font-size: 11px; }
   small.warn { color: var(--text-warning); }
+}
+
+.research-portfolio-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  .badge { padding: 2px 7px; font-size: 10px; }
 }
 
 .research-valuation-prices {

@@ -145,6 +145,7 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
         history={workspace.history}
         archetypePack={workspace.archetype_pack}
         valuationStrip={workspace.research_case.valuation_strip}
+        reportCalendar={workspace.research_case.report_calendar}
       />
 
       {currentProfile && (

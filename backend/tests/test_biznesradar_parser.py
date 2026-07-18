@@ -1,6 +1,8 @@
 """Parser tests against committed synthetic fixtures (exact values) and,
 when present, real recorded pages (structure only — see scripts/record_fixtures.py)."""
 
+from datetime import date
+
 import pytest
 
 from app.scrapers.biznesradar import (
@@ -83,6 +85,24 @@ def test_profile_price_extraction():
     assert parse_profile(text_html, "DEC").price == 12.3
 
     assert parse_profile(load_fixture("br_profile.html"), "DEC").price is None
+
+
+def test_profile_report_calendar_uses_source_date_and_surfaces_bad_markup():
+    html = (FIXTURES_DIR / "real/br/ABS/profile.html").read_text(encoding="utf-8")
+
+    profile = parse_profile(html, "ABS")
+
+    assert profile.next_report_date == date(2026, 8, 6)
+    assert profile.next_report_label == "raport półroczny"
+    assert profile.next_report_parse_error is None
+
+    malformed = parse_profile(
+        '<html><div class="report-date"><label>raport kwartalny</label>'
+        '<span class="countdown">wkrótce</span></div></html>',
+        "ABS",
+    )
+    assert malformed.next_report_date is None
+    assert "RRRR-MM-DD" in malformed.next_report_parse_error
 
 
 # ----------------------------------------------------- synthetic fixtures

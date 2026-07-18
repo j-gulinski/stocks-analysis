@@ -30,6 +30,8 @@ from app.api.schemas import (
     PortfolioReviewSaveIn,
     PortfolioReviewSnapshotOut,
     PortfolioReviewVerificationIn,
+    PortfolioOperationsFileIn,
+    PortfolioOperationsImportIn,
 )
 from app.scrapers import http as polite_http
 from app.services.portfolio import (
@@ -44,6 +46,13 @@ from app.services.portfolio_review_artifacts import (
     queue_portfolio_review,
     save_portfolio_review,
     verify_portfolio_review,
+)
+from app.services.portfolio_coverage import produce_portfolio_coverage
+from app.services.portfolio_operations import (
+    PortfolioOperationsCsvError,
+    operations_preview,
+    parse_myfund_operations_csv,
+    replace_csv_operations,
 )
 
 router = APIRouter(prefix="/portfolios", tags=["portfolios"])
@@ -108,6 +117,9 @@ def _sync_out(row: PortfolioSync | None) -> dict[str, Any] | None:
         "snapshot_id": row.snapshot_id,
         "reused_snapshot": row.reused_snapshot,
         "parser_version": row.parser_version,
+        "coverage_version": row.coverage_version,
+        "coverage_evaluated_at": row.coverage_evaluated_at,
+        "coverage_decisions": row.coverage_decisions,
     }
 
 
@@ -131,6 +143,12 @@ def _workspace(db: Session, portfolio: Portfolio | None) -> dict[str, Any]:
         "scenario_sensitivity": None,
         "risk_context": None,
         "performance_methods": None,
+        "operations": {
+            "status": "missing",
+            "count": 0,
+            "recent": [],
+            "gaps": ["Brak zapisanego portfela i historii operacji."],
+        },
         "coverage": {"mapped_company_value_pct": 0, "unmapped_positions": 0},
         "portfolio_review": {"latest": None, "history": [], "active_run": None},
     }
@@ -231,6 +249,53 @@ def _artifact_http_error(exc: PortfolioReviewArtifactError) -> HTTPException:
 @router.get("/workspace", response_model=PortfolioWorkspaceOut)
 def get_portfolio_workspace(db: Session = Depends(get_db)) -> dict[str, Any]:
     return _workspace(db, _portfolio(db))
+
+
+def _operations_http_error(exc: PortfolioOperationsCsvError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        detail=" ".join(exc.issues[:20]),
+    )
+
+
+@router.post("/operations/preview")
+def preview_operations(
+    payload: PortfolioOperationsFileIn, db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    """Parse the local file with zero writes before the user confirms replacement."""
+    portfolio = _portfolio(db)
+    if portfolio is None:
+        raise HTTPException(status_code=409, detail="Synchronise a portfolio first.")
+    try:
+        parsed = parse_myfund_operations_csv(
+            payload.content, base_currency=portfolio.base_currency
+        )
+    except PortfolioOperationsCsvError as exc:
+        raise _operations_http_error(exc) from exc
+    return {"filename": payload.filename, **operations_preview(parsed)}
+
+
+@router.post("/operations/import")
+def import_operations(
+    payload: PortfolioOperationsImportIn, db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    """Atomically replace prior CSV rows only after an exact preview confirmation."""
+    portfolio = _portfolio(db)
+    if portfolio is None:
+        raise HTTPException(status_code=409, detail="Synchronise a portfolio first.")
+    try:
+        parsed = parse_myfund_operations_csv(
+            payload.content, base_currency=portfolio.base_currency
+        )
+    except PortfolioOperationsCsvError as exc:
+        raise _operations_http_error(exc) from exc
+    if parsed.fingerprint != payload.expected_fingerprint:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Plik zmienił się po podglądzie; sprawdź go ponownie.",
+        )
+    imported = replace_csv_operations(db, portfolio_id=portfolio.id, parsed=parsed)
+    return {"import": imported, "workspace": _workspace(db, portfolio)}
 
 
 @router.post("/review-runs", status_code=status.HTTP_201_CREATED)
@@ -404,6 +469,9 @@ def _persist_normalized(
         sync.payload_hash = normalized.fingerprint
         sync.snapshot_id = latest.id
         sync.reused_snapshot = True
+        produce_portfolio_coverage(
+            db, sync=sync, snapshot=latest, evaluated_at=fetched_at
+        )
         db.commit()
         result = _workspace(db, portfolio)
         result["sync"] = _sync_out(sync)
@@ -475,6 +543,9 @@ def _persist_normalized(
     sync.payload_hash = normalized.fingerprint
     sync.snapshot_id = snapshot.id
     portfolio.base_currency = snapshot.currency
+    produce_portfolio_coverage(
+        db, sync=sync, snapshot=snapshot, evaluated_at=fetched_at
+    )
     db.commit()
     db.refresh(snapshot)
     result = _workspace(db, portfolio)

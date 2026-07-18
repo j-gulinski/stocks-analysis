@@ -8,6 +8,7 @@ import {
   IconChevronRight,
   IconDatabase,
   IconHistory,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { fmtDate, fmtPct, fmtPln } from "@/lib/format";
 import type {
@@ -194,6 +195,7 @@ export default function ResearchSnapshotView({
   history,
   archetypePack,
   valuationStrip,
+  reportCalendar,
 }: {
   ticker: string;
   companyName: string | null;
@@ -202,6 +204,7 @@ export default function ResearchSnapshotView({
   history: ResearchSnapshotHistory[];
   archetypePack: ResearchArchetypePack | null;
   valuationStrip: ResearchCaseSummary["valuation_strip"];
+  reportCalendar: ResearchCaseSummary["report_calendar"];
 }) {
   const sections = snapshot.sections;
   const outlook = sections.outlook;
@@ -257,6 +260,20 @@ export default function ResearchSnapshotView({
           <div><span className="snapshot-label">Aktualność</span><p>{sections.brief.freshness}</p></div>
           <div><span className="snapshot-label">Najważniejsza luka</span><p>{sections.brief.main_gap}</p></div>
           <div className="snapshot-next-action"><IconArrowRight size={17} /><div><span className="snapshot-label">Następny użyteczny krok</span><p>{sections.brief.next_action}</p></div></div>
+        </div>
+      </section>
+
+      <section className="research-profile-pending" aria-label="Kalendarz raportów">
+        <IconRefresh size={16} />
+        <div>
+          <strong>
+            {reportCalendar.report_date
+              ? `Następny raport: ${reportCalendar.report_label ?? "raport okresowy"} · ${fmtDate(reportCalendar.report_date)}`
+              : reportCalendar.status === "unavailable"
+                ? "Źródło nie podało użytecznej daty następnego raportu"
+                : "Kalendarz raportów nie został jeszcze zebrany"}
+          </strong>
+          <span>{reportCalendar.automation_reason}</span>
         </div>
       </section>
 

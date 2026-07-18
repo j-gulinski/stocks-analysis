@@ -46,6 +46,7 @@ def test_research_lab_creates_one_idempotent_manual_case_and_initial_job(client,
     assert body["research_case"]["current_step"] == "ingest"
     assert body["research_case"]["phase"] == "collecting"
     assert body["research_case"]["phase_label"] == "Zbieranie"
+    assert body["research_case"]["origin"] == "manual"
     assert body["research_case"]["collection_progress"]["state"] == "waiting"
     run = db.get(AgentRun, body["agent_run"]["id"])
     company = db.scalar(select(Company).where(Company.ticker == "DEK"))
@@ -88,6 +89,34 @@ def test_research_lab_creates_one_idempotent_manual_case_and_initial_job(client,
     assert listed.json()[0]["ticker"] == "DEK"
     assert listed.json()[0]["phase"] == "collecting"
     assert listed.json()[0]["collection_progress"]["state"] == "waiting"
+
+
+def test_shared_case_helper_preserves_first_origin_and_adds_portfolio_priority(db):
+    from app.services.research_queue import ensure_research_case
+
+    manual = ensure_research_case(db, ticker="MAN", origin="manual")
+    db.flush()
+    reused = ensure_research_case(
+        db,
+        ticker="MAN",
+        origin="portfolio",
+        queue_priority=77.5,
+        portfolio_coverage={"reason": "missing_verified_research"},
+    )
+    discovered = ensure_research_case(
+        db,
+        ticker="DIS",
+        origin="discover",
+        discovery_origin={"candidate": {"name": "Discover SA"}},
+    )
+    portfolio = ensure_research_case(db, ticker="POR", origin="portfolio")
+
+    assert reused.research_case.id == manual.research_case.id
+    assert reused.research_case.origin == "manual"
+    assert float(reused.agent.queue_priority) == 77.5
+    assert reused.agent.inputs["portfolio_coverage"]["reason"] == "missing_verified_research"
+    assert discovered.research_case.origin == "discover"
+    assert portfolio.research_case.origin == "portfolio"
 
 
 def test_research_lab_rejects_unbound_discovery_provenance(client, db):

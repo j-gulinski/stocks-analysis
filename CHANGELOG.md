@@ -3,6 +3,69 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-15 · Source-linked report calendar
+
+- Added `report-calendar-v1`: BiznesRadar profile parsing now retains the next
+  periodic-report label/date against its immutable document version, surfaces
+  malformed/missing dates honestly, and shows the latest state on the Research
+  list and company view after the valuation/Brief reading path.
+- An explicit company refresh may create one content-idempotent future Research
+  review for a confirmed case only after every refreshed source version is
+  frozen. The calendar persistence gate requires same-company, parsed
+  BiznesRadar profile lineage. The job is unavailable until 06:00 UTC on the
+  day after publication, an explicit review accelerates that same row, and
+  passive reads/startup never enqueue or claim it. A usable verifier-gated
+  Research save atomically hands off to the canonical valuation queue; an
+  input conflict or unusable terminal Research/Valuation attempt remains a
+  visible blocker without losing Research. Missing and malformed dates remain
+  visible gaps on both Research UI paths.
+- Live SNT evidence proves a 5 August 2026 third-quarter report from the cached
+  immutable profile; the final bounded refresh made one HTTP request for the
+  separately retried price history. Automation remains correctly blocked
+  because the current profile is Codex-proposed; no cost-bearing job was
+  created. The 397-test
+  backend suite, migration/ORM parity, production build and in-app
+  Discover→Research→company→Valuation→Portfolio acceptance pass. S6 remains
+  blocked because the only canonical valuation postdates every stored financial
+  actual.
+
+## 2026-07-15 · Portfolio precision and auto-coverage
+
+- Added the sole successful-sync coverage producer for mapped GPW/PLN holdings.
+  It creates or reuses an initial Research case/job, routes provisional, stale
+  or falsifier-fired Research through the same canonical review producer as the
+  explicit API, and queues valuation only when the latest verified Research
+  lacks a current canonical valuation. Failed provider syncs create no work.
+- Persisted each inclusion, exclusion, blocker, frozen weight, Research
+  staleness and weight × staleness priority on the sync record. Durable queue
+  claims now use numeric priority with FIFO tie-breaking. Research case origin
+  remains the first real entry path, so Portfolio does not relabel an existing
+  manual or Discover case; review idempotency includes the prior immutable
+  snapshot so repeated syncs reuse pending work while a new snapshot permits
+  the next refresh.
+- Research now places real holdings first and shows `W portfelu`, weight,
+  priority and freshness after the phase substance. Live sync #4 retained nine
+  rows, mapped 99.97% of value to companies, queued six initial Research jobs
+  by exact priority and left SNT at the honest human-profile gate.
+- Scenario aggregation selects the latest canonical valuation before checking
+  verification, so an older verified row cannot reappear behind a newer
+  provisional/rejected result. Verified but uncalibrated valuations still feed
+  negative/base/positive sensitivity while the weighted portfolio value stays
+  explicitly unpublished; frozen review verification recomputes that nullable
+  arithmetic.
+- Added preview-first import of the official myfund operation-history CSV. The
+  zero-write preview validates headers, dates/times, signs and transaction
+  arithmetic using myfund's separate tax semantics; source sequence is part of
+  the fingerprint and confirmation atomically replaces only prior CSV rows.
+  Imported deposits/withdrawals reconcile to daily contribution changes, and
+  remaining average cost is exposed only for ticker ledgers whose quantity and
+  timestamped transaction order reconcile. Ambiguous date-only/equal-time
+  buy/sell sequences stay unpublished. No real operations were imported without
+  Kuba's full unfiltered export. The 390-test backend suite, Vision gate,
+  migration parity, production build and zero-write live preview pass; the
+  later report-calendar session completed cross-stage in-app browser
+  acceptance, so the real full export is the only remaining S4 exit gate.
+
 ## 2026-07-15 · Portfolio identity repair
 
 - Replaced the split new-sync mapping logic with one locked resolver used by

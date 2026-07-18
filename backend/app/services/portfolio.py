@@ -34,11 +34,15 @@ from app.services.artifact_contracts import (
     canonical_research_snapshot_predicate,
     canonical_valuation_snapshot_predicate,
 )
+from app.services.portfolio_operations import (
+    portfolio_operation_cost_basis,
+    portfolio_operations_workspace,
+)
 
 PARSER_VERSION = "myfund-portfolio-v2"
 RISK_CONTEXT_VERSION = "portfolio-risk-context-v1"
 PERFORMANCE_METHOD_VERSION = "portfolio-performance-v1"
-RESEARCH_STALE_DAYS = 180
+RESEARCH_STALE_DAYS = 30
 
 
 def _number(
@@ -603,6 +607,9 @@ def portfolio_workspace(db: Session, snapshot: PortfolioSnapshot) -> dict[str, A
         else {}
     )
     positions: list[dict[str, Any]] = []
+    operation_cost_basis = portfolio_operation_cost_basis(
+        db, portfolio_id=snapshot.portfolio_id
+    )
     sectors: dict[str, float] = {}
     types: dict[str, float] = {}
     mapped_value = 0.0
@@ -610,6 +617,28 @@ def portfolio_workspace(db: Session, snapshot: PortfolioSnapshot) -> dict[str, A
     for row in rows:
         mapping = mappings[row.mapping_id]
         value = float(row.value)
+        position_quantity = float(row.quantity) if row.quantity is not None else None
+        ledger_ticker = company_tickers.get(mapping.company_id) or row.ticker
+        ledger = (
+            operation_cost_basis.get(ledger_ticker.strip().upper())
+            if ledger_ticker
+            else None
+        )
+        operation_basis_status = "missing"
+        operation_basis_value = None
+        operation_basis_gaps: list[str] = []
+        if ledger is not None:
+            operation_basis_gaps = list(ledger["gaps"])
+            if ledger["status"] != "reconciled" or position_quantity is None:
+                operation_basis_status = "unavailable"
+            elif abs(float(ledger["quantity"]) - position_quantity) > 0.000001:
+                operation_basis_status = "mismatch"
+                operation_basis_gaps.append(
+                    "Liczba jednostek z operacji nie zgadza się z bieżącą pozycją."
+                )
+            else:
+                operation_basis_status = "reconciled"
+                operation_basis_value = float(ledger["cost_basis"])
         if mapping.mapping_kind == "company":
             mapped_value += value
         if mapping.mapping_kind == "cash":
@@ -634,12 +663,20 @@ def portfolio_workspace(db: Session, snapshot: PortfolioSnapshot) -> dict[str, A
                 "currency": row.currency,
                 "quote_date": row.quote_date,
                 "quote": float(row.quote) if row.quote is not None else None,
-                "quantity": float(row.quantity) if row.quantity is not None else None,
+                "quantity": position_quantity,
                 "value": value,
                 "cost_basis": (
                     float(row.cost_basis) if row.cost_basis is not None else None
                 ),
                 "profit": float(row.profit) if row.profit is not None else None,
+                "operation_cost_basis": operation_basis_value,
+                "operation_profit": (
+                    round(value - operation_basis_value, 2)
+                    if operation_basis_value is not None
+                    else None
+                ),
+                "operation_cost_basis_status": operation_basis_status,
+                "operation_cost_basis_gaps": list(dict.fromkeys(operation_basis_gaps)),
                 "allocation_pct": (
                     float(row.allocation_pct)
                     if row.allocation_pct is not None
@@ -713,6 +750,9 @@ def portfolio_workspace(db: Session, snapshot: PortfolioSnapshot) -> dict[str, A
         terminal_value=total,
         terminal_date=snapshot.as_of.date(),
     )
+    operations = portfolio_operations_workspace(
+        db, portfolio_id=snapshot.portfolio_id, history=history
+    )
     performance_gaps = list(performance_methods["gaps"])
     return {
         "snapshot": {
@@ -739,6 +779,7 @@ def portfolio_workspace(db: Session, snapshot: PortfolioSnapshot) -> dict[str, A
         "scenario_sensitivity": scenarios,
         "risk_context": risk_context,
         "performance_methods": performance_methods,
+        "operations": operations,
         "coverage": {
             "mapped_company_value_pct": (
                 round(mapped_value / total * 100, 2) if total else None
@@ -1357,7 +1398,10 @@ def _scenario_sensitivity(
     covered = []
     exclusions = []
     covered_value = 0.0
-    totals = {"negative": 0.0, "base": 0.0, "positive": 0.0, "weighted": 0.0}
+    totals = {"negative": 0.0, "base": 0.0, "positive": 0.0}
+    weighted_total = 0.0
+    weighted_complete = True
+    weighted_covered_value = 0.0
     unchanged = float(snapshot.total_value)
     for row in rows:
         mapping = mappings[row.mapping_id]
@@ -1404,7 +1448,6 @@ def _scenario_sensitivity(
                 select(ValuationSnapshot)
                 .where(
                     ValuationSnapshot.research_case_id == case.id,
-                    ValuationSnapshot.status == "verified",
                     *canonical_valuation_snapshot_predicate(),
                     ValuationSnapshot.as_of <= snapshot.as_of,
                 )
@@ -1416,28 +1459,15 @@ def _scenario_sensitivity(
         )
         if (
             valuation is None
+            or valuation.status != "verified"
             or latest_research is None
             or valuation.research_snapshot_id != latest_research.id
         ):
-            latest_any = (
-                db.scalar(
-                    select(ValuationSnapshot)
-                    .where(
-                        ValuationSnapshot.research_case_id == case.id,
-                        *canonical_valuation_snapshot_predicate(),
-                        ValuationSnapshot.as_of <= snapshot.as_of,
-                    )
-                    .order_by(ValuationSnapshot.version.desc())
-                    .limit(1)
-                )
-                if case
-                else None
-            )
             exclusions.append(
                 {
                     "position_id": row.id,
                     "reason": "Brak zweryfikowanej wyceny powiązanej z najnowszym Research.",
-                    "latest_status": latest_any.status if latest_any else None,
+                    "latest_status": valuation.status if valuation else None,
                 }
             )
             continue
@@ -1464,20 +1494,17 @@ def _scenario_sensitivity(
             kind: quantity * float(by_kind[kind]["target_price_pln"])
             for kind in ("negative", "base", "positive")
         }
-        weighted = outputs.get("probability_weighted", {}).get("price_pln")
-        if weighted is None:
-            exclusions.append(
-                {
-                    "position_id": row.id,
-                    "reason": "Zweryfikowana wycena nie zawiera ceny ważonej.",
-                }
-            )
-            continue
+        weighted = (outputs.get("probability_weighted") or {}).get("price_pln")
         covered_value += current
         unchanged -= current
         for kind in values:
             totals[kind] += values[kind]
-        totals["weighted"] += quantity * float(weighted)
+        weighted_value = quantity * float(weighted) if weighted is not None else None
+        if weighted_value is None:
+            weighted_complete = False
+        else:
+            weighted_total += weighted_value
+            weighted_covered_value += current
         covered.append(
             {
                 "position_id": row.id,
@@ -1485,11 +1512,21 @@ def _scenario_sensitivity(
                 "valuation_fingerprint": valuation.artifact_fingerprint,
                 "current_value": current,
                 **{f"{k}_value": round(v, 2) for k, v in values.items()},
-                "weighted_value": round(quantity * float(weighted), 2),
+                "weighted_value": (
+                    round(weighted_value, 2) if weighted_value is not None else None
+                ),
             }
         )
     for key in totals:
         totals[key] = round(totals[key] + unchanged, 2)
+    portfolio_values = {
+        **totals,
+        "weighted": (
+            round(weighted_total + unchanged, 2)
+            if covered and weighted_complete
+            else None
+        ),
+    }
     return {
         "label": "Aligned sensitivity, not a joint probability.",
         "coverage_value_pct": (
@@ -1497,7 +1534,12 @@ def _scenario_sensitivity(
             if snapshot.total_value
             else 0
         ),
-        "portfolio_values": totals,
+        "weighted_coverage_value_pct": (
+            round(weighted_covered_value / float(snapshot.total_value) * 100, 2)
+            if snapshot.total_value
+            else 0
+        ),
+        "portfolio_values": portfolio_values,
         "covered": covered,
         "exclusions": exclusions,
     }

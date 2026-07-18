@@ -37,7 +37,8 @@ Next route proxy.
   Passive UI renders, startup hooks, and reads never enqueue or claim. Jobs
   are produced by (a) explicit UI/API/CLI commands and (b) the declared
   automatic producers — portfolio-sync coverage, staleness/falsifier
-  monitors, and outcome scoring (V7, V8). Automatic producers are
+  monitors, source-linked report-calendar reviews, and outcome scoring (V7,
+  V8). Automatic producers are
   idempotent, logged, and enumerated in `skills/workbench-actions/SKILL.md`;
   nothing else enqueues.
 - **One canonical artifact per stage.** Research and valuation snapshots are
@@ -64,6 +65,9 @@ The pivot data model converges on:
   canonical Research list;
 - `CompanyProfile` — selected archetype/version plus user-confirmed company
   overlay and driver definitions;
+- `CompanyReportSchedule` — one immutable-profile-version observation of the
+  next periodic-report date, its source version, eligibility/blocker state and
+  linked Research/Valuation jobs;
 - `ResearchSnapshot` — case, as-of time, typed sections, driver tree, source
   manifest, gaps, run, and verification status;
 - `MarketFactorSnapshot` — versioned market-wide factor rows parsed from the
@@ -129,10 +133,18 @@ TWR is computed from the provider's daily value and own-contribution series
 (`wartoscWCzasie`/`wkladWCzasie`): daily external flows are the first
 difference of contribution, each day's return excludes that day's flow, and
 the series compounds. XIRR solves the derived dated flow series plus current
-value. When imported operations exist they refine per-position cost basis
-and flows; the method and its data window are always stated inline. Missing
-series days or unexplained contribution jumps are named gaps that degrade
-the claim to partial — never silently smoothed.
+value. Operation-history CSV import is preview-first and zero-write until Kuba
+confirms the exact fingerprint of a full unfiltered export; confirmation
+atomically replaces only earlier CSV rows. Python preserves source row order
+and optional operation time, checks transaction signs and units × price ±
+commission while retaining myfund tax as a separate field, and reconciles dated
+deposits/withdrawals to contribution changes. It rebuilds remaining average
+cost only for a classified ticker ledger whose quantity matches the current
+holding and whose buy/sell order is recoverable from timestamps; ambiguous
+date-only or equal-time mixtures stay unpublished. Provider cost stays
+separately labelled. The method and its data window are always stated inline.
+Missing series days or unexplained contribution jumps are named gaps that
+degrade the claim to partial — never silently smoothed.
 If retained rows do not reconcile to the provider total within the explicit
 tolerance, the dashboard shows a prominent warning naming the difference and
 the affected figures, and analytics that depend on complete rows label
@@ -142,11 +154,14 @@ portfolio snapshot cutoff.
 
 **Auto-coverage (V7).** Completing a sync triggers the coverage producer:
 for every mapped GPW holding it ensures an active `ResearchCase` (creating
-one marked `origin=portfolio` and queueing initial research when missing)
-and queues a valuation when the latest verified research snapshot lacks a
-current valuation or the valuation is stale/falsified. Jobs are idempotent
-(one queued-or-running per company/workflow), ordered by position weight ×
-staleness, and logged on the sync record.
+one marked `origin=portfolio` and queueing initial research when missing).
+A provisional, stale or falsifier-fired latest canonical Research snapshot
+routes through the same `stock-company-review` producer as an explicit review;
+a latest verified Research snapshot without a current canonical valuation routes
+through the one valuation producer. Jobs are idempotent per frozen input (one
+queued-or-running per company/workflow), ordered by numeric position weight ×
+Research staleness with FIFO tie-breaking, and logged with their exact decision
+basis on the sync record. A failed provider sync creates no coverage work.
 
 Only a `verified` valuation bound to the latest point-in-time Research snapshot
 may enter scenario sensitivity. Cash and uncovered positions remain unchanged.
@@ -288,6 +303,20 @@ snapshot exists: it freezes that prior snapshot and the current latest source
 versions, then the claimed worker performs a bounded refresh and saves only the
 next independently verifier-gated snapshot. The prior snapshot remains readable
 while the review waits or runs. Portfolio review remains a separate workflow.
+The report-calendar producer reuses that same review workflow and idempotency
+identity. It is created only while handling an explicit company refresh, binds
+the immutable parsed BiznesRadar profile version owned by that company and its
+source date. Queue creation is deferred until the bounded refresh has stored
+all later page versions, so its frozen source fingerprint matches an immediate
+manual review. It sets
+`AgentRun.available_at` to 06:00 UTC on the day after the scheduled report.
+Claims skip future jobs. An explicit review accelerates that same row instead
+of creating a competing path. A usable calendar-triggered Research save
+atomically queues the canonical valuation; invalid valuation inputs are stored
+as a named calendar blocker without discarding the Research snapshot. Failed,
+rejected or needs-human Research/Valuation attempts remain blockers and are
+never described as coverage. No
+recurring worker or passive page read wakes the queue (V6, V10).
 Research verification is a two-step local protocol: a distinct verifier
 context stores a verdict bound to the exact draft and frozen-input fingerprint;
 only its `VerificationRun` can unlock immutable save. `verifier_worker_id` is

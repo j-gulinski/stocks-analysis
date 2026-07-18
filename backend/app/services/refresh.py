@@ -30,11 +30,12 @@ from app.db.models import (
     IndicatorValue,
     Price,
     ReportValue,
+    SourceDocument,
     utcnow,
 )
 from app.scrapers import biznesradar
 from app.scrapers import http as polite_http
-from app.services import evidence, fields, market_data
+from app.services import evidence, fields, market_data, report_calendar
 
 # report pages: kind -> (statement, freq)
 REPORT_PAGES: dict[str, tuple[str, str]] = {
@@ -70,6 +71,7 @@ class FetchedPage:
 class ProfileRefreshResult:
     price: float | None = None
     source_version_id: int | None = None
+    report_schedule_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -435,6 +437,7 @@ def refresh_company(
     requests_before = db.scalar(select(func.count()).select_from(FetchLog)) or 0
     profile_price: float | None = None
     profile_source_version_id: int | None = None
+    report_schedule_id: int | None = None
 
     # P1.9: optional premium session, built once and reused for every BR page
     # this refresh touches. No BR_USERNAME/BR_PASSWORD configured -> session
@@ -447,6 +450,7 @@ def refresh_company(
         )
         profile_price = profile_result.price
         profile_source_version_id = profile_result.source_version_id
+        report_schedule_id = profile_result.report_schedule_id
         _refresh_reports(db, company, force, summary, session=br_session)
         _refresh_indicators(db, company, force, summary, session=br_session)
         _refresh_dividends(db, company, force, summary, session=br_session)
@@ -473,6 +477,7 @@ def refresh_company(
             )
             profile_price = profile_result.price
             profile_source_version_id = profile_result.source_version_id
+            report_schedule_id = profile_result.report_schedule_id
         summary["prices"] = _refresh_prices(
             db,
             company,
@@ -480,6 +485,15 @@ def refresh_company(
             fallback_source_version_id=profile_source_version_id,
             session=br_session,
         )
+
+    # Freeze the calendar producer only after every page in this bounded
+    # refresh has been recorded. Its Research idempotency fingerprint must see
+    # the same final evidence state that an immediate manual review sees.
+    if report_schedule_id is not None:
+        schedule = report_calendar.reconcile_schedule(
+            db, schedule_id=report_schedule_id, company_id=company.id
+        )
+        _summarize_report_calendar(schedule=schedule, summary=summary)
 
     company.updated_at = utcnow()
     try:
@@ -574,6 +588,36 @@ def _refresh_profile(
         return ProfileRefreshResult()
     if page is None:
         summary["profile"] = "cached"
+        cached_version = db.scalar(
+            select(DocumentVersion)
+            .join(
+                SourceDocument,
+                DocumentVersion.source_document_id == SourceDocument.id,
+            )
+            .where(
+                SourceDocument.company_id == company.id,
+                SourceDocument.source_name == "biznesradar",
+                SourceDocument.source_type == "company_profile",
+                SourceDocument.scope_key == "current",
+            )
+            .order_by(DocumentVersion.id.desc())
+            .limit(1)
+        )
+        if cached_version is not None:
+            cached_profile = biznesradar.parse_profile(
+                cached_version.raw_content, company.ticker
+            )
+            schedule_id = _record_report_calendar(
+                db,
+                company=company,
+                source_version=cached_version,
+                profile=cached_profile,
+                summary=summary,
+            )
+            return ProfileRefreshResult(
+                source_version_id=cached_version.id,
+                report_schedule_id=schedule_id,
+            )
         return ProfileRefreshResult()
 
     recorded = _record_page_evidence(
@@ -621,6 +665,13 @@ def _refresh_profile(
     # Reported market cap/EV (PLN) — authoritative for size classification.
     company.market_cap = profile.market_cap or company.market_cap
     company.enterprise_value = profile.enterprise_value or company.enterprise_value
+    schedule_id = _record_report_calendar(
+        db,
+        company=company,
+        source_version=recorded.version,
+        profile=profile,
+        summary=summary,
+    )
     _merge_premium_nodes(db, company, page.text)
     detail = "ok" if company.br_slug else "ok (no slug — using ticker)"
     if profile.market_cap is not None:
@@ -629,7 +680,45 @@ def _refresh_profile(
     return ProfileRefreshResult(
         price=profile.price,
         source_version_id=recorded.version.id,
+        report_schedule_id=schedule_id,
     )
+
+
+def _record_report_calendar(
+    db: Session,
+    *,
+    company: Company,
+    source_version: DocumentVersion,
+    profile: biznesradar.CompanyProfile,
+    summary: dict[str, str],
+) -> int | None:
+    try:
+        schedule = report_calendar.record_profile_schedule(
+            db,
+            company=company,
+            source_version=source_version,
+            report_date=profile.next_report_date,
+            report_label=profile.next_report_label,
+            parse_error=profile.next_report_parse_error,
+        )
+    except report_calendar.ReportCalendarError as exc:
+        summary["report_calendar"] = f"error: {exc}"
+        return None
+    _summarize_report_calendar(schedule=schedule, summary=summary)
+    return schedule.id
+
+
+def _summarize_report_calendar(
+    *, schedule, summary: dict[str, str]
+) -> None:
+    if schedule.source_status == "scheduled":
+        summary["report_calendar"] = (
+            f"ok ({schedule.report_date.isoformat()}; {schedule.automation_status})"
+        )
+    else:
+        summary["report_calendar"] = (
+            f"gap: {schedule.automation_reason or 'brak daty następnego raportu'}"
+        )
 
 
 # Forecast rows whose value is money (mln zł on the page, already converted

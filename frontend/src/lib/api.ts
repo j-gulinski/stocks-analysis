@@ -15,6 +15,8 @@ import type {
   PricePoint,
   PortfolioSyncResult,
   PortfolioReviewQueueResult,
+  PortfolioOperationsImportResult,
+  PortfolioOperationsPreview,
   PortfolioWorkspace,
   ResearchCaseCreateResult,
   ResearchReviewQueueResult,
@@ -206,6 +208,23 @@ export const syncMyfundPortfolio = () =>
 
 export const queuePortfolioReview = () =>
   request<PortfolioReviewQueueResult>("/portfolios/review-runs", { method: "POST" });
+
+export const previewPortfolioOperations = (payload: { filename: string; content: string }) =>
+  request<PortfolioOperationsPreview>("/portfolios/operations/preview", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const importPortfolioOperations = (payload: {
+  filename: string;
+  content: string;
+  expected_fingerprint: string;
+  confirm_full_export: true;
+}) =>
+  request<PortfolioOperationsImportResult>("/portfolios/operations/import", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 
 // ----------------------------------------------------------------- settings
 export const getHealth = () => request<{ status: string }>("/health");

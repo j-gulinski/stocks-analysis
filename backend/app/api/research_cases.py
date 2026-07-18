@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from datetime import timedelta, timezone
-import hashlib
-import json
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import or_, select
@@ -42,10 +40,8 @@ from app.services.archetype_packs import coverage_payload
 from app.services.company_profiles import (
     CompanyProfileError,
     append_human_profile,
-    frozen_profile,
 )
 from app.services.discovery import DiscoveryAdmission, admit_discovery_candidate
-from app.services.model_policy import default_model_for_workflow
 from app.services.artifact_contracts import (
     RESEARCH_PROFILE_SCHEMA,
     canonical_research_snapshot_predicate,
@@ -56,55 +52,21 @@ from app.services.research_artifacts import (
     save_research_snapshot,
     verify_research_snapshot,
 )
+from app.services.research_queue import (
+    ResearchQueueError,
+    enqueue_research_review,
+    ensure_research_case,
+    initial_research_run,
+)
+from app.services.portfolio_coverage import latest_portfolio_research_context
+from app.services import report_calendar
 
 router = APIRouter(prefix="/research-cases", tags=["research-cases"])
 
 _PURPOSE = "investment-research"
 _WORKFLOW = "stock-initial-research"
 _REVIEW_WORKFLOW = "stock-company-review"
-_SKILL_VERSION = "company-research-v3"
-_OUTPUT_CONTRACT_VERSION = "research-snapshot-v3"
-_PROFILE_SCHEMA_VERSION = "company-profile-v2"
-_ARCHETYPE_CONTRACT_VERSION = "archetype-packs-v1"
 _RESEARCH_STALE_AFTER = timedelta(days=30)
-
-
-def _initial_run_key(case_id: int) -> str:
-    return f"research-case-initial-research:{case_id}"
-
-
-def _review_source_state(db: Session, company_id: int) -> tuple[str, list[dict]]:
-    rows = db.execute(
-        select(
-            SourceDocument.id,
-            DocumentVersion.id,
-            DocumentVersion.content_hash,
-            DocumentVersion.fetched_at,
-        )
-        .join(DocumentVersion, DocumentVersion.source_document_id == SourceDocument.id)
-        .where(SourceDocument.company_id == company_id)
-        .order_by(SourceDocument.id, DocumentVersion.id.desc())
-    ).all()
-    latest_by_document: dict[int, dict] = {}
-    for document_id, version_id, content_hash, fetched_at in rows:
-        latest_by_document.setdefault(
-            document_id,
-            {
-                "source_document_id": document_id,
-                "document_version_id": version_id,
-                "content_hash": content_hash,
-                "fetched_at": (
-                    fetched_at
-                    if fetched_at.tzinfo is not None
-                    else fetched_at.replace(tzinfo=timezone.utc)
-                ).isoformat(),
-            },
-        )
-    manifest = list(latest_by_document.values())
-    encoded = json.dumps(
-        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest(), manifest
 
 
 def _agenda_reasons(
@@ -114,6 +76,7 @@ def _agenda_reasons(
     latest_snapshot: ResearchSnapshot | None,
     latest_agent: AgentRun | None,
     latest_valuation: ValuationSnapshot | None,
+    portfolio_context: dict | None = None,
 ) -> list[str]:
     reasons: list[str] = []
     if latest_snapshot is None:
@@ -123,6 +86,10 @@ def _agenda_reasons(
             "failed",
         }:
             reasons.append("Zbieranie źródeł wymaga interwencji.")
+        if portfolio_context is not None:
+            reasons.append(
+                "Pozycja portfelowa nie ma jeszcze bieżącego zweryfikowanego Research."
+            )
         return reasons
 
     if latest_snapshot.status in {"rejected", "needs-human"}:
@@ -174,6 +141,34 @@ def _agenda_reasons(
         "needs-human",
     }:
         reasons.append("Wycena wymaga decyzji lub ponownej weryfikacji.")
+    if portfolio_context is not None:
+        coverage_state = portfolio_context.get("coverage_state")
+        if coverage_state in {
+            "research_queued",
+            "research_pending",
+            "research_blocked",
+            "research_profile_blocked",
+            "research_review_blocked",
+        }:
+            reasons.append(
+                "Pozycja portfelowa nie ma jeszcze bieżącego zweryfikowanego Research."
+            )
+        elif coverage_state in {
+            "research_stale",
+            "falsifier_fired",
+            "research_review_queued",
+            "research_review_pending",
+        }:
+            reasons.append(
+                "Pokrycie pozycji portfelowej wymaga odświeżenia Research."
+            )
+        elif coverage_state in {
+            "valuation_queued",
+            "valuation_pending",
+            "valuation_blocked",
+            "valuation_needs_attention",
+        }:
+            reasons.append("Pozycja portfelowa nie ma jeszcze bieżącej wyceny.")
     return reasons
 
 
@@ -185,7 +180,10 @@ def _summary(
     latest_snapshot: ResearchSnapshot | None = None,
     latest_agent: AgentRun | None = None,
     latest_valuation: ValuationSnapshot | None = None,
+    portfolio_context: dict | None = None,
 ) -> ResearchCaseSummaryOut:
+    if portfolio_context is None:
+        portfolio_context = latest_portfolio_research_context(db).get(company.id)
     current_agent = latest_agent or agent
     brief = (latest_snapshot.sections or {}).get("brief", {}) if latest_snapshot else {}
     phase_summary = str(brief.get("current_understanding") or "").strip()
@@ -301,11 +299,41 @@ def _summary(
             latest_snapshot=latest_snapshot,
             latest_agent=current_agent,
             latest_valuation=latest_valuation,
+            portfolio_context=portfolio_context,
         ),
         collection_progress=collection_progress,
         valuation_strip=valuation_strip,
+        report_calendar=report_calendar.schedule_payload(
+            db, company_id=company.id
+        ),
         latest_snapshot_status=latest_snapshot.status if latest_snapshot else None,
         latest_snapshot_as_of=latest_snapshot.as_of if latest_snapshot else None,
+        origin=case.origin,
+        is_portfolio_holding=portfolio_context is not None,
+        portfolio_weight_pct=(
+            float(portfolio_context["weight_pct"])
+            if portfolio_context is not None
+            and portfolio_context.get("weight_pct") is not None
+            else None
+        ),
+        portfolio_priority_score=(
+            float(portfolio_context["priority_score"])
+            if portfolio_context is not None
+            and portfolio_context.get("priority_score") is not None
+            else None
+        ),
+        portfolio_staleness_days=(
+            int(portfolio_context["staleness_days"])
+            if portfolio_context is not None
+            and portfolio_context.get("staleness_days") is not None
+            else None
+        ),
+        portfolio_coverage_state=(
+            str(portfolio_context.get("coverage_state"))
+            if portfolio_context is not None
+            and portfolio_context.get("coverage_state") is not None
+            else None
+        ),
     )
 
 
@@ -360,24 +388,7 @@ def _latest_research_run(db: Session, case: ResearchCase) -> AgentRun | None:
 
 
 def _initial_research_run(db: Session, case: ResearchCase) -> AgentRun | None:
-    """Return the stable initial run, including runs saved before keys existed."""
-    keyed = db.scalar(
-        select(AgentRun).where(
-            AgentRun.idempotency_key == _initial_run_key(case.id)
-        )
-    )
-    if keyed is not None:
-        return keyed
-    return db.scalar(
-        select(AgentRun)
-        .where(
-            AgentRun.workflow == _WORKFLOW,
-            AgentRun.company_id == case.company_id,
-            AgentRun.inputs["research_case_id"].as_integer() == case.id,
-        )
-        .order_by(AgentRun.created_at.asc(), AgentRun.id.asc())
-        .limit(1)
-    )
+    return initial_research_run(db, case)
 
 
 def _frozen_discovery_origin(admission: DiscoveryAdmission) -> dict:
@@ -398,135 +409,20 @@ def _ensure_research_case(
     ticker: str,
     discovery_origin: dict | None = None,
 ) -> tuple[Company, ResearchCase, AgentRun, bool, bool, bool, bool]:
-    company = db.scalar(select(Company).where(Company.ticker == ticker))
-    created_company = company is None
-    if company is None:
-        company = Company(
-            ticker=ticker,
-            name=(discovery_origin or {}).get("candidate", {}).get("name"),
-        )
-        db.add(company)
-        db.flush()
-
-    research_case = db.scalar(
-        select(ResearchCase).where(
-            ResearchCase.company_id == company.id,
-            ResearchCase.purpose == _PURPOSE,
-        )
+    ensured = ensure_research_case(
+        db,
+        ticker=ticker,
+        origin="discover" if discovery_origin is not None else "manual",
+        discovery_origin=discovery_origin,
     )
-    created_case = research_case is None
-    if research_case is None:
-        research_case = ResearchCase(
-            company_id=company.id,
-            purpose=_PURPOSE,
-            state="ingesting",
-            current_step="ingest",
-            as_of=utcnow(),
-        )
-        db.add(research_case)
-        db.flush()
-        db.add(
-            ResearchCaseStepHistory(
-                research_case_id=research_case.id,
-                from_state=None,
-                from_step=None,
-                to_state="ingesting",
-                to_step="ingest",
-                reason="Research Lab: utworzono sprawę i zlecono pierwszy research.",
-            )
-        )
-
-    run_key = _initial_run_key(research_case.id)
-    agent = _initial_research_run(db, research_case)
-    if agent is not None and (
-        agent.workflow != _WORKFLOW or agent.company_id != company.id
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Initial-research idempotency key points to an inconsistent job.",
-        )
-    reactivated_case = not created_case and research_case.state == "closed"
-    if reactivated_case:
-        previous_step = research_case.current_step
-        if agent is not None and agent.status in {
-            "completed",
-            "provisional",
-            "verified",
-        }:
-            research_case.state = "monitoring"
-            research_case.current_step = "monitoring"
-        elif agent is not None and agent.status in {
-            "failed",
-            "rejected",
-            "needs-human",
-        }:
-            research_case.state = "blocked"
-            research_case.current_step = "data_review"
-            research_case.blocked_reason = (
-                "Pierwszy research wymaga jawnego przeglądu lub ponowienia."
-            )
-        else:
-            research_case.state = "ingesting"
-            research_case.current_step = "ingest"
-            research_case.blocked_reason = None
-        research_case.as_of = utcnow()
-        research_case.updated_at = utcnow()
-        db.add(
-            ResearchCaseStepHistory(
-                research_case_id=research_case.id,
-                from_state="closed",
-                from_step=previous_step,
-                to_state=research_case.state,
-                to_step=research_case.current_step,
-                reason="Research Lab: ponownie aktywowano istniejący przypadek.",
-            )
-        )
-
-    created_job = agent is None
-    if agent is None:
-        model = default_model_for_workflow(_WORKFLOW)
-        inputs = {
-            "ticker": company.ticker,
-            "research_case_id": research_case.id,
-            "task": {
-                "skill": "company-research",
-                "skill_version": _SKILL_VERSION,
-                "output_contract_version": _OUTPUT_CONTRACT_VERSION,
-                "company_profile_schema_version": _PROFILE_SCHEMA_VERSION,
-                "archetype_contract_version": _ARCHETYPE_CONTRACT_VERSION,
-                "objective": (
-                    "Refresh one company, resolve its source questions and save a "
-                    "tailored forward-looking first snapshot."
-                ),
-                "refresh_scope": "all",
-                "required_verification": "verifier_strict",
-                "research_list_policy": "do not add automatically",
-            },
-        }
-        if discovery_origin is not None:
-            inputs["discovery_origin"] = discovery_origin
-        agent = AgentRun(
-            workflow=_WORKFLOW,
-            trigger="research-lab",
-            status="queued",
-            company_id=company.id,
-            model_role="worker_standard",
-            model=model,
-            orchestrator_model=model,
-            idempotency_key=run_key,
-            inputs=inputs,
-            outputs={},
-        )
-        db.add(agent)
-        db.flush()
     return (
-        company,
-        research_case,
-        agent,
-        created_company,
-        created_case,
-        reactivated_case,
-        created_job,
+        ensured.company,
+        ensured.research_case,
+        ensured.agent,
+        ensured.created_company,
+        ensured.created_case,
+        ensured.reactivated_case,
+        ensured.created_job,
     )
 
 
@@ -538,6 +434,7 @@ def list_research_cases(db: Session = Depends(get_db)) -> list[ResearchCaseSumma
         .order_by(ResearchCase.updated_at.desc(), ResearchCase.id.desc())
     ).all()
     result: list[ResearchCaseSummaryOut] = []
+    portfolio_contexts = latest_portfolio_research_context(db)
     for research_case, company in rows:
         agent = _initial_research_run(db, research_case)
         latest_snapshot = _latest_snapshot(db, research_case.id)
@@ -550,8 +447,17 @@ def list_research_cases(db: Session = Depends(get_db)) -> list[ResearchCaseSumma
                 latest_snapshot,
                 _latest_research_run(db, research_case),
                 _latest_valuation(db, research_case.id, latest_snapshot),
+                portfolio_contexts.get(company.id),
             )
         )
+    result.sort(
+        key=lambda item: (
+            0 if item.is_portfolio_holding else (1 if item.origin == "discover" else 2),
+            -(item.portfolio_priority_score or 0.0)
+            if item.is_portfolio_holding
+            else 0.0,
+        )
+    )
     return result
 
 
@@ -660,6 +566,9 @@ def confirm_company_profile(
         )
     try:
         profile = append_human_profile(db, case=case, payload=payload)
+        report_calendar.reconcile_latest_schedule(
+            db, company_id=case.company_id
+        )
         db.commit()
     except CompanyProfileError as exc:
         db.rollback()
@@ -693,168 +602,24 @@ def queue_research_review(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Research case not found."
         )
-    company = db.get(Company, case.company_id)
-    if company is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Research company is missing."
-        )
-    latest_snapshot = _latest_snapshot(db, case.id)
-    if latest_snapshot is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Complete the initial Research snapshot before queuing a review.",
-        )
-
-    profile = db.scalar(
-        select(CompanyProfile)
-        .where(
-            CompanyProfile.research_case_id == case.id,
-            CompanyProfile.schema_version == RESEARCH_PROFILE_SCHEMA,
-        )
-        .order_by(CompanyProfile.version.desc(), CompanyProfile.id.desc())
-        .limit(1)
-    )
-    if profile is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="The latest Research snapshot has no company profile.",
-        )
-    if profile.provenance == "codex-proposed":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Confirm or correct the latest company profile before queuing "
-                "a Research review."
-            ),
-        )
-    source_questions = (profile.company_overlay or {}).get("source_questions") or []
-    if not source_questions:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Add at least one company-specific source question to the confirmed "
-                "profile before queuing a Research review."
-            ),
-        )
-    frozen = frozen_profile(profile)
-
-    source_fingerprint, source_manifest = _review_source_state(db, company.id)
-    key = f"research-case-review:{case.id}:{source_fingerprint}:{frozen['fingerprint']}"
-    existing = db.scalar(select(AgentRun).where(AgentRun.idempotency_key == key))
-    if existing is not None:
-        existing_review = (
-            (existing.inputs or {}).get("review")
-            if isinstance((existing.inputs or {}).get("review"), dict)
-            else {}
-        )
-        return ResearchReviewQueueOut(
-            agent_run_id=existing.id,
-            status=existing.status,
-            created=False,
-            prior_snapshot_id=existing_review.get(
-                "prior_research_snapshot_id", latest_snapshot.id
-            ),
-            source_fingerprint=source_fingerprint,
-            profile_id=existing_review.get("confirmed_company_profile", {}).get(
-                "id", profile.id
-            ),
-            profile_version=existing_review.get("confirmed_company_profile", {}).get(
-                "version", profile.version
-            ),
-            profile_fingerprint=existing_review.get("confirmed_company_profile", {}).get(
-                "fingerprint", frozen["fingerprint"]
-            ),
-        )
-
-    active_peer = db.scalar(
-        select(AgentRun).where(
-            AgentRun.company_id == company.id,
-            AgentRun.workflow.in_((_WORKFLOW, _REVIEW_WORKFLOW)),
-            AgentRun.status.in_(("queued", "running")),
-        )
-    )
-    if active_peer is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Another Research collection for this company is already queued or running.",
-        )
-
-    model = default_model_for_workflow(_REVIEW_WORKFLOW)
-    agent = AgentRun(
-        workflow=_REVIEW_WORKFLOW,
-        trigger="research-review-command",
-        status="queued",
-        company_id=company.id,
-        model_role="worker_standard",
-        model=model,
-        orchestrator_model=model,
-        idempotency_key=key,
-        inputs={
-            "ticker": company.ticker,
-            "research_case_id": case.id,
-            "task": {
-                "skill": "company-research",
-                "skill_version": _SKILL_VERSION,
-                "output_contract_version": _OUTPUT_CONTRACT_VERSION,
-                "company_profile_schema_version": _PROFILE_SCHEMA_VERSION,
-                "archetype_contract_version": _ARCHETYPE_CONTRACT_VERSION,
-                "objective": (
-                    "Refresh one existing company case, resolve its source questions, "
-                    "compare forward drivers with the prior immutable snapshot and save "
-                    "the next verified snapshot."
-                ),
-                "refresh_scope": "all",
-                "required_verification": "verifier_strict",
-                "research_list_policy": "do not add automatically",
-            },
-            "review": {
-                "prior_research_snapshot_id": latest_snapshot.id,
-                "prior_artifact_fingerprint": latest_snapshot.artifact_fingerprint,
-                "queued_source_fingerprint": source_fingerprint,
-                "queued_source_manifest": source_manifest,
-                "confirmed_company_profile": frozen,
-            },
-        },
-        outputs={},
-    )
-    db.add(agent)
-    previous_state, previous_step = case.state, case.current_step
-    case.state = "ingesting"
-    case.current_step = "ingest"
-    case.blocked_reason = None
-    case.updated_at = utcnow()
-    db.add(
-        ResearchCaseStepHistory(
-            research_case_id=case.id,
-            from_state=previous_state,
-            from_step=previous_step,
-            to_state="ingesting",
-            to_step="ingest",
-            reason="Research: jawnie zlecono odświeżenie istniejącego snapshotu.",
-            changed_by="user-command",
-        )
-    )
     try:
+        queued = enqueue_research_review(db, case=case)
         db.commit()
-    except IntegrityError:
+    except ResearchQueueError as exc:
         db.rollback()
-        existing = db.scalar(select(AgentRun).where(AgentRun.idempotency_key == key))
-        if existing is None:
-            raise
-        agent = existing
-        created = False
-    else:
-        db.refresh(agent)
-        created = True
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    db.refresh(queued.agent)
     return ResearchReviewQueueOut(
-        agent_run_id=agent.id,
-        status=agent.status,
-        created=created,
-        prior_snapshot_id=latest_snapshot.id,
-        source_fingerprint=source_fingerprint,
-        profile_id=profile.id,
-        profile_version=profile.version,
-        profile_fingerprint=frozen["fingerprint"],
+        agent_run_id=queued.agent.id,
+        status=queued.agent.status,
+        created=queued.created,
+        prior_snapshot_id=queued.prior_snapshot.id,
+        source_fingerprint=queued.source_fingerprint,
+        profile_id=queued.profile.id,
+        profile_version=queued.profile.version,
+        profile_fingerprint=queued.profile_fingerprint,
     )
 
 
@@ -957,6 +722,11 @@ def create_research_case(
                 reactivated_case=reactivated_case,
                 created_job=created_job,
             )
+        except ResearchQueueError as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            ) from exc
         except IntegrityError:
             db.rollback()
             if attempt:

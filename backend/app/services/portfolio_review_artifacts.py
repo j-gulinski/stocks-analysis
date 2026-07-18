@@ -35,12 +35,13 @@ from app.db.models import (
 from app.services.agent_queue import clear_agent_lease
 from app.services.model_policy import default_model_for_workflow, get_model_policy
 from app.services.portfolio import calculate_portfolio_performance, portfolio_workspace
+from app.services.portfolio_operations import portfolio_operations_workspace
 from app.services.valuation_engine import canonical_hash
 
 WORKFLOW = "stock-portfolio-review"
 SKILL_VERSION = "portfolio-review-v1"
 CONTRACT_VERSION = "portfolio-review-v1"
-ANALYTICS_VERSION = "portfolio-analytics-v2"
+ANALYTICS_VERSION = "portfolio-analytics-v3"
 _TRANSACTION_OBJECT = (
     r"(?:pozycj(?:ę|i)|akcj(?:e|i)|walor(?:y|ów)|udział(?:y|u)?|papiery|papierów|"
     r"spółk(?:ę|i)|ekspozycj(?:ę|i)|koncentracj(?:ę|i)|gotówk(?:ę|i))"
@@ -135,6 +136,8 @@ def _review_gaps(workspace: dict[str, Any]) -> list[str]:
         )
     methods = workspace.get("performance_methods") or {}
     gaps.extend(methods.get("gaps") or [])
+    operations = workspace.get("operations") or {}
+    gaps.extend(operations.get("gaps") or [])
     risk_companies = (workspace.get("risk_context") or {}).get("companies") or []
     if any((row.get("research") or {}).get("stale") for row in risk_companies):
         gaps.append("Co najmniej jedna pozycja ma brakujące lub nieaktualne Research.")
@@ -215,6 +218,7 @@ def freeze_portfolio_review_inputs(
             "scenario_sensitivity": workspace["scenario_sensitivity"],
             "risk_context": workspace["risk_context"],
             "performance_methods": workspace["performance_methods"],
+            "operations": workspace["operations"],
             "coverage": workspace["coverage"],
         }
     )
@@ -524,6 +528,15 @@ def _validate_frozen_integrity(
         raise PortfolioReviewArtifactError(
             "Frozen performance analytics do not recompute.", kind="conflict"
         )
+    current_operations = portfolio_operations_workspace(
+        db,
+        portfolio_id=snapshot.portfolio_id,
+        history=stored_history,
+    )
+    if frozen["analytics"].get("operations") != _json_safe(current_operations):
+        raise PortfolioReviewArtifactError(
+            "Frozen portfolio operations changed after queueing.", kind="conflict"
+        )
     _validate_scenario_arithmetic(db, frozen, total)
     text = " ".join(
         [draft.sections.summary]
@@ -682,7 +695,10 @@ def _validate_scenario_arithmetic(
             "Eligible valuation set does not match scenario coverage.", kind="conflict"
         )
     positions = {row["position_snapshot_id"]: row for row in frozen["positions"]}
-    totals = {"negative": 0.0, "base": 0.0, "positive": 0.0, "weighted": 0.0}
+    totals = {"negative": 0.0, "base": 0.0, "positive": 0.0}
+    weighted_total = 0.0
+    weighted_complete = bool(covered)
+    weighted_covered_value = 0.0
     unchanged = total
     for row in covered:
         position = positions.get(row["position_id"])
@@ -711,14 +727,23 @@ def _validate_scenario_arithmetic(
         expected_weighted = (
             quantity * float(weighted_price) if weighted_price is not None else None
         )
-        if (
-            expected_weighted is None
-            or abs(float(row["weighted_value"]) - expected_weighted) > 0.02
-        ):
-            raise PortfolioReviewArtifactError(
-                "Weighted scenario arithmetic does not reconcile.", kind="conflict"
-            )
-        totals["weighted"] += expected_weighted
+        actual_weighted = row.get("weighted_value")
+        if expected_weighted is None:
+            if actual_weighted is not None:
+                raise PortfolioReviewArtifactError(
+                    "Weighted scenario arithmetic does not reconcile.", kind="conflict"
+                )
+            weighted_complete = False
+        else:
+            if (
+                actual_weighted is None
+                or abs(float(actual_weighted) - expected_weighted) > 0.02
+            ):
+                raise PortfolioReviewArtifactError(
+                    "Weighted scenario arithmetic does not reconcile.", kind="conflict"
+                )
+            weighted_total += expected_weighted
+            weighted_covered_value += float(position["value"])
     actual_totals = sensitivity.get("portfolio_values") or {}
     for kind, covered_total in totals.items():
         expected = covered_total + unchanged
@@ -729,6 +754,33 @@ def _validate_scenario_arithmetic(
             raise PortfolioReviewArtifactError(
                 "Portfolio scenario total does not reconcile.", kind="conflict"
             )
+    expected_weighted_total = (
+        weighted_total + unchanged if weighted_complete else None
+    )
+    actual_weighted_total = actual_totals.get("weighted")
+    if (
+        expected_weighted_total is None
+        and actual_weighted_total is not None
+    ) or (
+        expected_weighted_total is not None
+        and (
+            actual_weighted_total is None
+            or abs(float(actual_weighted_total) - expected_weighted_total) > 0.02
+        )
+    ):
+        raise PortfolioReviewArtifactError(
+            "Portfolio weighted scenario total does not reconcile.", kind="conflict"
+        )
+    expected_weighted_coverage = (
+        round(weighted_covered_value / total * 100, 2) if total else 0
+    )
+    if abs(
+        float(sensitivity.get("weighted_coverage_value_pct", -1))
+        - expected_weighted_coverage
+    ) > 0.02:
+        raise PortfolioReviewArtifactError(
+            "Weighted scenario coverage does not reconcile.", kind="conflict"
+        )
 
 
 def _final_status(result: PortfolioReviewVerifierResult, gaps: list[str]) -> str:
