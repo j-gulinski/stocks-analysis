@@ -63,6 +63,7 @@ class ReportRow:
 class ReportTable:
     freq: str  # Q | Y
     periods: list[str] = field(default_factory=list)  # normalized, e.g. 2025Q1
+    publication_dates: list[date | None] = field(default_factory=list)
     rows: list[ReportRow] = field(default_factory=list)
 
 
@@ -159,6 +160,7 @@ _SPACE_CHARS = "\u00a0\u2009\u202f "  # nbsp, thin, narrow-nbsp, regular (escape
 _NUMBER_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?")
 _QUARTER_RE = re.compile(r"(\d{4})\s*/?\s*Q([1-4])")
 _DATE_RE = re.compile(r"(\d{4})-(\d{2})(?:-\d{2})?")  # 2025-03-31 or 2025-03
+_FULL_ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _YEAR_RE = re.compile(r"^(\d{4})$")
 
 
@@ -214,6 +216,17 @@ def normalize_period(raw: str, freq: str) -> str | None:
         return match.group(1)
     date_match = _DATE_RE.search(text)
     return date_match.group(1) if date_match else None
+
+
+def _parse_publication_date(raw: str) -> date | None:
+    """Parse only a complete, valid ISO date; never repair source metadata."""
+    text = raw.strip()
+    if _FULL_ISO_DATE_RE.fullmatch(text) is None:
+        return None
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
 
 
 def _slugify(label: str) -> str:
@@ -778,13 +791,36 @@ def parse_report_table(html: str, freq: str) -> ReportTable:
     kept_column_indexes = [index for index, _ in best_matches]
     periods = [period for _, period in best_matches]
 
-    result = ReportTable(freq=freq, periods=periods)
+    publication_dates: list[date | None] = [None] * len(periods)
+    for tr in all_rows:
+        cells = tr.find_all(["td", "th"])
+        label = cells[0].get_text(" ", strip=True).lower() if cells else ""
+        if not label.startswith("data publikacji"):
+            continue
+        value_cells = cells[1:]
+        publication_dates = [
+            (
+                _parse_publication_date(value_cells[column_index].get_text(" ", strip=True))
+                if column_index < len(value_cells)
+                else None
+            )
+            for column_index in kept_column_indexes
+        ]
+        break
+
+    result = ReportTable(
+        freq=freq,
+        periods=periods,
+        publication_dates=publication_dates,
+    )
     for tr in all_rows[best_row_index + 1 :]:
         cells = tr.find_all(["td", "th"])
         if len(cells) < 2:
             continue
         label = cells[0].get_text(" ", strip=True)
         if not label:
+            continue
+        if label.lower().startswith("data publikacji"):
             continue
         field_code = tr.get("data-field") or cells[0].get("data-field") or _slugify(label)
 

@@ -3,6 +3,18 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-19 · R0 publication-date parser contract
+
+- `ReportTable` now retains BiznesRadar `Data publikacji` metadata one-to-one
+  with the selected period columns. Only complete, valid ISO dates become
+  `date`; missing or malformed cells remain `None`, with no inference.
+- Publication metadata follows the same duplicate/skipped-column selection as
+  financial values and is no longer emitted as an ordinary numeric row. This
+  increment deliberately adds no persistence, backfill, migration or coverage
+  reporting. The 66-test parser suite and 10-test Vision contract pass; an
+  independent verifier found zero mismatches across 174 recorded period/date
+  pairs from ABS, CRB and SNT and accepted the adversarial alignment cases.
+
 ## 2026-07-15 · Source-linked report calendar
 
 - Added `report-calendar-v1`: BiznesRadar profile parsing now retains the next

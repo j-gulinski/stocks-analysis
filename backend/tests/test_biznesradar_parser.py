@@ -60,18 +60,25 @@ def test_normalize_period(raw, freq, expected):
 
 def test_header_row_scan_and_duplicate_columns():
     """Production findings: the period header is not always the first <tr>,
-    and annual pages can repeat a period column (CBF crash) — first wins."""
+    and annual pages can repeat a period column (CBF crash) — first wins.
+    Publication metadata must follow those exact selected column indexes."""
     html = """
     <table class="report-table">
       <tr><td>filtry</td><td>Roczne</td><td>Kwartalne</td></tr>
-      <tr><td></td><th>2024-09-30</th><th>2024-12-31</th><th>2025/Q1</th><th>2025/Q1</th></tr>
+      <tr><td></td><th>2024-09-30</th><th>O4K (mar 26)*</th><th>2024-12-31</th><th>2025/Q1</th><th>2025/Q1</th></tr>
+      <tr data-field="PrimaryReport"><td>Data publikacji</td>
+        <td>2024-11-14</td><td>2026-05-15</td><td>2025-02-30</td>
+        <td>2025-05-15</td><td>2099-01-01</td></tr>
       <tr data-field="IncomeRevenues"><td>Przychody ze sprzedaży</td>
-        <td><span class="value">10</span></td><td><span class="value">20</span></td>
-        <td><span class="value">30</span></td><td><span class="value">99</span></td></tr>
+        <td><span class="value">10</span></td><td><span class="value">999</span></td>
+        <td><span class="value">20</span></td><td><span class="value">30</span></td>
+        <td><span class="value">99</span></td></tr>
     </table>"""
     table = parse_report_table(html, freq="Q")
     assert table.periods == ["2024Q3", "2024Q4", "2025Q1"]  # dup 2025Q1 dropped
+    assert table.publication_dates == [date(2024, 11, 14), None, date(2025, 5, 15)]
     assert table.rows[0].values == [10.0, 20.0, 30.0]  # first 2025Q1 column kept
+    assert [row.label for row in table.rows] == ["Przychody ze sprzedaży"]
 
 
 def test_profile_price_extraction():
@@ -114,6 +121,7 @@ def test_income_quarterly_table():
         "2023Q1", "2023Q2", "2023Q3", "2023Q4",
         "2024Q1", "2024Q2", "2024Q3", "2024Q4", "2025Q1",
     ]
+    assert table.publication_dates == [None] * len(table.periods)
     assert len(table.rows) == 11
 
     revenue = next(r for r in table.rows if r.field_code == "IncomeRevenues")
@@ -230,6 +238,12 @@ def test_live_page_findings_2026_07():
     )
     table = parse_report_table(html, "Q")
     assert table.periods == ["2025Q1", "2025Q2", "2025Q3"]
+    assert table.publication_dates == [
+        date(2010, 2, 14),
+        date(2019, 11, 8),
+        date(2024, 12, 20),
+    ]
+    assert all(row.label != "Data publikacji" for row in table.rows)
 
     # profile: slug link, 'Branża:' label, market banner, name not crossing ':'
     live = (
@@ -422,7 +436,9 @@ def test_real_report_pages_structure(company_dir, fixture_name, freq):
     assert path.exists(), f"incomplete real fixture set: missing {path}"
     table = parse_report_table(path.read_text(encoding="utf-8"), freq=freq)
     assert table.periods, "expected at least one period column"
+    assert len(table.publication_dates) == len(table.periods)
     assert table.rows, "expected at least one data row"
+    assert all(row.label != "Data publikacji" for row in table.rows)
     assert any(
         any(v is not None for v in row.values) for row in table.rows
     ), "expected at least one numeric value"
