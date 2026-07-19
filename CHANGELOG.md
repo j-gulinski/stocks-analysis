@@ -3,6 +3,22 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-19 · R0 immutable publication-date backfill
+
+- Added one additive/idempotent operator command that reparses every stored
+  parsed or partial BiznesRadar financial-report `DocumentVersion.raw_content`
+  and records or reuses the same canonical statement publication facts as live
+  refresh. It has no HTTP dependency, never mutates source versions and reports
+  bounded per-version parse/identity failures.
+- The live backfill scanned four immutable statement versions and created 215
+  publication facts while FetchLogs remained at 40; its immediate repeat
+  created zero and reused all 215. An explicit blank ticker now fails before
+  query construction after independent verification caught the unsafe
+  filter-disable edge.
+- The 100-test focused parser/refresh/evidence/backfill/Vision run passes. The
+  repaired independent pass accepted 21 focused checks with zero live
+  recomputation mismatches, and browser smoke found no cross-stage regression.
+
 ## 2026-07-19 · R0 publication-date fact persistence
 
 - Company refresh now stores one immutable

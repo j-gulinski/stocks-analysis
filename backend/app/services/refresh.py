@@ -35,15 +35,10 @@ from app.db.models import (
 )
 from app.scrapers import biznesradar
 from app.scrapers import http as polite_http
-from app.services import evidence, fields, market_data, report_calendar
+from app.services import evidence, fields, market_data, publication_dates, report_calendar
 
 # report pages: kind -> (statement, freq)
-REPORT_PAGES: dict[str, tuple[str, str]] = {
-    "income_q": ("income", "Q"),
-    "income_y": ("income", "Y"),
-    "balance_q": ("balance", "Q"),
-    "cashflow_q": ("cashflow", "Q"),
-}
+REPORT_PAGES = publication_dates.STATEMENT_REPORT_SCOPES
 INDICATOR_PAGES = ("indicators_value", "indicators_profitability")
 # Below this many stored price rows the app has no real history and a
 # successful provider fetch REPLACES what is there (backfill).
@@ -254,11 +249,6 @@ def _upsert_report_values(
       (period, field) can no longer raise UniqueViolation, whatever the
       page served.
     """
-    if len(table.publication_dates) != len(table.periods):
-        raise LookupError(
-            "Publication-date metadata is not aligned with statement periods."
-        )
-
     if replace:
         db.execute(
             delete(ReportValue).where(
@@ -296,25 +286,13 @@ def _upsert_report_values(
                 },
             }
 
-    for period_position, (period, publication_date) in enumerate(
-        zip(table.periods, table.publication_dates)
-    ):
-        evidence.record_date_fact(
-            db,
-            company,
-            source_version,
-            fact_type="financial_statement_publication",
-            fact_key=f"{statement}.publication_date",
-            value=publication_date,
-            period=period,
-            locator={
-                "table": statement,
-                "frequency": table.freq,
-                "metadata_label": "Data publikacji",
-                "period_position": period_position,
-                "period": period,
-            },
-        )
+    publication_dates.record_statement_publication_facts(
+        db,
+        company,
+        statement,
+        table,
+        source_version,
+    )
 
     if not rows_by_key:
         return 0
