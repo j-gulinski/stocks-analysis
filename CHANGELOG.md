@@ -3,6 +3,23 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-19 · R0 publication-date fact persistence
+
+- Company refresh now stores one immutable
+  `financial_statement_publication` Fact for every parsed statement period,
+  bound to the exact source document version and statement/frequency/period
+  locator. A valid source date is retained as `effective_date`; missing or
+  malformed metadata becomes an explicit `not_reported` fact while `known_at`
+  remains the actual fetch time.
+- Identical refreshes reuse the same document versions and fact fingerprints;
+  changed documents retain their earlier facts. This bounded increment adds no
+  migration, historical backfill, point-in-time dossier read or coverage UI.
+- The 97-test focused parser/refresh/evidence/Vision run passes. An independent
+  read-only verifier recomputed cardinality, date semantics, lineage,
+  idempotency and changed-version history with no findings; the live eligible
+  Discover → Research → SNT company → Valuation → Portfolio smoke also found
+  no regression.
+
 ## 2026-07-19 · R0 publication-date parser contract
 
 - `ReportTable` now retains BiznesRadar `Data publikacji` metadata one-to-one

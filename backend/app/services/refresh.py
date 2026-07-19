@@ -254,6 +254,11 @@ def _upsert_report_values(
       (period, field) can no longer raise UniqueViolation, whatever the
       page served.
     """
+    if len(table.publication_dates) != len(table.periods):
+        raise LookupError(
+            "Publication-date metadata is not aligned with statement periods."
+        )
+
     if replace:
         db.execute(
             delete(ReportValue).where(
@@ -290,6 +295,26 @@ def _upsert_report_values(
                     "period": period,
                 },
             }
+
+    for period_position, (period, publication_date) in enumerate(
+        zip(table.periods, table.publication_dates)
+    ):
+        evidence.record_date_fact(
+            db,
+            company,
+            source_version,
+            fact_type="financial_statement_publication",
+            fact_key=f"{statement}.publication_date",
+            value=publication_date,
+            period=period,
+            locator={
+                "table": statement,
+                "frequency": table.freq,
+                "metadata_label": "Data publikacji",
+                "period_position": period_position,
+                "period": period,
+            },
+        )
 
     if not rows_by_key:
         return 0

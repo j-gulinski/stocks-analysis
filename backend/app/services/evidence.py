@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -306,6 +306,70 @@ def record_numeric_fact(
             period=period,
             # Mutable aggregator: first observation, never backdated to a
             # historical publication label displayed on today's page.
+            known_at=version.fetched_at,
+            locator=locator,
+            extractor_version=extractor_version,
+            confidence=1.0,
+            verification_state=("parsed" if value is not None else "not_reported"),
+            created_at=datetime.now(timezone.utc),
+        )
+        statement = statement.on_conflict_do_nothing(
+            index_elements=["source_version_id", "fact_hash"]
+        )
+        db.execute(statement)
+        fact = db.scalar(
+            select(Fact).where(
+                Fact.source_version_id == version.id,
+                Fact.fact_hash == fact_hash,
+            )
+        )
+    assert fact is not None
+    return fact
+
+
+def record_date_fact(
+    db: Session,
+    company: Company,
+    version: DocumentVersion,
+    *,
+    fact_type: str,
+    fact_key: str,
+    value: date | None,
+    period: str,
+    locator: dict,
+    extractor_version: str = BR_EXTRACTOR_VERSION,
+) -> Fact:
+    """Create one immutable parsed date fact, including explicit missing dates."""
+    fingerprint = json.dumps(
+        {
+            "fact_type": fact_type,
+            "fact_key": fact_key,
+            "value": value.isoformat() if value is not None else None,
+            "period": period,
+            "locator": locator,
+            "extractor_version": extractor_version,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    fact_hash = hashlib.sha256(fingerprint).hexdigest()
+    fact = db.scalar(
+        select(Fact).where(
+            Fact.source_version_id == version.id,
+            Fact.fact_hash == fact_hash,
+        )
+    )
+    if fact is None:
+        statement = _insert_for(db, Fact).values(
+            company_id=company.id,
+            company_ticker=company.ticker,
+            source_version_id=version.id,
+            fact_type=fact_type,
+            fact_key=fact_key,
+            fact_hash=fact_hash,
+            period=period,
+            effective_date=value,
             known_at=version.fetched_at,
             locator=locator,
             extractor_version=extractor_version,

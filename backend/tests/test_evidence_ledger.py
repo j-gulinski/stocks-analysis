@@ -1,5 +1,5 @@
 """RT2 immutable evidence, lineage and point-in-time behavior."""
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import func, select
@@ -34,7 +34,7 @@ def _counts(db) -> tuple[int, int, int]:
 def test_refresh_creates_documents_facts_and_serving_lineage(client, db, stub_fetch):
     response = client.post("/api/companies/DEC/refresh")
     assert response.status_code == 200
-    assert _counts(db) == (9, 9, 251)
+    assert _counts(db) == (9, 9, 271)
 
     report_without_lineage = db.scalar(
         select(func.count())
@@ -64,6 +64,26 @@ def test_refresh_creates_documents_facts_and_serving_lineage(client, db, stub_fe
     assert fact.known_at == version.fetched_at
     assert "Przychody netto ze sprzedaży" in version.raw_content
 
+    publication_facts = db.scalars(
+        select(Fact).where(Fact.fact_type == "financial_statement_publication")
+    ).all()
+    assert len(publication_facts) == 20
+    assert len(
+        {
+            (
+                publication.locator["table"],
+                publication.locator["frequency"],
+                publication.period,
+            )
+            for publication in publication_facts
+        }
+    ) == 20
+    assert all(
+        publication.effective_date is None
+        and publication.verification_state == "not_reported"
+        for publication in publication_facts
+    )
+
     linked_fetches = db.scalar(
         select(func.count())
         .select_from(FetchLog)
@@ -78,7 +98,7 @@ def test_refresh_creates_documents_facts_and_serving_lineage(client, db, stub_fe
     assert all(document["quality"]["terms_status"] == "review_required" for document in documents)
     assert all(document["quality"]["limitation"] for document in documents)
     facts = client.get("/api/companies/DEC/evidence/facts").json()
-    assert len(facts) == 251
+    assert len(facts) == 271
     assert len(client.get(
         "/api/companies/DEC/evidence/facts", params={"fact_type": "analyst_forecast"}
     ).json()) == 45
@@ -103,7 +123,73 @@ def test_refresh_creates_documents_facts_and_serving_lineage(client, db, stub_fe
 def test_forced_identical_refresh_reuses_versions_and_facts(client, db, stub_fetch):
     assert client.post("/api/companies/DEC/refresh").status_code == 200
     assert client.post("/api/companies/DEC/refresh?force=true").status_code == 200
-    assert _counts(db) == (9, 9, 251)
+    assert _counts(db) == (9, 9, 271)
+
+
+def test_refresh_persists_statement_publication_dates_as_immutable_facts(
+    client, db, monkeypatch
+):
+    publication_row = (
+        '<tr data-field="PrimaryReport"><td>Data publikacji</td>'
+        '<td>2023-05-15</td><td>2023-08-16</td><td>2023-02-30</td>'
+        '<td></td><td>2024-05-15</td><td>2024-08-14</td>'
+        '<td>2024-11-14</td><td>2025-02-14</td><td>2025-05-15</td>'
+        '<td></td></tr>'
+    )
+
+    def fetch_with_publication_dates(url, *, session=None, timeout=None):
+        response = fake_fetch(url, session=session, timeout=timeout)
+        if url.endswith("/raporty-finansowe-rachunek-zyskow-i-strat/DEC,Q"):
+            html = response.text.replace(
+                '<tr data-field="IncomeRevenues">',
+                publication_row + '<tr data-field="IncomeRevenues">',
+                1,
+            )
+            return FakeResponse(html, 200)
+        return response
+
+    monkeypatch.setattr("app.scrapers.http.fetch", fetch_with_publication_dates)
+    assert client.post("/api/companies/DEC/refresh").status_code == 200
+
+    publication_facts = db.scalars(
+        select(Fact)
+        .where(
+            Fact.fact_type == "financial_statement_publication",
+            Fact.fact_key == "income.publication_date",
+        )
+        .order_by(Fact.period)
+    ).all()
+    assert len(publication_facts) == 11  # nine quarterly + two annual periods
+
+    quarterly = [
+        fact for fact in publication_facts if fact.locator["frequency"] == "Q"
+    ]
+    assert [fact.period for fact in quarterly] == [
+        "2023Q1", "2023Q2", "2023Q3", "2023Q4",
+        "2024Q1", "2024Q2", "2024Q3", "2024Q4", "2025Q1",
+    ]
+    assert [fact.effective_date for fact in quarterly] == [
+        date(2023, 5, 15),
+        date(2023, 8, 16),
+        None,
+        None,
+        date(2024, 5, 15),
+        date(2024, 8, 14),
+        date(2024, 11, 14),
+        date(2025, 2, 14),
+        date(2025, 5, 15),
+    ]
+    assert [fact.verification_state for fact in quarterly] == [
+        "parsed", "parsed", "not_reported", "not_reported",
+        "parsed", "parsed", "parsed", "parsed", "parsed",
+    ]
+    assert [fact.locator["period_position"] for fact in quarterly] == list(range(9))
+    assert all(fact.locator["table"] == "income" for fact in quarterly)
+
+    source_version_ids = {fact.source_version_id for fact in quarterly}
+    assert len(source_version_ids) == 1
+    source_version = db.get(DocumentVersion, source_version_ids.pop())
+    assert all(fact.known_at == source_version.fetched_at for fact in quarterly)
 
 
 def test_record_document_version_reports_first_insert_and_identical_reuse(db):
@@ -163,7 +249,7 @@ def test_changed_page_preserves_old_as_of_and_advances_serving_pointer(
     monkeypatch.setattr("app.scrapers.http.fetch", changed_fetch)
     assert client.post("/api/companies/DEC/refresh?force=true").status_code == 200
 
-    assert _counts(db) == (9, 10, 350)
+    assert _counts(db) == (9, 10, 379)
     current = db.scalar(
         select(ReportValue).where(
             ReportValue.statement == "income",
@@ -228,8 +314,8 @@ def test_failed_changed_page_is_retained_but_does_not_blank_serving_data(
         .where(ReportValue.statement == "income", ReportValue.freq == "Q")
     ) == 99
     # Failed raw version creates no facts and is excluded from as-of reads.
-    assert db.scalar(select(func.count()).select_from(Fact)) == 251
-    assert len(client.get("/api/companies/DEC/evidence/facts").json()) == 251
+    assert db.scalar(select(func.count()).select_from(Fact)) == 271
+    assert len(client.get("/api/companies/DEC/evidence/facts").json()) == 271
 
 
 def test_cross_document_disagreement_creates_explicit_conflict(client, db):
