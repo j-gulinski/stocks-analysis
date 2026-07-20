@@ -81,6 +81,32 @@ def test_header_row_scan_and_duplicate_columns():
     assert [row.label for row in table.rows] == ["Przychody ze sprzedaży"]
 
 
+def test_publication_row_structural_drift_yields_no_dates():
+    """Audit probes B/C: a publication row whose cell structure diverges from
+    the header must not shift dates onto wrong periods — alignment is
+    unprovable, so every date stays None (-> explicit not_reported facts)."""
+    header = "<tr><td></td><th>2024-09-30</th><th>2024-12-31</th><th>2025/Q1</th></tr>"
+    revenue = (
+        '<tr data-field="IncomeRevenues"><td>Przychody</td>'
+        '<td><span class="value">1</span></td><td><span class="value">2</span></td>'
+        '<td><span class="value">3</span></td></tr>'
+    )
+    extra_leading_cell = (
+        "<tr><td>Data publikacji</td><td></td>"
+        "<td>2024-11-14</td><td>2025-02-14</td><td>2025-05-15</td></tr>"
+    )
+    colspan_label = (
+        '<tr><td colspan="2">Data publikacji</td>'
+        "<td>2025-02-14</td><td>2025-05-15</td></tr>"
+    )
+    for publication_row in (extra_leading_cell, colspan_label):
+        html = f'<table class="report-table">{header}{publication_row}{revenue}</table>'
+        table = parse_report_table(html, freq="Q")
+        assert table.periods == ["2024Q3", "2024Q4", "2025Q1"]
+        assert table.publication_dates == [None, None, None]
+        assert [row.label for row in table.rows] == ["Przychody"]
+
+
 def test_profile_price_extraction():
     meta_html = (
         '<html><head><title>X (DEC)</title>'
@@ -426,6 +452,47 @@ REAL_REPORT_FIXTURES = [
     ("indicators_value.html", "Q"),
     ("indicators_profitability.html", "Q"),
 ]
+
+
+# Exact publication-date expectations recomputed from the committed real
+# captures (2026-07-20 audit): 568 period/date pairs across the 12 statement
+# fixtures become CI-checked instead of out-of-band verifier arithmetic. When
+# a fixture is re-recorded, regenerate these literals from the new capture.
+REAL_PUBLICATION_EXPECTATIONS = [
+    ("ABS", "income_q.html", "Q", 77, ("2007Q1", "2007-05-07"), ("2026Q1", "2026-04-30")),
+    ("ABS", "income_y.html", "Y", 20, ("2006", "2007-02-20"), ("2025", "2026-03-04")),
+    ("ABS", "balance_q.html", "Q", 77, ("2007Q1", "2007-05-07"), ("2026Q1", "2026-04-30")),
+    ("ABS", "cashflow_q.html", "Q", 77, ("2007Q1", "2007-05-07"), ("2026Q1", "2026-04-30")),
+    ("CRB", "income_q.html", "Q", 31, ("2018Q3", "2018-11-14"), ("2026Q1", "2026-05-15")),
+    ("CRB", "income_y.html", "Y", 9, ("2017", "2018-02-14"), ("2025", "2026-02-16")),
+    ("CRB", "balance_q.html", "Q", 31, ("2018Q3", "2018-11-14"), ("2026Q1", "2026-05-15")),
+    ("CRB", "cashflow_q.html", "Q", 31, ("2018Q3", "2018-11-14"), ("2026Q1", "2026-05-15")),
+    ("SNT", "income_q.html", "Q", 66, ("2010Q1", "2010-05-14"), ("2026Q2", "2026-06-11")),
+    ("SNT", "income_y.html", "Y", 17, ("2009", "2010-02-14"), ("2025", "2025-12-19")),
+    ("SNT", "balance_q.html", "Q", 66, ("2010Q1", "2010-05-14"), ("2026Q2", "2026-06-11")),
+    ("SNT", "cashflow_q.html", "Q", 66, ("2010Q1", "2010-05-14"), ("2026Q2", "2026-06-11")),
+]
+
+
+@pytest.mark.parametrize(
+    ("company", "fixture_name", "freq", "pair_count", "first_pair", "last_pair"),
+    REAL_PUBLICATION_EXPECTATIONS,
+)
+def test_real_fixture_publication_date_values(
+    company, fixture_name, freq, pair_count, first_pair, last_pair
+):
+    """Value-level guard over real markup, not just length parity."""
+    path = REAL_BR_ROOT / company / fixture_name
+    assert path.exists(), f"incomplete real fixture set: missing {path}"
+    table = parse_report_table(path.read_text(encoding="utf-8"), freq=freq)
+    pairs = [
+        (period, publication.isoformat() if publication else None)
+        for period, publication in zip(table.periods, table.publication_dates)
+    ]
+    assert len(pairs) == pair_count
+    assert pairs[0] == first_pair
+    assert pairs[-1] == last_pair
+    assert all(publication is not None for _, publication in pairs)
 
 
 @pytest.mark.parametrize("company_dir", REAL_COMPANY_DIRS)

@@ -17,10 +17,6 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-# Statement rows that are metadata, not financial values (e.g. publication
-# dates would be parsed as the number 2025) — never stored.
-IGNORED_ROW_LABELS = ("data publikacji",)
-
 from app.config import get_settings
 from app.db.models import (
     Company,
@@ -261,8 +257,6 @@ def _upsert_report_values(
     now = utcnow()
     rows_by_key: dict[tuple[str, str], dict] = {}
     for position, row in enumerate(table.rows):
-        if row.label.strip().lower() in IGNORED_ROW_LABELS:
-            continue
         for period, value in zip(table.periods, row.values):
             # last occurrence wins within one page — keys must be unique
             # inside a single ON CONFLICT statement

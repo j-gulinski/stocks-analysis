@@ -59,7 +59,12 @@ def record_statement_publication_facts(
 def backfill_statement_publication_facts(
     db: Session, *, ticker: str | None = None
 ) -> dict:
-    """Replay stored immutable report HTML; never fetch or mutate source versions."""
+    """Replay stored immutable report HTML; never fetch or mutate source versions.
+
+    Bounded per-version failures cover parse and company-identity errors
+    (``ParseError``/``LookupError``); any other exception aborts the run before
+    the caller commits, so no partial state is persisted.
+    """
     normalized_ticker = ticker.strip().upper() if ticker is not None else None
     if normalized_ticker == "":
         return {

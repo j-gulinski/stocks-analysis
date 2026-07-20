@@ -55,8 +55,10 @@ are NON-NEGOTIABLE at every step (see bottom).
   with the most period-like cells — the header is NOT always the first
   `<tr>`. The trailing `O4K (mar 26)*` TTM column must be skipped.
 - The `Data publikacji` row is metadata (dates would become phantom periods
-  like 2010Q1) — excluded from header detection AND from stored values
-  (`IGNORED_ROW_LABELS`).
+  like 2010Q1) — the parser excludes it from header detection, never emits it
+  as a financial row, and retains it as `ReportTable.publication_dates` only
+  when its cell count matches the header row's (structural drift -> all
+  `None`, i.e. explicit `not_reported` facts).
 - **Annual pages can repeat a period column** (`2026` twice) — parser keeps
   the FIRST occurrence; upserts also dedupe in-batch (crashed prod once).
 - **`data-field` codes are the stable row identity** (`IncomeRevenues`,

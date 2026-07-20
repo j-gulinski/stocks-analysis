@@ -3,6 +3,19 @@
 Release-level changes and durable decisions only. Granular history before the
 product reset remains available in Git at and before `2ac75d0`.
 
+## 2026-07-20 · R0 parser hardening (Iteration 3b)
+
+- Publication metadata is now accepted only when the `Data publikacji` row's
+  cell count matches the header row's; on structural drift (extra leading
+  cell, colspan label) every date stays `None` — explicit `not_reported`
+  facts — instead of silently shifting onto the wrong periods.
+- All 568 period/date pairs across the 12 committed real statement fixtures
+  (ABS/CRB/SNT × income Q/Y, balance Q, cashflow Q) are now value-checked in
+  CI, replacing the prior out-of-band income-only (174-pair) verification.
+- The dead `IGNORED_ROW_LABELS` refresh path was deleted — the parser is the
+  single canonical exclusion (V10) — and the backfill docstring names its
+  bounded failure classes. Full backend suite: 414 passed.
+
 ## 2026-07-19 · R0 immutable publication-date backfill
 
 - Added one additive/idempotent operator command that reparses every stored

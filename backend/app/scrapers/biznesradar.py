@@ -791,22 +791,26 @@ def parse_report_table(html: str, freq: str) -> ReportTable:
     kept_column_indexes = [index for index, _ in best_matches]
     periods = [period for _, period in best_matches]
 
+    # Publication metadata is positional: it is only trustworthy when the row
+    # mirrors the header's cell structure exactly. On structural drift (extra
+    # leading cell, colspan label) alignment is unprovable, so every date stays
+    # None (-> explicit not_reported facts) instead of silently shifting onto
+    # the wrong periods. Kept column indexes are provably in range once the
+    # counts match, because they enumerate the same header cells[1:] layout.
+    header_value_cell_count = len(all_rows[best_row_index].find_all(["th", "td"])) - 1
     publication_dates: list[date | None] = [None] * len(periods)
     for tr in all_rows:
         cells = tr.find_all(["td", "th"])
         label = cells[0].get_text(" ", strip=True).lower() if cells else ""
         if not label.startswith("data publikacji"):
             continue
-        value_cells = cells[1:]
-        publication_dates = [
-            (
+        if len(cells) - 1 == header_value_cell_count:
+            value_cells = cells[1:]
+            publication_dates = [
                 _parse_publication_date(value_cells[column_index].get_text(" ", strip=True))
-                if column_index < len(value_cells)
-                else None
-            )
-            for column_index in kept_column_indexes
-        ]
-        break
+                for column_index in kept_column_indexes
+            ]
+        break  # first publication row wins, aligned or not — same as columns
 
     result = ReportTable(
         freq=freq,
